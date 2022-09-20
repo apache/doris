@@ -22,9 +22,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -45,9 +44,8 @@ public class PartitionLoadInfoTest {
 
     @Test
     public void testSerialization() throws Exception {
-        File file = new File("./partitionLoadInfoTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("partitionLoadInfoTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         Source source1 = makeSource(0, 10);
         Source source2 = makeSource(100, 30);
@@ -64,7 +62,7 @@ public class PartitionLoadInfoTest {
         dos.flush();
         dos.close();
 
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         PartitionLoadInfo partitionLoadInfo1 = new PartitionLoadInfo();
         partitionLoadInfo1.readFields(dis);
 
@@ -80,12 +78,12 @@ public class PartitionLoadInfoTest {
         Assert.assertEquals(sources1.get(1).getFileUrls().size(), 30);
         Assert.assertEquals(sources1.get(1).getColumnNames().size(), 30);
 
-        Assert.assertTrue(partitionLoadInfo1.equals(partitionLoadInfo));
-        Assert.assertTrue(rPartitionLoadInfo0.equals(partitionLoadInfo0));
-        Assert.assertFalse(partitionLoadInfo0.equals(partitionLoadInfo1));
+        Assert.assertEquals(partitionLoadInfo1, partitionLoadInfo);
+        Assert.assertEquals(rPartitionLoadInfo0, partitionLoadInfo0);
+        Assert.assertNotEquals(partitionLoadInfo0, partitionLoadInfo1);
 
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
 }

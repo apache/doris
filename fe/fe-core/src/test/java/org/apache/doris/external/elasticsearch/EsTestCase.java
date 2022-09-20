@@ -30,12 +30,13 @@ import org.apache.doris.meta.MetaContext;
 import org.junit.BeforeClass;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,11 +66,10 @@ public class EsTestCase {
     }
 
     protected String loadJsonFromFile(String fileName) throws IOException, URISyntaxException {
-        File file = new File(EsUtil.class.getClassLoader().getResource(fileName).toURI());
-        InputStream is = new FileInputStream(file);
+        InputStream is = Files.newInputStream(Paths.get(EsUtil.class.getClassLoader().getResource(fileName).toURI()));
         BufferedReader br = new BufferedReader(new InputStreamReader(is));
         StringBuilder jsonStr = new StringBuilder();
-        String line = "";
+        String line;
         while ((line = br.readLine()) != null) {
             jsonStr.append(line);
         }

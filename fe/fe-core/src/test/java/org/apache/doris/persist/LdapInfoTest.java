@@ -28,6 +28,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class LdapInfoTest {
 
@@ -38,15 +41,14 @@ public class LdapInfoTest {
         LdapInfo ldapInfo = new LdapInfo(passwd);
 
         // 1. Write objects to file
-        File file = new File("./ldapInfo");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get("./ldapInfo"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
         ldapInfo.write(dos);
         dos.flush();
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         LdapInfo ldapInfo2 = LdapInfo.read(dis);
         Assert.assertEquals(passwd,
                 SymmetricEncryption.decrypt(ldapInfo2.getLdapPasswdEncrypted(),
@@ -54,6 +56,6 @@ public class LdapInfoTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

@@ -70,15 +70,24 @@ public class CreateTableInfoTest {
                 ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
         ImmutableList<Column> columns = ImmutableList.<Column>builder()
                 .add(column2)
-                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""))
-                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column8", ScalarType.createChar(10), true, null, "", ""))
-                .add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""))
-                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""))
-                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""))
+                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT),
+                        false, AggregateType.SUM, "", ""))
+                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT),
+                        false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT),
+                        false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT),
+                        false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE),
+                        false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column8", ScalarType.createChar(10),
+                        true, null, "", ""))
+                .add(new Column("column9", ScalarType.createVarchar(10),
+                        true, null, "", ""))
+                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE),
+                        true, null, "", ""))
+                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME),
+                        true, null, "", ""))
                 .build();
 
         MaterializedIndex index = new MaterializedIndex(1, IndexState.NORMAL);
@@ -105,8 +114,8 @@ public class CreateTableInfoTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         CreateTableInfo rInfo1 = CreateTableInfo.read(dis);
-        Assert.assertTrue(rInfo1.getTable().equals(table));
-        Assert.assertTrue(rInfo1.equals(info));
+        Assert.assertEquals(rInfo1.getTable(), table);
+        Assert.assertEquals(rInfo1, info);
         Assert.assertEquals(rInfo1.getDbName(), "db1");
 
         // 3. delete files

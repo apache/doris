@@ -25,9 +25,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 public class BackendReplicaInfosTest {
@@ -43,9 +43,8 @@ public class BackendReplicaInfosTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./BackendReplicaInfosTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get("./BackendReplicaInfosTest"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         BackendReplicasInfo info = new BackendReplicasInfo(beId);
         info.addBadReplica(tabletId1);
@@ -55,18 +54,18 @@ public class BackendReplicaInfosTest {
         dos.flush();
         dos.close();
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         BackendReplicasInfo rInfo1 = BackendReplicasInfo.read(dis);
         checkInfo(rInfo1);
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     private void checkInfo(BackendReplicasInfo info) {
-        Assert.assertTrue(!info.isEmpty());
+        Assert.assertFalse(info.isEmpty());
         List<BackendReplicasInfo.ReplicaReportInfo> infos = info.getReplicaReportInfos();
         for (BackendReplicasInfo.ReplicaReportInfo reportInfo : infos) {
             if (reportInfo.tabletId == tabletId1) {

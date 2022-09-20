@@ -29,14 +29,15 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class FsBrokerTest {
 
-    private static String fileName1 = "./FsBrokerTest1";
-    private static String fileName2 = "./FsBrokerTest2";
+    private static final String fileName1 = "./FsBrokerTest1";
+    private static final String fileName2 = "./FsBrokerTest2";
 
     @BeforeClass
     public static void setup() {
@@ -46,17 +47,16 @@ public class FsBrokerTest {
     }
 
     @AfterClass
-    public static void tear() {
-        new File(fileName1).delete();
-        new File(fileName2).delete();
+    public static void tear() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName1));
+        Files.deleteIfExists(Paths.get(fileName2));
     }
 
     @Test
     public void testHeartbeatOk() throws Exception {
         // 1. Write objects to file
-        File file = new File(fileName1);
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName1));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         FsBroker fsBroker = new FsBroker("127.0.0.1", 8118);
         long time = System.currentTimeMillis();
@@ -67,7 +67,7 @@ public class FsBrokerTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         FsBroker readBroker = FsBroker.readIn(dis);
         Assert.assertEquals(fsBroker.ip, readBroker.ip);
@@ -82,9 +82,8 @@ public class FsBrokerTest {
     @Test
     public void testHeartbeatFailed() throws Exception {
         // 1. Write objects to file
-        File file = new File(fileName2);
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName2));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         FsBroker fsBroker = new FsBroker("127.0.0.1", 8118);
         BrokerHbResponse hbResponse = new BrokerHbResponse("broker", "127.0.0.1", 8118, "got exception");
@@ -94,7 +93,7 @@ public class FsBrokerTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         FsBroker readBroker = FsBroker.readIn(dis);
         Assert.assertEquals(fsBroker.ip, readBroker.ip);

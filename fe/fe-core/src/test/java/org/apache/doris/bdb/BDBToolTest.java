@@ -32,6 +32,7 @@ import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.OperationStatus;
+import org.apache.commons.io.FileUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -39,6 +40,8 @@ import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class BDBToolTest {
 
@@ -50,9 +53,8 @@ public class BDBToolTest {
     @BeforeClass
     public static void setEnv() {
         try {
-            File file = new File("./bdb");
-            file.deleteOnExit();
-            file.mkdir();
+            Path p = Files.createTempDirectory("BDBToolTest");
+            path = p.toAbsolutePath().toString();
 
             // init env
             EnvironmentConfig envConfig = new EnvironmentConfig();
@@ -114,16 +116,8 @@ public class BDBToolTest {
     }
 
     @AfterClass
-    public static void deleteEnv() {
-        File file = new File(path);
-        if (file.isDirectory()) {
-            String[] fileNames = file.list();
-            for (int i = 0; i < fileNames.length; i++) {
-                File file2 = new File(path + "/" + fileNames[i]);
-                file2.delete();
-            }
-        }
-        file.delete();
+    public static void deleteEnv() throws IOException {
+        FileUtils.deleteDirectory(new File(path));
         System.out.println("file is deleted");
     }
 

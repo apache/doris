@@ -28,13 +28,11 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -72,42 +70,19 @@ public class MysqlTableTest {
         MysqlTable mysqlTable = new MysqlTable(1000, "mysqlTable", columns, properties);
         Assert.assertEquals("tbl", mysqlTable.getMysqlTableName());
 
-        String dirString = "mysqlTableFamilyGroup";
-        File dir = new File(dirString);
-        if (!dir.exists()) {
-            dir.mkdir();
-        } else {
-            File[] files = dir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    file.delete();
-                }
-            }
-        }
-
-        File file = new File(dir, "image");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("mysqlTableFamilyGroup", "image");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
         mysqlTable.write(dos);
         dos.close();
 
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         MysqlTable table1 = (MysqlTable) Table.read(dis);
 
         Assert.assertEquals(mysqlTable.toThrift(), table1.toThrift());
 
         dis.close();
 
-        dir = new File(dirString);
-        if (dir.exists()) {
-            File[] files = dir.listFiles();
-            for (File aFile : files) {
-                if (aFile.isFile()) {
-                    aFile.delete();
-                }
-            }
-            dir.delete();
-        }
+        Files.deleteIfExists(path);
     }
 
     @Test(expected = DdlException.class)
@@ -115,11 +90,7 @@ public class MysqlTableTest {
         Map<String, String> pro = Maps.filterKeys(properties, new Predicate<String>() {
             @Override
             public boolean apply(String s) {
-                if (s.equalsIgnoreCase("host")) {
-                    return false;
-                } else {
-                    return true;
-                }
+                return !s.equalsIgnoreCase("host");
             }
         });
         new MysqlTable(1000, "mysqlTable", columns, pro);
@@ -131,11 +102,7 @@ public class MysqlTableTest {
         Map<String, String> pro = Maps.filterKeys(properties, new Predicate<String>() {
             @Override
             public boolean apply(String s) {
-                if (s.equalsIgnoreCase("port")) {
-                    return false;
-                } else {
-                    return true;
-                }
+                return !s.equalsIgnoreCase("port");
             }
         });
         new MysqlTable(1000, "mysqlTable", columns, pro);
@@ -163,11 +130,7 @@ public class MysqlTableTest {
         Map<String, String> pro = Maps.filterKeys(properties, new Predicate<String>() {
             @Override
             public boolean apply(String s) {
-                if (s.equalsIgnoreCase("user")) {
-                    return false;
-                } else {
-                    return true;
-                }
+                return !s.equalsIgnoreCase("user");
             }
         });
         new MysqlTable(1000, "mysqlTable", columns, pro);
@@ -179,11 +142,7 @@ public class MysqlTableTest {
         Map<String, String> pro = Maps.filterKeys(properties, new Predicate<String>() {
             @Override
             public boolean apply(String s) {
-                if (s.equalsIgnoreCase("password")) {
-                    return false;
-                } else {
-                    return true;
-                }
+                return !s.equalsIgnoreCase("password");
             }
         });
         new MysqlTable(1000, "mysqlTable", columns, pro);
@@ -195,11 +154,7 @@ public class MysqlTableTest {
         Map<String, String> pro = Maps.filterKeys(properties, new Predicate<String>() {
             @Override
             public boolean apply(String s) {
-                if (s.equalsIgnoreCase("database")) {
-                    return false;
-                } else {
-                    return true;
-                }
+                return !s.equalsIgnoreCase("database");
             }
         });
         new MysqlTable(1000, "mysqlTable", columns, pro);
@@ -211,11 +166,7 @@ public class MysqlTableTest {
         Map<String, String> pro = Maps.filterKeys(properties, new Predicate<String>() {
             @Override
             public boolean apply(String s) {
-                if (s.equalsIgnoreCase("table")) {
-                    return false;
-                } else {
-                    return true;
-                }
+                return !s.equalsIgnoreCase("table");
             }
         });
         new MysqlTable(1000, "mysqlTable", columns, pro);

@@ -71,10 +71,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -423,8 +422,7 @@ public class SparkLoadJobTest {
 
     @Test
     public void testStateUpdateInfoPersist() throws IOException {
-        String fileName = "./testStateUpdateInfoPersistFile";
-        File file = new File(fileName);
+        final Path path = Files.createTempFile("testStateUpdateInfoPersistFile", "tmp");
 
         // etl state
         long id = 1L;
@@ -433,11 +431,7 @@ public class SparkLoadJobTest {
         long loadStartTimestamp = -1;
         Map<String, Pair<String, Long>> tabletMetaToFileInfo = Maps.newHashMap();
 
-        if (file.exists()) {
-            file.delete();
-        }
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
         SparkLoadJobStateUpdateInfo info = new SparkLoadJobStateUpdateInfo(
                 id, state, transactionId, sparkLoadAppHandle, etlStartTimestamp, appId, etlOutputPath,
                 loadStartTimestamp, tabletMetaToFileInfo);
@@ -445,7 +439,7 @@ public class SparkLoadJobTest {
         out.flush();
         out.close();
 
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         SparkLoadJobStateUpdateInfo replayedInfo = (SparkLoadJobStateUpdateInfo) LoadJobStateUpdateInfo.read(in);
         Assert.assertEquals(id, replayedInfo.getJobId());
         Assert.assertEquals(state, replayedInfo.getState());
@@ -466,18 +460,14 @@ public class SparkLoadJobTest {
         long fileSize = 6L;
         tabletMetaToFileInfo.put(tabletMeta, Pair.of(filePath, fileSize));
 
-        if (file.exists()) {
-            file.delete();
-        }
-        file.createNewFile();
-        out = new DataOutputStream(new FileOutputStream(file));
+        out = new DataOutputStream(Files.newOutputStream(path));
         info = new SparkLoadJobStateUpdateInfo(id, state, transactionId, sparkLoadAppHandle, etlStartTimestamp,
                 appId, etlOutputPath, loadStartTimestamp, tabletMetaToFileInfo);
         info.write(out);
         out.flush();
         out.close();
 
-        in = new DataInputStream(new FileInputStream(file));
+        in = new DataInputStream(Files.newInputStream(path));
         replayedInfo = (SparkLoadJobStateUpdateInfo) LoadJobStateUpdateInfo.read(in);
         Assert.assertEquals(state, replayedInfo.getState());
         Assert.assertEquals(loadStartTimestamp, replayedInfo.getLoadStartTimestamp());
@@ -488,11 +478,7 @@ public class SparkLoadJobTest {
         Assert.assertEquals(filePath, replayedFileInfo.first);
         Assert.assertEquals(fileSize, (long) replayedFileInfo.second);
         in.close();
-
-        // delete file
-        if (file.exists()) {
-            file.delete();
-        }
+        Files.deleteIfExists(path);
     }
 
     @Test
@@ -531,14 +517,13 @@ public class SparkLoadJobTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./testSparkLoadJobPersist");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("testSparkLoadJobPersist", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
         sparkLoadJob.write(dos);
         dos.flush();
         dos.close();
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         SparkLoadJob sparkLoadJob2 = (SparkLoadJob) SparkLoadJob.read(dis);
         Assert.assertEquals("my_spark", sparkLoadJob2.getResourceName());
         Assert.assertEquals(label, sparkLoadJob2.getLabel());
@@ -546,6 +531,6 @@ public class SparkLoadJobTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

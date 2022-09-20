@@ -39,7 +39,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -65,9 +67,8 @@ public class ColocateTableTest {
     }
 
     @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+    public static void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(runningDir));
     }
 
     @Before

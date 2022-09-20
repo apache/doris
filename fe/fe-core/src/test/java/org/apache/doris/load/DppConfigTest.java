@@ -31,9 +31,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 
 public class DppConfigTest {
@@ -131,21 +130,20 @@ public class DppConfigTest {
                 + "hadoop.job.ugi=user,password;mapred.job.priority=NORMAL");
         DppConfig dppConfig = DppConfig.create(configMap);
 
-        File file = new File("./dppConfigTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("dppConfigTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
         dppConfig.write(dos);
         dos.flush();
         dos.close();
 
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         DppConfig newDppConfig = new DppConfig();
         newDppConfig.readFields(dis);
         dis.close();
-        file.delete();
 
         Assert.assertEquals("/user/palo2", newDppConfig.getPaloPath());
         Assert.assertEquals(1234, newDppConfig.getHttpPort());
         Assert.assertEquals(4, newDppConfig.getHadoopConfigs().size());
+        Files.deleteIfExists(path);
     }
 }

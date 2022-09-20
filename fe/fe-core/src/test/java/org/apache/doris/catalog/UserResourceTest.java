@@ -52,6 +52,7 @@ public class UserResourceTest {
         UserResource newResource = UserResource.readIn(inputStream);
         Assert.assertEquals(321, newResource.getResource().getByDesc("cpu_share"));
         Assert.assertEquals(987, newResource.getShareByGroup().get("low").intValue());
+        inputStream.close();
     }
 
     @Test(expected = DdlException.class)
@@ -69,7 +70,7 @@ public class UserResourceTest {
     }
 
     @Test
-    public void testValidGroup() throws DdlException {
+    public void testValidGroup() {
         Assert.assertTrue(UserResource.isValidGroup("low"));
         Assert.assertTrue(UserResource.isValidGroup("lOw"));
         Assert.assertTrue(UserResource.isValidGroup("normal"));

@@ -69,12 +69,14 @@ public class ResourceMgrTest {
         master = "spark://127.0.0.1:7077";
         workingDir = "hdfs://127.0.0.1/tmp/doris";
         broker = "broker0";
-        sparkProperties = Maps.newHashMap();
-        sparkProperties.put("type", sparkRestype);
-        sparkProperties.put("spark.master", master);
-        sparkProperties.put("spark.submit.deployMode", "cluster");
-        sparkProperties.put("working_dir", workingDir);
-        sparkProperties.put("broker", broker);
+
+        sparkProperties = new HashMap<String, String>() {{
+                put("type", sparkRestype);
+                put("spark.master", master);
+                put("spark.submit.deployMode", "cluster");
+                put("working_dir", workingDir);
+                put("broker", broker);
+            }};
 
         s3ResName = "s30";
         s3ResType = "s3";
@@ -86,14 +88,17 @@ public class ResourceMgrTest {
         s3MaxConnections = "50";
         s3ReqTimeoutMs = "3000";
         s3ConnTimeoutMs = "1000";
-        s3Properties = new HashMap<>();
-        s3Properties.put("type", s3ResType);
-        s3Properties.put("s3_endpoint", s3Endpoint);
-        s3Properties.put("s3_region", s3Region);
-        s3Properties.put("s3_root_path", s3RootPath);
-        s3Properties.put("s3_access_key", s3AccessKey);
-        s3Properties.put("s3_secret_key", s3SecretKey);
-        s3Properties.put("s3_bucket", "test-bucket");
+
+        s3Properties = new HashMap<String, String>() {{
+                put("type", s3ResType);
+                put("s3_endpoint", s3Endpoint);
+                put("s3_region", s3Region);
+                put("s3_root_path", workingDir);
+                put("s3_access_key", s3AccessKey);
+                put("s3_secret_key", s3SecretKey);
+                put("s3_bucket", "test-bucket");
+            }};
+
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
@@ -154,7 +159,6 @@ public class ResourceMgrTest {
         Map<String, String> copiedS3Properties = Maps.newHashMap(s3Properties);
         copiedS3Properties.put("s3_region", s3Region);
         copiedS3Properties.remove("type");
-        alterResourceStmt = new AlterResourceStmt(s3ResName, copiedS3Properties);
         // current not support modify s3 property
         // mgr.alterResource(alterResourceStmt);
         // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("s3_region"));

@@ -19,33 +19,25 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.DynamicPartitionProperty;
 
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 
 public class ModifyDynamicPartitionInfoTest {
-    private String fileName = "./ModifyTablePropertyOperationLogTest";
-
-    @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
-    }
 
     @Test
     public void testNormal() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        String fileName = "./ModifyTablePropertyOperationLogTest";
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         HashMap<String, String> properties = new HashMap<>();
         properties.put(DynamicPartitionProperty.ENABLE, "true");
@@ -54,17 +46,19 @@ public class ModifyDynamicPartitionInfoTest {
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
-        ModifyTablePropertyOperationLog modifyDynamicPartitionInfo = new ModifyTablePropertyOperationLog(100L, 200L, properties);
+        ModifyTablePropertyOperationLog modifyDynamicPartitionInfo = new ModifyTablePropertyOperationLog(100L,
+                200L, properties);
         modifyDynamicPartitionInfo.write(out);
         out.flush();
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         ModifyTablePropertyOperationLog readModifyDynamicPartitionInfo = ModifyTablePropertyOperationLog.read(in);
         Assert.assertEquals(readModifyDynamicPartitionInfo.getDbId(), 100L);
         Assert.assertEquals(readModifyDynamicPartitionInfo.getTableId(), 200L);
         Assert.assertEquals(readModifyDynamicPartitionInfo.getProperties(), properties);
         in.close();
+        Files.deleteIfExists(Paths.get(fileName));
     }
 }

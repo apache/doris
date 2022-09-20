@@ -22,17 +22,16 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class ReplaceTableOperationLogTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./ReplaceTableOperationLogTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get("./ReplaceTableOperationLogTest"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, 3, true);
         log.write(dos);
@@ -41,16 +40,16 @@ public class ReplaceTableOperationLogTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         ReplaceTableOperationLog readLog = ReplaceTableOperationLog.read(dis);
-        Assert.assertTrue(readLog.getDbId() == log.getDbId());
-        Assert.assertTrue(readLog.getNewTblId() == log.getNewTblId());
-        Assert.assertTrue(readLog.getOrigTblId() == log.getOrigTblId());
-        Assert.assertTrue(readLog.isSwapTable() == log.isSwapTable());
+        Assert.assertEquals(readLog.getDbId(), log.getDbId());
+        Assert.assertEquals(readLog.getNewTblId(), log.getNewTblId());
+        Assert.assertEquals(readLog.getOrigTblId(), log.getOrigTblId());
+        Assert.assertEquals(readLog.isSwapTable(), log.isSwapTable());
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

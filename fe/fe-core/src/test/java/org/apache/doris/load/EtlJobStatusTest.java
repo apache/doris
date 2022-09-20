@@ -24,9 +24,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -34,9 +33,8 @@ public class EtlJobStatusTest {
 
     @Test
     public void testSerialization() throws Exception {
-        File file = new File("./EtlJobStatusTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("EtlJobStatusTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         EtlStatus etlJobStatus = new EtlStatus();
 
@@ -58,13 +56,11 @@ public class EtlJobStatusTest {
         etlJobStatus.setStats(stats);
         etlJobStatus.setCounters(counters);
         etlJobStatus.write(dos);
-        // stats.clear();
-        // counters.clear();
 
         dos.flush();
         dos.close();
 
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         EtlStatus etlJobStatus1 = new EtlStatus();
         etlJobStatus1.readFields(dis);
         stats = etlJobStatus1.getStats();
@@ -80,11 +76,11 @@ public class EtlJobStatusTest {
             Assert.assertEquals(counters.get(countersKey), countersValue);
         }
 
-        Assert.assertTrue(etlJobStatus.equals(etlJobStatus1));
+        Assert.assertEquals(etlJobStatus, etlJobStatus1);
         Assert.assertEquals(trackingUrl, etlJobStatus1.getTrackingUrl());
 
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
 }

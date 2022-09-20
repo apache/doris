@@ -65,21 +65,20 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
 public class BackupHandlerTest {
 
-    private BackupHandler handler;
+    private static Path rootDir;
+
+    private static BackupHandler handler;
+
+    private static final String testFilename = "BackupHandlerTest" + System.currentTimeMillis();
 
     @Mocked
     private Env env;
@@ -94,17 +93,16 @@ public class BackupHandlerTest {
 
     private long idGen = 0;
 
-    private File rootDir;
 
-    private String tmpPath = "./tmp" + System.currentTimeMillis();
 
     private TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
 
     @Before
     public void setUp() throws Exception {
-        Config.tmp_dir = tmpPath;
-        rootDir = new File(Config.tmp_dir);
-        rootDir.mkdirs();
+
+        rootDir = Files.createTempDirectory(testFilename);
+
+        Config.tmp_dir = rootDir.toAbsolutePath().toString();
 
         new Expectations() {
             {
@@ -152,10 +150,9 @@ public class BackupHandlerTest {
 
     @After
     public void done() {
-        if (rootDir != null) {
+        if (rootDir != null && Files.exists(rootDir)) {
             try {
-                Files.walk(Paths.get(Config.tmp_dir),
-                           FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                Files.delete(rootDir);
             } catch (IOException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
@@ -164,12 +161,11 @@ public class BackupHandlerTest {
     }
 
     @Test
-    public void testInit() {
+    public void testInit() throws IOException {
         handler = new BackupHandler(env);
         handler.runAfterCatalogReady();
-
-        File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
-        Assert.assertTrue(backupDir.exists());
+        Path backupDir = Files.createTempDirectory("test");
+        Assert.assertTrue(Files.exists(backupDir));
     }
 
     @Test
@@ -280,18 +276,7 @@ public class BackupHandlerTest {
         handler.handleFinishedSnapshotUploadTask(uploadTask, request);
 
         // test file persist
-        File tmpFile = new File("./tmp" + System.currentTimeMillis());
-        try {
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(tmpFile));
-            handler.write(out);
-            out.flush();
-            out.close();
-            DataInputStream in = new DataInputStream(new FileInputStream(tmpFile));
-            BackupHandler.read(in);
-            in.close();
-        } finally {
-            tmpFile.delete();
-        }
+        filePersist();
 
         // cancel backup
         handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, false));
@@ -335,18 +320,7 @@ public class BackupHandlerTest {
         handler.handleDirMoveTask(dirMoveTask, request);
 
         // test file persist
-        tmpFile = new File("./tmp" + System.currentTimeMillis());
-        try {
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(tmpFile));
-            handler.write(out);
-            out.flush();
-            out.close();
-            DataInputStream in = new DataInputStream(new FileInputStream(tmpFile));
-            BackupHandler.read(in);
-            in.close();
-        } finally {
-            tmpFile.delete();
-        }
+        filePersist();
 
         // cancel restore
         handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, true));
@@ -354,4 +328,29 @@ public class BackupHandlerTest {
         // drop repo
         handler.dropRepository(new DropRepositoryStmt("repo"));
     }
+
+    public static void filePersist() throws IOException {
+
+        System.out.println(rootDir.toAbsolutePath() + "/filePersist" + System.currentTimeMillis());
+        Path tmpFilePersistPath = Files.createFile(Paths.get(
+                    rootDir.toAbsolutePath().toString(),
+                "filePersist" + System.currentTimeMillis()
+            )
+        );
+
+        System.out.println("File persist path" + tmpFilePersistPath.toAbsolutePath());
+        try {
+            DataOutputStream out = new DataOutputStream(Files.newOutputStream(tmpFilePersistPath));
+            handler.write(out);
+            out.flush();
+            out.close();
+            DataInputStream in = new DataInputStream(Files.newInputStream(tmpFilePersistPath));
+            BackupHandler.read(in);
+            in.close();
+        } finally {
+            Files.delete(tmpFilePersistPath.toAbsolutePath());
+        }
+    }
 }
+
+

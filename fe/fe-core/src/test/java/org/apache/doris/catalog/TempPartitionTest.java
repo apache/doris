@@ -27,7 +27,6 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -48,10 +47,10 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -73,13 +72,10 @@ public class TempPartitionTest {
     }
 
     @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-        File file2 = new File(tempPartitionFile);
-        file2.delete();
-        File file3 = new File(tblFile);
-        file3.delete();
+    public static void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(runningDir));
+        Files.deleteIfExists(Paths.get(tempPartitionFile));
+        Files.deleteIfExists(Paths.get(tblFile));
     }
 
     @Before
@@ -87,14 +83,13 @@ public class TempPartitionTest {
 
     }
 
-    private List<List<String>> checkShowPartitionsResultNum(String tbl, boolean isTemp, int expected) throws Exception {
+    private void checkShowPartitionsResultNum(String tbl, boolean isTemp, int expected) throws Exception {
         String showStr = "show " + (isTemp ? "temporary" : "") + " partitions from " + tbl;
         ShowPartitionsStmt showStmt = (ShowPartitionsStmt) UtFrameUtils.parseAndAnalyzeStmt(showStr, ctx);
-        ShowExecutor executor = new ShowExecutor(ctx, (ShowStmt) showStmt);
+        ShowExecutor executor = new ShowExecutor(ctx, showStmt);
         ShowResultSet showResultSet = executor.execute();
         List<List<String>> rows = showResultSet.getResultRows();
         Assert.assertEquals(expected, rows.size());
-        return rows;
     }
 
     private void alterTable(String sql, boolean expectedException) throws Exception {
@@ -140,7 +135,7 @@ public class TempPartitionTest {
         partNameToTabletId.clear();
         String showStr = "show " + (isTemp ? "temporary" : "") + " partitions from " + tbl;
         ShowPartitionsStmt showStmt = (ShowPartitionsStmt) UtFrameUtils.parseAndAnalyzeStmt(showStr, ctx);
-        ShowExecutor executor = new ShowExecutor(ctx, (ShowStmt) showStmt);
+        ShowExecutor executor = new ShowExecutor(ctx, showStmt);
         ShowResultSet showResultSet = executor.execute();
         List<List<String>> rows = showResultSet.getResultRows();
         Map<Long, String> partIdToName = Maps.newHashMap();
@@ -150,7 +145,7 @@ public class TempPartitionTest {
 
         rows = checkTablet(tbl, Joiner.on(",").join(partIdToName.values()), isTemp, -1);
         for (List<String> row : rows) {
-            long tabletId = Long.valueOf(row.get(0));
+            long tabletId = Long.parseLong(row.get(0));
             long partitionId = getPartitionIdByTabletId(tabletId);
             String partName = partIdToName.get(partitionId);
             partNameToTabletId.put(partName, tabletId);
@@ -285,7 +280,7 @@ public class TempPartitionTest {
         Map<String, Long> tempPartitionTabletIds2 = Maps.newHashMap();
         getPartitionNameToTabletIdMap("db2.tbl2", true, tempPartitionTabletIds2);
         Assert.assertEquals(2, tempPartitionTabletIds2.keySet().size());
-        Assert.assertTrue(!tempPartitionTabletIds2.containsKey("tp3"));
+        Assert.assertFalse(tempPartitionTabletIds2.containsKey("tp3"));
 
         checkShowPartitionsResultNum("db2.tbl2", true, 2);
         checkShowPartitionsResultNum("db2.tbl2", false, 3);
@@ -302,7 +297,7 @@ public class TempPartitionTest {
         originPartitionTabletIds2 = Maps.newHashMap();
         getPartitionNameToTabletIdMap("db2.tbl2", false, originPartitionTabletIds2);
         Assert.assertEquals(2, originPartitionTabletIds2.size());
-        Assert.assertTrue(!originPartitionTabletIds2.containsKey("p1"));
+        Assert.assertFalse(originPartitionTabletIds2.containsKey("p1"));
 
         String recoverStr = "recover partition p1 from db2.tbl2;";
         RecoverPartitionStmt recoverStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverStr, ctx);
@@ -661,7 +656,7 @@ public class TempPartitionTest {
         Map<String, Long> tempPartitionTabletIds2 = Maps.newHashMap();
         getPartitionNameToTabletIdMap("db4.tbl4", true, tempPartitionTabletIds2);
         Assert.assertEquals(2, tempPartitionTabletIds2.keySet().size());
-        Assert.assertTrue(!tempPartitionTabletIds2.containsKey("tp3"));
+        Assert.assertFalse(tempPartitionTabletIds2.containsKey("tp3"));
 
         checkShowPartitionsResultNum("db4.tbl4", true, 2);
         checkShowPartitionsResultNum("db4.tbl4", false, 3);
@@ -678,7 +673,7 @@ public class TempPartitionTest {
         originPartitionTabletIds2 = Maps.newHashMap();
         getPartitionNameToTabletIdMap("db4.tbl4", false, originPartitionTabletIds2);
         Assert.assertEquals(2, originPartitionTabletIds2.size());
-        Assert.assertTrue(!originPartitionTabletIds2.containsKey("p1"));
+        Assert.assertFalse(originPartitionTabletIds2.containsKey("p1"));
 
         String recoverStr = "recover partition p1 from db4.tbl4;";
         RecoverPartitionStmt recoverStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverStr, ctx);
@@ -1019,7 +1014,7 @@ public class TempPartitionTest {
         Map<String, Long> tempPartitionTabletIds2 = Maps.newHashMap();
         getPartitionNameToTabletIdMap("db5.tbl5", true, tempPartitionTabletIds2);
         Assert.assertEquals(2, tempPartitionTabletIds2.keySet().size());
-        Assert.assertTrue(!tempPartitionTabletIds2.containsKey("tp3"));
+        Assert.assertFalse(tempPartitionTabletIds2.containsKey("tp3"));
 
         checkShowPartitionsResultNum("db5.tbl5", true, 2);
         checkShowPartitionsResultNum("db5.tbl5", false, 3);
@@ -1037,7 +1032,7 @@ public class TempPartitionTest {
         originPartitionTabletIds2 = Maps.newHashMap();
         getPartitionNameToTabletIdMap("db5.tbl5", false, originPartitionTabletIds2);
         Assert.assertEquals(2, originPartitionTabletIds2.size());
-        Assert.assertTrue(!originPartitionTabletIds2.containsKey("p1"));
+        Assert.assertFalse(originPartitionTabletIds2.containsKey("p1"));
 
         String recoverStr = "recover partition p1 from db5.tbl5;";
         RecoverPartitionStmt recoverStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverStr, ctx);
@@ -1270,23 +1265,22 @@ public class TempPartitionTest {
 
     }
 
-    private void testSerializeOlapTable(OlapTable tbl) throws IOException, AnalysisException {
+    private void testSerializeOlapTable(OlapTable tbl) throws IOException {
         // 1. Write objects to file
-        File file = new File(tempPartitionFile);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("tempPartitionFile", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         tbl.write(out);
         out.flush();
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         OlapTable readTbl = (OlapTable) Table.read(in);
         Assert.assertEquals(tbl.getId(), readTbl.getId());
         Assert.assertEquals(tbl.getTempPartitions().size(), readTbl.getTempPartitions().size());
-        file.delete();
+        in.close();
     }
 
     private void testSerializeTempPartitions(TempPartitions tempPartitionsInstance) throws IOException {
@@ -1295,20 +1289,20 @@ public class TempPartitionTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File(tempPartitionFile);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile(tempPartitionFile, "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         tempPartitionsInstance.write(out);
         out.flush();
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         TempPartitions readTempPartition = TempPartitions.read(in);
         List<Partition> partitions = readTempPartition.getAllPartitions();
         Assert.assertEquals(1, partitions.size());
         Assert.assertEquals(2, partitions.get(0).getMaterializedIndices(IndexExtState.VISIBLE).size());
+        in.close();
     }
 }

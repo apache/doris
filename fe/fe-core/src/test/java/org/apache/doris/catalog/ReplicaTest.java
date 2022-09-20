@@ -26,9 +26,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -81,12 +80,11 @@ public class ReplicaTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./olapReplicaTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("olapReplicaTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
-        List<Replica> list1 = new ArrayList<Replica>();
-        List<Replica> list2 = new ArrayList<Replica>();
+        List<Replica> list1 = new ArrayList<>();
+        List<Replica> list2 = new ArrayList<>();
         for (int count = 0; count < 10; ++count) {
             Replica olapReplica = new Replica(100L * count, 100L * count, 100L * count, 0,
                                               100L * count, 0,  100 * count, ReplicaState.NORMAL, 0, 100L * count);
@@ -101,7 +99,7 @@ public class ReplicaTest {
         dos.close();
 
         // 2. Read a object from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         for (int count = 0; count < 10; ++count) {
             Replica olapReplica = new Replica();
             olapReplica.readFields(dis);
@@ -119,14 +117,15 @@ public class ReplicaTest {
 
         // 3. Check equal
         for (int i = 0; i < 11; i++) {
-            Assert.assertTrue(list1.get(i).equals(list2.get(i)));
+            Assert.assertEquals(list1.get(i), list2.get(i));
         }
 
-        Assert.assertTrue(list1.get(1).equals(list1.get(1)));
-        Assert.assertFalse(list1.get(1).equals(list1));
+        Assert.assertEquals(list1.get(1), list1.get(1));
+        Assert.assertNotEquals(list1.get(1), list1);
 
+        // 4. Delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     @Test

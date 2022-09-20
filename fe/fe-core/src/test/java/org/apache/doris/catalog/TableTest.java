@@ -40,6 +40,9 @@ import java.util.concurrent.TimeUnit;
 
 public class TableTest {
 
+    private FakeEnv fakeEnv;
+    private Table table;
+
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
         List<Column> columns = ImmutableList.of(
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""));
@@ -61,10 +64,6 @@ public class TableTest {
                 KeysType.PRIMARY_KEYS);
         return table;
     }
-
-    private FakeEnv fakeEnv;
-
-    private Table table;
 
     @Before
     public void setUp() {
@@ -134,15 +133,24 @@ public class TableTest {
                 ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
         ImmutableList<Column> columns = ImmutableList.<Column>builder()
                 .add(column2)
-                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""))
-                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""))
-                .add(new Column("column8", ScalarType.createChar(10), true, null, "", ""))
-                .add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""))
-                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""))
-                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""))
+                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT),
+                        false, AggregateType.SUM, "", ""))
+                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT),
+                        false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT),
+                        false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT),
+                        false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE),
+                        false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column8", ScalarType.createChar(10),
+                        true, null, "", ""))
+                .add(new Column("column9", ScalarType.createVarchar(10),
+                        true, null, "", ""))
+                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE),
+                        true, null, "", ""))
+                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME),
+                        true, null, "", ""))
                 .build();
 
         OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
@@ -153,7 +161,8 @@ public class TableTest {
         List<Column> column = Lists.newArrayList();
         column.add(column2);
 
-        table1.setIndexMeta(2L, "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table1.setIndexMeta(2L, "test", column, 1, 1,
+                shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
         Deencapsulation.setField(table1, "baseIndexId", 1000);
         table1.write(dos);
         dos.flush();
@@ -163,7 +172,7 @@ public class TableTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         Table rFamily1 = Table.read(dis);
-        Assert.assertTrue(table1.equals(rFamily1));
+        Assert.assertEquals(table1, rFamily1);
         Assert.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
         Assert.assertEquals(table1.getIndexMetaByIndexId(2).getKeysType(), KeysType.AGG_KEYS);
 

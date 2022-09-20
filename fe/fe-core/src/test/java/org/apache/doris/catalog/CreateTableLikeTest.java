@@ -31,23 +31,25 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 
-/**
+/*
  * @author wangcong
  * @version 1.0
  * @date 2020/10/7 12:31 下午
  */
 public class CreateTableLikeTest {
-    private static String runningDir = "fe/mocked/CreateTableLikeTest/" + UUID.randomUUID().toString() + "/";
+    private static Path path;
 
     private static ConnectContext connectContext;
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
+        path = Files.createTempFile("CreateTableLikeTest", "tmp");
+        UtFrameUtils.createDorisCluster(path.toAbsolutePath().toString());
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -61,9 +63,8 @@ public class CreateTableLikeTest {
     }
 
     @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+    public static void tearDown() throws IOException {
+        Files.deleteIfExists(path);
     }
 
     private static void createTable(String sql) throws Exception {

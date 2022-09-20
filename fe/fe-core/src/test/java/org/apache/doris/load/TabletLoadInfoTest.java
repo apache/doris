@@ -25,9 +25,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class TabletLoadInfoTest {
     private FakeEnv fakeEnv;
@@ -39,9 +38,9 @@ public class TabletLoadInfoTest {
         FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         // test
-        File file = new File("./tabletLoadInfoTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("tabletLoadInfoTest", "tmp");
+
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         TabletLoadInfo tabletLoadInfo0 = new TabletLoadInfo();
         tabletLoadInfo0.write(dos);
@@ -51,7 +50,7 @@ public class TabletLoadInfoTest {
         dos.flush();
         dos.close();
 
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         TabletLoadInfo rTabletLoadInfo0 = new TabletLoadInfo();
         rTabletLoadInfo0.readFields(dis);
 
@@ -61,12 +60,12 @@ public class TabletLoadInfoTest {
         Assert.assertEquals("hdfs://host:port/dir", tabletLoadInfo1.getFilePath());
         Assert.assertEquals(1L, tabletLoadInfo1.getFileSize());
 
-        Assert.assertTrue(tabletLoadInfo1.equals(tabletLoadInfo));
-        Assert.assertTrue(rTabletLoadInfo0.equals(tabletLoadInfo0));
-        Assert.assertFalse(rTabletLoadInfo0.equals(tabletLoadInfo1));
+        Assert.assertEquals(tabletLoadInfo1, tabletLoadInfo);
+        Assert.assertEquals(rTabletLoadInfo0, tabletLoadInfo0);
+        Assert.assertNotEquals(rTabletLoadInfo0, tabletLoadInfo1);
 
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
 }

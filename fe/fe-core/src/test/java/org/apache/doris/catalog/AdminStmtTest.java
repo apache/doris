@@ -20,21 +20,19 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 public class AdminStmtTest extends TestWithFeService {
@@ -55,9 +53,9 @@ public class AdminStmtTest extends TestWithFeService {
     @Test
     public void testAdminSetReplicaStatus() throws Exception {
         Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
-        Assert.assertNotNull(db);
+        Assertions.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
-        Assert.assertNotNull(tbl);
+        Assertions.assertNotNull(tbl);
         // tablet id, backend id
         List<Pair<Long, Long>> tabletToBackendList = Lists.newArrayList();
         for (Partition partition : tbl.getPartitions()) {
@@ -69,11 +67,11 @@ public class AdminStmtTest extends TestWithFeService {
                 }
             }
         }
-        Assert.assertEquals(3, tabletToBackendList.size());
+        Assertions.assertEquals(3, tabletToBackendList.size());
         long tabletId = tabletToBackendList.get(0).first;
         long backendId = tabletToBackendList.get(0).second;
         Replica replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assert.assertFalse(replica.isBad());
+        Assertions.assertFalse(replica.isBad());
 
         // set replica to bad
         String adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
@@ -81,7 +79,7 @@ public class AdminStmtTest extends TestWithFeService {
         AdminSetReplicaStatusStmt stmt = (AdminSetReplicaStatusStmt) parseAndAnalyzeStmt(adminStmt);
         Env.getCurrentEnv().setReplicaStatus(stmt);
         replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assert.assertTrue(replica.isBad());
+        Assertions.assertTrue(replica.isBad());
 
         // set replica to ok
         adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
@@ -89,36 +87,31 @@ public class AdminStmtTest extends TestWithFeService {
         stmt = (AdminSetReplicaStatusStmt) parseAndAnalyzeStmt(adminStmt);
         Env.getCurrentEnv().setReplicaStatus(stmt);
         replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assert.assertFalse(replica.isBad());
+        Assertions.assertFalse(replica.isBad());
     }
 
     @Test
-    public void testSetReplicaStatusOperationLog() throws IOException, AnalysisException {
-        String fileName = "./SetReplicaStatusOperationLog";
-        try {
-            // 1. Write objects to file
-            File file = new File(fileName);
-            file.createNewFile();
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+    public void testSetReplicaStatusOperationLog() throws IOException {
+        String fileName = "SetReplicaStatusOperationLog";
+        // 1. Write objects to file
+        final Path path = Files.createTempFile(fileName, "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
-            SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD);
-            log.write(out);
-            out.flush();
-            out.close();
+        SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD);
+        log.write(out);
+        out.flush();
+        out.close();
 
-            // 2. Read objects from file
-            DataInputStream in = new DataInputStream(new FileInputStream(file));
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
-            SetReplicaStatusOperationLog readLog = SetReplicaStatusOperationLog.read(in);
-            Assert.assertEquals(log.getBackendId(), readLog.getBackendId());
-            Assert.assertEquals(log.getTabletId(), readLog.getTabletId());
-            Assert.assertEquals(log.getReplicaStatus(), readLog.getReplicaStatus());
+        SetReplicaStatusOperationLog readLog = SetReplicaStatusOperationLog.read(in);
+        Assertions.assertEquals(log.getBackendId(), readLog.getBackendId());
+        Assertions.assertEquals(log.getTabletId(), readLog.getTabletId());
+        Assertions.assertEquals(log.getReplicaStatus(), readLog.getReplicaStatus());
 
-            in.close();
-        } finally {
-            File file = new File(fileName);
-            file.delete();
-        }
+        in.close();
+        Files.deleteIfExists(path);
     }
 
 }

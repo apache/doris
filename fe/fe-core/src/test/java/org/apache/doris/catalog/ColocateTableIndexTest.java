@@ -27,9 +27,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -41,14 +40,14 @@ public class ColocateTableIndexTest {
         GroupId groupId1 = new GroupId(1000, 2000);
         GroupId groupId2 = new GroupId(1000, 2000);
         Map<GroupId, Long> map = Maps.newHashMap();
-        Assert.assertTrue(groupId1.equals(groupId2));
-        Assert.assertTrue(groupId1.hashCode() == groupId2.hashCode());
+        Assert.assertEquals(groupId1, groupId2);
+        Assert.assertEquals(groupId1.hashCode(), groupId2.hashCode());
         map.put(groupId1, 1000L);
         Assert.assertTrue(map.containsKey(groupId2));
 
-        Set<GroupId> balancingGroups = new CopyOnWriteArraySet<GroupId>();
+        Set<GroupId> balancingGroups = new CopyOnWriteArraySet<>();
         balancingGroups.add(groupId1);
-        Assert.assertTrue(balancingGroups.size() == 1);
+        Assert.assertEquals(1, balancingGroups.size());
         balancingGroups.remove(groupId2);
         Assert.assertTrue(balancingGroups.isEmpty());
     }
@@ -60,9 +59,8 @@ public class ColocateTableIndexTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./GroupIdTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("GroupIdTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ColocateTableIndex.GroupId groupId = new ColocateTableIndex.GroupId(1, 2);
         groupId.write(dos);
@@ -70,13 +68,13 @@ public class ColocateTableIndexTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         ColocateTableIndex.GroupId rGroupId = ColocateTableIndex.GroupId.read(dis);
-        Assert.assertTrue(groupId.equals(rGroupId));
+        Assert.assertEquals(groupId, rGroupId);
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

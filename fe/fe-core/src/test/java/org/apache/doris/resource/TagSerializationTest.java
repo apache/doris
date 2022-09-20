@@ -27,10 +27,10 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /*
  * Author: Chenmingyu
@@ -39,20 +39,18 @@ import java.io.IOException;
 
 public class TagSerializationTest {
 
-    private static String fileName = "./TagSerializationTest";
+    private static final String fileName = "./TagSerializationTest";
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 
     @Test
     public void testSerializeTag() throws IOException, AnalysisException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         Tag tag = Tag.create(Tag.TYPE_LOCATION, "rack1");
         tag.write(out);
@@ -60,7 +58,7 @@ public class TagSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         Tag readTag = Tag.read(in);
         Assert.assertEquals(tag, readTag);
@@ -69,9 +67,8 @@ public class TagSerializationTest {
     @Test
     public void testSerializeTagSet() throws IOException, AnalysisException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         TagSet tagSet = TagSet.create(Tag.create(Tag.TYPE_LOCATION, "rack1"), Tag.create(Tag.TYPE_LOCATION, "rack2"),
                 Tag.create(Tag.TYPE_ROLE, "backend"));
@@ -80,7 +77,7 @@ public class TagSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         TagSet readTag = TagSet.read(in);
         Assert.assertEquals(tagSet, readTag);
@@ -89,9 +86,8 @@ public class TagSerializationTest {
     @Test
     public void testSerializeTagManager() throws IOException, AnalysisException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         TagManager tagManager = new TagManager();
         tagManager.addResourceTag(1L,
@@ -103,7 +99,7 @@ public class TagSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         TagManager readTagManager = TagManager.read(in);
         Assert.assertEquals(Sets.newHashSet(1L, 2L),

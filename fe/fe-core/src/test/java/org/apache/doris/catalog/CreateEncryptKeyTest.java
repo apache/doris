@@ -36,23 +36,25 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 
 public class CreateEncryptKeyTest {
-    private static String runningDir = "fe/mocked/CreateEncryptKeyTest/" + UUID.randomUUID().toString() + "/";
+
+    private static Path path;
 
     @BeforeClass
     public static void setup() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
+        path = Files.createTempFile("CreateEncryptKeyTest", "tmp");
+        UtFrameUtils.createDorisCluster(path.toAbsolutePath().toString());
         FeConstants.runningUnitTest = true;
     }
 
     @AfterClass
-    public static void teardown() {
-        File file = new File("fe/mocked/CreateEncryptKeyTest/");
-        file.delete();
+    public static void teardown() throws IOException {
+        Files.deleteIfExists(path);
     }
 
     @Test

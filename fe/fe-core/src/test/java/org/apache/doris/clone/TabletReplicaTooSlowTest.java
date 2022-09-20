@@ -22,12 +22,10 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -64,10 +62,6 @@ public class TabletReplicaTooSlowTest {
     private static List<Backend> backends = Lists.newArrayList();
 
     private long id = 10086;
-
-    private final SystemInfoService systemInfoService = new SystemInfoService();
-    private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
-    private Table<String, Tag, ClusterLoadStatistic> statisticMap;
 
     @BeforeClass
     public static void beforeClass() throws Exception {

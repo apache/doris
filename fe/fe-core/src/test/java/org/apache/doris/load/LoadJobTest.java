@@ -37,9 +37,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -138,9 +137,8 @@ public class LoadJobTest {
         FakeEnv fakeEnv = new FakeEnv(); // CHECKSTYLE IGNORE THIS LINE
         FakeEnv.setMetaVersion(FeConstants.meta_version);
 
-        File file = new File("./loadJobTest" + System.currentTimeMillis());
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("LoadJobTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         LoadJob loadJob0 = new LoadJob();
         loadJob0.write(dos);
@@ -161,7 +159,7 @@ public class LoadJobTest {
         dos.flush();
         dos.close();
 
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         LoadJob rLoadJob0 = new LoadJob();
         rLoadJob0.readFields(dis);
 
@@ -171,33 +169,33 @@ public class LoadJobTest {
         LoadJob rLoadJob3 = new LoadJob();
         rLoadJob3.readFields(dis);
 
-        Assert.assertTrue(loadJob0.equals(rLoadJob0));
-        Assert.assertTrue(loadJob1.equals(rLoadJob1));
-        Assert.assertTrue(loadJob3.equals(rLoadJob3));
+        Assert.assertEquals(loadJob0, rLoadJob0);
+        Assert.assertEquals(loadJob1, rLoadJob1);
+        Assert.assertEquals(loadJob3, rLoadJob3);
 
-        Assert.assertFalse(loadJob0.equals(rLoadJob1));
+        Assert.assertNotEquals(loadJob0, rLoadJob1);
 
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     @Test
     public void testClear() throws Exception {
         LoadJob job = getLoadJob();
 
-        Assert.assertFalse(job.getIdToTableLoadInfo() == null);
-        Assert.assertFalse(job.getIdToTabletLoadInfo() == null);
-        Assert.assertFalse(job.getQuorumTablets() == null);
-        Assert.assertFalse(job.getFullTablets() == null);
-        Assert.assertFalse(job.getReplicaPersistInfos() == null);
+        Assert.assertNotNull(job.getIdToTableLoadInfo());
+        Assert.assertNotNull(job.getIdToTabletLoadInfo());
+        Assert.assertNotNull(job.getQuorumTablets());
+        Assert.assertNotNull(job.getFullTablets());
+        Assert.assertNotNull(job.getReplicaPersistInfos());
 
         job.clearRedundantInfoForHistoryJob();
 
-        Assert.assertTrue(job.getIdToTableLoadInfo() == null);
-        Assert.assertTrue(job.getIdToTabletLoadInfo() == null);
-        Assert.assertTrue(job.getQuorumTablets() == null);
-        Assert.assertTrue(job.getFullTablets() == null);
-        Assert.assertTrue(job.getReplicaPersistInfos() == null);
+        Assert.assertNull(job.getIdToTableLoadInfo());
+        Assert.assertNull(job.getIdToTabletLoadInfo() == null);
+        Assert.assertNull(job.getQuorumTablets());
+        Assert.assertNull(job.getFullTablets());
+        Assert.assertNull(job.getReplicaPersistInfos());
     }
 
     @Test

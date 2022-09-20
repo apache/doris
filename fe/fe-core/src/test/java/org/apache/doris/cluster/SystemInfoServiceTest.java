@@ -44,10 +44,9 @@ import org.junit.Test;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class SystemInfoServiceTest {
 
@@ -137,34 +136,6 @@ public class SystemInfoServiceTest {
         };
 
         analyzer = new Analyzer(env, new ConnectContext(null));
-    }
-
-    public void mkdir(String dirString) {
-        File dir = new File(dirString);
-        if (!dir.exists()) {
-            dir.mkdir();
-        } else {
-            File[] files = dir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    file.delete();
-                }
-            }
-        }
-    }
-
-    public void deleteDir(String metaDir) {
-        File dir = new File(metaDir);
-        if (dir.exists()) {
-            File[] files = dir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    file.delete();
-                }
-            }
-
-            dir.delete();
-        }
     }
 
     public void createHostAndPort(int type) {
@@ -272,10 +243,8 @@ public class SystemInfoServiceTest {
     public void testSaveLoadBackend() throws Exception {
         clearAllBackend();
         String dir = "testLoadBackend";
-        mkdir(dir);
-        File file = new File(dir, "image");
-        file.createNewFile();
-        CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile(dir, "image");
+        CountingDataOutputStream dos = new CountingDataOutputStream(Files.newOutputStream(path));
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         Backend back1 = new Backend(1L, "localhost", 3);
         back1.updateOnce(4, 6, 8);
@@ -285,15 +254,14 @@ public class SystemInfoServiceTest {
         env = null;
         dos.close();
 
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
+        DataInputStream dis = new DataInputStream(new BufferedInputStream(Files.newInputStream(path)));
         long checksum2 = systemInfoService.loadBackends(dis, 0);
         Assert.assertEquals(checksum1, checksum2);
         Assert.assertEquals(1, systemInfoService.getIdToBackend().size());
         Backend back2 = systemInfoService.getBackend(1);
-        Assert.assertTrue(back1.equals(back2));
+        Assert.assertEquals(back1, back2);
         dis.close();
-
-        deleteDir(dir);
+        Files.deleteIfExists(path);
     }
 
 }

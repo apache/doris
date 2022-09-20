@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.qe.ConnectContext;
@@ -33,7 +32,9 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 
@@ -77,9 +78,8 @@ public class TruncateTableTest {
     }
 
     @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+    public static void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(runningDir));
     }
 
     @Test
@@ -170,22 +170,17 @@ public class TruncateTableTest {
         Env.getCurrentEnv().createTable(createTableStmt);
     }
 
-    private List<List<String>> checkShowTabletResultNum(String tbl, String partition, int expected) throws Exception {
+    private void checkShowTabletResultNum(String tbl, String partition, int expected) throws Exception {
         String showStr = "show tablets from " + tbl + " partition(" + partition + ")";
         ShowTabletStmt showStmt = (ShowTabletStmt) UtFrameUtils.parseAndAnalyzeStmt(showStr, connectContext);
-        ShowExecutor executor = new ShowExecutor(connectContext, (ShowStmt) showStmt);
+        ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
         ShowResultSet showResultSet = executor.execute();
         List<List<String>> rows = showResultSet.getResultRows();
         Assert.assertEquals(expected, rows.size());
-        return rows;
     }
 
     private void alterTable(String sql) throws Exception {
-        try {
-            AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-            Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
-        } catch (Exception e) {
-            throw e;
-        }
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
     }
 }

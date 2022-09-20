@@ -23,9 +23,10 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 public class SparkLauncherMonitorTest {
     private String appId;
@@ -79,15 +80,11 @@ public class SparkLauncherMonitorTest {
         Assert.assertEquals(user, handle.getUser());
 
         // check log
-        File file = new File(logPath);
-        Assert.assertTrue(file.exists());
+        Files.exists(Paths.get(logPath));
     }
 
     @After
-    public void clear() {
-        File file = new File(logPath);
-        if (file.exists()) {
-            file.delete();
-        }
+    public void clear() throws IOException {
+        Files.deleteIfExists(Paths.get(logPath));
     }
 }

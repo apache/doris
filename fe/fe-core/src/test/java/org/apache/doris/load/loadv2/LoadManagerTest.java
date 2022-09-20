@@ -36,35 +36,19 @@ import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import org.junit.After;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
 public class LoadManagerTest {
     private LoadManager loadManager;
     private final String fieldName = "idToLoadJob";
-
-    @Before
-    public void setUp() throws Exception {
-
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        File file = new File("./loadManagerTest");
-        if (file.exists()) {
-            file.delete();
-        }
-    }
 
     @Test
     public void testCreateHadoopJob(@Injectable LoadStmt stmt, @Injectable LabelName labelName, @Mocked Env env,
@@ -133,17 +117,26 @@ public class LoadManagerTest {
             }
         };
 
+        final Path path = Files.createTempFile("LoadManagerTest", "tmp");
+
         loadManager = new LoadManager(new LoadJobScheduler());
         LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
-        File file = serializeToFile(loadManager);
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
+        loadManager.write(dos);
+        dos.flush();
+        dos.close();
 
-        LoadManager newLoadManager = deserializeFromFile(file);
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
+        LoadManager newLoadManager = new LoadManager(new LoadJobScheduler());
+        newLoadManager.readFields(dis);
 
         Map<Long, LoadJob> loadJobs = Deencapsulation.getField(loadManager, fieldName);
         Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
         Assert.assertEquals(loadJobs, newLoadJobs);
+        dis.close();
+        Files.deleteIfExists(path);
     }
 
     @Test
@@ -173,32 +166,23 @@ public class LoadManagerTest {
         LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
+        final Path path = Files.createTempFile("LoadManagerTest", "tmp");
+
         //make job1 don't serialize
         Config.streaming_label_keep_max_second = 1;
         Thread.sleep(2000);
-
-        File file = serializeToFile(loadManager);
-
-        LoadManager newLoadManager = deserializeFromFile(file);
-        Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
-
-        Assert.assertEquals(0, newLoadJobs.size());
-    }
-
-    private File serializeToFile(LoadManager loadManager) throws Exception {
-        File file = new File("./loadManagerTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
         loadManager.write(dos);
         dos.flush();
         dos.close();
-        return file;
-    }
 
-    private LoadManager deserializeFromFile(File file) throws Exception {
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        LoadManager loadManager = new LoadManager(new LoadJobScheduler());
-        loadManager.readFields(dis);
-        return loadManager;
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
+        LoadManager newLoadManager = new LoadManager(new LoadJobScheduler());
+        newLoadManager.readFields(dis);
+        Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
+
+        Assert.assertEquals(0, newLoadJobs.size());
+        dis.close();
+        Files.deleteIfExists(path);
     }
 }

@@ -24,19 +24,19 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class BackupJobInfoTest {
 
     private static String fileName = "job_info.txt";
 
     @BeforeClass
-    public static void createFile() {
+    public static void createFile() throws IOException {
         String json = "{\n"
                 + "    \"backup_time\": 1522231864000,\n"
                 + "    \"name\": \"snapshot1\",\n"
@@ -133,15 +133,12 @@ public class BackupJobInfoTest {
     }
 
     @AfterClass
-    public static void deleteFile() {
-        File file = new File(fileName);
-        if (file.exists()) {
-            file.delete();
-        }
+    public static void deleteFile() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 
     @Test
-    public void testReadWrite() {
+    public void testReadWrite() throws IOException {
         BackupJobInfo jobInfo = null;
         try {
             jobInfo = BackupJobInfo.fromFile(fileName);
@@ -166,15 +163,15 @@ public class BackupJobInfoTest {
         Assert.assertEquals(1, jobInfo.newBackupObjects.views.size());
         Assert.assertEquals("view1", jobInfo.newBackupObjects.views.get(0).name);
 
-        File tmpFile = new File("./tmp");
-        File tmpFile1 = new File("./tmp1");
+        Path tmpFile = Files.createTempFile("BackupJobInfoTest", "tmp");
+        Path tmpFile1 = Files.createTempFile("BackupJobInfoTest", "tmp1");
         try {
-            DataOutputStream out = new DataOutputStream(new FileOutputStream(tmpFile));
+            DataOutputStream out = new DataOutputStream(Files.newOutputStream(tmpFile));
             jobInfo.write(out);
             out.flush();
             out.close();
 
-            DataInputStream in = new DataInputStream(new FileInputStream(tmpFile));
+            DataInputStream in = new DataInputStream(Files.newInputStream(tmpFile));
             BackupJobInfo newInfo = BackupJobInfo.read(in);
             in.close();
 
@@ -185,12 +182,12 @@ public class BackupJobInfoTest {
             Assert.assertEquals(jobInfo.newBackupObjects.views.size(), newInfo.newBackupObjects.views.size());
             Assert.assertEquals("view1", newInfo.newBackupObjects.views.get(0).name);
 
-            out = new DataOutputStream(new FileOutputStream(tmpFile1));
+            out = new DataOutputStream(Files.newOutputStream(tmpFile1));
             newInfo.write(out);
             out.flush();
             out.close();
 
-            in = new DataInputStream(new FileInputStream(tmpFile1));
+            in = new DataInputStream(Files.newInputStream(tmpFile1));
             BackupJobInfo newInfo1 = BackupJobInfo.read(in);
             in.close();
 
@@ -204,8 +201,8 @@ public class BackupJobInfoTest {
             e.printStackTrace();
             Assert.fail();
         } finally {
-            tmpFile.delete();
-            tmpFile1.delete();
+            Files.deleteIfExists(tmpFile);
+            Files.deleteIfExists(tmpFile1);
         }
 
     }

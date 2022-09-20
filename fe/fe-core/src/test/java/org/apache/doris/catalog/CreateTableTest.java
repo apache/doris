@@ -32,7 +32,9 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -57,9 +59,8 @@ public class CreateTableTest {
     }
 
     @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+    public static void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(runningDir));
     }
 
     private static void createTable(String sql) throws Exception {
@@ -89,14 +90,14 @@ public class CreateTableTest {
         Set<TabletMeta> tabletIdSetAfterDuplicateCreateTable4 =
                 new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
 
-        Assert.assertTrue(tabletIdSetAfterCreateFirstTable.equals(tabletIdSetAfterDuplicateCreateTable1));
-        Assert.assertTrue(tabletIdSetAfterCreateFirstTable.equals(tabletIdSetAfterDuplicateCreateTable2));
-        Assert.assertTrue(tabletIdSetAfterCreateFirstTable.equals(tabletIdSetAfterDuplicateCreateTable3));
-        Assert.assertTrue(tabletMetaSetBeforeCreateFirstTable.equals(tabletIdSetAfterDuplicateCreateTable4));
+        Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable1);
+        Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable2);
+        Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable3);
+        Assert.assertEquals(tabletMetaSetBeforeCreateFirstTable, tabletIdSetAfterDuplicateCreateTable4);
 
         // check whether table id is cleared from colocate group after duplicate create table
         Set<Long> colocateTableIdAfterCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
-        Assert.assertTrue(colocateTableIdBeforeCreateFirstTable.equals(colocateTableIdAfterCreateFirstTable));
+        Assert.assertEquals(colocateTableIdBeforeCreateFirstTable, colocateTableIdAfterCreateFirstTable);
     }
 
     @Test
@@ -156,7 +157,7 @@ public class CreateTableTest {
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'int');"));
 
-        /**
+        /*
          * create table with list partition
          */
         // single partition column with single key
@@ -218,13 +219,13 @@ public class CreateTableTest {
         OlapTable tbl7 = (OlapTable) db.getTableOrDdlException("tbl7");
         Assert.assertTrue(tbl7.getColumn("k1").isKey());
         Assert.assertFalse(tbl7.getColumn("k2").isKey());
-        Assert.assertTrue(tbl7.getColumn("k2").getAggregationType() == AggregateType.NONE);
+        Assert.assertSame(tbl7.getColumn("k2").getAggregationType(), AggregateType.NONE);
 
         OlapTable tbl8 = (OlapTable) db.getTableOrDdlException("tbl8");
         Assert.assertTrue(tbl8.getColumn("k1").isKey());
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());
-        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+        Assert.assertSame(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.REPLACE);
     }
 
     @Test
@@ -289,7 +290,7 @@ public class CreateTableTest {
                                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                                 + "'function_column.sequence_type' = 'double');"));
 
-        /**
+        /*
          * create table with list partition
          */
         // single partition column with single key
@@ -359,7 +360,7 @@ public class CreateTableTest {
                                 + "distributed by hash(k2) buckets 1\n"
                                 + "properties('replication_num' = '1');"));
 
-        /**
+        /*
          * create table with both list and range partition
          */
         // list contain less than
@@ -446,7 +447,7 @@ public class CreateTableTest {
                                 + ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
                                 + "PROPERTIES(\"replication_num\" = \"1\");"));
 
-        /**
+        /*
          * dynamic partition table
          */
         // list partition with dynamic properties

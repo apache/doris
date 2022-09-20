@@ -73,17 +73,17 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class RollupJobV2Test {
-    private static String fileName = "./RollupJobV2Test";
+    private static final String fileName = "./RollupJobV2Test";
 
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
     private static GlobalTransactionMgr masterTransMgr;
@@ -136,9 +136,8 @@ public class RollupJobV2Test {
     }
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 
     @Test
@@ -317,9 +316,8 @@ public class RollupJobV2Test {
     public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt)
             throws IOException {
         // prepare file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         short keysCount = 1;
         List<Column> columns = Lists.newArrayList();
@@ -357,7 +355,7 @@ public class RollupJobV2Test {
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         RollupJobV2 result = (RollupJobV2) AlterJobV2.read(in);
         Assert.assertEquals(TStorageFormat.V2, Deencapsulation.getField(result, "storageFormat"));
         List<Column> resultColumns = Deencapsulation.getField(result, "rollupSchema");

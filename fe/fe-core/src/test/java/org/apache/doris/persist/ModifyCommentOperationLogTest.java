@@ -17,24 +17,25 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.persist.ModifyCommentOperationLog.Type;
+
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 public class ModifyCommentOperationLogTest {
     @Test
     public void testColCommentSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./ModifyColumnCommentOperationLogTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get("./ModifyColumnCommentOperationLogTest"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         Map<String, String> colToComment = Maps.newHashMap();
         colToComment.put("k1", "comment1");
@@ -46,26 +47,24 @@ public class ModifyCommentOperationLogTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
-
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         ModifyCommentOperationLog readLog = ModifyCommentOperationLog.read(dis);
-        Assert.assertTrue(readLog.getType() == ModifyCommentOperationLog.Type.COLUMN);
-        Assert.assertTrue(readLog.getDbId() == log.getDbId());
-        Assert.assertTrue(readLog.getTblId() == log.getTblId());
-        Assert.assertTrue(readLog.getTblComment() == null);
-        Assert.assertTrue(readLog.getColToComment().size() == 2);
+        Assert.assertSame(readLog.getType(), Type.COLUMN);
+        Assert.assertEquals(readLog.getDbId(), log.getDbId());
+        Assert.assertEquals(readLog.getTblId(), log.getTblId());
+        Assert.assertNull(readLog.getTblComment());
+        Assert.assertEquals(2, readLog.getColToComment().size());
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     @Test
     public void testTableCommentSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./ModifyTableCommentOperationLogTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get("./ModifyTableCommentOperationLogTest"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ModifyCommentOperationLog log = ModifyCommentOperationLog.forTable(1L, 2L, "comment");
         log.write(dos);
@@ -74,17 +73,17 @@ public class ModifyCommentOperationLogTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         ModifyCommentOperationLog readLog = ModifyCommentOperationLog.read(dis);
-        Assert.assertTrue(readLog.getType() == ModifyCommentOperationLog.Type.TABLE);
-        Assert.assertTrue(readLog.getDbId() == log.getDbId());
-        Assert.assertTrue(readLog.getTblId() == log.getTblId());
+        Assert.assertSame(readLog.getType(), Type.TABLE);
+        Assert.assertEquals(readLog.getDbId(), log.getDbId());
+        Assert.assertEquals(readLog.getTblId(), log.getTblId());
         Assert.assertEquals("comment", readLog.getTblComment());
-        Assert.assertTrue(readLog.getColToComment() == null);
+        Assert.assertNull(readLog.getColToComment());
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

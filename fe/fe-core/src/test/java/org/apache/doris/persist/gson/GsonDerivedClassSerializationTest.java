@@ -34,10 +34,10 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 /*
@@ -50,17 +50,13 @@ import java.util.Map;
  * User need to create a RuntimeTypeAdapterFactory for ParentClass and
  * register 2 derived classes to the factory. And then register the factory
  * to the GsonBuilder to create GSON instance.
- *
- *
- *
  */
 public class GsonDerivedClassSerializationTest {
-    private static String fileName = "./GsonDerivedClassSerializationTest";
+    private static final String fileName = "./GsonDerivedClassSerializationTest";
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 
     public static class ParentClass implements Writable {
@@ -156,9 +152,8 @@ public class GsonDerivedClassSerializationTest {
     @Test
     public void testDerivedClassA() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         ChildClassA childClassA = new ChildClassA(1, "A");
         childClassA.write(out);
@@ -166,52 +161,50 @@ public class GsonDerivedClassSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         ParentClass parentClass = ParentClass.read(in);
         Assert.assertTrue(parentClass instanceof ChildClassA);
-        Assert.assertEquals(1, ((ChildClassA) parentClass).flag);
+        Assert.assertEquals(1, (parentClass).flag);
         Assert.assertEquals("A", ((ChildClassA) parentClass).tagA);
         Assert.assertEquals("after post", ((ChildClassA) parentClass).postTagA);
+        in.close();
     }
 
     @Test
     public void testDerivedClassB() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
         ChildClassB childClassB = new ChildClassB(2);
         childClassB.write(out);
         out.flush();
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         ParentClass parentClass = ParentClass.read(in);
         Assert.assertTrue(parentClass instanceof ChildClassB);
-        Assert.assertEquals(2, ((ChildClassB) parentClass).flag);
+        Assert.assertEquals(2, parentClass.flag);
         Assert.assertEquals(2, ((ChildClassB) parentClass).mapB.size());
         Assert.assertEquals("B1", ((ChildClassB) parentClass).mapB.get(1L));
         Assert.assertEquals("B2", ((ChildClassB) parentClass).mapB.get(2L));
+        in.close();
     }
 
     @Test
     public void testWrapperClass() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
         WrapperClass wrapperClass = new WrapperClass();
         wrapperClass.write(out);
         out.flush();
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         WrapperClass readWrapperClass = WrapperClass.read(in);
-        Assert.assertEquals(1, ((ChildClassA) readWrapperClass.clz).flag);
+        Assert.assertEquals(1, readWrapperClass.clz.flag);
+        in.close();
     }
-
 }

@@ -25,9 +25,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class ReplicaPersistInfoTest {
     @Test
@@ -37,9 +37,8 @@ public class ReplicaPersistInfoTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./replicaInfo");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get("./replicaInfo"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ReplicaPersistInfo info2 = ReplicaPersistInfo.createForLoad(1, 2, 3, 4, 5, 7, 0, 8, 0, 9);
         info2.write(dos);
@@ -48,13 +47,13 @@ public class ReplicaPersistInfoTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         ReplicaPersistInfo rInfo2 = ReplicaPersistInfo.read(dis); // CHECKSTYLE IGNORE THIS LINE
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     @Test

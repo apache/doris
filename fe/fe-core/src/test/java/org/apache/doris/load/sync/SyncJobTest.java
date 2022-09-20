@@ -30,10 +30,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class SyncJobTest {
     private long jobId;
@@ -61,24 +60,20 @@ public class SyncJobTest {
 
     @Test
     public void testUpdateStateInfoPersist() throws IOException {
-        String fileName = "./testSyncJobUpdateStateInfoPersistFile";
-        File file = new File(fileName);
-        if (file.exists()) {
-            file.delete();
-        }
-        file.createNewFile();
+
+        final Path path = Files.createTempFile("testSyncJobUpdateStateInfoPersistFile", "tmp");
 
         JobState jobState = JobState.CANCELLED;
         SyncFailMsg failMsg = new SyncFailMsg(MsgType.USER_CANCEL, "user cancel");
         long lastStartTimeMs = 1621914540L;
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
         SyncJobUpdateStateInfo info = new SyncJobUpdateStateInfo(
                 jobId, jobState, lastStartTimeMs, -1L, -1L, failMsg);
         info.write(out);
         out.flush();
         out.close();
 
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         SyncJobUpdateStateInfo replayedInfo = SyncJobUpdateStateInfo.read(in);
         Assert.assertEquals(jobId, replayedInfo.getId());
         Assert.assertEquals(jobState, replayedInfo.getJobState());
@@ -89,8 +84,6 @@ public class SyncJobTest {
         in.close();
 
         // delete file
-        if (file.exists()) {
-            file.delete();
-        }
+        Files.deleteIfExists(path);
     }
 }

@@ -38,10 +38,10 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -64,7 +64,7 @@ import java.util.Set;
  *
  */
 public class GsonSerializationTest {
-    private static String fileName = "./GsonSerializationTest";
+    private static final String fileName = "./GsonSerializationTest";
 
     public static class OrigClassA implements Writable {
         @SerializedName(value = "classA1")
@@ -231,9 +231,8 @@ public class GsonSerializationTest {
     }
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 
     /*
@@ -242,9 +241,8 @@ public class GsonSerializationTest {
     @Test
     public void testNormal() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         OrigClassA classA = new OrigClassA(1);
         classA.write(out);
@@ -252,7 +250,7 @@ public class GsonSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         OrigClassA readClassA = OrigClassA.read(in);
         Assert.assertEquals(1, readClassA.flag);
@@ -290,9 +288,8 @@ public class GsonSerializationTest {
     @Test
     public void testWithDifferentMembers() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         OrigClassA classA = new OrigClassA(1);
         classA.write(out);
@@ -300,7 +297,7 @@ public class GsonSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         OriginClassADifferentMembers readClassA = OriginClassADifferentMembers.read(in);
         Assert.assertEquals(1, readClassA.flag);
@@ -315,9 +312,8 @@ public class GsonSerializationTest {
     @Test
     public void testWithDifferentMemberNames() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         OrigClassA classA = new OrigClassA(1);
         classA.write(out);
@@ -325,7 +321,7 @@ public class GsonSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         OriginClassADifferentMemberName readClassA = OriginClassADifferentMemberName.read(in);
         Assert.assertEquals(1, readClassA.flagChangeName);
@@ -413,9 +409,8 @@ public class GsonSerializationTest {
     @Test
     public void testMultiMapWithCustomKey() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         MultiMapClassA classA = new MultiMapClassA();
         classA.write(out);
@@ -423,7 +418,7 @@ public class GsonSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         MultiMapClassA readClassA = MultiMapClassA.read(in);
         Assert.assertEquals(Sets.newHashSet(new Key(MyEnum.TYPE_A, "key1"), new Key(MyEnum.TYPE_B, "key2")),

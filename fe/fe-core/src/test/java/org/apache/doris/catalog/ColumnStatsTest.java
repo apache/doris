@@ -22,18 +22,16 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class ColumnStatsTest {
 
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./columnStats");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("ColumnStatsTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ColumnStats stats1 = new ColumnStats();
         stats1.write(dos);
@@ -59,29 +57,29 @@ public class ColumnStatsTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         ColumnStats rStats1 = new ColumnStats();
         rStats1.readFields(dis);
-        Assert.assertTrue(rStats1.equals(stats1));
+        Assert.assertEquals(rStats1, stats1);
 
         ColumnStats rStats2 = new ColumnStats();
         rStats2.readFields(dis);
-        Assert.assertTrue(rStats2.equals(stats2));
+        Assert.assertEquals(rStats2, stats2);
 
         ColumnStats rStats3 = ColumnStats.read(dis);
-        Assert.assertTrue(rStats3.equals(stats3));
+        Assert.assertEquals(rStats3, stats3);
 
         ColumnStats rStats4 = ColumnStats.read(dis);
-        Assert.assertTrue(rStats4.equals(stats4));
-        Assert.assertTrue(rStats4.equals(stats3));
+        Assert.assertEquals(rStats4, stats4);
+        Assert.assertEquals(rStats4, stats3);
 
-        Assert.assertTrue(rStats3.equals(rStats3));
-        Assert.assertFalse(rStats3.equals(this));
-        Assert.assertFalse(rStats2.equals(rStats3));
+        Assert.assertEquals(rStats3, rStats3);
+        Assert.assertNotEquals(rStats3, this);
+        Assert.assertNotEquals(rStats2, rStats3);
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.exists(path);
     }
 
 }

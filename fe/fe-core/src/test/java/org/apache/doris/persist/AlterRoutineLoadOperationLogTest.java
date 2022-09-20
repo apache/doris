@@ -28,22 +28,20 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 public class AlterRoutineLoadOperationLogTest {
-    private static String fileName = "./AlterRoutineLoadOperationLogTest";
 
     @Test
     public void testSerializeAlterRoutineLoadOperationLog() throws IOException, UserException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        file.deleteOnExit();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        String fileName = "./AlterRoutineLoadOperationLogTest";
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         long jobId = 1000;
         Map<String, String> jobProperties = Maps.newHashMap();
@@ -66,7 +64,7 @@ public class AlterRoutineLoadOperationLogTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         AlterRoutineLoadJobOperationLog log2 = AlterRoutineLoadJobOperationLog.read(in);
         Assert.assertEquals(1, log2.getJobProperties().size());
@@ -79,9 +77,6 @@ public class AlterRoutineLoadOperationLogTest {
                 log2.getDataSourceProperties().getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 log2.getDataSourceProperties().getKafkaPartitionOffsets().get(1));
-
         in.close();
     }
-
-
 }

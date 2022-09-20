@@ -27,9 +27,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 
@@ -41,9 +41,9 @@ public class BatchRemoveTransactionOperationTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./BatchRemoveTransactionOperationTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+
+        final Path path = Files.createFile(Paths.get("./BatchRemoveTransactionOperationTest"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         Map<Long, List<Long>> dbTxnIds = Maps.newHashMap();
         dbTxnIds.put(1000L, Lists.newArrayList());
@@ -57,7 +57,7 @@ public class BatchRemoveTransactionOperationTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         BatchRemoveTransactionsOperation op2 = BatchRemoveTransactionsOperation.read(dis);
         Assert.assertEquals(1, op2.getDbTxnIds().size());
         Assert.assertEquals(3, op2.getDbTxnIds().get(1000L).size());
@@ -65,6 +65,6 @@ public class BatchRemoveTransactionOperationTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

@@ -159,7 +159,7 @@ public class TimeUtilsTest {
     }
 
     @Test
-    public void testTimezone() throws AnalysisException {
+    public void testTimezone() {
         try {
             Assert.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));

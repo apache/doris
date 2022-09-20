@@ -58,8 +58,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -67,10 +65,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -78,7 +75,6 @@ import java.util.Set;
 import java.util.UUID;
 
 public class TabletRepairAndBalanceTest {
-    private static final Logger LOG = LogManager.getLogger(TabletRepairAndBalanceTest.class);
 
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
@@ -546,15 +542,14 @@ public class TabletRepairAndBalanceTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./ColocateTableIndexPersist");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("ColocateTableIndexPersist", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
         colocateTableIndex.write(dos);
         dos.flush();
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         ColocateTableIndex rColocateTableIndex = new ColocateTableIndex();
         rColocateTableIndex.readFields(dis);
@@ -574,7 +569,7 @@ public class TabletRepairAndBalanceTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     private void checkTableReplicaAllocation(OlapTable tbl) throws InterruptedException {

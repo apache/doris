@@ -21,7 +21,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -31,7 +30,7 @@ public class ListComparatorTest {
 
     @Before
     public void setUp() {
-        listCollection = new LinkedList<List<Comparable>>();
+        listCollection = new LinkedList<>();
     }
 
     private void printCollection() {
@@ -49,16 +48,16 @@ public class ListComparatorTest {
     public void test_1() {
         // 1, 200, "bcd", 2000
         // 1, 200, "abc"
-        List<Comparable> list1 = new LinkedList<Comparable>();
-        list1.add(new Long(1));
-        list1.add(new Long(200));
+        List<Comparable> list1 = new LinkedList<>();
+        list1.add(1L);
+        list1.add(200L);
         list1.add("bcd");
-        list1.add(new Long(1000));
+        list1.add(1000L);
         listCollection.add(list1);
 
-        List<Comparable> list2 = new LinkedList<Comparable>();
-        list2.add(new Long(1));
-        list2.add(new Long(200));
+        List<Comparable> list2 = new LinkedList<>();
+        list2.add(1L);
+        list2.add(200L);
         list2.add("abc");
         listCollection.add(list2);
 
@@ -66,7 +65,7 @@ public class ListComparatorTest {
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(1, false),
                                                                            new OrderByPair(2, false));
-        Collections.sort(listCollection, comparator);
+        listCollection.sort(comparator);
         printCollection();
 
         Assert.assertEquals(list2, listCollection.get(0));
@@ -76,16 +75,16 @@ public class ListComparatorTest {
     public void test_2() {
         // 1, 200, "abc", 1000
         // 1, 200, "abc"
-        List<Comparable> list1 = new LinkedList<Comparable>();
-        list1.add(new Long(1));
-        list1.add(new Long(200));
+        List<Comparable> list1 = new LinkedList<>();
+        list1.add(1L);
+        list1.add(200L);
         list1.add("abc");
-        list1.add(new Long(1000));
+        list1.add(1000L);
         listCollection.add(list1);
 
-        List<Comparable> list2 = new LinkedList<Comparable>();
-        list2.add(new Long(1));
-        list2.add(new Long(200));
+        List<Comparable> list2 = new LinkedList<>();
+        list2.add(1L);
+        list2.add(200L);
         list2.add("abc");
         listCollection.add(list2);
 
@@ -93,7 +92,7 @@ public class ListComparatorTest {
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(1, false),
                                                                            new OrderByPair(2, false));
-        Collections.sort(listCollection, comparator);
+        listCollection.sort(comparator);
         printCollection();
         Assert.assertEquals(list2, listCollection.get(0));
     }
@@ -102,16 +101,16 @@ public class ListComparatorTest {
     public void test_3() {
         // 1, 200, "abc", 2000
         // 1, 200, "abc", "bcd"
-        List<Comparable> list1 = new LinkedList<Comparable>();
-        list1.add(new Long(1));
-        list1.add(new Long(200));
+        List<Comparable> list1 = new LinkedList<>();
+        list1.add(1L);
+        list1.add(200L);
         list1.add("abc");
-        list1.add(new Long(2000));
+        list1.add(2000L);
         listCollection.add(list1);
 
-        List<Comparable> list2 = new LinkedList<Comparable>();
-        list2.add(new Long(1));
-        list2.add(new Long(200));
+        List<Comparable> list2 = new LinkedList<>();
+        list2.add(1L);
+        list2.add(200L);
         list2.add("abc");
         list2.add("bcd");
         listCollection.add(list2);
@@ -120,7 +119,7 @@ public class ListComparatorTest {
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(1, false),
                                                                            new OrderByPair(3, false));
-        Collections.sort(listCollection, comparator);
+        listCollection.sort(comparator);
         Assert.fail();
     }
 
@@ -128,16 +127,16 @@ public class ListComparatorTest {
     public void test_4() {
         // 1, 200, "bb", 2000
         // 1, 300, "aa"
-        List<Comparable> list1 = new LinkedList<Comparable>();
-        list1.add(new Long(1));
-        list1.add(new Long(200));
+        List<Comparable> list1 = new LinkedList<>();
+        list1.add(1L);
+        list1.add(200L);
         list1.add("bb");
-        list1.add(new Long(1000));
+        list1.add(1000L);
         listCollection.add(list1);
 
-        List<Comparable> list2 = new LinkedList<Comparable>();
-        list2.add(new Long(1));
-        list2.add(new Long(300));
+        List<Comparable> list2 = new LinkedList<>();
+        list2.add(1L);
+        list2.add(300L);
         list2.add("aa");
         listCollection.add(list2);
 
@@ -145,7 +144,7 @@ public class ListComparatorTest {
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(2, false),
                                                                            new OrderByPair(1, false));
-        Collections.sort(listCollection, comparator);
+        listCollection.sort(comparator);
         printCollection();
         Assert.assertEquals(list2, listCollection.get(0));
     }
@@ -155,22 +154,22 @@ public class ListComparatorTest {
         // 1, 200, "bb", 2000
         // 1, 100, "aa"
         // 1, 300, "aa"
-        List<Comparable> list1 = new LinkedList<Comparable>();
-        list1.add(new Long(1));
-        list1.add(new Long(200));
+        List<Comparable> list1 = new LinkedList<>();
+        list1.add(1L);
+        list1.add(200L);
         list1.add("bb");
-        list1.add(new Long(1000));
+        list1.add(1000L);
         listCollection.add(list1);
 
-        List<Comparable> list2 = new LinkedList<Comparable>();
-        list2.add(new Long(1));
-        list2.add(new Long(100));
+        List<Comparable> list2 = new LinkedList<>();
+        list2.add(1L);
+        list2.add(100L);
         list2.add("aa");
         listCollection.add(list2);
 
-        List<Comparable> list3 = new LinkedList<Comparable>();
-        list3.add(new Long(1));
-        list3.add(new Long(300));
+        List<Comparable> list3 = new LinkedList<>();
+        list3.add(1L);
+        list3.add(300L);
         list3.add("aa");
         listCollection.add(list3);
 
@@ -178,7 +177,7 @@ public class ListComparatorTest {
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(2, false),
                                                                            new OrderByPair(1, true));
-        Collections.sort(listCollection, comparator);
+        listCollection.sort(comparator);
         printCollection();
         Assert.assertEquals(list3, listCollection.get(0));
     }

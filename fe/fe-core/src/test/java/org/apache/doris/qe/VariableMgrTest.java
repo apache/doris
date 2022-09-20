@@ -30,23 +30,23 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 
 public class VariableMgrTest {
-    private static String runningDir = "fe/mocked/VariableMgrTest/" + UUID.randomUUID().toString() + "/";
+    private static final String runningDir = "fe/mocked/VariableMgrTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
 
     @After
     public void tearDown() throws Exception {
-        FileUtils.deleteDirectory(new File(runningDir));
+        Files.deleteIfExists(Paths.get(runningDir));
     }
 
     @BeforeClass

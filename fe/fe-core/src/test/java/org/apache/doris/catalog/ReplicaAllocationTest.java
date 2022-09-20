@@ -30,10 +30,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 
 public class ReplicaAllocationTest {
@@ -43,7 +42,7 @@ public class ReplicaAllocationTest {
         // DEFAULT_ALLOCATION
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         Assert.assertFalse(replicaAlloc.isNotSet());
-        Assert.assertTrue(replicaAlloc.equals(ReplicaAllocation.DEFAULT_ALLOCATION));
+        Assert.assertEquals(replicaAlloc, ReplicaAllocation.DEFAULT_ALLOCATION);
         Assert.assertFalse(replicaAlloc.isEmpty());
         Assert.assertEquals(3, replicaAlloc.getTotalReplicaNum());
         Assert.assertEquals("tag.location.default: 3", replicaAlloc.toCreateStmt());
@@ -51,7 +50,7 @@ public class ReplicaAllocationTest {
         // NOT SET
         replicaAlloc = ReplicaAllocation.NOT_SET;
         Assert.assertTrue(replicaAlloc.isNotSet());
-        Assert.assertFalse(replicaAlloc.equals(ReplicaAllocation.DEFAULT_ALLOCATION));
+        Assert.assertNotEquals(replicaAlloc, ReplicaAllocation.DEFAULT_ALLOCATION);
         Assert.assertTrue(replicaAlloc.isEmpty());
         Assert.assertEquals(0, replicaAlloc.getTotalReplicaNum());
         Assert.assertEquals("", replicaAlloc.toCreateStmt());
@@ -59,7 +58,7 @@ public class ReplicaAllocationTest {
         // set replica num
         replicaAlloc = new ReplicaAllocation((short) 5);
         Assert.assertFalse(replicaAlloc.isNotSet());
-        Assert.assertFalse(replicaAlloc.equals(ReplicaAllocation.DEFAULT_ALLOCATION));
+        Assert.assertNotEquals(replicaAlloc, ReplicaAllocation.DEFAULT_ALLOCATION);
         Assert.assertFalse(replicaAlloc.isEmpty());
         Assert.assertEquals(5, replicaAlloc.getTotalReplicaNum());
         Assert.assertEquals("tag.location.default: 5", replicaAlloc.toCreateStmt());
@@ -134,9 +133,8 @@ public class ReplicaAllocationTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./replicaInfo");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("replicaInfo", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ReplicaAllocation replicaAlloc = new ReplicaAllocation();
         replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, "zone1"), (short) 3);
@@ -147,12 +145,12 @@ public class ReplicaAllocationTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         ReplicaAllocation newAlloc = ReplicaAllocation.read(dis);
         Assert.assertEquals(replicaAlloc, newAlloc);
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

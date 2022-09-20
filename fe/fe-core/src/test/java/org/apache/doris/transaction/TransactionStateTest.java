@@ -31,10 +31,10 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.UUID;
 
 public class TransactionStateTest {
@@ -42,9 +42,8 @@ public class TransactionStateTest {
     private static String fileName = "./TransactionStateTest";
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 
     @Test
@@ -54,9 +53,9 @@ public class TransactionStateTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./TransactionStateTest"));
+        System.out.println(path.toAbsolutePath());
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         UUID uuid = UUID.randomUUID();
         TransactionState transactionState = new TransactionState(1000L, Lists.newArrayList(20000L, 20001L),
@@ -69,7 +68,7 @@ public class TransactionStateTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         TransactionState readTransactionState = new TransactionState();
         readTransactionState.readFields(in);
 

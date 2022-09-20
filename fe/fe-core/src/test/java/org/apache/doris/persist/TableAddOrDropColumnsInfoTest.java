@@ -32,25 +32,23 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
 public class TableAddOrDropColumnsInfoTest {
-    private static String fileName = "./TableAddOrDropColumnsInfoTest";
+    private static final String fileName = "./TableAddOrDropColumnsInfoTest";
 
     @Test
     public void testSerialization() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         long dbId = 12345678;
         long tableId = 87654321;
@@ -76,7 +74,7 @@ public class TableAddOrDropColumnsInfoTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         String readJson = Text.readString(in);
         TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo2 = GsonUtils.GSON.fromJson(readJson,
@@ -90,8 +88,7 @@ public class TableAddOrDropColumnsInfoTest {
     }
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 }

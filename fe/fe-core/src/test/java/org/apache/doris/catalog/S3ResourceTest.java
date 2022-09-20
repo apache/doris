@@ -37,9 +37,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -73,15 +72,15 @@ public class S3ResourceTest {
         s3ReqTimeoutMs = "3000";
         s3ConnTimeoutMs = "1000";
         s3Bucket = "test-bucket";
-        s3Properties = new HashMap<>();
-        s3Properties.put("type", type);
-        s3Properties.put("s3_endpoint", s3Endpoint);
-        s3Properties.put("s3_region", s3Region);
-        s3Properties.put("s3_root_path", s3RootPath);
-        s3Properties.put("s3_access_key", s3AccessKey);
-        s3Properties.put("s3_secret_key", s3SecretKey);
-        s3Properties.put("s3_bucket", s3Bucket);
-
+        s3Properties = new HashMap<String, String>() {{
+                put("type", type);
+                put("s3_endpoint", s3Endpoint);
+                put("s3_region", s3Region);
+                put("s3_root_path", s3RootPath);
+                put("s3_access_key", s3AccessKey);
+                put("s3_secret_key", s3SecretKey);
+                put("s3_bucket", s3Bucket);
+            }};
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
@@ -154,20 +153,20 @@ public class S3ResourceTest {
         metaContext.setThreadLocalInfo();
 
         // 1. write
-        File s3File = new File("./s3Resource");
-        s3File.createNewFile();
-        DataOutputStream s3Dos = new DataOutputStream(new FileOutputStream(s3File));
+        final Path path = Files.createTempFile("s3Resource", "tmp");
+        DataOutputStream s3Dos = new DataOutputStream((Files.newOutputStream(path)));
 
         S3Resource s3Resource1 = new S3Resource("s3_1");
         s3Resource1.write(s3Dos);
 
-        Map<String, String> properties = new HashMap<>();
-        properties.put("s3_endpoint", "aaa");
-        properties.put("s3_region", "bbb");
-        properties.put("s3_root_path", "/path/to/root");
-        properties.put("s3_access_key", "xxx");
-        properties.put("s3_secret_key", "yyy");
-        properties.put("s3_bucket", "test-bucket");
+        Map<String, String> properties = new HashMap<String, String>() {{
+                put("s3_endpoint", "aaa");
+                put("s3_region", "bbb");
+                put("s3_root_path", "/path/to/root");
+                put("s3_access_key", "xxx");
+                put("s3_secret_key", "yyy");
+                put("s3_bucket", "test-bucket");
+            }};
         S3Resource s3Resource2 = new S3Resource("s3_2");
         s3Resource2.setProperties(properties);
         s3Resource2.write(s3Dos);
@@ -176,7 +175,7 @@ public class S3ResourceTest {
         s3Dos.close();
 
         // 2. read
-        DataInputStream s3Dis = new DataInputStream(new FileInputStream(s3File));
+        DataInputStream s3Dis = new DataInputStream(Files.newInputStream(path));
         S3Resource rS3Resource1 = (S3Resource) S3Resource.read(s3Dis);
         S3Resource rS3Resource2 = (S3Resource) S3Resource.read(s3Dis);
 
@@ -194,6 +193,6 @@ public class S3ResourceTest {
 
         // 3. delete
         s3Dis.close();
-        s3File.delete();
+        Files.deleteIfExists(path);
     }
 }

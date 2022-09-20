@@ -27,10 +27,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class DiskInfoTest {
 
@@ -54,12 +53,10 @@ public class DiskInfoTest {
     @Test
     public void testSerialization() throws IOException {
         // write disk info to file
-        File file = new File("./diskInfoTest");
-        file.createNewFile();
-        file.deleteOnExit();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("DiskInfoTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
-        DiskInfo diskInfo1 = new DiskInfo("/disk1");
+        DiskInfo diskInfo1 = new DiskInfo(path + "/disk1");
         // 1 GB
         long totalCapacityB = 1024 * 1024 * 1024L;
         diskInfo1.setTotalCapacityB(totalCapacityB);
@@ -74,13 +71,17 @@ public class DiskInfoTest {
         dos.close();
 
         // read disk info from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         DiskInfo result = DiskInfo.read(dis);
 
         // check
-        Assert.assertEquals("/disk1", result.getRootPath());
+        Assert.assertEquals(path + "/disk1", result.getRootPath());
         Assert.assertEquals(totalCapacityB, result.getTotalCapacityB());
         Assert.assertEquals(dataUsedCapacityB, result.getDataUsedCapacityB());
-        Assert.assertTrue(result.getStorageMedium() == null);
+        Assert.assertNull(result.getStorageMedium());
+
+        // Delete Files
+        dis.close();
+        Files.deleteIfExists(path);
     }
 }

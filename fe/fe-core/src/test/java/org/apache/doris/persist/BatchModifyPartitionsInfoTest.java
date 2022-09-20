@@ -19,7 +19,6 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -29,10 +28,10 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 public class BatchModifyPartitionsInfoTest {
@@ -45,18 +44,16 @@ public class BatchModifyPartitionsInfoTest {
     private static final long PARTITION_ID_3 = 40002L;
 
     @After
-    public void tearDown() {
-        File file = new File(FILE_NAME);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(FILE_NAME));
     }
 
     @Test
-    public void testSerializeBatchModifyPartitionsInfo() throws IOException, AnalysisException {
+    public void testSerializeBatchModifyPartitionsInfo() throws IOException {
         List<ModifyPartitionInfo> modifyInfos = Lists.newArrayList();
         // 1. Write objects to file
-        File file = new File(FILE_NAME);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(FILE_NAME));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         List<Long> partitionIds = Lists.newArrayList(PARTITION_ID_1, PARTITION_ID_2, PARTITION_ID_3);
         for (long partitionId : partitionIds) {
@@ -70,7 +67,7 @@ public class BatchModifyPartitionsInfoTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         BatchModifyPartitionsInfo readBatchModifyPartitionsInfo = BatchModifyPartitionsInfo.read(in);
         Assert.assertEquals(batchModifyPartitionsInfo, readBatchModifyPartitionsInfo);

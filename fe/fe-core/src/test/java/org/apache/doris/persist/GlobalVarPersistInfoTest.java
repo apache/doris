@@ -26,28 +26,25 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 public class GlobalVarPersistInfoTest {
-    private static String fileName = "./GlobalVarPersistInfoTest";
+    private static final String fileName = "./GlobalVarPersistInfoTest";
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 
     @Test
     public void testSerializeAlterViewInfo() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-
+        final Path path = Files.createFile(Paths.get("./BatchRemoveTransactionOperationTest"));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         SessionVariable sessionVariable = VariableMgr.newSessionVariable();
         List<String> varNames = Lists.newArrayList();
@@ -60,13 +57,10 @@ public class GlobalVarPersistInfoTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         GlobalVarPersistInfo newInfo = GlobalVarPersistInfo.read(in);
         System.out.println(newInfo.getPersistJsonString());
-
         in.close();
     }
-
-
 }

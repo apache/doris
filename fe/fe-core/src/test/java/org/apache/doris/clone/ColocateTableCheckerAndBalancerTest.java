@@ -47,7 +47,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class ColocateTableCheckerAndBalancerTest {
-    private ColocateTableCheckerAndBalancer balancer = ColocateTableCheckerAndBalancer.getInstance();
+    private final ColocateTableCheckerAndBalancer balancer = ColocateTableCheckerAndBalancer.getInstance();
 
     private Backend backend1;
     private Backend backend2;
@@ -266,7 +266,7 @@ public class ColocateTableCheckerAndBalancerTest {
         List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
         Set<Long> unAvailBackendIds = Sets.newHashSet(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
         List<Long> availBackendIds = Lists.newArrayList();
-        boolean changed = (Boolean) Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, Tag.DEFAULT_BACKEND_TAG,
+        boolean changed = Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, Tag.DEFAULT_BACKEND_TAG,
                 unAvailBackendIds, availBackendIds, colocateTableIndex, infoService, statistic, balancedBackendsPerBucketSeq);
         Assert.assertFalse(changed);
     }

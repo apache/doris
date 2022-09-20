@@ -34,7 +34,7 @@ import java.io.File;
 import java.util.UUID;
 
 public class TableFunctionPlanTest {
-    private static String runningDir = "fe/mocked/TableFunctionPlanTest/" + UUID.randomUUID().toString() + "/";
+    private static final String runningDir = "fe/mocked/TableFunctionPlanTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
 
     @After
@@ -390,7 +390,7 @@ public class TableFunctionPlanTest {
     /*
     Case3 materialize inline view column
     select c1, e1 from (select k1 as c1, min(k2) as c2 from tbl1 group by k1) tmp1 lateral view explode_split(c2, ",") tmp2 as e1
-     */
+    */
     @Test
     public void aggColumnInlineViewInTB() throws Exception {
         String sql = "desc verbose select c1, e1 from (select k1 as c1, min(k2) as c2 from db1.tbl1 group by c1) a "
@@ -513,7 +513,7 @@ public class TableFunctionPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("join op: LEFT SEMI JOIN(BROADCAST)"));
         Assert.assertTrue(explainString.contains("equal join conjunct: `k1` = `k2`"));
-        Assert.assertTrue(!explainString.contains("equal join conjunct: `k2` = `k2`"));
+        Assert.assertFalse(explainString.contains("equal join conjunct: `k2` = `k2`"));
     }
 
     @Test

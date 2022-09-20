@@ -37,26 +37,23 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
 public class CatalogMgrTest extends TestWithFeService {
-    private CatalogMgr mgr;
     private static final String MY_CATALOG = "my_catalog";
-
     private static PaloAuth auth;
     private static Env env;
     private static UserIdentity user1;
     private static UserIdentity user2;
+    private CatalogMgr mgr;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -83,7 +80,7 @@ public class CatalogMgrTest extends TestWithFeService {
         user1 = new UserIdentity("user1", "%");
         user1.analyze(SystemInfoService.DEFAULT_CLUSTER);
         // user1 has the privileges of testc which is granted by ctl.db.tbl format.
-        Assert.assertTrue(auth.getDbPrivTable().hasPrivsOfCatalog(user1, "testc"));
+        Assertions.assertTrue(auth.getDbPrivTable().hasPrivsOfCatalog(user1, "testc"));
 
         // create catalog
         CreateCatalogStmt hiveCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
@@ -155,9 +152,8 @@ public class CatalogMgrTest extends TestWithFeService {
     }
 
     private void testCatalogMgrPersist() throws Exception {
-        File file = new File("./CatalogMgrTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("CatalogMgrTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         mgr.write(dos);
         dos.flush();
@@ -165,29 +161,29 @@ public class CatalogMgrTest extends TestWithFeService {
 
         CatalogIf internalCatalog = mgr.getCatalog(InternalCatalog.INTERNAL_DS_ID);
         CatalogIf internalCatalog2 = mgr.getInternalCatalog();
-        Assert.assertTrue(internalCatalog == internalCatalog2);
+        Assertions.assertSame(internalCatalog, internalCatalog2);
         CatalogIf myCatalog = mgr.getCatalog(MY_CATALOG);
-        Assert.assertNotNull(myCatalog);
+        Assertions.assertNotNull(myCatalog);
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         CatalogMgr mgr2 = CatalogMgr.read(dis);
 
-        Assert.assertEquals(4, mgr2.listCatalogs().size());
-        Assert.assertEquals(myCatalog.getId(), mgr2.getCatalog(MY_CATALOG).getId());
-        Assert.assertEquals(0, mgr2.getInternalCatalog().getId());
-        Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_DS_ID).getId());
-        Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME).getId());
+        Assertions.assertEquals(4, mgr2.listCatalogs().size());
+        Assertions.assertEquals(myCatalog.getId(), mgr2.getCatalog(MY_CATALOG).getId());
+        Assertions.assertEquals(0, mgr2.getInternalCatalog().getId());
+        Assertions.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_DS_ID).getId());
+        Assertions.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME).getId());
 
         CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
         Map<String, String> properties = hms.getProperties();
-        Assert.assertEquals(2, properties.size());
-        Assert.assertEquals("hms", properties.get("type"));
-        Assert.assertEquals("v", properties.get("k"));
+        Assertions.assertEquals(2, properties.size());
+        Assertions.assertEquals("hms", properties.get("type"));
+        Assertions.assertEquals("v", properties.get("k"));
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     @Test
@@ -196,26 +192,26 @@ public class CatalogMgrTest extends TestWithFeService {
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         // user1 can switch to internal catalog
         parseAndAnalyzeStmt("switch " + InternalCatalog.INTERNAL_CATALOG_NAME + ";", user1Ctx);
-        Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user1Ctx.getDefaultCatalog());
+        Assertions.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user1Ctx.getDefaultCatalog());
         // user1 can't switch to hive
         try {
             parseAndAnalyzeStmt("switch hive;", user1Ctx);
-            Assert.fail("user1 switch to hive with no privilege.");
+            Assertions.fail("user1 switch to hive with no privilege.");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(),
+            Assertions.assertEquals(e.getMessage(),
                     "errCode = 2, detailMessage = Access denied for user 'default_cluster:user1' to catalog 'hive'");
         }
-        Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user1Ctx.getDefaultCatalog());
+        Assertions.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user1Ctx.getDefaultCatalog());
 
         // mock the login of user2
         ConnectContext user2Ctx = createCtx(user2, "127.0.0.1");
         // user2 can switch to internal catalog
         parseAndAnalyzeStmt("switch " + InternalCatalog.INTERNAL_CATALOG_NAME + ";", user2Ctx);
-        Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user2Ctx.getDefaultCatalog());
+        Assertions.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user2Ctx.getDefaultCatalog());
         // user2 can switch to hive
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
         env.changeCatalog(user2Ctx, switchHive.getCatalogName());
-        Assert.assertEquals(user2Ctx.getDefaultCatalog(), "hive");
+        Assertions.assertEquals(user2Ctx.getDefaultCatalog(), "hive");
         // user2 can grant select_priv to tpch.customer
         GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
                 "grant select_priv on tpch.customer to 'user2'@'%';", user2Ctx);
@@ -228,28 +224,28 @@ public class CatalogMgrTest extends TestWithFeService {
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ShowCatalogStmt user1Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs;", user1Ctx);
         List<List<String>> user1ShowResult = env.getCatalogMgr().showCatalogs(user1Show).getResultRows();
-        Assert.assertEquals(user1ShowResult.size(), 1);
-        Assert.assertEquals(user1ShowResult.get(0).get(1), InternalCatalog.INTERNAL_CATALOG_NAME);
-        Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_DS_ID));
+        Assertions.assertEquals(user1ShowResult.size(), 1);
+        Assertions.assertEquals(user1ShowResult.get(0).get(1), InternalCatalog.INTERNAL_CATALOG_NAME);
+        Assertions.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_DS_ID));
 
         // mock the login of user2
         ConnectContext user2Ctx = createCtx(user2, "127.0.0.1");
         ShowCatalogStmt user2Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs;", user2Ctx);
         List<List<String>> user2ShowResult = env.getCatalogMgr().showCatalogs(user2Show).getResultRows();
-        Assert.assertEquals(user2ShowResult.size(), 2);
-        Assert.assertTrue(user2ShowResult.stream().map(l -> l.get(1)).anyMatch(c -> c.equals("hive")));
+        Assertions.assertEquals(user2ShowResult.size(), 2);
+        Assertions.assertTrue(user2ShowResult.stream().map(l -> l.get(1)).anyMatch(c -> c.equals("hive")));
 
         // access denied
         ShowCatalogStmt user2ShowHive = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalog hive;", user2Ctx);
         List<List<String>> user2ShowHiveResult = env.getCatalogMgr().showCatalogs(user2ShowHive).getResultRows();
-        Assert.assertTrue(
+        Assertions.assertTrue(
                 user2ShowHiveResult.stream().map(l -> l.get(0)).anyMatch(c -> c.equals("hive.metastore.uris")));
         try {
             env.getCatalogMgr()
                     .showCatalogs((ShowCatalogStmt) parseAndAnalyzeStmt("show catalog iceberg;", user2Ctx));
-            Assert.fail("");
+            Assertions.fail("");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(),
+            Assertions.assertEquals(e.getMessage(),
                     "errCode = 2, detailMessage = Access denied for user 'default_cluster:user2' to catalog 'iceberg'");
         }
     }

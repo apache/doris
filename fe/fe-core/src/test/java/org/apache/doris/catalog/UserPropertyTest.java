@@ -94,19 +94,21 @@ public class UserPropertyTest {
         UserProperty newProperty = UserProperty.read(inputStream);
 
         Assert.assertEquals(991, newProperty.getResource().getShareByGroup().get("low").intValue());
+        inputStream.close();
     }
 
     @Test
     public void testUpdate() throws UserException {
-        List<Pair<String, String>> properties = Lists.newArrayList();
-        properties.add(Pair.of("MAX_USER_CONNECTIONS", "100"));
-        properties.add(Pair.of("resource.cpu_share", "101"));
-        properties.add(Pair.of("quota.normal", "102"));
-        properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
-        properties.add(Pair.of("default_load_cluster", "dpp-cluster"));
-        properties.add(Pair.of("max_qUERY_instances", "3000"));
-        properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
-        properties.add(Pair.of("cpu_resource_limit", "2"));
+        List<Pair<String, String>> properties = Lists.newArrayList(
+                Pair.of("MAX_USER_CONNECTIONS", "100"),
+                Pair.of("resource.cpu_share", "101"),
+                Pair.of("quota.normal", "102"),
+                Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"),
+                Pair.of("default_load_cluster", "dpp-cluster"),
+                Pair.of("max_qUERY_instances", "3000"),
+                Pair.of("sql_block_rules", "rule1,rule2"),
+                Pair.of("cpu_resource_limit", "2")
+        );
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
@@ -152,15 +154,15 @@ public class UserPropertyTest {
         properties.clear();
         properties.add(Pair.of("load_cluster.dpp-cluster.hadoop_palo_path", null));
         userProperty.update(properties);
-        Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
+        Assert.assertNull(userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
 
         // remove dpp-cluster
         properties.clear();
         properties.add(Pair.of("load_cluster.dpp-cluster", null));
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         userProperty.update(properties);
-        Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second);
-        Assert.assertEquals(null, userProperty.getDefaultLoadCluster());
+        Assert.assertNull(userProperty.getLoadClusterInfo("dpp-cluster").second);
+        Assert.assertNull(userProperty.getDefaultLoadCluster());
 
         // sql block rule
         properties.clear();

@@ -26,8 +26,9 @@ import org.junit.Test;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class DropPartitionInfoTest {
     @Test
@@ -37,10 +38,8 @@ public class DropPartitionInfoTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./dropPartitionInfo");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-
+        final Path path = Files.createFile(Paths.get("./dropPartitionInfo"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
         DropPartitionInfo info1 = new DropPartitionInfo(1L, 2L, "test_partition", false, true);
         info1.write(dos);
 
@@ -48,7 +47,7 @@ public class DropPartitionInfoTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         DropPartitionInfo rInfo1 = DropPartitionInfo.read(dis);
 
@@ -58,17 +57,17 @@ public class DropPartitionInfoTest {
         Assert.assertFalse(rInfo1.isTempPartition());
         Assert.assertTrue(rInfo1.isForceDrop());
 
-        Assert.assertTrue(rInfo1.equals(info1));
-        Assert.assertFalse(rInfo1.equals(this));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(-1L, 2L, "test_partition", false, true)));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, -2L, "test_partition", false, true)));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition1", false, true)));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", true, true)));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", false, false)));
-        Assert.assertTrue(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", false, true)));
+        Assert.assertEquals(rInfo1, info1);
+        Assert.assertNotEquals(rInfo1, this);
+        Assert.assertNotEquals(info1, new DropPartitionInfo(-1L, 2L, "test_partition", false, true));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, -2L, "test_partition", false, true));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition1", false, true));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", true, true));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", false, false));
+        Assert.assertEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", false, true));
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

@@ -77,11 +77,11 @@ import org.junit.rules.ExpectedException;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -89,7 +89,7 @@ import java.util.Map;
 
 public class SchemaChangeJobV2Test {
 
-    private static String fileName = "./SchemaChangeV2Test";
+    private static final String fileName = "./SchemaChangeV2Test";
 
     private static FakeEditLog fakeEditLog;
     private static FakeEnv fakeEnv;
@@ -393,16 +393,14 @@ public class SchemaChangeJobV2Test {
     @Test
     public void testSerializeOfSchemaChangeJob() throws IOException {
         // prepare file
-        File file = new File(fileName);
-        file.createNewFile();
-        file.deleteOnExit();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2(1, 1, 1, "test", 600000);
         schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
         Deencapsulation.setField(schemaChangeJobV2, "jobState", AlterJobV2.JobState.FINISHED);
         Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
-        indexSchemaVersionAndHashMap.put(Long.valueOf(1000), new SchemaVersionAndHash(10, 20));
+        indexSchemaVersionAndHashMap.put(1000L, new SchemaVersionAndHash(10, 20));
         Deencapsulation.setField(schemaChangeJobV2, "indexSchemaVersionAndHashMap", indexSchemaVersionAndHashMap);
 
         // write schema change job
@@ -415,7 +413,7 @@ public class SchemaChangeJobV2Test {
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         SchemaChangeJobV2 result = (SchemaChangeJobV2) AlterJobV2.read(in);
         Assert.assertEquals(1, result.getJobId());
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, result.getJobState());
@@ -427,6 +425,7 @@ public class SchemaChangeJobV2Test {
         Map<Long, SchemaVersionAndHash> map = Deencapsulation.getField(result, "indexSchemaVersionAndHashMap");
         Assert.assertEquals(10, map.get(1000L).schemaVersion);
         Assert.assertEquals(20, map.get(1000L).schemaHash);
+        in.close();
     }
 
     @Test

@@ -21,16 +21,15 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.TimeZone;
@@ -202,35 +201,37 @@ public class PartitionKeyTest {
         FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         // 1. Write objects to file
-        File file = new File("./keyRangePartition");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("keyRangePartition", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         PartitionKey keyEmpty = new PartitionKey();
         keyEmpty.write(dos);
 
-        List<PartitionValue> keys = new ArrayList<PartitionValue>();
-        List<Column> columns = new ArrayList<Column>();
-        keys.add(new PartitionValue("100"));
-        columns.add(new Column("column2", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", ""));
-        keys.add(new PartitionValue("101"));
-        columns.add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", ""));
-        keys.add(new PartitionValue("102"));
-        columns.add(new Column("column4", ScalarType.createType(PrimitiveType.INT), true, null, "", ""));
-        keys.add(new PartitionValue("103"));
-        columns.add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), true, null, "", ""));
-        keys.add(new PartitionValue("2014-12-26"));
-        columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
-        keys.add(new PartitionValue("2014-12-27 11:12:13"));
-        columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
-        keys.add(new PartitionValue("beijing"));
-        columns.add(new Column("column12", ScalarType.createType(PrimitiveType.VARCHAR), true, null, "", ""));
-        keys.add(new PartitionValue("shanghai"));
-        columns.add(new Column("column13", ScalarType.createType(PrimitiveType.CHAR), true, null, "", ""));
-        keys.add(new PartitionValue("true"));
-        columns.add(new Column("column14", ScalarType.createType(PrimitiveType.BOOLEAN), true, null, "", ""));
-        keys.add(new PartitionValue("false"));
-        columns.add(new Column("column15", ScalarType.createType(PrimitiveType.BOOLEAN), true, null, "", ""));
+        ImmutableList<PartitionValue> keys = ImmutableList.<PartitionValue>builder()
+                .add(new PartitionValue("100"))
+                .add(new PartitionValue("101"))
+                .add(new PartitionValue("102"))
+                .add(new PartitionValue("103"))
+                .add(new PartitionValue("2014-12-26"))
+                .add(new PartitionValue("2014-12-27 11:12:13"))
+                .add(new PartitionValue("beijing"))
+                .add(new PartitionValue("shanghai"))
+                .add(new PartitionValue("true"))
+                .add(new PartitionValue("false"))
+                .build();
+
+        ImmutableList<Column> columns = ImmutableList.<Column>builder()
+                .add(new Column("column2", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", ""))
+                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", ""))
+                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), true, null, "", ""))
+                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), true, null, "", ""))
+                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""))
+                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""))
+                .add(new Column("column12", ScalarType.createType(PrimitiveType.VARCHAR), true, null, "", ""))
+                .add(new Column("column13", ScalarType.createType(PrimitiveType.CHAR), true, null, "", ""))
+                .add(new Column("column14", ScalarType.createType(PrimitiveType.BOOLEAN), true, null, "", ""))
+                .add(new Column("column15", ScalarType.createType(PrimitiveType.BOOLEAN), true, null, "", ""))
+                .build();
 
         PartitionKey key = PartitionKey.createPartitionKey(keys, columns);
         key.write(dos);
@@ -239,18 +240,18 @@ public class PartitionKeyTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         PartitionKey rKeyEmpty = PartitionKey.read(dis);
-        Assert.assertTrue(keyEmpty.equals(rKeyEmpty));
+        Assert.assertEquals(keyEmpty, rKeyEmpty);
 
         PartitionKey rKey = new PartitionKey();
         rKey.readFields(dis);
-        Assert.assertTrue(key.equals(rKey));
-        Assert.assertTrue(key.equals(key));
-        Assert.assertFalse(key.equals(this));
+        Assert.assertEquals(key, rKey);
+        Assert.assertEquals(key, key);
+        Assert.assertNotEquals(key, this);
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

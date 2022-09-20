@@ -40,9 +40,10 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 
 /*
  * Author: Chenmingyu
@@ -51,22 +52,22 @@ import java.util.UUID;
 
 public class CreateFunctionTest {
 
-    private static String runningDir = "fe/mocked/CreateFunctionTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext connectContext;
     private static DorisAssert dorisAssert;
+    private static Path path;
 
     @BeforeClass
     public static void setup() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
+        path = Files.createTempFile("CreateFunctionTest", "tmp");
+        UtFrameUtils.createDorisCluster(path.toAbsolutePath().toString());
         FeConstants.runningUnitTest = true;
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
     }
 
     @AfterClass
-    public static void teardown() {
-        File file = new File("fe/mocked/CreateFunctionTest/");
-        file.delete();
+    public static void teardown() throws IOException {
+        Files.deleteIfExists(path);
     }
 
     @Test

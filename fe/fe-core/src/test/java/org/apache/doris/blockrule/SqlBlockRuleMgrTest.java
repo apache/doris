@@ -34,9 +34,8 @@ import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class SqlBlockRuleMgrTest extends TestWithFeService {
 
@@ -262,13 +261,12 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
                 + " \"global\"=\"true\", \"enable\"=\"true\")";
         CreateSqlBlockRuleStmt createSqlBlockRuleStmt = (CreateSqlBlockRuleStmt) parseAndAnalyzeStmt(sqlRule);
         SqlBlockRule sqlBlockRule = SqlBlockRule.fromCreateStmt(createSqlBlockRuleStmt);
-        File file = new File("./SqlBlockRuleTest");
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("SqlBlockRuleTest", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
         sqlBlockRule.write(out);
         out.flush();
         out.close();
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         SqlBlockRule read = SqlBlockRule.read(in);
         Assertions.assertEquals(sqlBlockRule.getName(), read.getName());
         Assertions.assertEquals(sqlBlockRule.getSql(), read.getSql());
@@ -279,7 +277,8 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         Assertions.assertEquals(sqlBlockRule.getEnable(), read.getEnable());
         Assertions.assertEquals(sqlBlockRule.getGlobal(), read.getGlobal());
         Assertions.assertEquals(sqlBlockRule.getSqlPattern().toString(), read.getSqlPattern().toString());
-        file.delete();
+        in.close();
+        Files.deleteIfExists(path);
     }
 
     @Test

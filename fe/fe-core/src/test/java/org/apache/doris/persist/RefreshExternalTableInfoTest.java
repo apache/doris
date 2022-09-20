@@ -32,9 +32,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -55,9 +55,8 @@ public class RefreshExternalTableInfoTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./RefreshExteranlTableInfo");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get("./RefreshExteranlTableInfo"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         List<Column> columns = new ArrayList<Column>();
         Column column2 = new Column("column2",
@@ -85,15 +84,15 @@ public class RefreshExternalTableInfoTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         RefreshExternalTableInfo rInfo1 = RefreshExternalTableInfo.read(dis);
-        Assert.assertTrue(rInfo1.getDbName().equals(info.getDbName()));
-        Assert.assertTrue(rInfo1.getTableName().equals(info.getTableName()));
-        Assert.assertTrue(rInfo1.getNewSchema().equals(info.getNewSchema()));
+        Assert.assertEquals(rInfo1.getDbName(), info.getDbName());
+        Assert.assertEquals(rInfo1.getTableName(), info.getTableName());
+        Assert.assertEquals(rInfo1.getNewSchema(), info.getNewSchema());
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

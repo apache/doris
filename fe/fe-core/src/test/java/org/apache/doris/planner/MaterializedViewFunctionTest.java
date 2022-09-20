@@ -33,8 +33,8 @@ import org.junit.Test;
 import java.util.UUID;
 
 public class MaterializedViewFunctionTest {
-    private static String baseDir = "fe";
-    private static String runningDir =
+    private static final String baseDir = "fe";
+    private static final String runningDir =
             baseDir + "/mocked/MaterializedViewFunctionTest/" + UUID.randomUUID().toString() + "/";
     private static final String EMPS_TABLE_NAME = "emps";
     private static final String EMPS_MV_NAME = "emps_mv";

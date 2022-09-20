@@ -28,6 +28,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -38,10 +39,10 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 
@@ -50,35 +51,34 @@ public class MaterializedIndexMetaTest {
     private static String fileName = "./MaterializedIndexMetaSerializeTest";
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(fileName));
     }
 
     @Test
     public void testSerializeMaterializedIndexMeta(@Mocked CreateMaterializedViewStmt stmt)
             throws IOException, AnalysisException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get(fileName));
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + FunctionSet.BITMAP_UNION + "_" + "k1";
-        List<Column> schema = Lists.newArrayList();
-        schema.add(new Column("k1", Type.TINYINT, true, null, true, "1", "abc"));
-        schema.add(new Column("k2", Type.SMALLINT, true, null, true, "1", "debug"));
-        schema.add(new Column("k3", Type.INT, true, null, true, "1", ""));
-        schema.add(new Column("k4", Type.BIGINT, true, null, true, "1", "**"));
-        schema.add(new Column("k5", Type.LARGEINT, true, null, true, null, ""));
-        schema.add(new Column("k6", Type.DOUBLE, true, null, true, "1.1", ""));
-        schema.add(new Column("k7", Type.FLOAT, true, null, true, "1", ""));
-        schema.add(new Column("k8", Type.DATE, true, null, true, "1", ""));
-        schema.add(new Column("k9", Type.DATETIME, true, null, true, "1", ""));
-        schema.add(new Column("k10", Type.VARCHAR, true, null, true, "1", ""));
-        schema.add(new Column("k11", Type.DECIMALV2, true, null, true, "1", ""));
-        schema.add(new Column("k12", Type.INT, true, null, true, "1", ""));
-        schema.add(new Column("v1", Type.INT, false, AggregateType.SUM, true, "1", ""));
-        schema.add(new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", ""));
+        ImmutableList<Column> schema = ImmutableList.<Column>builder()
+                .add(new Column("k1", Type.TINYINT, true, null, true, "1", "abc"))
+                .add(new Column("k2", Type.SMALLINT, true, null, true, "1", "debug"))
+                .add(new Column("k3", Type.INT, true, null, true, "1", ""))
+                .add(new Column("k4", Type.BIGINT, true, null, true, "1", "**"))
+                .add(new Column("k5", Type.LARGEINT, true, null, true, null, ""))
+                .add(new Column("k6", Type.DOUBLE, true, null, true, "1.1", ""))
+                .add(new Column("k7", Type.FLOAT, true, null, true, "1", ""))
+                .add(new Column("k8", Type.DATE, true, null, true, "1", ""))
+                .add(new Column("k9", Type.DATETIME, true, null, true, "1", ""))
+                .add(new Column("k10", Type.VARCHAR, true, null, true, "1", ""))
+                .add(new Column("k11", Type.DECIMALV2, true, null, true, "1", ""))
+                .add(new Column("k12", Type.INT, true, null, true, "1", ""))
+                .add(new Column("v1", Type.INT, false, AggregateType.SUM, true, "1", ""))
+                .add(new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", ""))
+                .build();
         short shortKeyColumnCount = 1;
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(1, schema, 1, 1, shortKeyColumnCount,
                 TStorageType.COLUMN, KeysType.DUP_KEYS, new OriginStatement(
@@ -104,7 +104,7 @@ public class MaterializedIndexMetaTest {
 
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         MaterializedIndexMeta readIndexMeta = MaterializedIndexMeta.read(in);
         Assert.assertEquals(1, readIndexMeta.getIndexId());
         List<Column> resultColumns = readIndexMeta.getSchema();
@@ -115,8 +115,10 @@ public class MaterializedIndexMetaTest {
                 Assert.assertEquals(AggregateType.BITMAP_UNION, column.getAggregationType());
                 Assert.assertEquals("to_bitmap", ((FunctionCallExpr) column.getDefineExpr()).getFnName().getFunction());
             } else {
-                Assert.assertEquals(null, column.getDefineExpr());
+                Assert.assertNull(column.getDefineExpr());
             }
         }
+
+        in.close();
     }
 }

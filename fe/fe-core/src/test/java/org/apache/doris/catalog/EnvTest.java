@@ -31,12 +31,9 @@ import org.junit.Test;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Random;
 
 public class EnvTest {
@@ -53,80 +50,12 @@ public class EnvTest {
         };
     }
 
-    public void mkdir(String dirString) {
-        File dir = new File(dirString);
-        if (!dir.exists()) {
-            dir.mkdir();
-        } else {
-            File[] files = dir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    file.delete();
-                }
-            }
-        }
-    }
-
-    public void addFiles(int image, int edit, String metaDir) {
-        File imageFile = new File(metaDir + "image." + image);
-        try {
-            imageFile.createNewFile();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        for (int i = 1; i <= edit; i++) {
-            File editFile = new File(metaDir + "edits." + i);
-            try {
-                editFile.createNewFile();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        File current = new File(metaDir + "edits");
-        try {
-            current.createNewFile();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        File version = new File(metaDir + "VERSION");
-        try {
-            version.createNewFile();
-            String line1 = "#Mon Feb 02 13:59:54 CST 2015\n";
-            String line2 = "clusterId=966271669";
-            FileWriter fw = new FileWriter(version);
-            fw.write(line1);
-            fw.write(line2);
-            fw.flush();
-            fw.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void deleteDir(String metaDir) {
-        File dir = new File(metaDir);
-        if (dir.exists()) {
-            File[] files = dir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    file.delete();
-                }
-            }
-
-            dir.delete();
-        }
-    }
-
     @Test
     public void testSaveLoadHeader() throws Exception {
         String dir = "testLoadHeader";
-        mkdir(dir);
-        File file = new File(dir, "image");
-        file.createNewFile();
-        CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
+
+        Path path = Files.createTempFile(dir, "image");
+        CountingDataOutputStream dos = new CountingDataOutputStream(Files.newOutputStream(path));
         Env env = Env.getCurrentEnv();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = env.getClass().getDeclaredField("load");
@@ -135,25 +64,22 @@ public class EnvTest {
 
         long checksum1 = env.saveHeader(dos, new Random().nextLong(), 0);
         env.clear();
-        env = null;
         dos.close();
 
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
+        DataInputStream dis = new DataInputStream(new BufferedInputStream(Files.newInputStream(path)));
         env = Env.getCurrentEnv();
         long checksum2 = env.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
         Assert.assertEquals(checksum1, checksum2);
         dis.close();
 
-        deleteDir(dir);
+        Files.deleteIfExists(path);
     }
 
     @Test
     public void testSaveLoadJob() throws Exception {
         String dir = "testLoadLoadJob";
-        mkdir(dir);
-        File file = new File(dir, "image");
-        file.createNewFile();
-        CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile(dir, "image");
+        CountingDataOutputStream dos = new CountingDataOutputStream(Files.newOutputStream(path));
 
         Env env = Env.getCurrentEnv();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
@@ -165,7 +91,6 @@ public class EnvTest {
         env.getLoadInstance().unprotectAddLoadJob(job1, true);
         long checksum1 = env.saveLoadJob(dos, 0);
         env.clear();
-        env = null;
         dos.close();
 
         env = Env.getCurrentEnv();
@@ -174,13 +99,12 @@ public class EnvTest {
         field2.setAccessible(true);
         field2.set(env, new Load());
 
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         long checksum2 = env.loadLoadJob(dis, 0);
         Assert.assertEquals(checksum1, checksum2);
         LoadJob job2 = env.getLoadInstance().getLoadJob(-1);
-        Assert.assertTrue(job1.equals(job2));
+        Assert.assertEquals(job1, job2);
         dis.close();
-
-        deleteDir(dir);
+        Files.deleteIfExists(path);
     }
 }

@@ -38,9 +38,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 public class LoadJobV2PersistTest {
@@ -81,9 +81,8 @@ public class LoadJobV2PersistTest {
         };
 
         // 1. Write objects to file
-        File file = new File("./testBrokerLoadJob");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createFile(Paths.get("./testBrokerLoadJob"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         BrokerLoadJob job = createJob();
         Assert.assertEquals(5, job.getLoadParallelism());
@@ -93,7 +92,7 @@ public class LoadJobV2PersistTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         BrokerLoadJob rJob = (BrokerLoadJob)  BrokerLoadJob.read(dis);
         Assert.assertEquals(5, rJob.getLoadParallelism());
@@ -101,6 +100,6 @@ public class LoadJobV2PersistTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

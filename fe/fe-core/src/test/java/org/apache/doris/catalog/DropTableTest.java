@@ -31,7 +31,9 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,9 +60,8 @@ public class DropTableTest {
     }
 
     @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
+    public static void tearDown() throws IOException {
+        Files.deleteIfExists(Paths.get(runningDir));
     }
 
     private static void createDb(String sql) throws Exception {

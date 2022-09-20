@@ -24,7 +24,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -32,21 +31,14 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 public class ColumnGsonSerializationTest {
 
-    private static String fileName = "./ColumnGsonSerializationTest";
-
-    @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
-    }
+    private static String fileName = "ColumnGsonSerializationTest";
 
     public static class ColumnList implements Writable {
         @SerializedName(value = "columns")
@@ -65,11 +57,10 @@ public class ColumnGsonSerializationTest {
     }
 
     @Test
-    public void testSerializeColumn() throws IOException, AnalysisException {
+    public void testSerializeColumn() throws IOException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile(fileName, "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
 
@@ -79,20 +70,23 @@ public class ColumnGsonSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         String readJson = Text.readString(in);
         Column readC1 = GsonUtils.GSON.fromJson(readJson, Column.class);
 
         Assert.assertEquals(c1, readC1);
+
+        // 3. Delete files
+        in.close();
+        Files.deleteIfExists(path);
     }
 
     @Test
     public void testSerializeColumnList() throws IOException, AnalysisException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile(fileName, "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
         Column c2 = new Column("c2", ScalarType.createType(PrimitiveType.VARCHAR, 32, -1, -1), true, null, true, "cmy", "");
@@ -108,7 +102,7 @@ public class ColumnGsonSerializationTest {
         out.close();
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
         ColumnList readList = ColumnList.read(in);
         List<Column> columns = readList.columns;
@@ -117,6 +111,9 @@ public class ColumnGsonSerializationTest {
         Assert.assertEquals(c1, columns.get(0));
         Assert.assertEquals(c2, columns.get(1));
         Assert.assertEquals(c3, columns.get(2));
+        // 3. Delete files
+        in.close();
+        Files.deleteIfExists(path);
     }
 
 }

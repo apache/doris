@@ -28,7 +28,6 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -38,9 +37,8 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -63,12 +61,14 @@ public class OdbcCatalogResourceTest {
         port = "7777";
         user = "doris";
         passwd = "doris";
-        properties = Maps.newHashMap();
-        properties.put("type", type);
-        properties.put("host", host);
-        properties.put("port", port);
-        properties.put("user", user);
-        properties.put("password", passwd);
+        properties = new HashMap<String, String>() {{
+                put("type", type);
+                put("host", host);
+                put("port", port);
+                put("user", user);
+                put("password", passwd);
+                }};
+
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
@@ -117,9 +117,8 @@ public class OdbcCatalogResourceTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./odbcCatalogResource");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("odbcCatalogResource", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         OdbcCatalogResource odbcCatalogResource1 = new OdbcCatalogResource("odbc1");
         odbcCatalogResource1.write(dos);
@@ -137,7 +136,7 @@ public class OdbcCatalogResourceTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         OdbcCatalogResource rOdbcCatalogResource1 = (OdbcCatalogResource) OdbcCatalogResource.read(dis);
         OdbcCatalogResource rOdbcCatalogResource2 = (OdbcCatalogResource) OdbcCatalogResource.read(dis);
@@ -152,6 +151,6 @@ public class OdbcCatalogResourceTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

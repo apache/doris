@@ -44,9 +44,9 @@ public class OlapScanNodeTest {
     public void testHashDistributionOneUser() throws AnalysisException {
 
         List<Long> partitions = new ArrayList<>();
-        partitions.add(new Long(0));
-        partitions.add(new Long(1));
-        partitions.add(new Long(2));
+        partitions.add(0L);
+        partitions.add(1L);
+        partitions.add(2L);
 
 
         List<Column> columns = Lists.newArrayList();
@@ -83,9 +83,9 @@ public class OlapScanNodeTest {
     public void testHashPartitionManyUser() throws AnalysisException {
 
         List<Long> partitions = new ArrayList<>();
-        partitions.add(new Long(0));
-        partitions.add(new Long(1));
-        partitions.add(new Long(2));
+        partitions.add(0L);
+        partitions.add(1L);
+        partitions.add(2L);
 
         List<Column> columns = Lists.newArrayList();
         columns.add(new Column("columnA", PrimitiveType.BIGINT));

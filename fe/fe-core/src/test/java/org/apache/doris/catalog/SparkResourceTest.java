@@ -36,6 +36,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class SparkResourceTest {
@@ -54,12 +55,13 @@ public class SparkResourceTest {
         master = "spark://127.0.0.1:7077";
         workingDir = "hdfs://127.0.0.1/tmp/doris";
         broker = "broker0";
-        properties = Maps.newHashMap();
-        properties.put("type", type);
-        properties.put("spark.master", master);
-        properties.put("spark.submit.deployMode", "cluster");
-        properties.put("working_dir", workingDir);
-        properties.put("broker", broker);
+        properties = new HashMap<String, String>() {{
+                put("type", type);
+                put("spark.master", master);
+                put("spark.submit.deployMode", "cluster");
+                put("working_dir", workingDir);
+                put("broker", broker);
+            }};
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
@@ -100,13 +102,19 @@ public class SparkResourceTest {
         Assert.assertEquals("client", resource.getDeployMode().name().toLowerCase());
 
         // master: yarn, deploy_mode cluster
-        properties.put("spark.master", "yarn");
-        properties.put("spark.submit.deployMode", "cluster");
-        properties.put("spark.jars", "xxx.jar,yyy.jar");
-        properties.put("spark.files", "/tmp/aaa,/tmp/bbb");
-        properties.put("spark.driver.memory", "1g");
-        properties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
-        properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        properties.putAll(new HashMap<String, String>() {{
+                put("spark.master", "yarn");
+                put("spark.submit.deployMode", "cluster");
+                put("spark.jars", "xxx.jar,yyy.jar");
+                put("spark.files", "/tmp/aaa,/tmp/bbb");
+                put("spark.driver.memory", "1g");
+                put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+                put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+            }}
+        );
+
+        System.out.println(properties.toString());
+
         stmt = new CreateResourceStmt(true, name, properties);
         stmt.analyze(analyzer);
         resource = (SparkResource) Resource.fromStmt(stmt);
@@ -134,12 +142,14 @@ public class SparkResourceTest {
                 result = true;
             }
         };
-
-        properties.put("spark.master", "yarn");
-        properties.put("spark.submit.deployMode", "cluster");
-        properties.put("spark.driver.memory", "1g");
-        properties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
-        properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        properties.putAll(new HashMap<String, String>() {{
+                put("spark.master", "yarn");
+                put("spark.submit.deployMode", "cluster");
+                put("spark.driver.memory", "1g");
+                put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+                put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+            }}
+        );
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
         stmt.analyze(analyzer);
         SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
