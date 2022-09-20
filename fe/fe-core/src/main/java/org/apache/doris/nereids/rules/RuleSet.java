@@ -56,13 +56,13 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(JoinCommute.LEFT_DEEP)
+            .add(JoinCommute.ZIG_ZAG)
             .add(InnerJoinLAsscom.INSTANCE)
             .add(InnerJoinLAsscomProject.INSTANCE)
             .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
-            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
-            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
+            .add(SemiJoinLogicalJoinTranspose.ALL)
+            .add(SemiJoinLogicalJoinTransposeProject.ALL)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(new PushdownFilterThroughProject())
             .add(new MergeConsecutiveProjects())
