@@ -54,6 +54,7 @@ set(VEC_FILES
   common/exception.cpp
   common/mremap.cpp
   common/pod_array.cpp
+  common/sort/heap_sorter.cpp
   common/sort/sorter.cpp
   common/sort/topn_sorter.cpp
   common/sort/vsort_exec_exprs.cpp

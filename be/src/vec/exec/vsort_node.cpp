@@ -22,6 +22,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/core/sort_block.h"
 #include "vec/utils/util.hpp"
@@ -38,6 +39,11 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
     const auto& row_desc = child(0)->row_desc();
+    // If `limit` is smaller than HEAP_SORT_THRESHOLD, we consider using heap sort in priority.
+    // To do heap sorting, each income block will be filtered by heap-top row. There will be some
+    // `memcpy` operations. To ensure heap sort will not incur performance fallback, we should
+    // exclude cases which incoming blocks has string column which is sensitive to operations like
+    // `filter` and `memcpy`
     if (_limit > 0 && _limit + _offset < HeapSorter::HEAP_SORT_THRESHOLD &&
         !row_desc.has_varlen_slots()) {
         _sorter.reset(new HeapSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
