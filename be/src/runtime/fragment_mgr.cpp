@@ -624,7 +624,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl,
                                               &(fragments_ctx->desc_tbl)));
         fragments_ctx->coord_addr = params.coord;
-        LOG(INFO) << "query_id: " << UniqueId(fragments_ctx->query_id.hi, fragments_ctx->query_id.lo) << " coord_addr " << fragments_ctx->coord_addr;
+        LOG(INFO) << "query_id: "
+                  << UniqueId(fragments_ctx->query_id.hi, fragments_ctx->query_id.lo)
+                  << " coord_addr " << fragments_ctx->coord_addr;
         fragments_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
