@@ -40,6 +40,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushDownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicatesThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
@@ -70,6 +71,7 @@ public class RuleSet {
     public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
             new PushDownJoinOtherCondition(),
             new PushPredicatesThroughJoin(),
+            new PushDownExpressionsInHashCondition(),
             new PushdownProjectThroughLimit(),
             new PushdownFilterThroughProject(),
             new MergeConsecutiveProjects(),
