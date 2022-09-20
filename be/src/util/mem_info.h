@@ -44,8 +44,8 @@ public:
         return _s_physical_mem;
     }
 
-    static inline int64_t current_mem() { return _s_allocator_physical_mem; }
-    static inline int64_t allocator_cache_mem() { return _s_allocator_cache_mem; }
+    static inline size_t current_mem() { return _s_allocator_physical_mem; }
+    static inline size_t allocator_cache_mem() { return _s_allocator_cache_mem; }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
@@ -77,12 +77,12 @@ private:
     static int64_t _s_physical_mem;
     static int64_t _s_mem_limit;
     static int64_t _s_hard_mem_limit;
-    static int64_t _s_allocator_physical_mem;
-    static int64_t _s_tcmalloc_pageheap_free_bytes;
-    static int64_t _s_tcmalloc_central_bytes;
-    static int64_t _s_tcmalloc_transfer_bytes;
-    static int64_t _s_tcmalloc_thread_bytes;
-    static int64_t _s_allocator_cache_mem;
+    static size_t _s_allocator_physical_mem;
+    static size_t _s_tcmalloc_pageheap_free_bytes;
+    static size_t _s_tcmalloc_central_bytes;
+    static size_t _s_tcmalloc_transfer_bytes;
+    static size_t _s_tcmalloc_thread_bytes;
+    static size_t _s_allocator_cache_mem;
 };
 
 } // namespace doris

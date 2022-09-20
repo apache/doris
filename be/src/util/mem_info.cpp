@@ -41,12 +41,12 @@ bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;
 int64_t MemInfo::_s_mem_limit = -1;
 int64_t MemInfo::_s_hard_mem_limit = -1;
-int64_t MemInfo::_s_allocator_physical_mem = -1;
-int64_t MemInfo::_s_tcmalloc_pageheap_free_bytes = -1;
-int64_t MemInfo::_s_tcmalloc_central_bytes = -1;
-int64_t MemInfo::_s_tcmalloc_transfer_bytes = -1;
-int64_t MemInfo::_s_tcmalloc_thread_bytes = -1;
-int64_t MemInfo::_s_allocator_cache_mem = -1;
+size_t MemInfo::_s_allocator_physical_mem = 0;
+size_t MemInfo::_s_tcmalloc_pageheap_free_bytes = 0;
+size_t MemInfo::_s_tcmalloc_central_bytes = 0;
+size_t MemInfo::_s_tcmalloc_transfer_bytes = 0;
+size_t MemInfo::_s_tcmalloc_thread_bytes = 0;
+size_t MemInfo::_s_allocator_cache_mem = 0;
 
 void MemInfo::init() {
     // Read from /proc/meminfo
