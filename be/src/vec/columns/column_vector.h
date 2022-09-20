@@ -21,6 +21,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
 #include <type_traits>
 
 #include "olap/uint24.h"
@@ -207,6 +208,15 @@ public:
         } else {
             insert_many_in_copy_way(data_ptr, num);
         }
+    }
+
+    void insert_many_fix_len_data(const char** address, size_t num) override {
+        char* res_ptr = (char*)data.get_end_ptr();
+        for (int i = 0; i < num; i++) {
+            ((T*)res_ptr)[i] = *((T*)address[i]);
+        }
+        res_ptr += num * sizeof(T);
+        data.set_end_ptr(res_ptr);
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {

@@ -112,6 +112,11 @@ public:
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
 
+    void insert_many_fix_len_data(const char** address, size_t num) override {
+        get_null_map_column().fill(0, num);
+        get_nested_column().insert_many_fix_len_data(address, num);
+    }
+
     void insert_many_raw_data(const char* pos, size_t num) override {
         get_null_map_column().fill(0, num);
         get_nested_column().insert_many_raw_data(pos, num);

@@ -28,6 +28,7 @@
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/core/types.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -243,6 +244,23 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
         size_t old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::insert_many_fix_len_data(const char** address, size_t num) {
+    size_t old_size = data.size();
+    data.resize(old_size + num);
+    if (this->is_decimalv2_type()) {
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = address[i];
+            data[old_size + i] = (Decimal128)DecimalV2Value(*(int64_t*)(cur_ptr),
+                                                            *(int32_t*)(cur_ptr + sizeof(int64_t)));
+        }
+    } else {
+        for (int i = 0; i < num; i++) {
+            data[old_size + i] = *((T*)address[i]);
+        }
     }
 }
 

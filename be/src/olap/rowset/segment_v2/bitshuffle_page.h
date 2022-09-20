@@ -43,7 +43,7 @@
 namespace doris {
 namespace segment_v2 {
 
-enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
+constexpr int BITSHUFFLE_PAGE_HEADER_SIZE = 16;
 
 void warn_with_bitshuffle_error(int64_t val);
 
@@ -404,24 +404,28 @@ public:
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0)) {
-            *n = 0;
             return Status::OK();
         }
 
         auto total = *n;
         auto read_count = 0;
-        CppType data[total];
+
+        Chunk buffer;
+        ChunkAllocator::instance()->allocate_align(sizeof(char*) * total, &buffer);
+        const char** address = (const char**)buffer.data;
+
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
-            if (UNLIKELY(ord >= _num_elements)) {
+            if (ord >= _num_elements) {
                 break;
             }
-
-            data[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
+            address[read_count++] = _data.data + BITSHUFFLE_PAGE_HEADER_SIZE + ord * SIZE_OF_TYPE;
         }
 
-        if (LIKELY(read_count > 0)) dst->insert_many_fix_len_data((const char*)data, read_count);
-
+        if (read_count > 0) {
+            dst->insert_many_fix_len_data(address, read_count);
+        }
+        ChunkAllocator::instance()->free(buffer);
         *n = read_count;
         return Status::OK();
     }
@@ -445,7 +449,7 @@ private:
 
     using CppType = typename TypeTraits<Type>::CppType;
 
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr int SIZE_OF_TYPE = TypeTraits<Type>::size;
 
     Slice _data;
     PageDecoderOptions _options;

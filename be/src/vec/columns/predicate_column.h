@@ -252,6 +252,15 @@ public:
         }
     }
 
+    void insert_many_fix_len_data(const char** address, size_t num) override {
+        char* res_ptr = (char*)data.get_end_ptr();
+        for (int i = 0; i < num; i++) {
+            ((T*)res_ptr)[i] = *((T*)address[i]);
+        }
+        res_ptr += num * sizeof(T);
+        data.set_end_ptr(res_ptr);
+    }
+
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
         if constexpr (std::is_same_v<T, StringValue>) {

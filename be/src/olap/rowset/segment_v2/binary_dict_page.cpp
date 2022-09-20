@@ -287,7 +287,6 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
         if (rowids[i] >= limit) {
             break;
         }
-
         data[read_count++] = data_array[rowids[i] - page_first_ordinal];
     }
 
