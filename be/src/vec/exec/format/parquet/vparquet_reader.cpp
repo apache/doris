@@ -151,6 +151,7 @@ Status ParquetReader::get_next_block(Block* block, bool* eof) {
             // _read_row_groups.pop_front();
         }
     }
+	LOG(INFO) << "cmy ParquetReader::get_next_block: " << block->rows();
     return Status::OK();
 }
 

@@ -57,6 +57,7 @@ Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
     }
 
     if (_is_load) {
+		_src_block_mem_reuse = true;
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                               std::vector<TupleId>({_input_tuple_desc->id()}),
                                               std::vector<bool>({false})));
@@ -87,18 +88,22 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     if (!_scanner_eof) {
         RETURN_IF_ERROR(_init_src_block(block));
         RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &_cur_reader_eof));
+		LOG(INFO) << "cmy after get_next_block: " << _src_block_ptr->dump_data(0, 1);
         RETURN_IF_ERROR(_cast_to_input_block(block));
     }
 
-    if (block->rows() > 0) {
+	LOG(INFO) << "cmy _scanner_eof: " << _scanner_eof << ", block->rows(): " << block->rows();
+    if (_scanner_eof && _src_block_ptr->rows() == 0) {
+        *eof = true;
+    }
+
+    if (_src_block_ptr->rows() > 0) {
         _fill_columns_from_path();
         _pre_filter_src_block();
+		LOG(INFO) << "cmy after pre fileter: " << _src_block_ptr->dump_data(0, 1);
         _convert_to_output_block(block);
     }
 
-    if (_scanner_eof && block->rows() == 0) {
-        *eof = true;
-    }
     return Status::OK();
 }
 
@@ -112,29 +117,33 @@ Status VFileScanner::_init_src_block(Block* block) {
     _src_block.clear();
 
     std::unordered_map<std::string, TypeDescriptor> name_to_type = _cur_reader->get_name_to_type();
-    for (auto& it : name_to_type) {
-        DataTypePtr data_type = DataTypeFactory::instance().create_data_type(it.second, true);
+	size_t idx = 0;
+	for (auto& slot : _input_tuple_desc->slots()) {
+        DataTypePtr data_type = DataTypeFactory::instance().create_data_type(name_to_type[slot->col_name()], true);
         if (data_type == nullptr) {
-            return Status::NotSupported(fmt::format("Not support arrow type:{}", it.second.type));
+            return Status::NotSupported(fmt::format("Not support arrow type:{}", slot->col_name()));
         }
         MutableColumnPtr data_column = data_type->create_column();
-        _src_block.insert(ColumnWithTypeAndName(std::move(data_column), data_type, it.first));
-    }
+        _src_block.insert(ColumnWithTypeAndName(std::move(data_column), data_type, slot->col_name()));
+		_src_block_name_to_idx.emplace(slot->col_name(), idx++);
+	}
     _src_block_ptr = &_src_block;
     return Status::OK();
 }
 
 Status VFileScanner::_cast_to_input_block(Block* block) {
-    if (_input_block_ptr == block) {
+	LOG(INFO) << "cmy _cast_to_input_block: " << (_src_block_ptr == block) << ", _file_slot_descs.size: " << _file_slot_descs.size();
+    if (_src_block_ptr == block) {
         return Status::OK();
     }
     // cast primitive type(PT0) to primitive type(PT1)
+	size_t idx = 0;
     for (size_t i = 0; i < _file_slot_descs.size(); ++i) {
         SlotDescriptor* slot_desc = _file_slot_descs[i];
         if (slot_desc == nullptr) {
             continue;
         }
-        auto& arg = _input_block_ptr->get_by_name(slot_desc->col_name());
+        auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
         // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
         ColumnsWithTypeAndName arguments {
@@ -144,13 +153,17 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
                  std::make_shared<DataTypeString>(), ""}};
         auto func_cast =
                 SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
-        RETURN_IF_ERROR(func_cast->execute(nullptr, *_input_block_ptr, {i}, i, arg.column->size()));
-        _input_block_ptr->get_by_position(i).type = std::move(return_type);
+		idx = _src_block_name_to_idx[slot_desc->col_name()];
+		LOG(INFO) << "cmy fil slot desc name: " << slot_desc->col_name() << ", type: " << slot_desc->type() << ", idx: " << idx;
+        RETURN_IF_ERROR(func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+        _src_block_ptr->get_by_position(idx).type = std::move(return_type);
     }
+	LOG(INFO) << "cmy _cast_to_input_block input block ptr size: " << _src_block_ptr->dump_data(0, 1);
     return Status::OK();
 }
 
 Status VFileScanner::_fill_columns_from_path() {
+	LOG(INFO) << "cmy partition slot desc: " << _partition_slot_descs.size();
     size_t rows = _src_block_ptr->rows();
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
@@ -178,20 +191,28 @@ Status VFileScanner::_fill_columns_from_path() {
 }
 
 Status VFileScanner::_convert_to_output_block(Block* block) {
+	LOG(INFO) << "cmy VFileScanner::_convert_to_output_block: " << (_src_block_ptr == block);
     if (_src_block_ptr == block) {
         return Status::OK();
     }
 
+	block->clear();
+
+	LOG(INFO) << "cmy VFileScanner::_convert_to_output_block rows: " <<  _src_block.rows() << ", _dest_tuple_desc: " << _output_tuple_desc->slots().size();
+	LOG(INFO) << "cmy _src_block: " << _src_block.dump_data(0, 1);
     int ctx_idx = 0;
     size_t rows = _src_block.rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
     auto origin_column_num = _src_block.columns();
 
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
+    for (auto slot_desc : _output_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
+
+		LOG(INFO) << "cmy output slot desc name: " << slot_desc->col_name() << ", type: " << slot_desc->type();
+
         int dest_index = ctx_idx++;
 
         auto* ctx = _dest_vexpr_ctx[dest_index];
@@ -203,6 +224,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                 is_origin_column && _src_block_mem_reuse
                         ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
                         : _src_block.get_by_position(result_column_id).column;
+		LOG(INFO) << "cmy after idx: " << dest_index << ", result_column_id: " << result_column_id << ", _src_block: " << _src_block.dump_data(0, 1);
+		LOG(INFO) << "cmy column_ptr size: " << column_ptr->size();
 
         DCHECK(column_ptr != nullptr);
 
@@ -259,10 +282,11 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         } else if (slot_desc->is_nullable()) {
             column_ptr = vectorized::make_nullable(column_ptr);
         }
-        block->insert(vectorized::ColumnWithTypeAndName(
+        block->insert(dest_index, vectorized::ColumnWithTypeAndName(
                 std::move(column_ptr), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
     }
 
+	LOG(INFO) << "cmy before block columns: " << block->columns() << ", rows: " << block->rows();
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     if (_src_block_mem_reuse) {
         _src_block.clear_column_data(origin_column_num);
@@ -270,12 +294,14 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         _src_block.clear();
     }
 
+	LOG(INFO) << "cmy block columns: " << block->columns() << ", rows: " << block->rows();
     size_t dest_size = block->columns();
     // do filter
     block->insert(vectorized::ColumnWithTypeAndName(std::move(filter_column),
                                                     std::make_shared<vectorized::DataTypeUInt8>(),
                                                     "filter column"));
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
+	LOG(INFO) << "cmy block2 columns: " << block->columns() << ", rows: " << block->rows();
     // _counter->num_rows_filtered += rows - dest_block->rows();
 
     return Status::OK();

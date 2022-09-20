@@ -99,6 +99,8 @@ protected:
     // dest slot desc index to src slot desc index
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
 
+	std::unordered_map<std::string, size_t> _src_block_name_to_idx;
+
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);

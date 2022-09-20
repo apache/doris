@@ -61,6 +61,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 _num_rows_read += _input_block_ptr->rows();
             }
 
+			/*
             // 2. For load, use prefilter to filter the input block first.
             {
                 SCOPED_TIMER(_parent->_prefilter_timer);
@@ -72,6 +73,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 SCOPED_TIMER(_parent->_convert_block_timer);
                 RETURN_IF_ERROR(_convert_to_output_block(block));
             }
+			*/
 
             // 4. Filter the output block finally.
             //    NOTE that step 2/3 may be skipped, for Query.
@@ -86,11 +88,12 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 void VScanner::_init_input_block(Block* output_block) {
-    if (_input_tuple_desc == nullptr) {
+  //  if (_input_tuple_desc == nullptr) {
         _input_block_ptr = output_block;
         return;
-    }
+  //  }
 
+/*
     // init the input block used for scanner.
     _input_block.clear();
     _input_block_ptr = &_input_block;
@@ -101,6 +104,7 @@ void VScanner::_init_input_block(Block* output_block) {
         _input_block.insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
     }
+	*/
 }
 
 Status VScanner::_filter_input_block(Block* block) {
