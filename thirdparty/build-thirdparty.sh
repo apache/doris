@@ -263,7 +263,7 @@ strip_lib() {
             exit 1
         fi
         if [[ ! -f "${TP_LIB_DIR}/$1" ]]; then
-            echo "to be striped lib: ${TP_LIB_DIR}/$1 does not exist."
+            echo "Library to be stripped (${TP_LIB_DIR}/$1) does not exist."
             exit 1
         fi
         strip --strip-debug --strip-unneeded "${TP_LIB_DIR}/$1"
