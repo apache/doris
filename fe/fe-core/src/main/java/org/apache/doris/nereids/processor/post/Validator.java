@@ -42,6 +42,7 @@ public class Validator extends PlanPostProcessor {
         // List<NamedExpression> projects = project.getProjects();
         // Set<Slot> childOutputSet = child.getOutputSet();
 
+        child.accept(this, context);
         return project;
     }
 
@@ -58,6 +59,7 @@ public class Validator extends PlanPostProcessor {
             Preconditions.checkState(childOutputSet.contains(slot));
         }
 
+        child.accept(this, context);
         return filter;
     }
 }
