@@ -82,7 +82,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         .map(SlotReference.class::cast)
                         .map(SlotReference::getExprId)
                         .collect(Collectors.toList());
-                return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.BUCKETED));
+                // TODO: change ENFORCED back to bucketed, when coordinator could process bucket on agg correctly.
+                return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.ENFORCED));
             case DISTINCT_GLOBAL:
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
