@@ -103,16 +103,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
             if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
                 return enforceCost;
             }
-            enforceCost += updateChildEnforceAndCost(rightChild, rightOutput,
-                    rightHashSpec, rightLowest.first);
-            rightHashSpec.withShuffleType(ShuffleType.ENFORCED);
         }
 
         // check right hand must distribute
         if (rightHashSpec.getShuffleType() != ShuffleType.ENFORCED) {
             enforceCost += updateChildEnforceAndCost(rightChild, rightOutput,
                     rightHashSpec, rightLowest.first);
-            rightHashSpec.withShuffleType(ShuffleType.ENFORCED);
+            childrenProperties.set(1, new PhysicalProperties(
+                    rightHashSpec.withShuffleType(ShuffleType.ENFORCED),
+                    childrenProperties.get(1).getOrderSpec()));
         }
 
         // check bucket shuffle join
@@ -122,6 +121,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
             }
             enforceCost += updateChildEnforceAndCost(leftChild, leftOutput,
                     leftHashSpec, leftLowest.first);
+            childrenProperties.set(0, new PhysicalProperties(
+                    leftHashSpec.withShuffleType(ShuffleType.ENFORCED),
+                    childrenProperties.get(0).getOrderSpec()));
         }
         return enforceCost;
     }

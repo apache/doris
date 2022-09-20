@@ -262,7 +262,7 @@ public class JoinUtils {
         // when we plan a bucket shuffle join, the left should not add a distribution enforce.
         // so its shuffle type should be NATURAL(olap scan node or result of colocate join / bucket shuffle join with
         // left child's shuffle type is also NATURAL), or be BUCKETED(result of join / agg).
-        if (leftHash.getShuffleType() != ShuffleType.BUCKETED || leftHash.getShuffleType() != ShuffleType.NATURAL) {
+        if (leftHash.getShuffleType() != ShuffleType.BUCKETED && leftHash.getShuffleType() != ShuffleType.NATURAL) {
             return false;
         }
         // there must use left as required and join as source.
