@@ -204,9 +204,10 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
     }
 
     // No matter soft limit or hard limit reached, only 1 thread will wait here,
-    // if hard limit reached, other threads will pending at the beginning of this
+    // if hard limit reached, other threads will pend at the beginning of this
     // method.
-    Status st = _reduce_memory_channel->handle_mem_exceed_limit(response);
+    Status st = channel->handle_mem_exceed_limit(response);
+    LOG(INFO) << "reduce memory of " << *channel << " finished";
 
     {
         std::lock_guard<std::mutex> l(_lock);
