@@ -60,14 +60,28 @@ void ParquetColumnReader::init_column_metadata(const tparquet::ColumnChunk& chun
     _metadata.reset(new ParquetColumnMetadata(chunk_start, chunk_len, chunk_meta));
 }
 
-void ParquetColumnReader::_reserve_def_levels_buf(size_t size) {
-    if (size > _def_levels_buf_size || _def_levels_buf == nullptr) {
-        _def_levels_buf_size = BitUtil::next_power_of_two(size);
-        _def_levels_buf.reset(new level_t[_def_levels_buf_size]);
+void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end_index,
+                                                std::list<RowRange>& read_ranges) {
+    if (_row_ranges.size() == 0) {
+        read_ranges.emplace_back(start_index, end_index);
+    }
+    int index = _row_range_index;
+    while (index < _row_ranges.size()) {
+        RowRange& read_range = _row_ranges[index];
+        if (read_range.last_row <= start_index) {
+            index++;
+            _row_range_index++;
+            continue;
+        }
+        if (read_range.first_row >= end_index) {
+            break;
+        }
+        int64_t start = read_range.first_row < start_index ? start_index : read_range.first_row;
+        int64_t end = read_range.last_row < end_index ? read_range.last_row : end_index;
+        read_ranges.emplace_back(start, end);
+        index++;
     }
 }
-
-void ParquetColumnReader::_skipped_pages() {}
 
 Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                                 std::vector<RowRange>& row_ranges) {
@@ -85,6 +99,59 @@ Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::
     return Status::OK();
 }
 
+Status ScalarColumnReader::_skip_values(size_t num_values) {
+    if (_chunk_reader->max_def_level() > 0) {
+        LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
+        size_t skipped = 0;
+        while (skipped < num_values) {
+            level_t def_level;
+            size_t loop_skip = def_decoder.get_next_run(&def_level, num_values - skipped);
+            RETURN_IF_ERROR(_chunk_reader->skip_values(loop_skip, def_level == 1));
+            skipped += loop_skip;
+        }
+    } else {
+        RETURN_IF_ERROR(_chunk_reader->skip_values(num_values));
+    }
+    return Status::OK();
+}
+
+Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_column,
+                                        DataTypePtr& type) {
+    CHECK(doris_column->is_nullable());
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+            (*std::move(doris_column)).mutate().get());
+    MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
+    NullMap& map_data = nullable_column->get_null_map_data();
+
+    if (_chunk_reader->max_def_level() > 0) {
+        LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
+        size_t has_read = 0;
+        while (has_read < num_values) {
+            level_t def_level;
+            size_t loop_read = def_decoder.get_next_run(&def_level, num_values - has_read);
+            bool is_null = def_level == 0;
+            // fill NullMap
+            for (int i = 0; i < loop_read; ++i) {
+                map_data.emplace_back(is_null);
+            }
+            // decode data
+            if (is_null) {
+                // null values
+                _chunk_reader->insert_null_values(data_column, loop_read);
+            } else {
+                RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, loop_read));
+            }
+            has_read += loop_read;
+        }
+    } else {
+        for (int i = 0; i < num_values; ++i) {
+            map_data.emplace_back(false);
+        }
+        RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, num_values));
+    }
+    return Status::OK();
+}
+
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             size_t batch_size, size_t* read_rows, bool* eof) {
     if (_chunk_reader->remaining_num_values() == 0) {
@@ -94,61 +161,39 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             return Status::OK();
         }
         RETURN_IF_ERROR(_chunk_reader->next_page());
-        if (_row_ranges.size() != 0) {
-            _skipped_pages();
-        }
-        RETURN_IF_ERROR(_chunk_reader->load_page_data());
     }
-    size_t read_values = _chunk_reader->remaining_num_values() < batch_size
-                                 ? _chunk_reader->remaining_num_values()
-                                 : batch_size;
-    // get definition levels, and generate null values
-    _reserve_def_levels_buf(read_values);
-    level_t* definitions = _def_levels_buf.get();
-    if (_chunk_reader->max_def_level() == 0) { // required field
-        std::fill(definitions, definitions + read_values, 1);
+
+    // generate the row ranges that should be read
+    std::list<RowRange> read_ranges;
+    _generate_read_ranges(_current_row_index,
+                          _current_row_index + _chunk_reader->remaining_num_values(), read_ranges);
+    if (read_ranges.size() == 0) {
+        // skip the whole page
+        _current_row_index += _chunk_reader->remaining_num_values();
+        RETURN_IF_ERROR(_chunk_reader->skip_page());
+        *read_rows = 0;
     } else {
-        _chunk_reader->get_def_levels(definitions, read_values);
-    }
-    // fill NullMap
-    // TODO cmy why must nullable?
-    CHECK(doris_column->is_nullable());
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-            (*std::move(doris_column)).mutate().get());
-    MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    NullMap& map_data = nullable_column->get_null_map_data();
-    for (int i = 0; i < read_values; ++i) {
-        map_data.emplace_back(definitions[i] == 0);
-    }
-    // decode data
-    if (_chunk_reader->max_def_level() == 0) {
-        RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, read_values));
-    } else if (read_values > 0) {
-        // column with null values
-        level_t level_type = definitions[0];
-        int num_values = 1;
-        for (int i = 1; i < read_values; ++i) {
-            if (definitions[i] != level_type) {
-                if (level_type == 0) {
-                    // null values
-                    _chunk_reader->insert_null_values(data_column, num_values);
-                } else {
-                    RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, num_values));
-                }
-                level_type = definitions[i];
-                num_values = 1;
-            } else {
-                num_values++;
+        // load page data to decode or skip values
+        RETURN_IF_ERROR(_chunk_reader->load_page_date_idempotent());
+        size_t has_read = 0;
+        for (auto& range : read_ranges) {
+            // generate the skipped values
+            size_t skip_values = range.first_row - _current_row_index;
+            RETURN_IF_ERROR(_skip_values(skip_values));
+            _current_row_index += skip_values;
+            // generate the read values
+            size_t read_values =
+                    std::min((size_t)(range.last_row - range.first_row), batch_size - has_read);
+            RETURN_IF_ERROR(_read_values(read_values, doris_column, type));
+            has_read += read_values;
+            _current_row_index += read_values;
+            if (has_read == batch_size) {
+                break;
             }
         }
-        if (level_type == 0) {
-            // null values
-            _chunk_reader->insert_null_values(data_column, num_values);
-        } else {
-            RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, num_values));
-        }
+        *read_rows = has_read;
     }
-    *read_rows = read_values;
+
     if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
         *eof = true;
     }
@@ -156,6 +201,13 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
 }
 
 void ScalarColumnReader::close() {}
+
+void ArrayColumnReader::_reserve_def_levels_buf(size_t size) {
+    if (size > _def_levels_buf_size || _def_levels_buf == nullptr) {
+        _def_levels_buf_size = BitUtil::next_power_of_two(size);
+        _def_levels_buf.reset(new level_t[_def_levels_buf_size]);
+    }
+}
 
 Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                                std::vector<RowRange>& row_ranges) {
@@ -178,7 +230,7 @@ Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::C
         }
     }
     if (_chunk_reader->max_rep_level() != 1) {
-        return Status::Corruption("Max repetition level in scalar column should be 1");
+        return Status::Corruption("Max repetition level in array column should be 1");
     }
     return Status::OK();
 }
@@ -192,19 +244,17 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             return Status::OK();
         }
         RETURN_IF_ERROR(_chunk_reader->next_page());
-        if (_row_ranges.size() != 0) {
-            _skipped_pages();
-        }
+        // array should load data to analyze row range
         RETURN_IF_ERROR(_chunk_reader->load_page_data());
         _init_rep_levels_buf();
     }
 
-    // fill NullMap
     CHECK(doris_column->is_nullable());
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
             (*std::move(doris_column)).mutate().get());
     NullMap& map_data = nullable_column->get_null_map_data();
     MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
+
     // generate array offset
     size_t real_batch_size = 0;
     size_t num_values = 0;
@@ -214,21 +264,64 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
     _reserve_def_levels_buf(num_values);
     level_t* definitions = _def_levels_buf.get();
     _chunk_reader->get_def_levels(definitions, num_values);
-    // null array, should ignore the last offset in element_offsets
-    for (int i = 0; i < element_offsets.size() - 1; ++i) {
-        map_data.emplace_back(definitions[element_offsets[i]] == _NULL_ARRAY);
+    _def_offset = 0;
+
+    // generate the row ranges that should be read
+    std::list<RowRange> read_ranges;
+    _generate_read_ranges(_current_row_index, _current_row_index + real_batch_size, read_ranges);
+    if (read_ranges.size() == 0) {
+        // skip the current batch
+        _current_row_index += real_batch_size;
+        _skip_values(num_values);
+        *read_rows = 0;
+    } else {
+        size_t has_read = 0;
+        int offset_index = 0;
+        for (auto& range : read_ranges) {
+            // generate the skipped values
+            size_t skip_rows = range.first_row - _current_row_index;
+            size_t skip_values =
+                    element_offsets[offset_index + skip_rows] - element_offsets[offset_index];
+            RETURN_IF_ERROR(_skip_values(skip_values));
+            offset_index += skip_rows;
+            _current_row_index += skip_rows;
+            real_batch_size -= skip_rows;
+
+            // generate the read values
+            size_t scan_rows = range.last_row - range.first_row;
+            size_t scan_values =
+                    element_offsets[offset_index + scan_rows] - element_offsets[offset_index];
+            // null array, should ignore the last offset in element_offsets
+            for (int i = offset_index; i < offset_index + scan_rows; ++i) {
+                map_data.emplace_back(definitions[element_offsets[i]] == _NULL_ARRAY);
+            }
+            // fill array offset, should skip a value when parsing null array
+            _fill_array_offset(data_column, element_offsets, offset_index, scan_rows);
+            // fill nested array elements
+            if (LIKELY(scan_values > 0)) {
+                RETURN_IF_ERROR(_load_nested_column(
+                        static_cast<ColumnArray&>(*data_column).get_data_ptr(),
+                        const_cast<DataTypePtr&>((reinterpret_cast<const DataTypeArray*>(
+                                                          remove_nullable(type).get()))
+                                                         ->get_nested_type()),
+                        scan_values));
+            }
+            offset_index += scan_rows;
+            has_read += scan_rows;
+            _current_row_index += scan_rows;
+        }
+        if (offset_index != element_offsets.size() - 1) {
+            size_t skip_rows = element_offsets.size() - 1 - offset_index;
+            size_t skip_values = element_offsets.back() - element_offsets[offset_index];
+            RETURN_IF_ERROR(_skip_values(skip_values));
+            offset_index += skip_rows;
+            _current_row_index += skip_rows;
+            real_batch_size -= skip_rows;
+        }
+        DCHECK_EQ(real_batch_size, has_read);
+        *read_rows = has_read;
     }
-    // fill array offset, should skip a value when parsing null array
-    _fill_array_offset(data_column, element_offsets);
-    // fill nested array elements
-    if (num_values > 0) {
-        _load_nested_column(static_cast<ColumnArray&>(*data_column).get_data_ptr(),
-                            const_cast<DataTypePtr&>((reinterpret_cast<const DataTypeArray*>(
-                                                              remove_nullable(type).get()))
-                                                             ->get_nested_type()),
-                            num_values);
-    }
-    *read_rows = real_batch_size;
+
     if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
         *eof = true;
     }
@@ -244,7 +337,7 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
             (*std::move(doris_column)).mutate().get());
     NullMap& map_data = nullable_column->get_null_map_data();
     MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    for (int i = 0; i < read_values; ++i) {
+    for (int i = _def_offset; i < _def_offset + read_values; ++i) {
         // should skip _EMPTY_ARRAY and _NULL_ARRAY
         if (definitions[i] == _CONCRETE_ELEMENT) {
             map_data.emplace_back(false);
@@ -253,7 +346,7 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
         }
     }
     // column with null values
-    int start_idx = 0;
+    int start_idx = _def_offset;
     while (start_idx < read_values) {
         if (definitions[start_idx] == _CONCRETE_ELEMENT ||
             definitions[start_idx] == _NULL_ELEMENT) {
@@ -264,13 +357,13 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
             start_idx++;
         }
     }
-    if (start_idx == read_values) {
+    if (start_idx == _def_offset + read_values) {
         // all values are empty array or null array
         return Status::OK();
     }
     bool prev_is_null = definitions[start_idx] == _NULL_ELEMENT;
     int num_values = 1;
-    for (int i = start_idx + 1; i < read_values; ++i) {
+    for (int i = start_idx + 1; i < _def_offset + read_values; ++i) {
         if (definitions[i] == _EMPTY_ARRAY || definitions[i] == _NULL_ARRAY) {
             // only decrease _remaining_num_values
             _chunk_reader->skip_values(1, false);
@@ -296,15 +389,16 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
     } else {
         RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, num_values));
     }
+    _def_offset += read_values;
     return Status::OK();
 }
 
 void ArrayColumnReader::close() {}
 
 void ArrayColumnReader::_init_rep_levels_buf() {
-    size_t max_buf_size = _chunk_reader->remaining_num_values() < 1024
+    size_t max_buf_size = _chunk_reader->remaining_num_values() < 4096
                                   ? _chunk_reader->remaining_num_values()
-                                  : 1024;
+                                  : 4096;
     if (_rep_levels_buf_size < max_buf_size || _rep_levels_buf == nullptr) {
         _rep_levels_buf.reset(new level_t[max_buf_size]);
         _rep_levels_buf_size = max_buf_size;
@@ -314,11 +408,10 @@ void ArrayColumnReader::_init_rep_levels_buf() {
 }
 
 void ArrayColumnReader::_load_rep_levels() {
-    _rep_size = _chunk_reader->remaining_num_values() < _rep_levels_buf_size
-                        ? _chunk_reader->remaining_num_values()
-                        : _rep_levels_buf_size;
-    _chunk_reader->get_rep_levels(_rep_levels_buf.get(), _rep_size);
     _start_offset += _rep_size;
+    _rep_size = _remaining_rep_levels < _rep_levels_buf_size ? _remaining_rep_levels
+                                                             : _rep_levels_buf_size;
+    _chunk_reader->get_rep_levels(_rep_levels_buf.get(), _rep_size);
     _rep_offset = 0;
 }
 
@@ -367,20 +460,45 @@ Status ArrayColumnReader::_generate_array_offset(std::vector<size_t>& element_of
 }
 
 void ArrayColumnReader::_fill_array_offset(MutableColumnPtr& doris_column,
-                                           std::vector<size_t>& element_offsets) {
-    auto& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
-    level_t* definitions = _def_levels_buf.get();
-    auto prev_offset = offsets_data.back();
-    size_t null_empty_array = 0;
-    for (int i = 0; i < element_offsets.size(); ++i) {
-        auto& offset = element_offsets[i];
-        if (i != 0) {
-            offsets_data.emplace_back(prev_offset + offset - null_empty_array);
-        }
-        if ((i != element_offsets.size() - 1) &&
-            (definitions[offset] == _EMPTY_ARRAY || definitions[offset] == _NULL_ARRAY)) {
-            null_empty_array++;
+                                           std::vector<size_t>& element_offsets, int offset_index,
+                                           size_t num_rows) {
+    if (LIKELY(num_rows > 0)) {
+        auto& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
+        level_t* definitions = _def_levels_buf.get();
+        auto prev_offset = offsets_data.back();
+        auto base_offset = element_offsets[offset_index];
+        size_t null_empty_array = 0;
+        for (int i = offset_index; i < offset_index + num_rows + 1; ++i) {
+            auto& offset = element_offsets[i];
+            if (i != offset_index) {
+                offsets_data.emplace_back(prev_offset + offset - base_offset - null_empty_array);
+            }
+            if ((i != offset_index + num_rows) &&
+                (definitions[offset] == _EMPTY_ARRAY || definitions[offset] == _NULL_ARRAY)) {
+                null_empty_array++;
+            }
         }
     }
+}
+
+Status ArrayColumnReader::_skip_values(size_t num_values) {
+    if (LIKELY(num_values > 0)) {
+        level_t* definitions = _def_levels_buf.get();
+        bool prev_is_null = definitions[_def_offset] != _CONCRETE_ELEMENT;
+        int cnt = 1;
+        for (int i = _def_offset + 1; i < _def_offset + num_values; ++i) {
+            bool curr_is_null = definitions[i] != _CONCRETE_ELEMENT;
+            if (prev_is_null ^ curr_is_null) {
+                RETURN_IF_ERROR(_chunk_reader->skip_values(cnt, !prev_is_null));
+                prev_is_null = curr_is_null;
+                cnt = 1;
+            } else {
+                cnt++;
+            }
+        }
+        RETURN_IF_ERROR(_chunk_reader->skip_values(cnt, !prev_is_null));
+        _def_offset += num_values;
+    }
+    return Status::OK();
 }
 }; // namespace doris::vectorized
