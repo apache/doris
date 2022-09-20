@@ -39,6 +39,7 @@ namespace doris {
 namespace vectorized {
 class VOlapScanNode;
 class ParquetReader;
+class PageIndex;
 } // namespace vectorized
 
 class Expr;
@@ -167,6 +168,7 @@ private:
     friend class EsPredicate;
     friend class RowGroupReader;
     friend class vectorized::ParquetReader;
+    friend class vectorized::PageIndex;
     friend class vectorized::VOlapScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
