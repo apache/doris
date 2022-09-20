@@ -144,5 +144,7 @@ private:
     std::vector<int64_t> _origin_cols;
 
     RuntimeProfile::Counter* _evaluation_timer;
+
+    std::vector<bool> _change_to_nullable_flags;
 };
 } // namespace doris::vectorized
