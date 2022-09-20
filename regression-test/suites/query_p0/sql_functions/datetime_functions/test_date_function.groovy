@@ -359,4 +359,7 @@ suite("test_date_function") {
     qt_sql """ select minutes_sub(test_time,1) result from ${tableName}; """
     //seconds_sub 
     qt_sql """ select seconds_sub(test_time,1) result from ${tableName}; """
+
+    qt_sql """ select date_add(NULL, INTERVAL 1 month); """
+    qt_sql """ select date_add(NULL, INTERVAL 1 day); """
 }
