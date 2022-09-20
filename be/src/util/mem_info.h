@@ -46,6 +46,7 @@ public:
     }
 
     static inline size_t current_mem() { return _s_allocator_physical_mem; }
+    static inline size_t allocator_virtual_mem() { return _s_virtual_memory_used; }
     static inline size_t allocator_cache_mem() { return _s_allocator_cache_mem; }
     static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
 
@@ -54,6 +55,8 @@ public:
     static inline void refresh_allocator_mem() {
         MallocExtension::instance()->GetNumericProperty("generic.total_physical_bytes",
                                                         &_s_allocator_physical_mem);
+        MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_unmapped_bytes",
+                                                        &_s_pageheap_unmapped_bytes);
         MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes",
                                                         &_s_tcmalloc_pageheap_free_bytes);
         MallocExtension::instance()->GetNumericProperty("tcmalloc.central_cache_free_bytes",
@@ -65,6 +68,7 @@ public:
         _s_allocator_cache_mem = _s_tcmalloc_pageheap_free_bytes + _s_tcmalloc_central_bytes +
                                  _s_tcmalloc_transfer_bytes + _s_tcmalloc_thread_bytes;
         _s_allocator_cache_mem_str = PrettyPrinter::print(_s_allocator_cache_mem, TUnit::BYTES);
+        _s_virtual_memory_used = _s_allocator_physical_mem + _s_pageheap_unmapped_bytes;
     }
 
     static inline int64_t mem_limit() {
@@ -86,12 +90,14 @@ private:
     static std::string _s_mem_limit_str;
     static int64_t _s_hard_mem_limit;
     static size_t _s_allocator_physical_mem;
+    static size_t _s_pageheap_unmapped_bytes;
     static size_t _s_tcmalloc_pageheap_free_bytes;
     static size_t _s_tcmalloc_central_bytes;
     static size_t _s_tcmalloc_transfer_bytes;
     static size_t _s_tcmalloc_thread_bytes;
     static size_t _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;
+    static size_t _s_virtual_memory_used;
 };
 
 } // namespace doris
