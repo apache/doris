@@ -20,6 +20,11 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -48,6 +53,26 @@ public abstract class DataType implements AbstractDataType {
             .put(IntegerType.class, () -> BigIntType.INSTANCE)
             .put(FloatType.class, () -> DoubleType.INSTANCE)
             .build();
+
+    /**
+     * create a specific Literal for a given dataType
+     */
+    public static Literal promoteNumberLiteral(Object value, DataType dataType) {
+        if (! (value instanceof Number)) {
+            return null;
+        }
+
+        if (dataType.equals(SmallIntType.INSTANCE)) {
+            return new SmallIntLiteral(((Number) value).shortValue());
+        } else if (dataType.equals(IntegerType.INSTANCE)) {
+            return new IntegerLiteral(((Number) value).intValue());
+        } else if (dataType.equals(BigIntType.INSTANCE)) {
+            return new BigIntLiteral(((Number) value).longValue());
+        } else if (dataType.equals(DoubleType.INSTANCE)) {
+            return new DoubleLiteral(((Number) value).doubleValue());
+        }
+        return null;
+    }
 
     /**
      * Convert data type in Doris catalog to data type in Nereids.
