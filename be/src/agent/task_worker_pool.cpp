@@ -61,6 +61,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
 
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
 const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
+const int64_t PUBLISH_TIMEOUT = 10;
 
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
@@ -682,6 +683,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         std::vector<TTabletId> succ_tablet_ids;
         uint32_t retry_time = 0;
         Status status;
+        bool is_task_timeout = false;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
@@ -690,11 +692,18 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
             if (status.ok()) {
                 break;
             } else if (status.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS) {
-                // version not continuous, put to queue and wait pre version publish
-                // task execute
-                std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-                _tasks.push_back(agent_task_req);
-                _worker_thread_condition_variable.notify_one();
+                int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
+                if (time_elapsed > PUBLISH_TIMEOUT) {
+                    LOG(INFO) << "task elapsed " << time_elapsed
+                              << " seconds since it is inserted to queue, it is timeout";
+                    is_task_timeout = true;
+                } else {
+                    // version not continuous, put to queue and wait pre version publish
+                    // task execute
+                    std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+                    _tasks.push_back(agent_task_req);
+                    _worker_thread_condition_variable.notify_one();
+                }
                 break;
             } else {
                 LOG_WARNING("failed to publish version")
@@ -706,7 +715,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
-        if (status.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS) {
+        if (status.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS && !is_task_timeout) {
             continue;
         }
 
