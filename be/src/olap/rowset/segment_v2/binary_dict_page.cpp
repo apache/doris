@@ -19,6 +19,7 @@
 
 #include "gutil/strings/substitute.h" // for Substitute
 #include "runtime/mem_pool.h"
+#include "runtime/memory/chunk_allocator.h"
 #include "util/slice.h" // for Slice
 #include "vec/columns/column.h"
 
@@ -278,18 +279,22 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
 
     ordinal_t limit = _bit_shuffle_ptr->_num_elements + page_first_ordinal;
 
+    Chunk buffer;
+    ChunkAllocator::instance()->allocate_align(sizeof(int) * total, &buffer);
+    int* data = reinterpret_cast<int*>(buffer.data);
+
     for (size_t i = 0; i < total; ++i) {
         if (rowids[i] >= limit) {
             break;
         }
 
-        _selector[read_count++] = data_array[rowids[i]];
+        data[read_count++] = data_array[rowids[i] - page_first_ordinal];
     }
 
     if (read_count > 0) {
-        dst->insert_many_dict_data(_selector, 0, _dict_word_info, read_count,
-                                   _dict_decoder->_num_elems);
+        dst->insert_many_dict_data(data, 0, _dict_word_info, read_count, _dict_decoder->_num_elems);
     }
+    ChunkAllocator::instance()->free(buffer);
     *n = read_count;
     return Status::OK();
 }

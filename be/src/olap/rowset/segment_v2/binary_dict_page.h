@@ -135,8 +135,6 @@ private:
     std::unique_ptr<ColumnVectorBatch> _batch;
 
     StringRef* _dict_word_info = nullptr;
-
-    int32_t _selector[4096];
 };
 
 } // namespace segment_v2
