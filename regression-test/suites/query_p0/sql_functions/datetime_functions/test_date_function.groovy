@@ -362,6 +362,9 @@ suite("test_date_function") {
     //seconds_sub
     qt_sql """ select seconds_sub(test_time,1) result from ${tableName}; """
 
+    qt_sql """ select date_add(NULL, INTERVAL 1 month); """
+    qt_sql """ select date_add(NULL, INTERVAL 1 day); """
+
     //years_add
     qt_sql """ select years_add(test_time1,1) result from ${tableName}; """
     //months_add
