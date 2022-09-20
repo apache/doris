@@ -489,9 +489,7 @@ public class Memo {
         List<Plan> groupPlanChildren = childrenGroups.stream()
                 .map(GroupPlan::new)
                 .collect(ImmutableList.toImmutableList());
-        LogicalProperties logicalProperties = plan.getLogicalProperties();
-        return plan.withChildren(groupPlanChildren)
-            .withLogicalProperties(Optional.of(logicalProperties));
+        return plan.withChildren(groupPlanChildren);
     }
 
     /*

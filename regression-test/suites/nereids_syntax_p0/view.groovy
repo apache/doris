@@ -25,6 +25,14 @@ suite("view") {
     """
 
     sql """
+        SET enable_nereids_planner=true
+    """
+
+    sql """
+        SET enable_bucket_shuffle_join=false
+    """
+
+    sql """
         create view if not exists v1 as 
         select * 
         from customer

@@ -23,9 +23,6 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommuteHelper.SwapType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.PlanUtils;
-
-import java.util.ArrayList;
 
 /**
  * Join Commute
@@ -58,7 +55,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
                     }
 
-                    return PlanUtils.project(new ArrayList<>(join.getOutput()), newJoin).get();
+                    return newJoin;
                 }).toRule(RuleType.LOGICAL_JOIN_COMMUTATE);
     }
 }
