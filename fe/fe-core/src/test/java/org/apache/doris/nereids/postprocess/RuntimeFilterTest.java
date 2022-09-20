@@ -29,13 +29,11 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
 
-@Disabled("disable this case until it do not relay on NereidsPlanner")
 public class RuntimeFilterTest extends SSBTestBase {
 
     @Override
