@@ -17,7 +17,6 @@
 
 #include "vparquet_group_reader.h"
 
-#include "parquet_pred_cmp.h"
 #include "schema_desc.h"
 #include "vparquet_column_reader.h"
 
@@ -37,14 +36,16 @@ RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
 }
 
-Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges) {
+Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
+                            std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
     VLOG_DEBUG << "Row group id: " << _row_group_id;
-    RETURN_IF_ERROR(_init_column_readers(schema, row_ranges));
+    RETURN_IF_ERROR(_init_column_readers(schema, row_ranges, col_offsets));
     return Status::OK();
 }
 
-Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
-                                            std::vector<RowRange>& row_ranges) {
+Status RowGroupReader::_init_column_readers(
+        const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
+        std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
     for (auto& read_col : _read_columns) {
         SlotDescriptor* slot_desc = read_col._slot_desc;
         TypeDescriptor col_type = slot_desc->type();
@@ -52,10 +53,16 @@ Status RowGroupReader::_init_column_readers(const FieldDescriptor& schema,
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
                                                     row_ranges, _ctz, reader));
+        auto col_iter = col_offsets.find(read_col._parquet_col_id);
+        if (col_iter != col_offsets.end()) {
+            tparquet::OffsetIndex oi = col_iter->second;
+            reader->add_offset_index(&oi);
+        }
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group reader failed";
             return Status::Corruption("Init row group reader failed");
         }
+
         _column_readers[slot_desc->id()] = std::move(reader);
     }
     return Status::OK();
