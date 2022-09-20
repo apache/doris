@@ -72,7 +72,7 @@ public:
     static constexpr size_t HEAP_SORT_THRESHOLD = 1024;
 
 private:
-    void _do_filter(HeapSortCursorBlockView& block_view, size_t num_rows, IColumn::Filter& filter);
+    void _do_filter(HeapSortCursorBlockView& block_view, size_t num_rows);
 
     Status _prepare_sort_descs(Block* block);
 
