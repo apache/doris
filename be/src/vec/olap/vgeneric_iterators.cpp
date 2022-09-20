@@ -308,31 +308,26 @@ private:
         uint32_t offset = _index_in_block;
         uint32_t end_index = _block->rows();
 
-#define BREAK_IF_NO_EQUAL_RANGE(stmt) \
-    if (offset == end_index) {        \
-        break;                        \
-    } else {                          \
-        stmt;                         \
-    }
         if (_compare_columns) {
             for (auto i : *_compare_columns) {
                 auto& base_col = rhs._block->get_by_position(i);
                 auto& s_col = _block->get_by_position(i);
 
                 ColumnPtr& s_cp = s_col.column;
-                BREAK_IF_NO_EQUAL_RANGE(s_cp->next_range_less_than(
-                        &offset, rhs._index_in_block, *(base_col.column.get()), -1,
-                        _is_reverse ? -1 : 1, &end_index))
+                s_cp->next_range_less_than(&offset, rhs._index_in_block, *(base_col.column.get()),
+                                           -1, _is_reverse ? -1 : 1, &end_index);
+                if (offset == end_index) {
+                    break;
+                }
             }
         } else {
-            for (size_t i = 0; i < _num_key_columns; ++i) {
+            for (size_t i = 0; i < _num_key_columns && offset != end_index; ++i) {
                 auto& base_col = rhs._block->get_by_position(i);
                 auto& s_col = _block->get_by_position(i);
 
                 ColumnPtr& s_cp = s_col.column;
-                BREAK_IF_NO_EQUAL_RANGE(s_cp->next_range_less_than(
-                        &offset, rhs._index_in_block, *(base_col.column.get()), -1,
-                        _is_reverse ? -1 : 1, &end_index))
+                s_cp->next_range_less_than(&offset, rhs._index_in_block, *(base_col.column.get()),
+                                           -1, _is_reverse ? -1 : 1, &end_index);
             }
         }
         DCHECK_GT(end_index, _index_in_block);
@@ -527,7 +522,6 @@ private:
             if (!_merge_heap.empty()) {
                 return Status::OK();
             }
-            // Still last batch needs to be processed
 
             if (UNLIKELY(_record_rowids)) {
                 _block_row_locations.resize(row_idx);
@@ -564,7 +558,6 @@ private:
             if (!_merge_heap.empty()) {
                 return Status::OK();
             }
-            // Still last batch needs to be processed
 
             if (UNLIKELY(_record_rowids)) {
                 _block_row_locations.resize(row_idx);

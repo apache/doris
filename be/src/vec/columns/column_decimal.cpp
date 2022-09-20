@@ -50,20 +50,20 @@ template <typename T>
 void ColumnDecimal<T>::next_range_less_than(uint32_t* offset, size_t n, const IColumn& rhs,
                                             int nan_direction_hint, int direction,
                                             uint32_t* end_index) const {
-    size_t limit = std::min((uint32_t)this->size(), *end_index);
+    uint32_t limit = *end_index;
     auto& other = assert_cast<const Self&>(rhs);
     const T& base = other.data[n];
 
-    auto cmp = [&](const T& a, const T& b) {
-        return a > b ? 1 * direction : (a < b ? -1 * direction : 0);
-    };
     size_t i = *offset;
     bool set_begin = false;
-    for (; i < limit; i++) {
-        if (cmp(data[i], base) == 0 && !set_begin) {
+    const T* __restrict ptr = data.data() + i;
+    const T* __restrict end = data.data() + limit;
+    for (; ptr < end; ptr++, i++) {
+        int res = CompareHelper<T>::compare(*ptr, base, nan_direction_hint);
+        if (res == 0 && !set_begin) {
             *offset = i;
             set_begin = true;
-        } else if (cmp(data[i], base) > 0) {
+        } else if (res * direction > 0) {
             break;
         }
     }
