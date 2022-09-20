@@ -17,19 +17,24 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Logical properties used for analysis and optimize in Nereids.
  */
 public class LogicalProperties {
-    protected Supplier<List<Slot>> outputSupplier;
+    protected final Supplier<List<Slot>> outputSupplier;
+    protected final Supplier<HashSet<ExprId>> outputSetSupplier;
 
     /**
      * constructor of LogicalProperties.
@@ -40,6 +45,10 @@ public class LogicalProperties {
     public LogicalProperties(Supplier<List<Slot>> outputSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
+        );
+        this.outputSetSupplier = Suppliers.memoize(
+                () -> outputSupplier.get().stream().map(NamedExpression::getExprId)
+                        .collect(Collectors.toCollection(HashSet::new))
         );
     }
 
@@ -60,11 +69,11 @@ public class LogicalProperties {
             return false;
         }
         LogicalProperties that = (LogicalProperties) o;
-        return Objects.equals(outputSupplier.get(), that.outputSupplier.get());
+        return Objects.equals(outputSetSupplier.get(), that.outputSetSupplier.get());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(outputSupplier.get());
+        return Objects.hash(outputSetSupplier.get());
     }
 }
