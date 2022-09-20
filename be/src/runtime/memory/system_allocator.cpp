@@ -44,8 +44,6 @@ void SystemAllocator::free(uint8_t* ptr, size_t length) {
             char buf[64];
             LOG(ERROR) << "fail to free memory via munmap, errno=" << errno
                        << ", errmsg=" << strerror_r(errno, buf, 64);
-        } else {
-            RELEASE_THREAD_MEM_TRACKER(length);
         }
     } else {
         ::free(ptr);
