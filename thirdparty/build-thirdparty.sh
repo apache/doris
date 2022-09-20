@@ -1452,8 +1452,8 @@ build_js_and_css
 build_lzma
 build_xml2
 build_idn
-build_gsasl
 build_krb5
+build_gsasl
 build_hdfs3
 build_benchmark
 build_simdjson
