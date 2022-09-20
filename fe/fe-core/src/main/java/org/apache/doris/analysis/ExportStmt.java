@@ -63,8 +63,6 @@ public class ExportStmt extends StatementBase {
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_COLUMNS = "";
-
-
     private TableName tblName;
     private List<String> partitions;
     private Expr whereExpr;
@@ -238,10 +236,13 @@ public class ExportStmt extends StatementBase {
         URI uri = URI.create(path);
         String schema = uri.getScheme();
         if (type == StorageBackend.StorageType.BROKER) {
-            if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs") && !schema.equalsIgnoreCase("ofs"))) {
+            if (schema == null || (!schema.equalsIgnoreCase("bos")
+                    && !schema.equalsIgnoreCase("afs")
+                    && !schema.equalsIgnoreCase("hdfs")
+                    && !schema.equalsIgnoreCase("ofs")
+                    && !schema.equalsIgnoreCase("obs"))) {
                 throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' , 'BOS://', "
-                        + "or 'ofs://' path.");
+                    + "or 'ofs://' or 'obs://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {
