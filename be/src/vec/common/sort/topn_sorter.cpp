@@ -21,7 +21,77 @@
 
 namespace doris::vectorized {
 
-TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+TopNSorter::TopNSorter(SortDescription& sort_description, VSortExecExprs& vsort_exec_exprs,
+                       int limit, int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
+                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
+        : Sorter(sort_description, limit, offset, pool, is_asc_order, nulls_first),
+          _state(std::unique_ptr<MergeSorterState>(new MergeSorterState(row_desc, offset))) {}
+
+Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
+    DCHECK(block->rows() > 0);
+    RETURN_IF_ERROR(_do_sort(block, mem_reuse));
+    return Status::OK();
+}
+
+Status TopNSorter::prepare_for_read() {
+    _state->build_merge_tree(_sort_description);
+    return Status::OK();
+}
+
+Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
+    if (_state->sorted_blocks.empty()) {
+        *eos = true;
+    } else if (_state->sorted_blocks.size() == 1) {
+        if (_offset != 0) {
+            _state->sorted_blocks[0].skip_num_rows(_offset);
+        }
+        block->swap(_state->sorted_blocks[0]);
+        *eos = true;
+    } else {
+        RETURN_IF_ERROR(_state->merge_sort_read(state, block, eos));
+    }
+    return Status::OK();
+}
+
+Status TopNSorter::_do_sort(Block* block, bool* mem_reuse) {
+    *mem_reuse = false;
+    RETURN_IF_ERROR(partial_sort(*block));
+    // dispose TOP-N logic
+    if (_limit != -1) {
+        // Here is a little opt to reduce the mem uasge, we build a max heap
+        // to order the block in _block_priority_queue.
+        // if one block totally greater the heap top of _block_priority_queue
+        // we can throw the block data directly.
+        if (_state->num_rows < _limit) {
+            Block sorted_block;
+            sorted_block.swap(*block);
+            _state->sorted_blocks.emplace_back(std::move(sorted_block));
+            _state->num_rows += sorted_block.rows();
+            _block_priority_queue.emplace(_pool->add(
+                    new MergeSortCursorImpl(_state->sorted_blocks.back(), _sort_description)));
+        } else {
+            Block sorted_block;
+            sorted_block.swap(*block);
+            MergeSortBlockCursor block_cursor(
+                    _pool->add(new MergeSortCursorImpl(sorted_block, _sort_description)));
+            if (!block_cursor.totally_greater(_block_priority_queue.top())) {
+                _state->sorted_blocks.emplace_back(std::move(sorted_block));
+                _block_priority_queue.push(block_cursor);
+            } else {
+                *mem_reuse = true;
+                block->clear_column_data();
+            }
+        }
+    } else {
+        Block sorted_block;
+        sorted_block.swap(*block);
+        // dispose normal sort logic
+        _state->sorted_blocks.emplace_back(std::move(sorted_block));
+    }
+    return Status::OK();
+}
+
+HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
@@ -30,7 +100,7 @@ TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
           _topn_filter_rows(0),
           _init_sort_descs(false) {}
 
-Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
+Status HeapSorter::append_block(Block* block, bool* mem_reuse) {
     DCHECK(block->rows() > 0);
     {
         SCOPED_TIMER(_materialize_timer);
@@ -88,7 +158,7 @@ Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
     return Status::OK();
 }
 
-Status TopNSorter::prepare_for_read() {
+Status HeapSorter::prepare_for_read() {
     if (!_heap->empty() && _heap->size() > _offset) {
         const auto& top = _heap->top();
         size_t num_columns = top.block()->columns();
@@ -123,13 +193,13 @@ Status TopNSorter::prepare_for_read() {
     return Status::OK();
 }
 
-Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
+Status HeapSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     _return_block.swap(*block);
     *eos = true;
     return Status::OK();
 }
 
-void TopNSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows) {
+void HeapSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows) {
     const auto& top_cursor = _heap->top();
     const int cursor_rid = top_cursor.row_id();
 
@@ -149,7 +219,7 @@ void TopNSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows
     block_view.filter_block(filter);
 }
 
-Status TopNSorter::_prepare_sort_descs(Block* block) {
+Status HeapSorter::_prepare_sort_descs(Block* block) {
     _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
     for (int i = 0; i < _sort_description.size(); i++) {
         const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];

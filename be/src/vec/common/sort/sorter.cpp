@@ -72,7 +72,7 @@ Status MergeSorterState::merge_sort_read(doris::RuntimeState* state,
     return Status::OK();
 }
 
-Status FullSorter::_partial_sort(Block& block) {
+Status Sorter::partial_sort(Block& block) {
     if (_vsort_exec_exprs.need_materialize_tuple()) {
         auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
         std::vector<int> valid_column_ids(output_tuple_expr_ctxs.size());
@@ -148,7 +148,7 @@ Status FullSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
 
 Status FullSorter::_do_sort() {
     Block block = _state->unsorted_block->to_block(0);
-    RETURN_IF_ERROR(_partial_sort(block));
+    RETURN_IF_ERROR(partial_sort(block));
     // dispose TOP-N logic
     if (_limit != -1) {
         // Here is a little opt to reduce the mem uasge, we build a max heap

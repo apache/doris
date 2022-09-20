@@ -71,7 +71,10 @@ public:
 
     virtual ~Sorter() = default;
 
-    virtual void init_profile(RuntimeProfile* runtime_profile) = 0;
+    virtual void init_profile(RuntimeProfile* runtime_profile) {
+        _partial_sort_timer = ADD_TIMER(runtime_profile, "PartialSortTime");
+        _merge_block_timer = ADD_TIMER(runtime_profile, "MergeBlockTime");
+    };
 
     virtual Status append_block(Block* block, bool* mem_reuse) = 0;
 
@@ -80,6 +83,8 @@ public:
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
 
 protected:
+    Status partial_sort(Block& block);
+
     SortDescription _sort_description;
     VSortExecExprs& _vsort_exec_exprs;
     int _limit;
@@ -87,6 +92,9 @@ protected:
     ObjectPool* _pool;
     std::vector<bool>& _is_asc_order;
     std::vector<bool>& _nulls_first;
+
+    RuntimeProfile::Counter* _partial_sort_timer = nullptr;
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
 };
@@ -99,11 +107,6 @@ public:
 
     ~FullSorter() override = default;
 
-    void init_profile(RuntimeProfile* runtime_profile) override {
-        _partial_sort_timer = ADD_TIMER(runtime_profile, "PartialSortTime");
-        _merge_block_timer = ADD_TIMER(runtime_profile, "MergeBlockTime");
-    }
-
     Status append_block(Block* block, bool* mem_reuse) override;
 
     Status prepare_for_read() override;
@@ -111,8 +114,6 @@ public:
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
 private:
-    Status _partial_sort(Block& block);
-
     bool _reach_limit() {
         return _state->unsorted_block->rows() > BUFFERED_BLOCK_SIZE ||
                _state->unsorted_block->allocated_bytes() > BUFFERED_BLOCK_BYTES;
@@ -121,8 +122,6 @@ private:
     Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;
-    RuntimeProfile::Counter* _partial_sort_timer = nullptr;
-    RuntimeProfile::Counter* _merge_block_timer = nullptr;
 
     static constexpr size_t BUFFERED_BLOCK_SIZE = 1024 * 1024;
     static constexpr size_t BUFFERED_BLOCK_BYTES = 16 << 20;
