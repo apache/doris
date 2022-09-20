@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -46,6 +47,7 @@ public:
 
     static inline size_t current_mem() { return _s_allocator_physical_mem; }
     static inline size_t allocator_cache_mem() { return _s_allocator_cache_mem; }
+    static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
@@ -62,11 +64,16 @@ public:
                                                         &_s_tcmalloc_thread_bytes);
         _s_allocator_cache_mem = _s_tcmalloc_pageheap_free_bytes + _s_tcmalloc_central_bytes +
                                  _s_tcmalloc_transfer_bytes + _s_tcmalloc_thread_bytes;
+        _s_allocator_cache_mem_str = PrettyPrinter::print(_s_allocator_cache_mem, TUnit::BYTES);
     }
 
     static inline int64_t mem_limit() {
         DCHECK(_s_initialized);
         return _s_mem_limit;
+    }
+    static inline std::string mem_limit_str() {
+        DCHECK(_s_initialized);
+        return _s_mem_limit_str;
     }
     static inline int64_t hard_mem_limit() { return _s_hard_mem_limit; }
 
@@ -76,6 +83,7 @@ private:
     static bool _s_initialized;
     static int64_t _s_physical_mem;
     static int64_t _s_mem_limit;
+    static std::string _s_mem_limit_str;
     static int64_t _s_hard_mem_limit;
     static size_t _s_allocator_physical_mem;
     static size_t _s_tcmalloc_pageheap_free_bytes;
@@ -83,6 +91,7 @@ private:
     static size_t _s_tcmalloc_transfer_bytes;
     static size_t _s_tcmalloc_thread_bytes;
     static size_t _s_allocator_cache_mem;
+    static std::string _s_allocator_cache_mem_str;
 };
 
 } // namespace doris
