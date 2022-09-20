@@ -259,7 +259,7 @@ fi
 strip_lib() {
     if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
         if [[ -z $1 ]]; then
-            echo "lib dir should specified to strip."
+            echo "Must specify the library to be stripped."
             exit 1
         fi
         if [[ ! -f "${TP_LIB_DIR}/$1" ]]; then
