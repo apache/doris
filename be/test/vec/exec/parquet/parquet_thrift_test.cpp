@@ -382,7 +382,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     std::vector<ParquetReadColumn> read_columns;
     for (const auto& slot : tuple_slots) {
-        read_columns.emplace_back(ParquetReadColumn(slot));
+        read_columns.emplace_back(ParquetReadColumn(7, slot));
     }
 
     LocalFileReader file_reader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
@@ -400,7 +400,8 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     std::shared_ptr<RowGroupReader> row_group_reader;
     row_group_reader.reset(new RowGroupReader(&file_reader, read_columns, 0, row_group, &ctz));
     std::vector<RowRange> row_ranges = std::vector<RowRange>();
-    auto stg = row_group_reader->init(meta_data->schema(), row_ranges);
+    auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
+    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets);
     EXPECT_TRUE(stg.ok());
 
     vectorized::Block block;
