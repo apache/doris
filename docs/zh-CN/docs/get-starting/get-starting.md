@@ -25,7 +25,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 快速开始
+# 快速开始likx测试
 
 Apache Doris 是一个基于 MPP 架构的高性能、实时的分析型数据库，以极速易用的特点被人们所熟知，仅需亚秒级响应时间即可返回海量数据下的查询结果，不仅可以支持高并发的点查询场景，也能支持高吞吐的复杂分析场景，这个简短的指南将告诉你如何下载 Doris 最新稳定版本，在单节点上安装并运行它，包括创建数据库、数据表、导入数据及查询等。
 
