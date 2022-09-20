@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -51,9 +50,9 @@ public class JoinCommuteTest {
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());
 
                     Assertions.assertTrue(root.logicalExpressionsAt(0).getPlan() instanceof LogicalJoin);
-                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalProject);
+                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalJoin);
 
-                    GroupExpression newJoinGroupExpr = root.logicalExpressionsAt(1).child(0).getLogicalExpression();
+                    GroupExpression newJoinGroupExpr = root.logicalExpressionsAt(1);
                     Plan left = newJoinGroupExpr.child(0).getLogicalExpression().getPlan();
                     Plan right = newJoinGroupExpr.child(1).getLogicalExpression().getPlan();
                     Assertions.assertTrue(left instanceof LogicalOlapScan);

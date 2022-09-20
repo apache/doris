@@ -20,8 +20,17 @@ suite ("sub_query_correlated") {
     sql """
         SET enable_vectorized_engine=true
     """
+
     sql """
         SET enable_nereids_planner=true
+    """
+
+    sql """
+        SET enable_bucket_shuffle_join=false
+    """
+
+    sql """
+        SET disable_colocate_plan=true
     """
 
     sql """
@@ -93,133 +102,133 @@ suite ("sub_query_correlated") {
 
     //------------------Correlated-----------------
     qt_scalar_less_than_corr """
-        select * from subquery1 where subquery1.k1 < (select sum(subquery3.k3) from subquery3 where subquery3.v2 = subquery1.k2) order by k1
+        select * from subquery1 where subquery1.k1 < (select sum(subquery3.k3) from subquery3 where subquery3.v2 = subquery1.k2) order by k1, k2
     """
     
     qt_scalar_not_equal_corr """
-        select * from subquery1 where subquery1.k1 != (select sum(subquery3.k3) from subquery3 where subquery3.v2 = subquery1.k2) order by k1
+        select * from subquery1 where subquery1.k1 != (select sum(subquery3.k3) from subquery3 where subquery3.v2 = subquery1.k2) order by k1, k2
     """
     
     qt_scalar_equal_to_corr """
-        select * from subquery1 where subquery1.k1 = (select sum(subquery3.k3) from subquery3 where subquery3.v2 = subquery1.k2) order by k1
+        select * from subquery1 where subquery1.k1 = (select sum(subquery3.k3) from subquery3 where subquery3.v2 = subquery1.k2) order by k1, k2
     """
     
     qt_not_in_corr """
-        select * from subquery1 where subquery1.k1 not in (select subquery3.k3 from subquery3 where subquery3.v2 = subquery1.k2) order by k1
+        select * from subquery1 where subquery1.k1 not in (select subquery3.k3 from subquery3 where subquery3.v2 = subquery1.k2) order by k1, k2
     """
     
     qt_in_subquery_corr """
-        select * from subquery1 where subquery1.k1 in (select subquery3.k3 from subquery3 where subquery3.v2 = subquery1.k2) order by k1 
+        select * from subquery1 where subquery1.k1 in (select subquery3.k3 from subquery3 where subquery3.v2 = subquery1.k2) order by k1, k2
     """
     
     qt_not_exist_corr """
-        select * from subquery1 where not exists (select subquery3.k3 from subquery3 where subquery1.k2 = subquery3.v2) order by k1
+        select * from subquery1 where not exists (select subquery3.k3 from subquery3 where subquery1.k2 = subquery3.v2) order by k1, k2
     """
 
     qt_exist_corr """
-        select * from subquery1 where exists (select subquery3.k3 from subquery3 where subquery1.k2 = subquery3.v2) order by k1
+        select * from subquery1 where exists (select subquery3.k3 from subquery3 where subquery1.k2 = subquery3.v2) order by k1, k2
     """
     
     qt_in_with_in_and_scalar """
         select * from subquery1 where subquery1.k1 in (
              select subquery3.k3 from subquery3 where 
                 subquery3.k3 in (select subquery4.k1 from subquery4 where subquery4.k1 = 3)
-                and subquery3.v2 > (select sum(subquery2.k2) from subquery2 where subquery2.k2 = subquery3.v1)) order by k1
+                and subquery3.v2 > (select sum(subquery2.k2) from subquery2 where subquery2.k2 = subquery3.v1)) order by k1, k2
     """
     
     qt_exist_and_not_exist """
         select * from subquery1 where exists (select subquery3.k3 from subquery3 where subquery1.k2 = subquery3.v2)
-                               and not exists (select subquery4.k2 from subquery4 where subquery1.k2 = subquery4.k2) order by k1
+                               and not exists (select subquery4.k2 from subquery4 where subquery1.k2 = subquery4.k2) order by k1, k2
     """
 
     //------------------unCorrelated-----------------
     qt_scalar_unCorrelated """
-        select * from subquery1 where subquery1.k1 < (select sum(subquery3.k3) from subquery3 where subquery3.v2 = 2) order by k1
+        select * from subquery1 where subquery1.k1 < (select sum(subquery3.k3) from subquery3 where subquery3.v2 = 2) order by k1, k2
     """
 
     qt_scalar_equal_to_uncorr """
-        select * from subquery1 where subquery1.k1 = (select sum(subquery3.k3) from subquery3) order by k1
+        select * from subquery1 where subquery1.k1 = (select sum(subquery3.k3) from subquery3) order by k1, k2
     """
 
     qt_not_scalar_unCorrelated """
-        select * from subquery1 where subquery1.k1 != (select sum(subquery3.k3) from subquery3 where subquery3.v2 = 2) order by k1
+        select * from subquery1 where subquery1.k1 != (select sum(subquery3.k3) from subquery3 where subquery3.v2 = 2) order by k1, k2
     """
 
     qt_scalar_not_equal_uncorr """
-        select * from subquery1 where subquery1.k1 != (select sum(subquery3.k3) from subquery3) order by k1
+        select * from subquery1 where subquery1.k1 != (select sum(subquery3.k3) from subquery3) order by k1, k2
     """
 
     qt_in_unCorrelated """
-        select * from subquery1 where subquery1.k1 in (select subquery3.k3 from subquery3 where subquery3.v2 = 2) order by k1
+        select * from subquery1 where subquery1.k1 in (select subquery3.k3 from subquery3 where subquery3.v2 = 2) order by k1, k2
     """
 
     qt_in_subquery_uncorr """
-        select * from subquery1 where subquery1.k1 in (select subquery3.k3 from subquery3) order by k1
+        select * from subquery1 where subquery1.k1 in (select subquery3.k3 from subquery3) order by k1, k2
     """
 
     qt_not_in_unCorrelated """
-        select * from subquery1 where subquery1.k1 not in (select subquery3.k3 from subquery3 where subquery3.v2 = 2) order by k1
+        select * from subquery1 where subquery1.k1 not in (select subquery3.k3 from subquery3 where subquery3.v2 = 2) order by k1, k2
     """
 
     qt_not_in_uncorr """
-        select * from subquery1 where subquery1.k1 not in (select subquery3.k3 from subquery3) order by k1
+        select * from subquery1 where subquery1.k1 not in (select subquery3.k3 from subquery3) order by k1, k2
     """
 
     qt_exist_unCorrelated """
-        select * from subquery1 where exists (select subquery3.k3 from subquery3 where subquery3.v2 = 2) order by k1
+        select * from subquery1 where exists (select subquery3.k3 from subquery3 where subquery3.v2 = 2) order by k1, k2
     """
 
     qt_exist_uncorr """
-        select * from subquery1 where exists (select subquery3.k3 from subquery3) order by k1
+        select * from subquery1 where exists (select subquery3.k3 from subquery3) order by k1, k2
     """
 
     //----------with subquery alias----------
     qt_alias_scalar """
         select * from subquery1
             where subquery1.k1 < (select max(aa) from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1
+                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
     """
 
     qt_alias_in """
         select * from subquery1
             where subquery1.k1 in (select aa from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1
+                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
     """
 
     qt_alias_not_in """
         select * from subquery1
             where subquery1.k1 not in (select aa from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1
+                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
     """
 
     qt_alias_exist """
         select * from subquery1
             where exists (select aa from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1
+                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
     """
 
     qt_alias_not_exist """
         select * from subquery1
             where not exists (select aa from
-                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1
+                (select k1 as aa from subquery3 where subquery1.k2 = subquery3.v2) subquery3) order by k1, k2
     """
 
     //----------complex subqueries----------
     qt_scalar_subquery """
         select * from subquery1
             where k1 = (select sum(k1) from subquery3 where subquery1.k1 = subquery3.v1 and subquery3.v2 = 2)
-            order by k1
+            order by k1, k2
     """
 
     qt_in_subquery """
         select * from subquery3
             where (k1 = 1 or k1 = 2 or k1 = 3) and v1 in (select k1 from subquery1 where subquery1.k2 = subquery3.v2 and subquery1.k1 = 3)
-            order by k1
+            order by k1, k2
     """
 
     qt_exist_subquery """
         select * from subquery3
             where k1 = 2 and exists (select * from subquery1 where subquery1.k1 = subquery3.v2 and subquery1.k2 = 4)
-            order by k1;
+            order by k1, k2
     """
 }
