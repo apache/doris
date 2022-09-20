@@ -65,15 +65,16 @@ import mockit.Mocked;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
+import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -83,27 +84,41 @@ import java.util.function.Function;
 
 public abstract class DorisHttpTestCase {
 
+    public OkHttpClient networkClient = new OkHttpClient.Builder()
+            .readTimeout(100, TimeUnit.SECONDS)
+            .build();
 
     public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-    public static long testStartVersion = 12;
-    public static int testSchemaHash = 93423942;
-    public static int HTTP_PORT;
+
+    private static HttpServer httpServer;
+
     public static final String CLUSTER_NAME = "default_cluster";
     public static final String DB_NAME = "testDb";
     public static final String TABLE_NAME = "testTbl";
-    protected static String URI;
-    private static final long testBackendId1 = 1000;
-    private static final long testBackendId2 = 1001;
-    private static final long testBackendId3 = 1002;
+
+    private static long testBackendId1 = 1000;
+    private static long testBackendId2 = 1001;
+    private static long testBackendId3 = 1002;
+
     private static long testReplicaId1 = 2000;
     private static long testReplicaId2 = 2001;
     private static long testReplicaId3 = 2002;
+
     private static long testDbId = 100L;
     private static long testTableId = 200L;
     private static long testPartitionId = 201L;
     public static long testIndexId = testTableId; // the base indexid == tableid
     private static long tabletId = 400L;
-    private static HttpServer httpServer;
+
+    public static long testStartVersion = 12;
+    public static int testSchemaHash = 93423942;
+
+    public static int HTTP_PORT;
+
+    protected static String URI;
+
+    protected String rootAuth = Credentials.basic("root", "");
+
     private static final String DORIS_HOME;
 
     static {
@@ -117,13 +132,6 @@ public abstract class DorisHttpTestCase {
         }
         DORIS_HOME = dorisHome;
     }
-
-    public OkHttpClient networkClient = new OkHttpClient.Builder()
-            .readTimeout(100, TimeUnit.SECONDS)
-            .build();
-
-
-    protected String rootAuth = Credentials.basic("root", "");
 
     @Mocked
     private static EditLog editLog;
@@ -352,7 +360,7 @@ public abstract class DorisHttpTestCase {
 
     @AfterClass
     public static void afterClass() throws IOException {
-        Files.deleteIfExists(Paths.get(DORIS_HOME));
+        FileUtils.deleteDirectory(new File(DORIS_HOME));
     }
 
 
