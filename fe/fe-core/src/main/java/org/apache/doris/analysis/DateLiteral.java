@@ -600,7 +600,11 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public long getLongValue() {
-        return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+        if (this.getType().isDate() || this.getType().isDateV2()) {
+            return year * 10000 + month * 100 + day;
+        } else {
+            return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+        }
     }
 
     @Override
