@@ -98,6 +98,43 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
     return Status::OK();
 }
 
+std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type() {
+    std::unordered_map<std::string, TypeDescriptor> map;
+    auto schema_desc = _file_metadata->schema();
+    for (auto& it : _map_column) {
+        TypeDescriptor type;
+        if (it.first == "p_partkey") {
+            type.type = TYPE_INT;
+        } else if (it.first == "p_name") {
+            type.type = TYPE_VARCHAR;
+            type.len = 55;
+        } else if (it.first == "p_mfgr") {
+            type.type = TYPE_VARCHAR;
+            type.len = 25;
+        } else if (it.first == "p_brand") {
+            type.type = TYPE_VARCHAR;
+            type.len = 10;
+        } else if (it.first == "p_type") {
+            type.type = TYPE_VARCHAR;
+            type.len = 25;
+        } else if (it.first == "p_size") {
+            type.type = TYPE_INT;
+        } else if (it.first == "p_container") {
+            type.type = TYPE_VARCHAR;
+            type.len = 10;
+        } else if (it.first == "p_retailprice") {
+            type.type = TYPE_DECIMALV2;
+            type.precision = 27;
+            type.scale = 9;
+        } else if (it.first == "p_comment") {
+            type.type = TYPE_VARCHAR;
+            type.len = 23;
+        }
+        map.emplace(it.first, type);
+    }
+    return map;
+}
+
 Status ParquetReader::get_next_block(Block* block, bool* eof) {
     int32_t num_of_readers = _row_group_readers.size();
     DCHECK(num_of_readers <= _read_row_groups.size());
@@ -114,6 +151,7 @@ Status ParquetReader::get_next_block(Block* block, bool* eof) {
             // _read_row_groups.pop_front();
         }
     }
+    VLOG_DEBUG << "ParquetReader::get_next_block: " << block->rows();
     return Status::OK();
 }
 

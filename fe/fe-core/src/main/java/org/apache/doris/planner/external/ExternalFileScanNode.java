@@ -135,6 +135,11 @@ public class ExternalFileScanNode extends ExternalScanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
 
+        if (!Config.enable_vectorized_load) {
+            throw new UserException(
+                    "Please set 'enable_vectorized_load=true' in fe.conf to enable external file scan node");
+        }
+
         switch (type) {
             case QUERY:
                 HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
@@ -337,6 +342,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         // Need re compute memory layout after set some slot descriptor to nullable
         srcTupleDesc.computeStatAndMemLayout();
+
+        if (!preFilterConjuncts.isEmpty()) {
+            Expr vPreFilterExpr = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
+            initCompoundPredicate(vPreFilterExpr);
+            params.setPreFilterExprs(vPreFilterExpr.treeToThrift());
+        }
     }
 
     protected void checkBitmapCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr)
@@ -377,15 +388,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
         planNode.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
         TFileScanNode fileScanNode = new TFileScanNode();
         fileScanNode.setTupleId(desc.getId().asInt());
-        if (!preFilterConjuncts.isEmpty()) {
-            if (Config.enable_vectorized_load && vpreFilterConjunct != null) {
-                fileScanNode.addToPreFilterExprs(vpreFilterConjunct.treeToThrift());
-            } else {
-                for (Expr e : preFilterConjuncts) {
-                    fileScanNode.addToPreFilterExprs(e.treeToThrift());
-                }
-            }
-        }
         planNode.setFileScanNode(fileScanNode);
     }
 

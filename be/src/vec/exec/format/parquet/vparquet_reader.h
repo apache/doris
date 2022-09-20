@@ -73,7 +73,8 @@ public:
 
     Status init_reader(const TupleDescriptor* tuple_desc,
                        const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                       std::vector<ExprContext*>& conjunct_ctxs, const std::string& timezone);
+                       std::vector<ExprContext*>& conjunct_ctxs,
+                       const std::string& timezone) override;
 
     Status get_next_block(Block* block, bool* eof) override;
 
@@ -81,6 +82,8 @@ public:
     void close();
 
     int64_t size() const { return _file_reader->size(); }
+
+    std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
 
 private:
     bool _next_row_group_reader();

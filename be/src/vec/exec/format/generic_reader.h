@@ -28,6 +28,17 @@ class Block;
 class GenericReader {
 public:
     virtual Status get_next_block(Block* block, bool* eof) = 0;
+    virtual std::unordered_map<std::string, TypeDescriptor> get_name_to_type() {
+        std::unordered_map<std::string, TypeDescriptor> map;
+        return map;
+    }
+    virtual Status init_reader(const TupleDescriptor* tuple_desc,
+                               const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                               std::vector<ExprContext*>& conjunct_ctxs,
+                               const std::string& timezone) {
+        return Status::OK();
+    };
+    virtual ~GenericReader() {}
 };
 
 } // namespace doris::vectorized
