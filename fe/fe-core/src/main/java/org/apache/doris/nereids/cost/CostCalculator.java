@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.cost;
 
+import org.apache.doris.common.Id;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -38,6 +39,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 /**
  * Calculate the cost of a plan.
