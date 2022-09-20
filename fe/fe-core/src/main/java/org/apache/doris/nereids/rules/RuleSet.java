@@ -73,12 +73,12 @@ public class RuleSet {
     public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
             new PushDownJoinOtherCondition(),
             new PushPredicatesThroughJoin(),
+            new PushDownExpressionsInHashCondition(),
             new PushdownProjectThroughLimit(),
             new PushdownFilterThroughProject(),
             new MergeConsecutiveProjects(),
             new MergeConsecutiveFilters(),
-            new MergeConsecutiveLimits(),
-            new PushDownExpressionsInHashCondition());
+            new MergeConsecutiveLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalAggToPhysicalHashAgg())
