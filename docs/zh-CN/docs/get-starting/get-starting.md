@@ -195,7 +195,7 @@ priority_networks=172.23.16.0/24
 
 
 ```
-storage_root=/path/your/data_dir
+storage_root_path=/path/your/data_dir
 ```
 
 >注意：
