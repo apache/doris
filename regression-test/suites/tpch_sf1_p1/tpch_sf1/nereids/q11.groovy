@@ -55,7 +55,7 @@ suite("tpch_sf1_q11_nereids") {
                     and n_name = 'GERMANY'
             )
     order by
-        value desc;
+        value desc, ps_partkey;
     """
 
     qt_select """
@@ -86,7 +86,7 @@ suite("tpch_sf1_q11_nereids") {
                     ps_suppkey = A.s_suppkey
             )
     order by
-        value desc;
+        value desc, ps_partkey;
     """
 
 }
