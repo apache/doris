@@ -78,11 +78,12 @@ public:
                     MemInfo::mem_limit() ||
             PerfCounters::get_vm_rss() + bytes >= MemInfo::hard_mem_limit()) {
             auto st = Status::MemoryLimitExceeded(
-                    "process memory used {}, tc/jemalloc cache {}, exceed limit {}, failed alloc "
+                    "process memory used {}, tc/jemalloc cache {}, exceed limit {}, hard limit {}, "
+                    "failed alloc "
                     "size {}",
                     print_bytes(PerfCounters::get_vm_rss()),
                     print_bytes(MemInfo::allocator_cache_mem()), print_bytes(MemInfo::mem_limit()),
-                    print_bytes(bytes));
+                    print_bytes(MemInfo::hard_mem_limit()), print_bytes(bytes));
             ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(st.get_error_msg());
             return st;
         }
