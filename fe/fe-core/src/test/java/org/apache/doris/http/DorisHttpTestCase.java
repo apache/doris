@@ -117,6 +117,7 @@ public abstract class DorisHttpTestCase {
         }
         DORIS_HOME = dorisHome;
     }
+
     public OkHttpClient networkClient = new OkHttpClient.Builder()
             .readTimeout(100, TimeUnit.SECONDS)
             .build();
