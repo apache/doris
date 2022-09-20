@@ -77,7 +77,7 @@ suite("test_rollup_agg_date", "rollup") {
         sql("SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3")
         contains("(rollup_date)")
     }
-    qt_sql """ SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3; """
+    qt_sql """ SELECT datek1,datetimek1,datetimek2,datetimek3,max(datev1),max(datetimev1),max(datetimev2),max(datetimev3) FROM ${tbName} GROUP BY datek1,datetimek1,datetimek2,datetimek3 order by datek1 desc; """
     sql "ALTER TABLE ${tbName} DROP ROLLUP rollup_date;"
     sql "DROP TABLE ${tbName} FORCE;"
 }
