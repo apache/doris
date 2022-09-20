@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -76,9 +75,9 @@ public class InnerJoinLAsscomTest {
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());
 
                     Assertions.assertTrue(root.logicalExpressionsAt(0).getPlan() instanceof LogicalJoin);
-                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalProject);
+                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalJoin);
 
-                    GroupExpression newTopJoinGroupExpr = root.logicalExpressionsAt(1).child(0).getLogicalExpression();
+                    GroupExpression newTopJoinGroupExpr = root.logicalExpressionsAt(1);
                     GroupExpression newBottomJoinGroupExpr = newTopJoinGroupExpr.child(0).getLogicalExpression();
                     Plan bottomLeft = newBottomJoinGroupExpr.child(0).getLogicalExpression().getPlan();
                     Plan bottomRight = newBottomJoinGroupExpr.child(1).getLogicalExpression().getPlan();

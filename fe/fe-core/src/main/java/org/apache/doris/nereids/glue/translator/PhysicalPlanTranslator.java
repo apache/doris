@@ -578,6 +578,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(SlotReference.class::cast)
                 .forEach(s -> hashOutputSlotReferenceMap.put(s.getExprId(), s));
 
+        Map<ExprId, SlotReference> leftChildOutputMap = Maps.newHashMap();
+        hashJoin.child(0).getOutput().stream()
+                .map(SlotReference.class::cast)
+                .forEach(s -> leftChildOutputMap.put(s.getExprId(), s));
+        Map<ExprId, SlotReference> rightChildOutputMap = Maps.newHashMap();
+        hashJoin.child(1).getOutput().stream()
+                .map(SlotReference.class::cast)
+                .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
+
         //make intermediate tuple
         List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
         List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
@@ -585,38 +594,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         if (!hashJoin.getOtherJoinCondition().isPresent()
                 && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
-            leftIntermediateSlotDescriptor = hashJoin.child(0).getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .map(s -> context.createSlotDesc(intermediateDescriptor, s))
-                    .collect(Collectors.toList());
+            for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
+                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                leftIntermediateSlotDescriptor.add(sd);
+            }
         } else if (!hashJoin.getOtherJoinCondition().isPresent()
                 && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
-            rightIntermediateSlotDescriptor = hashJoin.child(1).getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .map(s -> context.createSlotDesc(intermediateDescriptor, s))
-                    .collect(Collectors.toList());
+            for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
+                SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                rightIntermediateSlotDescriptor.add(sd);
+            }
         } else {
-            Map<ExprId, SlotReference> leftMap = Maps.newHashMap();
-            hashJoin.child(0).getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> leftMap.put(s.getExprId(), s));
-
             for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
-                SlotReference sf = leftMap.get(context.findExprId(leftSlotDescriptor.getId()));
+                SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
                 SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                 if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                     hashJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDescriptor.getId());
                 }
                 leftIntermediateSlotDescriptor.add(sd);
             }
-
-            Map<ExprId, SlotReference> rightMap = Maps.newHashMap();
-            hashJoin.child(1).getOutput().stream()
-                    .map(SlotReference.class::cast)
-                    .forEach(s -> rightMap.put(s.getExprId(), s));
-
             for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
-                SlotReference sf = rightMap.get(context.findExprId(rightSlotDescriptor.getId()));
+                SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
                 SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                 if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                     hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptor.getId());
