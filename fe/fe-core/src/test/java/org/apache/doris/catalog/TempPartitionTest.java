@@ -41,7 +41,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -58,9 +57,9 @@ import java.util.UUID;
 
 public class TempPartitionTest {
 
-    private static String tempPartitionFile = "./TempPartitionTest";
-    private static String tblFile = "./tblFile";
-    private static String runningDir = "fe/mocked/TempPartitionTest/" + UUID.randomUUID().toString() + "/";
+    private static final String tempPartitionFile = "./TempPartitionTest";
+    private static final String tblFile = "./tblFile";
+    private static final String runningDir = "fe/mocked/TempPartitionTest/" + UUID.randomUUID().toString() + "/";
 
     private static ConnectContext ctx;
 
@@ -73,14 +72,7 @@ public class TempPartitionTest {
 
     @AfterClass
     public static void tearDown() throws IOException {
-        Files.deleteIfExists(Paths.get(runningDir));
-        Files.deleteIfExists(Paths.get(tempPartitionFile));
-        Files.deleteIfExists(Paths.get(tblFile));
-    }
-
-    @Before
-    public void before() {
-
+        UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
     private void checkShowPartitionsResultNum(String tbl, boolean isTemp, int expected) throws Exception {
@@ -440,7 +432,7 @@ public class TempPartitionTest {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
                         "alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
+                Thread.sleep(500);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
@@ -813,7 +805,7 @@ public class TempPartitionTest {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
                         "alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
+                Thread.sleep(500);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
@@ -1178,7 +1170,7 @@ public class TempPartitionTest {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
                         "alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
+                Thread.sleep(500);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
@@ -1267,7 +1259,7 @@ public class TempPartitionTest {
 
     private void testSerializeOlapTable(OlapTable tbl) throws IOException {
         // 1. Write objects to file
-        Path path = Files.createTempFile("tempPartitionFile", "tmp");
+        final Path path = Files.createFile(Paths.get(tblFile));
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         tbl.write(out);
@@ -1281,6 +1273,9 @@ public class TempPartitionTest {
         Assert.assertEquals(tbl.getId(), readTbl.getId());
         Assert.assertEquals(tbl.getTempPartitions().size(), readTbl.getTempPartitions().size());
         in.close();
+
+        Files.deleteIfExists(Paths.get(tblFile));
+
     }
 
     private void testSerializeTempPartitions(TempPartitions tempPartitionsInstance) throws IOException {
@@ -1289,7 +1284,7 @@ public class TempPartitionTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        Path path = Files.createTempFile(tempPartitionFile, "tmp");
+        final Path path = Files.createFile(Paths.get(tempPartitionFile));
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         tempPartitionsInstance.write(out);
@@ -1304,5 +1299,7 @@ public class TempPartitionTest {
         Assert.assertEquals(1, partitions.size());
         Assert.assertEquals(2, partitions.get(0).getMaterializedIndices(IndexExtState.VISIBLE).size());
         in.close();
+
+        Files.deleteIfExists(Paths.get(tempPartitionFile));
     }
 }

@@ -36,7 +36,7 @@ import java.util.Base64;
 
 public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
-    private static String PATH_URI = "/_query_plan";
+    private static final String PATH_URI = "/_query_plan";
     protected static String ES_TABLE_URL;
 
     @Override

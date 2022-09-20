@@ -192,7 +192,7 @@ public class LoadJobTest {
         job.clearRedundantInfoForHistoryJob();
 
         Assert.assertNull(job.getIdToTableLoadInfo());
-        Assert.assertNull(job.getIdToTabletLoadInfo() == null);
+        Assert.assertNull(job.getIdToTabletLoadInfo());
         Assert.assertNull(job.getQuorumTablets());
         Assert.assertNull(job.getFullTablets());
         Assert.assertNull(job.getReplicaPersistInfos());
