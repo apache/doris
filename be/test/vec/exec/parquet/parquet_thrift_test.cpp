@@ -51,12 +51,11 @@ TEST_F(ParquetThriftReaderTest, normal) {
     auto st = reader.open();
     EXPECT_TRUE(st.ok());
 
-    std::shared_ptr<FileMetaData> metaData;
-    parse_thrift_footer(&reader, metaData);
-    tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
+    std::shared_ptr<FileMetaData> meta_data;
+    parse_thrift_footer(&reader, meta_data);
+    tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
-    LOG(WARNING) << "num row groups: " << metaData->num_row_groups();
-    LOG(WARNING) << "num columns: " << metaData->num_columns();
+    LOG(WARNING) << "num columns: " << meta_data->num_columns();
     LOG(WARNING) << "=====================================";
     for (auto value : t_metadata.row_groups) {
         LOG(WARNING) << "row group num_rows: " << value.num_rows;
@@ -83,9 +82,9 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     auto st = reader.open();
     EXPECT_TRUE(st.ok());
 
-    std::shared_ptr<FileMetaData> metaData;
-    parse_thrift_footer(&reader, metaData);
-    tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
+    std::shared_ptr<FileMetaData> metadata;
+    parse_thrift_footer(&reader, metadata);
+    tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
     schemaDescriptor.parse_from_thrift(t_metadata.schema);
 
@@ -272,9 +271,9 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     std::unique_ptr<vectorized::Block> block;
     create_block(block);
-    std::shared_ptr<FileMetaData> metaData;
-    parse_thrift_footer(&reader, metaData);
-    tparquet::FileMetaData t_metadata = metaData->to_thrift_metadata();
+    std::shared_ptr<FileMetaData> metadata;
+    parse_thrift_footer(&reader, metadata);
+    tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     schema_descriptor.parse_from_thrift(t_metadata.schema);
     level_t defs[rows];
@@ -382,9 +381,8 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     std::vector<ParquetReadColumn> read_columns;
     for (const auto& slot : tuple_slots) {
-        read_columns.emplace_back(ParquetReadColumn(7, slot));
+        read_columns.emplace_back(ParquetReadColumn(7, slot->col_name()));
     }
-
     LocalFileReader file_reader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
     auto st = file_reader.open();
     EXPECT_TRUE(st.ok());
@@ -392,7 +390,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     // prepare metadata
     std::shared_ptr<FileMetaData> meta_data;
     parse_thrift_footer(&file_reader, meta_data);
-    tparquet::FileMetaData t_metadata = meta_data->to_thrift_metadata();
+    tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);

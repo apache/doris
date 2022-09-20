@@ -95,14 +95,18 @@ TEST_F(ParquetReaderTest, normal) {
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    auto p_reader = new ParquetReader(reader, slot_descs.size(), 1024, 0, 1000, &ctz);
+    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    std::vector<std::string> column_names;
+    for (int i = 0; i < slot_descs.size(); i++) {
+        column_names.push_back(slot_descs[i]->col_name());
+    }
+    auto p_reader = new ParquetReader(reader, column_names, 1024, 0, 1000, &ctz);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
     runtime_state.init_instance_mem_tracker();
 
-    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<ExprContext*> conjunct_ctxs = std::vector<ExprContext*>();
-    p_reader->init_reader(tuple_desc, slot_descs, conjunct_ctxs, runtime_state.timezone());
+    p_reader->init_reader(conjunct_ctxs);
     Block* block = new Block();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type =

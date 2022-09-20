@@ -104,6 +104,8 @@ public:
     void get_column_names(std::unordered_set<std::string>* names) const;
 
     std::string debug_string() const;
+
+    int32_t size() const { return _fields.size(); };
 };
 
 } // namespace doris::vectorized
