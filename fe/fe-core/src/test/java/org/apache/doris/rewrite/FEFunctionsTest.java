@@ -146,49 +146,33 @@ public class FEFunctionsTest {
     public void dateAddTest() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE),
                 new IntLiteral(1));
-        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
+        DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
 
         actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
+        expectedResult = new DateLiteral("2018-08-07", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
     }
 
     @Test
     public void dateV2AddTest() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(1));
-        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIMEV2);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
-        expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIMEV2);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(1));
-        expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
+        DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATEV2);
         Assert.assertEquals(expectedResult, actualResult);
 
         actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIMEV2);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIMEV2);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
+        expectedResult = new DateLiteral("2018-08-07", Type.DATEV2);
         Assert.assertEquals(expectedResult, actualResult);
     }
 
     @Test
     public void addDateTest() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
-        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
+        DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
 
         actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
+        expectedResult = new DateLiteral("2018-08-07", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
 
     }
@@ -196,29 +180,12 @@ public class FEFunctionsTest {
     @Test
     public void addDateV2Test() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(1));
-        DateLiteral expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIMEV2);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
-        expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIMEV2);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(1));
-        expectedResult = new DateLiteral("2018-08-09 00:00:00", Type.DATETIME);
+        DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATEV2);
         Assert.assertEquals(expectedResult, actualResult);
 
         actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIMEV2);
+        expectedResult = new DateLiteral("2018-08-07", Type.DATEV2);
         Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIMEV2);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATEV2), new IntLiteral(-1));
-        expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
-        Assert.assertEquals(expectedResult, actualResult);
-
     }
 
     @Test
