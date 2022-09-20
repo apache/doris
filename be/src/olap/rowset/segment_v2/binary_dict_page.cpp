@@ -268,26 +268,27 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     DCHECK(_parsed);
     DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
 
-    if (PREDICT_FALSE(*n == 0)) {
-        *n = 0;
+    if (*n == 0) {
         return Status::OK();
     }
 
     const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     auto total = *n;
     size_t read_count = 0;
-    int32_t data[total];
+
+    ordinal_t limit = _bit_shuffle_ptr->_num_elements + page_first_ordinal;
+
     for (size_t i = 0; i < total; ++i) {
-        ordinal_t ord = rowids[i] - page_first_ordinal;
-        if (PREDICT_FALSE(ord >= _bit_shuffle_ptr->_num_elements)) {
+        if (rowids[i] >= limit) {
             break;
         }
 
-        data[read_count++] = data_array[ord];
+        _selector[read_count++] = data_array[rowids[i]];
     }
 
-    if (LIKELY(read_count > 0)) {
-        dst->insert_many_dict_data(data, 0, _dict_word_info, read_count, _dict_decoder->_num_elems);
+    if (read_count > 0) {
+        dst->insert_many_dict_data(_selector, 0, _dict_word_info, read_count,
+                                   _dict_decoder->_num_elems);
     }
     *n = read_count;
     return Status::OK();
