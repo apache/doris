@@ -86,7 +86,7 @@ public:
     }
     // Construct from olap engine
     DecimalV2Value(int64_t int_value, int64_t frac_value) {
-        from_olap_decimal(int_value, frac_value);
+        _value = static_cast<int128_t>(int_value) * ONE_BILLION + frac_value;
     }
 
     bool from_olap_decimal(int64_t int_value, int64_t frac_value) {

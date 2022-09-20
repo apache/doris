@@ -250,12 +250,12 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
 template <typename T>
 void ColumnDecimal<T>::insert_many_fix_len_data(const char** address, size_t num) {
     size_t old_size = data.size();
-    data.resize(old_size + num);
+    data.resize_assume_reserved(old_size + num);
     if (this->is_decimalv2_type()) {
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = address[i];
-            data[old_size + i] = (Decimal128)DecimalV2Value(*(int64_t*)(cur_ptr),
-                                                            *(int32_t*)(cur_ptr + sizeof(int64_t)));
+            new (&data[old_size + i])
+                    DecimalV2Value(*(int64_t*)(cur_ptr), *(int32_t*)(cur_ptr + sizeof(int64_t)));
         }
     } else {
         for (int i = 0; i < num; i++) {
