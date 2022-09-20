@@ -17,13 +17,18 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+
+import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -50,6 +55,9 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
     public JoinLAsscomHelper(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         super(topJoin, bottomJoin, bottomJoin.left(), bottomJoin.right(), topJoin.right());
+        if (topJoin.left() instanceof LogicalProject) {
+            insideProjects.addAll(((LogicalProject<? extends Plan>) topJoin.left()).getProjects());
+        }
     }
 
     /**
@@ -57,7 +65,7 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
      */
     public Plan newTopJoin() {
         // Split bottomJoinProject into two part.
-        Map<Boolean, List<NamedExpression>> projectExprsMap = bottomProjects.stream()
+        Map<Boolean, List<NamedExpression>> projectExprsMap = insideProjects.stream()
                 .collect(Collectors.partitioningBy(projectExpr -> {
                     Set<Slot> usedSlots = projectExpr.collect(Slot.class::isInstance);
                     return bOutputSet.containsAll(usedSlots);
@@ -109,6 +117,28 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
         }
 
         return PlanUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+    }
+
+    // TODO: consider nonHashJoinCondition.
+    public boolean initJoinOnCondition() {
+        // Split topJoin hashCondition to two part according to include B.
+        // Just include A C into newTopHashJoinConjuncts.
+        Map<Boolean, List<Expression>> on = topJoin.getHashJoinConjuncts().stream()
+                .collect(Collectors.partitioningBy(topHashOn -> {
+                    Set<Slot> usedSlot = topHashOn.collect(SlotReference.class::isInstance);
+                    return ExpressionUtils.isIntersecting(bOutputSet, usedSlot);
+                }));
+
+        newBottomHashJoinConjuncts = on.get(false);
+        if (newBottomHashJoinConjuncts.size() == 0) {
+            return false;
+        }
+        newTopHashJoinConjuncts = on.get(true);
+        Preconditions.checkState(!newTopHashJoinConjuncts.isEmpty(),
+                "LAsscom newTopHashJoinConjuncts join can't empty");
+        newTopHashJoinConjuncts.addAll(bottomJoin.getHashJoinConjuncts());
+
+        return true;
     }
 
     // When project not empty, we add all slots used by hashOnCondition into projects.

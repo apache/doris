@@ -45,7 +45,6 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left().child());
-                    helper.initProject(topJoin.left());
                     if (!helper.initJoinOnCondition()) {
                         return null;
                     }

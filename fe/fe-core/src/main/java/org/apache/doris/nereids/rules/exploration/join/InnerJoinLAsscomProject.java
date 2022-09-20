@@ -42,7 +42,6 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                 .when(topJoin -> InnerJoinLAsscom.check(topJoin, topJoin.left().child()))
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left().child());
-                    helper.initProject(topJoin.left());
                     if (!helper.initJoinOnCondition()) {
                         return null;
                     }

@@ -57,6 +57,9 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .then(topJoin -> {
                     JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left());
+                    if (!helper.initJoinOnCondition()) {
+                        return null;
+                    }
                     return helper.newTopJoin();
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM);
     }
