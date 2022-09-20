@@ -24,9 +24,9 @@ namespace doris::vectorized {
 
 class TopNSorter final : public Sorter {
 public:
-    TopNSorter(SortDescription& sort_description, VSortExecExprs& vsort_exec_exprs, int limit,
-               int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
-               std::vector<bool>& nulls_first, const RowDescriptor& row_desc);
+    TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
+               std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
+               const RowDescriptor& row_desc);
 
     ~TopNSorter() override = default;
 
@@ -37,6 +37,7 @@ public:
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
     static constexpr size_t TOPN_SORT_THRESHOLD = 256;
+
 private:
     Status _do_sort(Block* block, bool* mem_reuse);
 

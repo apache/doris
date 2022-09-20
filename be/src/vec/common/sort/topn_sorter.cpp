@@ -21,10 +21,10 @@
 
 namespace doris::vectorized {
 
-TopNSorter::TopNSorter(SortDescription& sort_description, VSortExecExprs& vsort_exec_exprs,
-                       int limit, int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
+TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+                       ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
-        : Sorter(sort_description, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _state(std::unique_ptr<MergeSorterState>(new MergeSorterState(row_desc, offset))) {}
 
 Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
