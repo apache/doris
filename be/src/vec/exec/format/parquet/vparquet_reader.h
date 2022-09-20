@@ -47,6 +47,8 @@ class RowGroupReader;
 class PageIndex;
 
 struct RowRange {
+    RowRange() {}
+    RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
     int64_t first_row;
     int64_t last_row;
 };
