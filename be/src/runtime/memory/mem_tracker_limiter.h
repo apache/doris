@@ -216,7 +216,7 @@ private:
                 "alloc size {}",
                 PerfCounters::get_vm_rss_str(), MemInfo::allocator_cache_mem_str(),
                 MemInfo::mem_limit_str(), print_bytes(bytes));
-        ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(err_msg);
+        ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err_msg);
         return err_msg;
     }
 
