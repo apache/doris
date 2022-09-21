@@ -160,13 +160,15 @@ protected:
                                        ExecEnv::GetInstance()->orphan_mem_tracker_raw());
 
         ptrdiff_t end_diff = c_end - c_start;
+        ptrdiff_t peak_diff = c_end_peak - c_start;
 
         c_start = reinterpret_cast<char*>(TAllocator::realloc(
                           c_start - pad_left, allocated_bytes(), bytes,
                           std::forward<TAllocatorParams>(allocator_params)...)) +
                   pad_left;
 
-        c_end = c_end_peak = c_start + end_diff;
+        c_end = c_start + end_diff;
+        c_end_peak = c_start + peak_diff;
         c_end_of_storage = c_start + bytes - pad_right - pad_left;
     }
 
@@ -517,9 +519,11 @@ public:
         auto swap_stack_heap = [this](PODArray& arr1, PODArray& arr2) {
             size_t stack_size = arr1.size();
             size_t stack_allocated = arr1.allocated_bytes();
+            size_t stack_peak_used = arr1.c_end_peak - arr1.c_start;
 
             size_t heap_size = arr2.size();
             size_t heap_allocated = arr2.allocated_bytes();
+            size_t heap_peak_used = arr2.c_end_peak - arr2.c_start;
 
             /// Keep track of the stack content we have to copy.
             char* stack_c_start = arr1.c_start;
@@ -528,13 +532,17 @@ public:
             arr1.c_start = arr2.c_start;
             arr1.c_end_of_storage = arr1.c_start + heap_allocated - arr1.pad_right;
             arr1.c_end = arr1.c_start + this->byte_size(heap_size);
-            arr1.c_end_peak = arr2.c_end_peak;
+            arr1.c_end_peak = arr1.c_end;
+            THREAD_MEM_TRACKER_TRANSFER_FROM(arr1.c_end_peak - arr1.c_start - heap_peak_used,
+                                         ExecEnv::GetInstance()->orphan_mem_tracker_raw());
 
             /// Allocate stack space for arr2.
             arr2.alloc(stack_allocated);
             /// Copy the stack content.
             memcpy(arr2.c_start, stack_c_start, this->byte_size(stack_size));
             arr2.c_end = arr2.c_end_peak = arr2.c_start + this->byte_size(stack_size);
+            THREAD_MEM_TRACKER_TRANSFER_FROM(arr2.c_end_peak - arr2.c_start - stack_peak_used,
+                                         ExecEnv::GetInstance()->orphan_mem_tracker_raw());
         };
 
         auto do_move = [this](PODArray& src, PODArray& dest) {
@@ -543,7 +551,11 @@ public:
                 dest.alloc(src.allocated_bytes());
                 memcpy(dest.c_start, src.c_start, this->byte_size(src.size()));
                 dest.c_end = dest.c_end_peak = dest.c_start + (src.c_end - src.c_start);
+                THREAD_MEM_TRACKER_TRANSFER_FROM(dest.c_end_peak - dest.c_start,
+                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
 
+                THREAD_MEM_TRACKER_TRANSFER_FROM(src.c_end_of_storage - src.c_end_peak,
+                                         ExecEnv::GetInstance()->orphan_mem_tracker_raw());
                 src.c_start = Base::null;
                 src.c_end = Base::null;
                 src.c_end_of_storage = Base::null;
