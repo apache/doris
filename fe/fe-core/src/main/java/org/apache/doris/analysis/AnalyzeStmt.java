@@ -136,6 +136,13 @@ public class AnalyzeStmt extends DdlStmt {
         return partitionNames;
     }
 
+    /**
+     * The statistics task obtains partitions and then collects partition statistics,
+     * we need to filter out partitions that do not have data.
+     *
+     * @return map of tableId and partitionName
+     * @throws AnalysisException not analyzed
+     */
     public Map<Long, List<String>> getTableIdToPartitionName() throws AnalysisException {
         Preconditions.checkArgument(isAnalyzed(),
                 "The partitionIds must be obtained after the parsing is complete");
@@ -149,7 +156,8 @@ public class AnalyzeStmt extends DdlStmt {
                 if (partitionNames.isEmpty() && olapTable.isPartitioned()) {
                     partitionNames.addAll(olapTable.getPartitionNames());
                 }
-                tableIdToPartitionName.put(table.getId(), partitionNames);
+                List<String> notEmptyPartition = getNotEmptyPartition(olapTable, partitionNames);
+                tableIdToPartitionName.put(table.getId(), notEmptyPartition);
             } finally {
                 table.readUnlock();
             }
@@ -327,6 +335,17 @@ public class AnalyzeStmt extends DdlStmt {
         optProperties.put(CBO_STATISTICS_TASK_TIMEOUT_SEC, String.valueOf(taskTimeout));
     }
 
+    private List<String> getNotEmptyPartition(OlapTable olapTable, List<String> partitionNames) {
+        List<String> notEmptyPartition = Lists.newArrayList();
+        for (String partitionName : partitionNames) {
+            Partition partition = olapTable.getPartition(partitionName);
+            if (partition != null && partition.getDataSize() > 0) {
+                notEmptyPartition.add(partitionName);
+            }
+        }
+        return notEmptyPartition;
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
@@ -337,7 +356,7 @@ public class AnalyzeStmt extends DdlStmt {
             sb.append(optTableName.toSql());
         }
 
-        if  (optColumnNames != null) {
+        if (optColumnNames != null) {
             sb.append("(");
             sb.append(StringUtils.join(optColumnNames, ","));
             sb.append(")");
