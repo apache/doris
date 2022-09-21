@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!-- Auto Generated. DO NOT MODIFY IT! -->
+<Configuration status="info" packages="org.apache.doris.common">
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">      <PatternLayout charset="UTF-8">
+        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>
+      </PatternLayout>
+    </Console>    <RollingFile name="Sys" fileName="/Users/mochenhui/IdeaProjects/doris/fe/log/fe.log" filePattern="/Users/mochenhui/IdeaProjects/doris/fe/log/fe.log.%d{yyyyMMdd}-%i">
+      <PatternLayout charset="UTF-8">
+        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>
+      </PatternLayout>
+      <Policies>
+        <TimeBasedTriggeringPolicy/>
+        <SizeBasedTriggeringPolicy size="1024MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="10" fileIndex="min">
+        <Delete basePath="/Users/mochenhui/IdeaProjects/doris/fe/log/" maxDepth="1">
+          <IfFileName glob="fe.log.*" />
+          <IfLastModified age="7d" />
+        </Delete>
+      </DefaultRolloverStrategy>
+    </RollingFile>
+    <RollingFile name="SysWF" fileName="/Users/mochenhui/IdeaProjects/doris/fe/log/fe.warn.log" filePattern="/Users/mochenhui/IdeaProjects/doris/fe/log/fe.warn.log.%d{yyyyMMdd}-%i">
+      <PatternLayout charset="UTF-8">
+        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>
+      </PatternLayout>
+      <Policies>
+        <TimeBasedTriggeringPolicy/>
+        <SizeBasedTriggeringPolicy size="1024MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="10" fileIndex="min">
+        <Delete basePath="/Users/mochenhui/IdeaProjects/doris/fe/log/" maxDepth="1">
+          <IfFileName glob="fe.warn.log.*" />
+          <IfLastModified age="7d" />
+        </Delete>
+      </DefaultRolloverStrategy>
+    </RollingFile>
+    <RollingFile name="Auditfile" fileName="/Users/mochenhui/IdeaProjects/doris/fe/log/fe.audit.log" filePattern="/Users/mochenhui/IdeaProjects/doris/fe/log/fe.audit.log.%d{yyyyMMdd}-%i">
+      <PatternLayout charset="UTF-8">
+        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>
+      </PatternLayout>
+      <Policies>
+        <TimeBasedTriggeringPolicy/>
+        <SizeBasedTriggeringPolicy size="1024MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="10" fileIndex="min">
+        <Delete basePath="/Users/mochenhui/IdeaProjects/doris/fe/log/" maxDepth="1">
+          <IfFileName glob="fe.audit.log.*" />
+          <IfLastModified age="30d" />
+        </Delete>
+      </DefaultRolloverStrategy>
+    </RollingFile>
+  </Appenders>
+  <Loggers>
+    <Root level="INFO">
+      <AppenderRef ref="Sys"/>
+      <AppenderRef ref="SysWF" level="WARN"/>
+      <!--REPLACED BY Console Logger-->
+    </Root>
+    <Logger name="audit" level="ERROR" additivity="false">
+      <AppenderRef ref="Auditfile"/>
+    </Logger>
+    <Logger name='audit.slow_query' level='INFO'/><Logger name='audit.query' level='INFO'/><Logger name='audit.load' level='INFO'/><Logger name='audit.stream_load' level='INFO'/>
+  </Loggers>
+</Configuration>
