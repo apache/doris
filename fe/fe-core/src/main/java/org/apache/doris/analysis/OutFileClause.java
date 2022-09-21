@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
+import org.apache.doris.thrift.TParquetSchema;
 import org.apache.doris.thrift.TParquetVersion;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
@@ -95,10 +96,10 @@ public class OutFileClause {
         PARQUET_COMPRESSION_TYPE_MAP.put("lz4", TParquetCompressionType.LZ4);
         PARQUET_COMPRESSION_TYPE_MAP.put("lzo", TParquetCompressionType.LZO);
         PARQUET_COMPRESSION_TYPE_MAP.put("bz2", TParquetCompressionType.BZ2);
-        PARQUET_COMPRESSION_TYPE_MAP.put("INVALID", TParquetCompressionType.UNCOMPRESSED);
+        PARQUET_COMPRESSION_TYPE_MAP.put("default", TParquetCompressionType.UNCOMPRESSED);
 
         PARQUET_VERSION_MAP.put("v1", TParquetVersion.PARQUET_1_0);
-        PARQUET_VERSION_MAP.put("LATEST", TParquetVersion.PARQUET_2_LATEST);
+        PARQUET_VERSION_MAP.put("latest", TParquetVersion.PARQUET_2_LATEST);
     }
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
@@ -135,9 +136,7 @@ public class OutFileClause {
     private boolean isLocalOutput = false;
     private String successFileName = "";
 
-    private List<TParquetRepetitionType> schemasRepetitionType = new ArrayList<>();
-    private List<TParquetDataType> schemasDataType = new ArrayList<>();
-    private List<String> schemasColumnName = new ArrayList<>();
+    private List<TParquetSchema> parquetSchemas = new ArrayList<>();
 
     private boolean isAnalyzed = false;
     private String headerType = "";
@@ -187,16 +186,8 @@ public class OutFileClause {
         return brokerDesc;
     }
 
-    public List<TParquetRepetitionType> getSchemasRepetitionType() {
-        return schemasRepetitionType;
-    }
-
-    public List<TParquetDataType> getSchemasDataType() {
-        return schemasDataType;
-    }
-
-    public List<String> getSchemasColumnName() {
-        return schemasColumnName;
+    public List<TParquetSchema> getParquetSchemas() {
+        return parquetSchemas;
     }
 
     public void analyze(Analyzer analyzer, List<Expr> resultExprs) throws UserException {
@@ -243,18 +234,18 @@ public class OutFileClause {
     }
 
     private void analyzeForParquetFormat(List<Expr> resultExprs) throws AnalysisException {
-        if (this.schemasDataType.isEmpty()) {
+        if (this.parquetSchemas.isEmpty()) {
             genParquetSchema(resultExprs);
         }
 
         // check schema number
-        if (resultExprs.size() != this.schemasDataType.size()) {
+        if (resultExprs.size() != this.parquetSchemas.size()) {
             throw new AnalysisException("Parquet schema number does not equal to select item number");
         }
 
         // check type
-        for (int i = 0; i < this.schemasDataType.size(); ++i) {
-            TParquetDataType type = this.schemasDataType.get(i);
+        for (int i = 0; i < this.parquetSchemas.size(); ++i) {
+            TParquetDataType type = this.parquetSchemas.get(i).schema_data_type;
             Type resultType = resultExprs.get(i).getType();
             switch (resultType.getPrimitiveType()) {
                 case BOOLEAN:
@@ -326,33 +317,32 @@ public class OutFileClause {
     }
 
     private void genParquetSchema(List<Expr> resultExprs) throws AnalysisException {
-        Preconditions.checkState(this.schemasRepetitionType.isEmpty());
-        Preconditions.checkState(this.schemasDataType.isEmpty());
-        Preconditions.checkState(this.schemasColumnName.isEmpty());
+        Preconditions.checkState(this.parquetSchemas.isEmpty());
         for (int i = 0; i < resultExprs.size(); ++i) {
             Expr expr = resultExprs.get(i);
-            schemasRepetitionType.add(PARQUET_REPETITION_TYPE_MAP.get("required"));
+            TParquetSchema parquetSchema = new TParquetSchema();
+            parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get("required");
             switch (expr.getType().getPrimitiveType()) {
                 case BOOLEAN:
-                    schemasDataType.add(PARQUET_DATA_TYPE_MAP.get("boolean"));
+                    parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("boolean");
                     break;
                 case TINYINT:
                 case SMALLINT:
                 case INT:
-                    schemasDataType.add(PARQUET_DATA_TYPE_MAP.get("int32"));
+                    parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("int32");
                     break;
                 case BIGINT:
                 case DATE:
                 case DATETIME:
                 case DATETIMEV2:
                 case DATEV2:
-                    schemasDataType.add(PARQUET_DATA_TYPE_MAP.get("int64"));
+                    parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("int64");
                     break;
                 case FLOAT:
-                    schemasDataType.add(PARQUET_DATA_TYPE_MAP.get("float"));
+                    parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("float");
                     break;
                 case DOUBLE:
-                    schemasDataType.add(PARQUET_DATA_TYPE_MAP.get("double"));
+                    parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("double");
                     break;
                 case CHAR:
                 case VARCHAR:
@@ -361,20 +351,21 @@ public class OutFileClause {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
-                    schemasDataType.add(PARQUET_DATA_TYPE_MAP.get("byte_array"));
+                    parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("byte_array");
                     break;
                 case HLL:
                 case BITMAP:
                     if (ConnectContext.get() != null && ConnectContext.get()
                             .getSessionVariable().isReturnObjectDataAsBinary()) {
-                        schemasDataType.add(PARQUET_DATA_TYPE_MAP.get("byte_array"));
+                        parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("byte_array");
                     }
                     break;
                 default:
                     throw new AnalysisException("currently parquet do not support column type: "
                             + expr.getType().getPrimitiveType());
             }
-            schemasColumnName.add("col" + i);
+            parquetSchema.schema_column_name = "col" + i;
+            parquetSchemas.add(parquetSchema);
         }
     }
 
@@ -513,7 +504,7 @@ public class OutFileClause {
         if (PARQUET_VERSION_MAP.containsKey(propertyValue)) {
             this.parquetVersion = PARQUET_VERSION_MAP.get(propertyValue);
         } else {
-            LOG.warn("not set parquet version type or is invalid, set default to PARQUET_2_LATEST version.");
+            LOG.warn("not set parquet version type or is invalid, set default to PARQUET_1.0 version.");
         }
     }
 
@@ -570,9 +561,11 @@ public class OutFileClause {
             if (!PARQUET_DATA_TYPE_MAP.containsKey(properties[1])) {
                 throw new AnalysisException("data type is not supported:" + properties[1]);
             }
-            schemasRepetitionType.add(PARQUET_REPETITION_TYPE_MAP.get(properties[0]));
-            schemasDataType.add(PARQUET_DATA_TYPE_MAP.get(properties[1]));
-            schemasColumnName.add(properties[2]);
+            TParquetSchema parquetSchema = new TParquetSchema();
+            parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get(properties[0]);
+            parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get(properties[1]);
+            parquetSchema.schema_column_name = properties[2];
+            parquetSchemas.add(parquetSchema);
         }
         processedPropKeys.add(SCHEMA);
     }
@@ -635,9 +628,7 @@ public class OutFileClause {
             sinkOptions.setParquetCompressionType(parquetCompressionType);
             sinkOptions.setParquetDisableDictionary(parquetDisableDictionary);
             sinkOptions.setParquetVersion(parquetVersion);
-            sinkOptions.setSchemasRepetitionType(schemasRepetitionType);
-            sinkOptions.setSchemasDataType(schemasDataType);
-            sinkOptions.setSchemasColumnName(schemasColumnName);
+            sinkOptions.setParquetSchemas(parquetSchemas);
         }
         return sinkOptions;
     }

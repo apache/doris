@@ -639,12 +639,12 @@ public class SelectStmtTest {
         sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET;";
         try {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-            Assert.assertEquals(1, stmt.getOutFileClause().getSchemasColumnName().size());
+            Assert.assertEquals(1, stmt.getOutFileClause().getParquetSchemas().size());
             Assert.assertEquals(stmt.getOutFileClause().PARQUET_REPETITION_TYPE_MAP.get("required"),
-                    stmt.getOutFileClause().getSchemasRepetitionType().get(0));
+                    stmt.getOutFileClause().getParquetSchemas().get(0).schema_repetition_type);
             Assert.assertEquals(stmt.getOutFileClause().PARQUET_DATA_TYPE_MAP.get("byte_array"),
-                    stmt.getOutFileClause().getSchemasDataType().get(0));
-            Assert.assertEquals("col0", stmt.getOutFileClause().getSchemasColumnName().get(0));
+                    stmt.getOutFileClause().getParquetSchemas().get(0).schema_data_type);
+            Assert.assertEquals("col0", stmt.getOutFileClause().getParquetSchemas().get(0).schema_column_name);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }

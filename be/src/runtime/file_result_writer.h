@@ -45,12 +45,14 @@ struct ResultFileOptions {
     std::vector<std::vector<std::string>> schema;       //not use in outfile with parquet format
     std::map<std::string, std::string> file_properties; //not use in outfile with parquet format
 
-    std::vector<TParquetRepetitionType::type> schemas_repetition_type;
-    std::vector<TParquetDataType::type> schemas_data_type;
-    std::vector<std::string> schemas_column_name;
+    std::vector<TParquetSchema> parquet_schemas;
     TParquetCompressionType::type parquet_commpression_type;
     TParquetVersion::type parquet_version;
     bool parquert_disable_dictionary;
+    //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
+    //But in order to consider the compatibility when upgrading, so add a bool to check
+    //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
+    bool is_refactor_before_flag = false;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -73,18 +75,14 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.schema) {
             schema = t_opt.schema;
+            is_refactor_before_flag = true;
         }
         if (t_opt.__isset.file_properties) {
             file_properties = t_opt.file_properties;
         }
-        if (t_opt.__isset.schemas_repetition_type) {
-            schemas_repetition_type = t_opt.schemas_repetition_type;
-        }
-        if (t_opt.__isset.schemas_data_type) {
-            schemas_data_type = t_opt.schemas_data_type;
-        }
-        if (t_opt.__isset.schemas_column_name) {
-            schemas_column_name = t_opt.schemas_column_name;
+        if (t_opt.__isset.parquet_schemas) {
+            is_refactor_before_flag = false;
+            parquet_schemas = t_opt.parquet_schemas;
         }
         if (t_opt.__isset.parquet_compression_type) {
             parquet_commpression_type = t_opt.parquet_compression_type;

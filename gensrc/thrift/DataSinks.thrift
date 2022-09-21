@@ -75,6 +75,12 @@ enum TParquetRepetitionType {
     OPTIONAL,
 }
 
+struct TParquetSchema {
+    1: optional TParquetRepetitionType schema_repetition_type
+    2: optional TParquetDataType schema_data_type
+    3: optional string schema_column_name    
+}
+
 struct TResultFileSinkOptions {
     1: required string file_path
     2: required PlanNodes.TFileFormatType file_format
@@ -90,12 +96,10 @@ struct TResultFileSinkOptions {
     //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
     //because when this info thrift to BE, BE hava to find useful info in string,
     //have to check by use string directly, and maybe not so efficient
-    11: optional list<TParquetRepetitionType> schemas_repetition_type
-    12: optional list<TParquetDataType> schemas_data_type
-    13: optional list<string> schemas_column_name
-    14: optional TParquetCompressionType parquet_compression_type
-    15: optional bool parquet_disable_dictionary
-    16: optional TParquetVersion parquet_version
+    11: optional list<TParquetSchema> parquet_schemas
+    12: optional TParquetCompressionType parquet_compression_type
+    13: optional bool parquet_disable_dictionary
+    14: optional TParquetVersion parquet_version
 }
 
 struct TMemoryScratchSink {

@@ -46,14 +46,12 @@ class VParquetWriterWrapper {
 public:
     VParquetWriterWrapper(doris::FileWriter* file_writer,
                           const std::vector<VExprContext*>& output_vexpr_ctxs,
-                          const std::vector<TParquetRepetitionType::type>& schemas_repetition_type,
-                          const std::vector<TParquetDataType::type>& schemas_data_type,
-                          const std::vector<std::string>& schemas_column_name,
+                          const std::vector<TParquetSchema>& parquet_schemas,
                           const TParquetCompressionType::type& compression_type,
                           const bool& parquet_disable_dictionary,
                           const TParquetVersion::type& parquet_version, bool output_object_data);
 
-    virtual ~VParquetWriterWrapper() = default;
+    ~VParquetWriterWrapper() = default;
 
     Status init_parquet_writer();
 
@@ -66,9 +64,7 @@ public:
 private:
     parquet::RowGroupWriter* get_rg_writer();
 
-    void parse_schema(const std::vector<TParquetRepetitionType::type>& schemas_repetition_type,
-                      const std::vector<TParquetDataType::type>& schemas_data_type,
-                      const std::vector<std::string>& schemas_column_name);
+    void parse_schema(const std::vector<TParquetSchema>& parquet_schemas);
 
     void parse_properties(const TParquetCompressionType::type& compression_type,
                           const bool& parquet_disable_dictionary,

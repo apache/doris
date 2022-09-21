@@ -36,21 +36,20 @@
 
 namespace doris::vectorized {
 
-VParquetWriterWrapper::VParquetWriterWrapper(
-        doris::FileWriter* file_writer, const std::vector<VExprContext*>& output_vexpr_ctxs,
-        const std::vector<TParquetRepetitionType::type>& schemas_repetition_type,
-        const std::vector<TParquetDataType::type>& schemas_data_type,
-        const std::vector<std::string>& schemas_column_name,
-        const TParquetCompressionType::type& compression_type,
-        const bool& parquet_disable_dictionary, const TParquetVersion::type& parquet_version,
-        bool output_object_data)
+VParquetWriterWrapper::VParquetWriterWrapper(doris::FileWriter* file_writer,
+                                             const std::vector<VExprContext*>& output_vexpr_ctxs,
+                                             const std::vector<TParquetSchema>& parquet_schemas,
+                                             const TParquetCompressionType::type& compression_type,
+                                             const bool& parquet_disable_dictionary,
+                                             const TParquetVersion::type& parquet_version,
+                                             bool output_object_data)
         : _output_vexpr_ctxs(output_vexpr_ctxs),
           _cur_written_rows(0),
           _rg_writer(nullptr),
           _output_object_data(output_object_data) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
     parse_properties(compression_type, parquet_disable_dictionary, parquet_version);
-    parse_schema(schemas_repetition_type, schemas_data_type, schemas_column_name);
+    parse_schema(parquet_schemas);
 }
 
 void VParquetWriterWrapper::parse_properties(const TParquetCompressionType::type& compression_type,
@@ -67,20 +66,18 @@ void VParquetWriterWrapper::parse_properties(const TParquetCompressionType::type
     _properties = builder.build();
 }
 
-void VParquetWriterWrapper::parse_schema(
-        const std::vector<TParquetRepetitionType::type>& schemas_repetition_type,
-        const std::vector<TParquetDataType::type>& schemas_data_type,
-        const std::vector<std::string>& schemas_column_name) {
+void VParquetWriterWrapper::parse_schema(const std::vector<TParquetSchema>& parquet_schemas) {
     parquet::schema::NodeVector fields;
     parquet::Repetition::type parquet_repetition_type;
     parquet::Type::type parquet_data_type;
-    for (int idx = 0; idx < schemas_column_name.size(); ++idx) {
-        ParquetBuildHelper::build_schema_repetition_type(parquet_repetition_type,
-                                                         schemas_repetition_type[idx]);
-        ParquetBuildHelper::build_schema_data_type(parquet_data_type, schemas_data_type[idx]);
+    for (int idx = 0; idx < parquet_schemas.size(); ++idx) {
+        ParquetBuildHelper::build_schema_repetition_type(
+                parquet_repetition_type, parquet_schemas[idx].schema_repetition_type);
+        ParquetBuildHelper::build_schema_data_type(parquet_data_type,
+                                                   parquet_schemas[idx].schema_data_type);
         fields.push_back(parquet::schema::PrimitiveNode::Make(
-                schemas_column_name[idx], parquet_repetition_type, parquet::LogicalType::None(),
-                parquet_data_type));
+                parquet_schemas[idx].schema_column_name, parquet_repetition_type,
+                parquet::LogicalType::None(), parquet_data_type));
         _schema = std::static_pointer_cast<parquet::schema::GroupNode>(
                 parquet::schema::GroupNode::Make("schema", parquet::Repetition::REQUIRED, fields));
     }
