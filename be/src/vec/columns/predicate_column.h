@@ -310,7 +310,7 @@ public:
                 }
             }
         } else {
-            LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
+            LOG(FATAL) << "Method insert_many_binary_data is not supported";
         }
     }
 
