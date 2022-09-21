@@ -89,14 +89,12 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             //  between the two trackers.
             // At present, it is impossible to effectively locate which memory consume and release on different trackers,
             // so query memory leaks cannot be found.
-            //
-            // In order to ensure that the query pool mem tracker is the sum of all currently running query mem trackers,
-            // the effect of the ended query mem tracker on the query pool mem tracker should be cleared, that is,
-            // the negative number of the current value of consume.
-            it->second->parent()->cache_consume_local(-it->second->consumption());
             LOG(INFO) << fmt::format(
-                    "Deregister query/load memory tracker, queryId={}, Limit={}, PeakUsed={}",
-                    it->first, it->second->limit(), it->second->peak_consumption());
+                    "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+                    "PeakUsed={}",
+                    it->first, PrettyPrinter::print(it->second->limit(), TUnit::BYTES),
+                    PrettyPrinter::print(it->second->consumption(), TUnit::BYTES),
+                    PrettyPrinter::print(it->second->peak_consumption(), TUnit::BYTES));
             expired_task_ids.emplace_back(it->first);
         }
     }
