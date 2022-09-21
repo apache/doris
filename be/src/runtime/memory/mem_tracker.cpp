@@ -58,12 +58,14 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile) {
         _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
     }
 
-    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
-    _label = fmt::format(
-            "{} | {}", label,
-            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label());
-    _bind_group_num =
-            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->group_num();
+    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw() != nullptr);
+    MemTrackerLimiter* parent =
+            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw();
+    _label = fmt::format("[Observer] {} | {}", label,
+                         parent->label() == "Orphan" ? "Process" : parent->label());
+    _bind_group_num = parent->label() == "Orphan"
+                              ? ExecEnv::GetInstance()->process_mem_tracker()->group_num()
+                              : parent->group_num();
     {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
         _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(
@@ -119,8 +121,8 @@ std::shared_ptr<MemTracker> MemTracker::get_global_mem_tracker(const std::string
     if (global_mem_trackers.find(label) != global_mem_trackers.end()) {
         return global_mem_trackers[label];
     } else {
-        global_mem_trackers.emplace(label,
-                                    std::make_shared<MemTracker>(fmt::format("[Global]{}", label)));
+        global_mem_trackers.emplace(
+                label, std::make_shared<MemTracker>(fmt::format("[Global] {}", label)));
         return global_mem_trackers[label];
     }
 }
