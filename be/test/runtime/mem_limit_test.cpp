@@ -100,7 +100,8 @@ TEST(MemTestTest, TrackerHierarchyTryConsume) {
     auto c2 = std::make_unique<MemTrackerLimiter>(50, "c2", p);
 
     // everything below limits
-    bool consumption = c1->try_consume(60).ok();
+    std::string err_msg = "";
+    bool consumption = c1->try_consume(60, err_msg);
     EXPECT_EQ(consumption, true);
     EXPECT_EQ(c1->consumption(), 60);
     EXPECT_FALSE(c1->limit_exceeded());
@@ -113,7 +114,7 @@ TEST(MemTestTest, TrackerHierarchyTryConsume) {
     EXPECT_FALSE(p->any_limit_exceeded());
 
     // p goes over limit
-    consumption = c2->try_consume(50).ok();
+    consumption = c2->try_consume(50, err_msg);
     EXPECT_EQ(consumption, false);
     EXPECT_EQ(c1->consumption(), 60);
     EXPECT_FALSE(c1->limit_exceeded());
