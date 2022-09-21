@@ -57,66 +57,6 @@ import java.util.stream.Collectors;
  */
 public class ColocateTableIndex implements Writable {
     private static final Logger LOG = LogManager.getLogger(ColocateTableIndex.class);
-
-    public static class GroupId implements Writable {
-        @SerializedName(value = "dbId")
-        public Long dbId;
-        @SerializedName(value = "grpId")
-        public Long grpId;
-
-        private GroupId() {
-        }
-
-        public GroupId(long dbId, long grpId) {
-            this.dbId = dbId;
-            this.grpId = grpId;
-        }
-
-        public static GroupId read(DataInput in) throws IOException {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
-                GroupId groupId = new GroupId();
-                groupId.readFields(in);
-                return groupId;
-            } else {
-                String json = Text.readString(in);
-                return GsonUtils.GSON.fromJson(json, GroupId.class);
-            }
-        }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
-        @Deprecated
-        private void readFields(DataInput in) throws IOException {
-            dbId = in.readLong();
-            grpId = in.readLong();
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (!(obj instanceof GroupId)) {
-                return false;
-            }
-            GroupId other = (GroupId) obj;
-            return dbId.equals(other.dbId) && grpId.equals(other.grpId);
-        }
-
-        @Override
-        public int hashCode() {
-            int result = 17;
-            result = 31 * result + dbId.hashCode();
-            result = 31 * result + grpId.hashCode();
-            return result;
-        }
-        
-        @Override
-        public String toString() {
-            return dbId + "." + grpId;
-        }
-    }
-
     // group_name -> group_id
     private Map<String, GroupId> groupName2Id = Maps.newHashMap();
     // group_id -> table_ids
@@ -131,7 +71,6 @@ public class ColocateTableIndex implements Writable {
     private Set<GroupId> unstableGroups = Sets.newHashSet();
     // save some error msg of the group for show. no need to persist
     private Map<GroupId, String> group2ErrMsgs = Maps.newHashMap();
-
     private transient ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public ColocateTableIndex() {
@@ -425,7 +364,6 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-
     public List<Set<Long>> getBackendsPerBucketSeqSet(GroupId groupId) {
         readLock();
         try {
@@ -592,6 +530,49 @@ public class ColocateTableIndex implements Writable {
         return infos;
     }
 
+    public void correctMetaDataOfDistributionCols() {
+        Set<GroupId> groupIds = getAllGroupIds();
+        for (GroupId gid : groupIds) {
+            ColocateGroupSchema groupSchema = getGroupSchema(gid);
+            List<Long> tableIds = getAllTableIds(gid);
+            if (tableIds.size() == 0) {
+                continue;
+            }
+            long tableId = tableIds.get(0);
+            Database db = null;
+            org.apache.doris.catalog.Table table = null;
+            try {
+                db = Catalog.getCurrentCatalog().getDbOrMetaException(gid.dbId);
+                table = db.getTableOrMetaException(tableId);
+                if (table instanceof OlapTable) {
+                    DistributionInfo info = ((OlapTable) table).getDefaultDistributionInfo();
+                    if (info instanceof HashDistributionInfo) {
+                        List<Type> distributionColTypes = groupSchema.getDistributionColTypes();
+                        for (int i = 0; i < distributionColTypes.size(); i++) {
+                            Type targetColType = distributionColTypes.get(i);
+                            Column defaultDistributionCol =
+                                    ((HashDistributionInfo) info).getDistributionColumns().get(i);
+                            if (targetColType instanceof ScalarType) {
+                                if (targetColType.getPrimitiveType().isCharFamily()
+                                        && targetColType.getLength() == -1) {
+                                    ((ScalarType) targetColType).setLength(defaultDistributionCol.getStrLen());
+                                } else if (targetColType.getPrimitiveType().isDecimalV2Type()
+                                        && targetColType.equals(Type.DECIMALV2)) {
+                                    ((ScalarType) targetColType).setScalarScale(defaultDistributionCol.getScale());
+                                    ((ScalarType) targetColType)
+                                            .setScalarPrecision(defaultDistributionCol.getPrecision());
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (MetaNotFoundException e) {
+                LOG.warn("MetaNotFoundException in correct meta data of distribute columns in colocate table: {}",
+                        e.getMessage());
+            }
+        }
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         int size = groupName2Id.size();
@@ -690,5 +671,64 @@ public class ColocateTableIndex implements Writable {
     // just for ut
     public Map<Long, GroupId> getTable2Group() {
         return table2Group;
+    }
+
+    public static class GroupId implements Writable {
+        @SerializedName(value = "dbId")
+        public Long dbId;
+        @SerializedName(value = "grpId")
+        public Long grpId;
+
+        private GroupId() {
+        }
+
+        public GroupId(long dbId, long grpId) {
+            this.dbId = dbId;
+            this.grpId = grpId;
+        }
+
+        public static GroupId read(DataInput in) throws IOException {
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+                GroupId groupId = new GroupId();
+                groupId.readFields(in);
+                return groupId;
+            } else {
+                String json = Text.readString(in);
+                return GsonUtils.GSON.fromJson(json, GroupId.class);
+            }
+        }
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
+        }
+
+        @Deprecated
+        private void readFields(DataInput in) throws IOException {
+            dbId = in.readLong();
+            grpId = in.readLong();
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof GroupId)) {
+                return false;
+            }
+            GroupId other = (GroupId) obj;
+            return dbId.equals(other.dbId) && grpId.equals(other.grpId);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = 17;
+            result = 31 * result + dbId.hashCode();
+            result = 31 * result + grpId.hashCode();
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return dbId + "." + grpId;
+        }
     }
 }

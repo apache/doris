@@ -450,7 +450,9 @@ public class ScalarType extends Type {
 
     // add scalar infix to override with getPrecision
     public int getScalarScale() { return scale; }
+    public void setScalarScale(int scale) { this.scale = scale; }
     public int getScalarPrecision() { return precision; }
+    public void setScalarPrecision(int precision) { this.precision = precision; }
 
     public String getScalarPrecisionStr() {
         return precisionStr;

@@ -2174,6 +2174,7 @@ public class Catalog {
     }
 
     public long saveColocateTableIndex(CountingDataOutputStream dos, long checksum) throws IOException {
+        Catalog.getCurrentColocateIndex().correctMetaDataOfDistributionCols();
         Catalog.getCurrentColocateIndex().write(dos);
         return checksum;
     }
