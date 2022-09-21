@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
 /**
  * push down expression which is not slot reference
  */
-public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
+public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
     /*
      * rewrite example:
      *       join(t1.a + 1 = t2.b + 2)                            join(c = d)
@@ -94,7 +94,7 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
                                                     .collect(Collectors.toList()))
                                             .addAll(getOutput(plan, join)).build(), plan))
                                     .collect(Collectors.toList()));
-                }).toRule(RuleType.PUSH_DOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
+                }).toRule(RuleType.PUSHDOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
     }
 
     private List<Slot> getOutput(Plan plan, LogicalJoin join) {

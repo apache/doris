@@ -107,6 +107,7 @@ public class PlanChecker {
 
     /**
      * apply a top down rewrite rule if you not care the ruleId
+     *
      * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
      * @return this checker, for call chaining of follow-up check
      */
@@ -129,6 +130,7 @@ public class PlanChecker {
 
     /**
      * apply a bottom up rewrite rule if you not care the ruleId
+     *
      * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
      * @return this checker, for call chaining of follow-up check
      */
@@ -163,7 +165,8 @@ public class PlanChecker {
         PhysicalPlan current = null;
         loop:
         for (Rule rule : RuleSet.IMPLEMENTATION_RULES) {
-            GroupExpressionMatching matching = new GroupExpressionMatching(rule.getPattern(), group.getLogicalExpression());
+            GroupExpressionMatching matching = new GroupExpressionMatching(rule.getPattern(),
+                    group.getLogicalExpression());
             for (Plan plan : matching) {
                 Plan after = rule.transform(plan, cascadesContext).get(0);
                 if (after instanceof PhysicalPlan) {
@@ -346,4 +349,10 @@ public class PlanChecker {
     public Plan getPlan() {
         return cascadesContext.getMemo().copyOut();
     }
+
+    public PlanChecker printlnTree() {
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
+        return this;
+    }
+
 }

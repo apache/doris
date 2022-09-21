@@ -79,6 +79,12 @@ public class LogicalPlanBuilder {
         return from(join);
     }
 
+    public LogicalPlanBuilder hashJoinEmptyOn(LogicalPlan right, JoinType joinType) {
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(),
+                Optional.empty(), this.plan, right);
+        return from(join);
+    }
+
     public LogicalPlanBuilder limit(long limit, long offset) {
         LogicalLimit<LogicalPlan> limitPlan = new LogicalLimit<>(limit, offset, this.plan);
         return from(limitPlan);
