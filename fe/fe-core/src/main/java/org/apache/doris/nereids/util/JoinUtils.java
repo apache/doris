@@ -159,13 +159,12 @@ public class JoinUtils {
         ImmutableList.Builder<ExprId> builder1 = new ImmutableList.Builder<>();
         ImmutableList.Builder<ExprId> builder2 = new ImmutableList.Builder<>();
 
-        List<EqualTo> equalToList = join.getHashJoinConjuncts().stream()
-                .map(e -> (EqualTo) e).collect(Collectors.toList());
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(
                 join.left().getOutputExprIdSet(),
                 join.right().getOutputExprIdSet());
 
-        for (EqualTo equalTo : equalToList) {
+        for (Expression expr : join.getHashJoinConjuncts()) {
+            EqualTo equalTo = (EqualTo) expr;
             Preconditions.checkArgument(equalTo.left() instanceof Slot && equalTo.right() instanceof Slot);
             ExprId leftExprId = ((Slot) equalTo.left()).getExprId();
             ExprId rightExprId = ((Slot) equalTo.right()).getExprId();
