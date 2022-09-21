@@ -17,10 +17,13 @@
 
 #include "vec/exec/vsort_node.h"
 
+#include "common/config.h"
 #include "exec/sort_exec_exprs.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "vec/common/sort/heap_sorter.h"
+#include "vec/common/sort/topn_sorter.h"
 #include "vec/core/sort_block.h"
 #include "vec/utils/util.hpp"
 
@@ -35,24 +38,23 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
-    bool has_string_slot = false;
-    for (const auto& tuple_desc : child(0)->row_desc().tuple_descriptors()) {
-        for (const auto& slot : tuple_desc->slots()) {
-            if (slot->type().is_string_type()) {
-                has_string_slot = true;
-                break;
-            }
-        }
-        if (has_string_slot) {
-            break;
-        }
-    }
-    if (has_string_slot && _limit > 0 && _limit < ACCUMULATED_PARTIAL_SORT_THRESHOLD) {
-        _sorter.reset(new TopNSorter(_sort_description, _vsort_exec_exprs, _limit, _offset, _pool,
-                                     _is_asc_order, _nulls_first, child(0)->row_desc()));
+    const auto& row_desc = child(0)->row_desc();
+    // If `limit` is smaller than HEAP_SORT_THRESHOLD, we consider using heap sort in priority.
+    // To do heap sorting, each income block will be filtered by heap-top row. There will be some
+    // `memcpy` operations. To ensure heap sort will not incur performance fallback, we should
+    // exclude cases which incoming blocks has string column which is sensitive to operations like
+    // `filter` and `memcpy`
+    if (_limit > 0 && _limit + _offset < HeapSorter::HEAP_SORT_THRESHOLD &&
+        !row_desc.has_varlen_slots()) {
+        _sorter.reset(new HeapSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
+                                     _nulls_first, row_desc));
+    } else if (_limit > 0 && row_desc.has_varlen_slots() && _limit > 0 &&
+               _limit + _offset < TopNSorter::TOPN_SORT_THRESHOLD) {
+        _sorter.reset(new TopNSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
+                                     _nulls_first, row_desc));
     } else {
-        _sorter.reset(new FullSorter(_sort_description, _vsort_exec_exprs, _limit, _offset, _pool,
-                                     _is_asc_order, _nulls_first, child(0)->row_desc()));
+        _sorter.reset(new FullSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
+                                     _nulls_first, row_desc));
     }
 
     _sorter->init_profile(_runtime_profile.get());
