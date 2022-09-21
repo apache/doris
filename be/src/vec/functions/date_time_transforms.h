@@ -338,6 +338,7 @@ struct TransformerToStringTwoArgument {
                                 PaddedPODArray<UInt8>& null_map) {
         auto len = ts.size();
         res_offsets.resize(len);
+        res_data.reserve(len * format.size() + len);
         null_map.resize_fill(len, false);
 
         size_t offset = 0;
