@@ -616,6 +616,125 @@ struct AggregatedDataVariants {
 
 using AggregatedDataVariantsPtr = std::shared_ptr<AggregatedDataVariants>;
 
+struct AggregateDataContainer {
+public:
+    AggregateDataContainer(size_t size_of_key, size_t size_of_aggregate_states)
+            : _size_of_key(size_of_key), _size_of_aggregate_states(size_of_aggregate_states) {
+        _expand();
+    }
+
+    template <typename KeyType>
+    AggregateDataPtr append_data(const KeyType& key) {
+        assert(sizeof(KeyType) == _size_of_key);
+        if (UNLIKELY(_index_in_sub_container == SUB_CONTAINER_CAPACITY)) {
+            _expand();
+        }
+
+        *reinterpret_cast<KeyType*>(_current_keys) = key;
+        auto aggregate_data = _current_agg_data;
+        ++_total_count;
+        ++_index_in_sub_container;
+        _current_agg_data += _size_of_aggregate_states;
+        _current_keys += _size_of_key;
+        return aggregate_data;
+    }
+
+    template <typename Derived, bool IsConst>
+    class IteratorBase {
+        using Container =
+                std::conditional_t<IsConst, const AggregateDataContainer, AggregateDataContainer>;
+
+        Container* container;
+        uint32_t index;
+        uint32_t sub_container_index;
+        uint32_t index_in_sub_container;
+
+        friend class HashTable;
+
+    public:
+        IteratorBase() {}
+        IteratorBase(Container* container_, uint32_t index_)
+                : container(container_), index(index_) {
+            sub_container_index = index / SUB_CONTAINER_CAPACITY;
+            index_in_sub_container = index % SUB_CONTAINER_CAPACITY;
+        }
+
+        bool operator==(const IteratorBase& rhs) const { return index == rhs.index; }
+        bool operator!=(const IteratorBase& rhs) const { return index != rhs.index; }
+
+        Derived& operator++() {
+            index++;
+            sub_container_index = index / SUB_CONTAINER_CAPACITY;
+            index_in_sub_container = index % SUB_CONTAINER_CAPACITY;
+            return static_cast<Derived&>(*this);
+        }
+
+        template <typename KeyType>
+        KeyType get_key() {
+            assert(sizeof(KeyType) == container->_size_of_key);
+            return ((KeyType*)(container->_key_containers[sub_container_index]))
+                    [index_in_sub_container];
+        }
+
+        AggregateDataPtr get_aggregate_data() {
+            return &(container->_value_containers[sub_container_index]
+                                                 [container->_size_of_aggregate_states *
+                                                  index_in_sub_container]);
+        }
+    };
+
+    class Iterator : public IteratorBase<Iterator, false> {
+    public:
+        using IteratorBase<Iterator, false>::IteratorBase;
+    };
+
+    class ConstIterator : public IteratorBase<ConstIterator, true> {
+    public:
+        using IteratorBase<ConstIterator, true>::IteratorBase;
+    };
+
+    ConstIterator begin() const { return ConstIterator(this, 0); }
+
+    ConstIterator cbegin() const { return begin(); }
+
+    Iterator begin() { return Iterator(this, 0); }
+
+    ConstIterator end() const { return ConstIterator(this, _total_count); }
+    ConstIterator cend() const { return end(); }
+    Iterator end() { return Iterator(this, _total_count); }
+
+    void init_once() {
+        if (_inited) return;
+        _inited = true;
+        iterator = begin();
+    }
+    Iterator iterator;
+
+private:
+    void _expand() {
+        _index_in_sub_container = 0;
+        _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
+        _key_containers.emplace_back(_current_keys);
+
+        _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
+                                                                SUB_CONTAINER_CAPACITY);
+        _value_containers.emplace_back(_current_agg_data);
+    }
+
+private:
+    static constexpr uint32_t SUB_CONTAINER_CAPACITY = 8192;
+    Arena _arena_pool;
+    std::vector<char*> _key_containers;
+    std::vector<AggregateDataPtr> _value_containers;
+    AggregateDataPtr _current_agg_data;
+    char* _current_keys;
+    size_t _size_of_key {};
+    size_t _size_of_aggregate_states {};
+    uint32_t _index_in_sub_container {};
+    uint32_t _total_count {};
+    bool _inited = false;
+};
+
 // not support spill
 class AggregationNode : public ::doris::ExecNode {
 public:
@@ -675,6 +794,8 @@ private:
     RuntimeProfile::Counter* _serialize_result_timer;
     RuntimeProfile::Counter* _deserialize_data_timer;
     RuntimeProfile::Counter* _hash_table_compute_timer;
+    RuntimeProfile::Counter* _hash_table_iterate_timer;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer;
     RuntimeProfile::Counter* _streaming_agg_timer;
     RuntimeProfile::Counter* _hash_table_size_counter;
     RuntimeProfile::Counter* _hash_table_input_counter;
@@ -690,6 +811,7 @@ private:
     std::vector<char> _deserialize_buffer;
     std::vector<size_t> _hash_values;
     std::vector<AggregateDataPtr> _values;
+    std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
 private:
     /// Return true if we should keep expanding hash tables in the preagg. If false,
