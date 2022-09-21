@@ -126,20 +126,20 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
+        // for broadcast join
+        if (JoinUtils.couldBroadcast(hashJoin)) {
+            addToRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+        }
+
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
             Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
-            // other shuffle join
+            // shuffle join
             addToRequestPropertyToChildren(
                     PhysicalProperties.createHash(
                             new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
                     PhysicalProperties.createHash(
                             new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
-        }
-
-        // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
-            addToRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
         }
 
         return null;

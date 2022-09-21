@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -198,13 +199,17 @@ public abstract class PlanVisitor<R, C> {
         return visit(limit, context);
     }
 
+    public R visitAbstractPhysicalJoin(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join, C context) {
+        return visit(join, context);
+    }
+
     public R visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, C context) {
-        return visit(hashJoin, context);
+        return visitAbstractPhysicalJoin(hashJoin, context);
     }
 
     public R visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, C context) {
-        return visit(nestedLoopJoin, context);
+        return visitAbstractPhysicalJoin(nestedLoopJoin, context);
     }
 
     public R visitPhysicalProject(PhysicalProject<? extends Plan> project, C context) {
