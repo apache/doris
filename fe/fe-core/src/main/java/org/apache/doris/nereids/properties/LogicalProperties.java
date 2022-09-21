@@ -37,7 +37,8 @@ public class LogicalProperties {
     protected final Supplier<List<Slot>> outputSupplier;
     protected final Supplier<HashSet<ExprId>> outputSetSupplier;
     private Integer hashCode = null;
-    private Set<ExprId> outputExprIdSet;
+    private final Set<ExprId> outputExprIdSet;
+
     /**
      * constructor of LogicalProperties.
      *
@@ -52,7 +53,8 @@ public class LogicalProperties {
                 () -> outputSupplier.get().stream().map(NamedExpression::getExprId)
                         .collect(Collectors.toCollection(HashSet::new))
         );
-        outputExprIdSet = this.outputSupplier.get().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
+        outputExprIdSet = this.outputSupplier.get().stream()
+                .map(NamedExpression::getExprId).collect(Collectors.toSet());
     }
 
     public List<Slot> getOutput() {

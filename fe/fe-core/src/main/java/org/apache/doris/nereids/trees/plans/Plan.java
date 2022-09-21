@@ -82,10 +82,9 @@ public interface Plan extends TreeNode<Plan> {
         return ImmutableSet.copyOf(getOutput());
     }
 
-
     default Set<ExprId> getOutputExprIdSet() {
         return getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
-    };
+    }
 
     /**
      * Get the input slot set of the plan.
