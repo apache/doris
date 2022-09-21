@@ -86,6 +86,8 @@ public:
 
     int64_t size() const { return _file_reader->size(); }
 
+    std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
+
 private:
     bool _next_row_group_reader();
     Status _init_read_columns(const std::vector<SlotDescriptor*>& tuple_slot_descs);
