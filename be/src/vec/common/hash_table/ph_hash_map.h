@@ -118,6 +118,16 @@ public:
         it = &*it_;
     }
 
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        auto it_ = _hash_map.lazy_emplace(key, [&](const auto& ctor) {
+            key_holder_persist_key(key_holder);
+            f(ctor, key);
+        });
+        it = &*it_;
+    }
+
     template <typename KeyHolder>
     void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
                                bool& inserted) {
@@ -135,6 +145,25 @@ public:
                 inserted = true;
                 key_holder_persist_key(key_holder);
                 ctor(key, nullptr);
+            });
+            it = &*it_;
+        }
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        if constexpr (use_parallel) {
+            auto it_ = _hash_map.lazy_emplace_with_hash(hash_value, key, [&](const auto& ctor) {
+                key_holder_persist_key(key_holder);
+                f(ctor, key);
+            });
+            it = &*it_;
+        } else {
+            auto it_ = _hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
+                key_holder_persist_key(key_holder);
+                f(ctor, key);
             });
             it = &*it_;
         }
@@ -197,4 +226,5 @@ template <typename Key, typename Mapped, typename Hash, bool use_parallel>
 struct HashTableTraits<PHHashMap<Key, Mapped, Hash, use_parallel>> {
     static constexpr bool is_phmap = true;
     static constexpr bool is_parallel_phmap = use_parallel;
+    static constexpr bool is_string_hash_table = false;
 };
