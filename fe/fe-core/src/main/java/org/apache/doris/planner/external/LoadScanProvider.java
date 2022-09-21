@@ -102,6 +102,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         TFileAttributes fileAttributes = new TFileAttributes();
         setFileAttributes(ctx.fileGroup, fileAttributes);
         params.setFileAttributes(fileAttributes);
+        params.setFileType(fileGroupInfo.getBrokerDesc().getFileType());
         ctx.params = params;
 
         initColumns(ctx, analyzer);
@@ -191,10 +192,14 @@ public class LoadScanProvider implements FileScanProviderIf {
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.slotDescByName, srcSlotIds,
                 formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
 
-        int numColumnsFromFile = srcSlotIds.size() - context.fileGroup.getColumnNamesFromPath().size();
+        int columnCountFromPath = 0;
+        if (context.fileGroup.getColumnNamesFromPath() != null) {
+            columnCountFromPath = context.fileGroup.getColumnNamesFromPath().size();
+        }
+        int numColumnsFromFile = srcSlotIds.size() - columnCountFromPath;
         Preconditions.checkState(numColumnsFromFile >= 0,
                 "srcSlotIds.size is: " + srcSlotIds.size() + ", num columns from path: "
-                        + context.fileGroup.getColumnNamesFromPath().size());
+                        + columnCountFromPath);
         context.params.setNumOfColumnsFromFile(numColumnsFromFile);
         for (int i = 0; i < srcSlotIds.size(); ++i) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
