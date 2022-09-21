@@ -77,6 +77,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     if (_label == "Process") doris::thread_context_ptr._init = false;
     DCHECK(remain_child_count() == 0 || _label == "Process");
     consume(_untracked_mem.exchange(0));
+#ifndef BE_TEST
     // In order to ensure `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`
     // in real time. Merge its consumption into orphan when all third level limiter trackers are destructed, to avoid repetition.
     // the first layer: process;
@@ -86,6 +87,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         ExecEnv::GetInstance()->orphan_mem_tracker_raw()->cache_consume_local(
                 _consumption->current_value());
     }
+#endif
 
     if (_parent) {
         std::lock_guard<std::mutex> l(_parent->_child_tracker_limiter_lock);
