@@ -29,24 +29,25 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
     flush_untracked_mem<false>();
-    _task_id = task_id;
-    _fragment_instance_id = fragment_instance_id;
-    _limiter_tracker = mem_tracker;
+    _task_id_stack.push_back(task_id);
+    _fragment_instance_id_stack.push_back(fragment_instance_id);
+    _limiter_tracker_stack.push_back(mem_tracker);
     _limiter_tracker_raw = mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker() {
+    DCHECK(!_limiter_tracker_stack.empty());
     flush_untracked_mem<false>();
-    _task_id = "";
-    _fragment_instance_id = TUniqueId();
-    _limiter_tracker = ExecEnv::GetInstance()->new_process_mem_tracker();
-    _limiter_tracker_raw = ExecEnv::GetInstance()->process_mem_tracker_raw();
+    _task_id_stack.pop_back();
+    _fragment_instance_id_stack.pop_back();
+    _limiter_tracker_stack.pop_back();
+    _limiter_tracker_raw = _limiter_tracker_stack.back().get();
 }
 
 void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
-    if (_fragment_instance_id != TUniqueId()) {
+    if (_fragment_instance_id_stack.back() != TUniqueId()) {
         ExecEnv::GetInstance()->fragment_mgr()->cancel(
-                _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
+                _fragment_instance_id_stack.back(), PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
                 cancel_details);
     }
 }
