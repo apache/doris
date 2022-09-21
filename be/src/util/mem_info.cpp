@@ -40,12 +40,14 @@ int64_t MemInfo::_s_mem_limit = -1;
 std::string MemInfo::_s_mem_limit_str = "";
 int64_t MemInfo::_s_hard_mem_limit = -1;
 size_t MemInfo::_s_allocator_physical_mem = 0;
+size_t MemInfo::_s_pageheap_unmapped_bytes = 0;
 size_t MemInfo::_s_tcmalloc_pageheap_free_bytes = 0;
 size_t MemInfo::_s_tcmalloc_central_bytes = 0;
 size_t MemInfo::_s_tcmalloc_transfer_bytes = 0;
 size_t MemInfo::_s_tcmalloc_thread_bytes = 0;
 size_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
+size_t MemInfo::_s_virtual_memory_used = 0;
 
 void MemInfo::init() {
     // Read from /proc/meminfo
