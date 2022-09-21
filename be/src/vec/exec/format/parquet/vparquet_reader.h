@@ -73,8 +73,7 @@ public:
 
     Status init_reader(const TupleDescriptor* tuple_desc,
                        const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                       std::vector<ExprContext*>& conjunct_ctxs,
-                       const std::string& timezone) override;
+                       std::vector<ExprContext*>& conjunct_ctxs, const std::string& timezone);
 
     Status get_next_block(Block* block, bool* eof) override;
 

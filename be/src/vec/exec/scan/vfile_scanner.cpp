@@ -84,8 +84,12 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         RETURN_IF_ERROR(_get_next_reader());
     }
     if (!_scanner_eof) {
+        // Init src block for load job based on the data file schema (e.g. parquet)
+        // For query job, simply set _src_block_ptr to block.
         RETURN_IF_ERROR(_init_src_block(block));
+        // Read next block.
         RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &_cur_reader_eof));
+        // Convert the src block columns type to string in place.
         RETURN_IF_ERROR(_cast_to_input_block(block));
     }
 
@@ -94,9 +98,12 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     }
 
     if (_src_block_ptr->rows() > 0) {
-        _fill_columns_from_path();
-        _pre_filter_src_block();
-        _convert_to_output_block(block);
+        // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
+        RETURN_IF_ERROR(_fill_columns_from_path());
+        // Apply _pre_conjunct_ctx_ptr to filter src block.
+        RETURN_IF_ERROR(_pre_filter_src_block());
+        // Convert src block to output block (dest block), string to dest data type and apply filters.
+        RETURN_IF_ERROR(_convert_to_output_block(block));
     }
 
     return Status::OK();
@@ -108,7 +115,6 @@ Status VFileScanner::_init_src_block(Block* block) {
         return Status::OK();
     }
 
-    // size_t batch_pos = 0;
     _src_block.clear();
 
     std::unordered_map<std::string, TypeDescriptor> name_to_type = _cur_reader->get_name_to_type();
@@ -331,15 +337,15 @@ Status VFileScanner::_get_next_reader() {
                                             _state->query_options().batch_size, range.start_offset,
                                             range.size,
                                             const_cast<cctz::time_zone*>(&_state->timezone_obj()));
+            RETURN_IF_ERROR(((ParquetReader*)_cur_reader)
+                                    ->init_reader(_output_tuple_desc, _file_slot_descs,
+                                                  _conjunct_ctxs, _state->timezone()));
             break;
         default:
             std::stringstream error_msg;
             error_msg << "Not supported file format " << _params.format_type;
             return Status::InternalError(error_msg.str());
         }
-
-        RETURN_IF_ERROR(_cur_reader->init_reader(_output_tuple_desc, _file_slot_descs,
-                                                 _conjunct_ctxs, _state->timezone()));
 
         _cur_reader_eof = false;
         return Status::OK();

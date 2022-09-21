@@ -32,12 +32,6 @@ public:
         std::unordered_map<std::string, TypeDescriptor> map;
         return map;
     }
-    virtual Status init_reader(const TupleDescriptor* tuple_desc,
-                               const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                               std::vector<ExprContext*>& conjunct_ctxs,
-                               const std::string& timezone) {
-        return Status::OK();
-    };
     virtual ~GenericReader() {}
 };
 
