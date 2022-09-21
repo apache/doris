@@ -151,7 +151,7 @@ struct FindInSetOp {
         do {
             end = start;
             // Position end.
-            while (strr[end] != ',' && end < strr.length()) {
+            while (end < strr.length() && strr[end] != ',') {
                 ++end;
             }
 
