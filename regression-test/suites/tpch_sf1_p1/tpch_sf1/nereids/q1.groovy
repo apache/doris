@@ -25,10 +25,7 @@ suite("tpch_sf1_q1_nereids") {
     sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
-
-    sql 'set disable_colocate_plan=true'
-
-    sql 'set enable_bucket_shuffle_join=false'
+    sql 'set enable_fallback_to_original_planner=false'
 
     qt_select """
     select
