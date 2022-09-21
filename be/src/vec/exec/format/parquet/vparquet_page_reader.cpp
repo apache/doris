@@ -29,11 +29,14 @@ PageReader::PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t l
         : _reader(reader), _start_offset(offset), _end_offset(offset + length) {}
 
 Status PageReader::next_page_header() {
-    if (_offset < _start_offset || _offset >= _end_offset) {
+    if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
         return Status::IOError("Out-of-bounds Access");
     }
-    if (_offset != _next_header_offset) {
-        return Status::IOError("Wrong header position");
+    if (UNLIKELY(_offset != _next_header_offset)) {
+        return Status::IOError("Wrong header position, should seek to a page header first");
+    }
+    if (UNLIKELY(_state != INITIALIZED)) {
+        return Status::IOError("Should skip or load current page to get next page");
     }
 
     const uint8_t* page_header_buf = nullptr;
@@ -58,25 +61,28 @@ Status PageReader::next_page_header() {
 
     _offset += real_header_size;
     _next_header_offset = _offset + _cur_page_header.compressed_page_size;
+    _state = HEADER_PARSED;
     return Status::OK();
 }
 
 Status PageReader::skip_page() {
-    if (_offset == _next_header_offset) {
-        return Status::InternalError("Should call next_page() to generate page header");
+    if (UNLIKELY(_state != HEADER_PARSED)) {
+        return Status::IOError("Should generate page header first to skip current page");
     }
     _offset = _next_header_offset;
+    _state = INITIALIZED;
     return Status::OK();
 }
 
 Status PageReader::get_page_data(Slice& slice) {
-    if (_offset == _next_header_offset) {
-        return Status::InternalError("Should call next_page() to generate page header");
+    if (UNLIKELY(_state != HEADER_PARSED)) {
+        return Status::IOError("Should generate page header first to load current page data");
     }
     slice.size = _cur_page_header.compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset));
     DCHECK_EQ(slice.size, _cur_page_header.compressed_page_size);
     _offset += slice.size;
+    _state = INITIALIZED;
     return Status::OK();
 }
 

@@ -25,9 +25,8 @@ suite("tpch_sf1_q11_nereids") {
     sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
-    sql 'set disable_colocate_plan=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
-    sql 'set enable_bucket_shuffle_join=false'
     qt_select """
     select
         ps_partkey,
@@ -55,7 +54,7 @@ suite("tpch_sf1_q11_nereids") {
                     and n_name = 'GERMANY'
             )
     order by
-        value desc;
+        value desc, ps_partkey;
     """
 
     qt_select """
@@ -86,7 +85,7 @@ suite("tpch_sf1_q11_nereids") {
                     ps_suppkey = A.s_suppkey
             )
     order by
-        value desc;
+        value desc, ps_partkey;
     """
 
 }

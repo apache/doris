@@ -394,13 +394,13 @@ Status DeltaWriter::cancel() {
     return Status::OK();
 }
 
-int64_t DeltaWriter::save_mem_consumption_snapshot() {
-    _mem_consumption_snapshot = mem_consumption();
-    return _mem_consumption_snapshot;
+int64_t DeltaWriter::save_memtable_consumption_snapshot() {
+    _memtable_consumption_snapshot = memtable_consumption();
+    return _memtable_consumption_snapshot;
 }
 
-int64_t DeltaWriter::get_mem_consumption_snapshot() const {
-    return _mem_consumption_snapshot;
+int64_t DeltaWriter::get_memtable_consumption_snapshot() const {
+    return _memtable_consumption_snapshot;
 }
 
 int64_t DeltaWriter::mem_consumption() const {
@@ -410,6 +410,13 @@ int64_t DeltaWriter::mem_consumption() const {
         return 0;
     }
     return _mem_tracker->consumption();
+}
+
+int64_t DeltaWriter::memtable_consumption() const {
+    if (_mem_table == nullptr) {
+        return 0;
+    }
+    return _mem_table->memory_usage();
 }
 
 int64_t DeltaWriter::partition_id() const {

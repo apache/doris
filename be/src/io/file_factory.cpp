@@ -159,7 +159,7 @@ doris::Status doris::FileFactory::_new_file_reader(doris::ExecEnv* env, RuntimeP
         break;
     }
     default:
-        return Status::InternalError("UnSupport File Reader Type: " + std::to_string(type));
+        return Status::InternalError("Unsupported File Reader Type: " + std::to_string(type));
     }
 
     return Status::OK();

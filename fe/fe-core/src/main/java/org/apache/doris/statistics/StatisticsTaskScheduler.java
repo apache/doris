@@ -68,7 +68,6 @@ public class StatisticsTaskScheduler extends MasterDaemon {
             Map<Long, List<Map<Long, Future<StatisticsTaskResult>>>> resultMap = Maps.newLinkedHashMap();
 
             for (StatisticsTask task : tasks) {
-                queue.remove();
                 long jobId = task.getJobId();
 
                 if (checkJobIsValid(jobId)) {
@@ -100,7 +99,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
         List<StatisticsTask> tasks = Lists.newArrayList();
         int i = Config.cbo_concurrency_statistics_task_num;
         while (i > 0) {
-            StatisticsTask task = queue.peek();
+            StatisticsTask task = queue.poll();
             if (task == null) {
                 break;
             }

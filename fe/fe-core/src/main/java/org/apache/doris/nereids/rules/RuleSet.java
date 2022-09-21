@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
-import org.apache.doris.nereids.rules.exploration.join.JoinCommuteProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
@@ -41,6 +40,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushDownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushPredicatesThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
@@ -57,7 +57,6 @@ import java.util.List;
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(JoinCommute.LEFT_DEEP)
-            .add(JoinCommuteProject.LEFT_DEEP)
             .add(InnerJoinLAsscom.INSTANCE)
             .add(InnerJoinLAsscomProject.INSTANCE)
             .add(OuterJoinLAsscom.INSTANCE)
@@ -72,6 +71,7 @@ public class RuleSet {
     public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
             new PushDownJoinOtherCondition(),
             new PushPredicatesThroughJoin(),
+            new PushDownExpressionsInHashCondition(),
             new PushdownProjectThroughLimit(),
             new PushdownFilterThroughProject(),
             new MergeConsecutiveProjects(),

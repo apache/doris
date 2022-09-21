@@ -22,4 +22,5 @@ template <typename T>
 struct HashTableTraits {
     static constexpr bool is_phmap = false;
     static constexpr bool is_parallel_phmap = false;
+    static constexpr bool is_string_hash_table = false;
 };

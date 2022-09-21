@@ -96,6 +96,10 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
                 topJoin.getJoinReorderContext());
         newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
+        if (topJoin.getLogicalProperties().equals(newTopJoin.getLogicalProperties())) {
+            return newTopJoin;
+        }
+
         return PlanUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
     }
 

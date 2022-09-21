@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -78,6 +79,13 @@ public class ChildOutputPropertyDeriverTest {
             @Mock
             ColocateTableIndex getCurrentColocateIndex() {
                 return colocateTableIndex;
+            }
+        };
+
+        new MockUp<ConnectContext>() {
+            @Mock
+            ConnectContext get() {
+                return new ConnectContext();
             }
         };
     }
@@ -174,7 +182,7 @@ public class ChildOutputPropertyDeriverTest {
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
-        Assertions.assertEquals(3, actual.getExprIdToEquivalenceSet().size());
+        Assertions.assertEquals(2, actual.getExprIdToEquivalenceSet().size());
     }
 
     @Test
@@ -199,7 +207,7 @@ public class ChildOutputPropertyDeriverTest {
         leftMap.put(new ExprId(1), 0);
         PhysicalProperties left = new PhysicalProperties(new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(0)),
-                ShuffleType.NATURAL,
+                ShuffleType.ENFORCED,
                 0,
                 Sets.newHashSet(0L),
                 ImmutableList.of(Sets.newHashSet(new ExprId(0), new ExprId(1))),
@@ -208,7 +216,7 @@ public class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties right = new PhysicalProperties(new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(2)),
-                ShuffleType.NATURAL,
+                ShuffleType.ENFORCED,
                 1,
                 Sets.newHashSet(1L)
         ));
@@ -220,7 +228,7 @@ public class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(ShuffleType.JOIN, actual.getShuffleType());
+        Assertions.assertEquals(ShuffleType.BUCKETED, actual.getShuffleType());
         // check merged
         Assertions.assertEquals(3, actual.getExprIdToEquivalenceSet().size());
     }
@@ -300,7 +308,7 @@ public class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(ShuffleType.AGGREGATE, actual.getShuffleType());
+        Assertions.assertEquals(ShuffleType.ENFORCED, actual.getShuffleType());
         Assertions.assertEquals(Lists.newArrayList(partition).stream()
                         .map(SlotReference::getExprId).collect(Collectors.toList()),
                 actual.getOrderedShuffledColumns());

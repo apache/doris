@@ -47,6 +47,8 @@ class RowGroupReader;
 class PageIndex;
 
 struct RowRange {
+    RowRange() {}
+    RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
     int64_t first_row;
     int64_t last_row;
 };
@@ -55,10 +57,12 @@ class ParquetReadColumn {
 public:
     friend class ParquetReader;
     friend class RowGroupReader;
-    ParquetReadColumn(SlotDescriptor* slot_desc) : _slot_desc(slot_desc) {};
+    ParquetReadColumn(int parquet_col_id, SlotDescriptor* slot_desc)
+            : _parquet_col_id(parquet_col_id), _slot_desc(slot_desc) {};
     ~ParquetReadColumn() = default;
 
 private:
+    int _parquet_col_id;
     SlotDescriptor* _slot_desc;
     //    int64_t start_offset;
     //    int64_t chunk_size;
@@ -81,6 +85,8 @@ public:
     void close();
 
     int64_t size() const { return _file_reader->size(); }
+
+    std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
 
 private:
     bool _next_row_group_reader();
@@ -130,7 +136,8 @@ private:
     int64_t _range_start_offset;
     int64_t _range_size;
     cctz::time_zone* _ctz;
-    std::vector<RowRange> _skipped_row_ranges;
+    std::vector<RowRange> _candidate_row_ranges;
+    std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
 
     const TupleDescriptor* _tuple_desc; // get all slot info
 };

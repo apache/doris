@@ -135,6 +135,11 @@ public class ExternalFileScanNode extends ExternalScanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
 
+        if (!Config.enable_vectorized_load) {
+            throw new UserException(
+                    "Please set 'enable_vectorized_load=true' in fe.conf to enable external file scan node");
+        }
+
         switch (type) {
             case QUERY:
                 HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
@@ -185,7 +190,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
             // FIXME(cmy): we should support set different expr for different file group.
             initAndSetPrecedingFilter(context.fileGroup.getPrecedingFilterExpr(), context.srcTupleDescriptor, analyzer);
             initAndSetWhereExpr(context.fileGroup.getWhereExpr(), context.destTupleDescriptor, analyzer);
-            context.destTupleDescriptor = desc;
             context.conjuncts = conjuncts;
             this.contexts.add(context);
         }
@@ -193,6 +197,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     private void initAndSetPrecedingFilter(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer)
             throws UserException {
+        if (type != Type.LOAD) {
+            return;
+        }
         Expr newWhereExpr = initWhereExpr(whereExpr, tupleDesc, analyzer);
         if (newWhereExpr != null) {
             addPreFilterConjuncts(newWhereExpr.getConjuncts());
@@ -258,6 +265,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     protected void finalizeParamsForLoad(ParamCreateContext context, Analyzer analyzer) throws UserException {
         if (type != Type.LOAD) {
+            context.params.setSrcTupleId(-1);
             return;
         }
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
@@ -334,6 +342,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         // Need re compute memory layout after set some slot descriptor to nullable
         srcTupleDesc.computeStatAndMemLayout();
+
+        if (!preFilterConjuncts.isEmpty()) {
+            Expr vPreFilterExpr = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
+            initCompoundPredicate(vPreFilterExpr);
+            params.setPreFilterExprs(vPreFilterExpr.treeToThrift());
+        }
     }
 
     protected void checkBitmapCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr)
@@ -374,15 +388,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
         planNode.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
         TFileScanNode fileScanNode = new TFileScanNode();
         fileScanNode.setTupleId(desc.getId().asInt());
-        if (!preFilterConjuncts.isEmpty()) {
-            if (Config.enable_vectorized_load && vpreFilterConjunct != null) {
-                fileScanNode.addToPreFilterExprs(vpreFilterConjunct.treeToThrift());
-            } else {
-                for (Expr e : preFilterConjuncts) {
-                    fileScanNode.addToPreFilterExprs(e.treeToThrift());
-                }
-            }
-        }
         planNode.setFileScanNode(fileScanNode);
     }
 
@@ -420,3 +425,4 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
+

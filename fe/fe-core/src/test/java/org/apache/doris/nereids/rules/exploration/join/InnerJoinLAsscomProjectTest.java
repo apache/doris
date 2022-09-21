@@ -81,15 +81,15 @@ public class InnerJoinLAsscomProjectTest {
                 Optional.empty(), project, scan3);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .transform(InnerJoinLAsscomProject.INSTANCE.build())
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
                 .checkMemo(memo -> {
                     Group root = memo.getRoot();
                     Assertions.assertEquals(2, root.getLogicalExpressions().size());
 
                     Assertions.assertTrue(root.logicalExpressionsAt(0).getPlan() instanceof LogicalJoin);
-                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalProject);
+                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalJoin);
 
-                    GroupExpression newTopJoinGroupExpr = root.logicalExpressionsAt(1).child(0).getLogicalExpression();
+                    GroupExpression newTopJoinGroupExpr = root.logicalExpressionsAt(1);
                     GroupExpression leftProjectGroupExpr = newTopJoinGroupExpr.child(0).getLogicalExpression();
                     GroupExpression rightProjectGroupExpr = newTopJoinGroupExpr.child(1).getLogicalExpression();
                     Plan leftProject = newTopJoinGroupExpr.child(0).getLogicalExpression().getPlan();
