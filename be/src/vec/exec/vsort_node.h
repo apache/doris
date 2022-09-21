@@ -63,8 +63,6 @@ private:
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 
-    SortDescription _sort_description;
-
     std::unique_ptr<Sorter> _sorter;
 
     static constexpr size_t ACCUMULATED_PARTIAL_SORT_THRESHOLD = 256;

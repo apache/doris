@@ -112,7 +112,7 @@ inline static size_t find_byte(const std::vector<T>& vec, size_t start, T byte) 
     return (T*)p - vec.data();
 }
 
-inline size_t find_nonzero(const std::vector<uint8_t>& vec, size_t start) {
+inline size_t find_one(const std::vector<uint8_t>& vec, size_t start) {
     return find_byte<uint8_t>(vec, start, 1);
 }
 
