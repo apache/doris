@@ -63,9 +63,7 @@ public:
         return res;
     }
 
-    static inline uint64_t shift_mix(uint64_t val) {
-        return val ^ (val >> 47);
-    }
+    static inline uint64_t shift_mix(uint64_t val) { return val ^ (val >> 47); }
 
     static inline size_t hash_less_than8(const char* data, size_t size) {
         static constexpr uint64_t k2 = 0x9ae16a3b2f90404fULL;
