@@ -23,7 +23,8 @@
 #include <functional>
 
 #include "common/compiler_util.h"
-
+#include "gutil/hash/hash128to64.h"
+#include "gutil/int128.h"
 // For cross compiling with clang, we need to be able to generate an IR file with
 // no sse instructions.  Attempting to load a precompiled IR file that contains
 // unsupported instructions causes llvm to fail.  We need to use #defines to control
@@ -55,6 +56,38 @@ public:
         return crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
     }
 
+    template <typename T>
+    static inline T unaligned_load(const void* address) {
+        T res {};
+        memcpy(&res, address, sizeof(res));
+        return res;
+    }
+
+    static inline uint64_t shift_mix(uint64_t val) {
+        return val ^ (val >> 47);
+    }
+
+    static inline size_t hash_less_than8(const char* data, size_t size) {
+        static constexpr uint64_t k2 = 0x9ae16a3b2f90404fULL;
+        static constexpr uint64_t k3 = 0xc949d7c7509e6557ULL;
+
+        if (size >= 4) {
+            uint64_t a = unaligned_load<uint32_t>(data);
+            return Hash128to64(uint128(size + (a << 3), unaligned_load<uint32_t>(data + size - 4)));
+        }
+
+        if (size > 0) {
+            uint8_t a = data[0];
+            uint8_t b = data[size >> 1];
+            uint8_t c = data[size - 1];
+            uint32_t y = static_cast<uint32_t>(a) + (static_cast<uint32_t>(b) << 8);
+            uint32_t z = size + (static_cast<uint32_t>(c) << 2);
+            return shift_mix(y * k2 ^ z * k3) * k2;
+        }
+
+        return k2;
+    }
+
 #if defined(__SSE4_2__) || defined(__aarch64__)
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is
     // the current hash/seed value.
@@ -65,31 +98,29 @@ public:
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
-    static uint32_t crc_hash(const void* data, int32_t bytes, uint32_t hash) {
-        if (!CpuInfo::is_supported(CpuInfo::SSE4_2)) {
-            return zlib_crc_hash(data, bytes, hash);
-        }
-        uint32_t words = bytes / sizeof(uint32_t);
-        bytes = bytes % sizeof(uint32_t);
+    static uint32_t crc_hash(const void* data, size_t size, uint32_t hash) {
+        const char* pos = reinterpret_cast<const char*>(data);
 
-        const uint32_t* p = reinterpret_cast<const uint32_t*>(data);
+        if (size == 0) return 0;
 
-        while (words--) {
-            hash = _mm_crc32_u32(hash, *p);
-            ++p;
+        if (size < 8) {
+            return hash_less_than8(pos, size);
         }
 
-        const uint8_t* s = reinterpret_cast<const uint8_t*>(p);
+        const char* end = pos + size;
+        size_t res = -1ULL;
 
-        while (bytes--) {
-            hash = _mm_crc32_u8(hash, *s);
-            ++s;
-        }
+        do {
+            int64_t word = unaligned_load<int64_t>(pos);
+            res = _mm_crc32_u64(res, word);
 
-        // The lower half of the CRC hash has has poor uniformity, so swap the halves
-        // for anyone who only uses the first several bits of the hash.
-        hash = (hash << 16) | (hash >> 16);
-        return hash;
+            pos += 8;
+        } while (pos + 8 < end);
+
+        uint64_t word = unaligned_load<uint64_t>(end - 8); /// I'm not sure if this is normal.
+        res = _mm_crc32_u64(res, word);
+
+        return res;
     }
 
     static uint64_t crc_hash64(const void* data, int32_t bytes, uint64_t hash) {
