@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import mockit.Expectations;
 import mockit.Mock;
@@ -59,6 +60,10 @@ public class CancelAlterStmtTest {
                 analyzer.getQualifiedUser();
                 minTimes = 0;
                 result = "testUser";
+
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = SystemInfoService.DEFAULT_CLUSTER;
             }
         };
 
@@ -76,18 +81,18 @@ public class CancelAlterStmtTest {
         FakeEnv.setEnv(env);
         // cancel alter column
         CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN,
-                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "testTbl"));
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "testDb", "testTbl"));
         stmt.analyze(analyzer);
-        Assert.assertEquals("CANCEL ALTER COLUMN FROM `testDb`.`testTbl`", stmt.toString());
-        Assert.assertEquals("testDb", stmt.getDbName());
+        Assert.assertEquals("CANCEL ALTER COLUMN FROM `default_cluster:testDb`.`testTbl`", stmt.toString());
+        Assert.assertEquals("default_cluster:testDb", stmt.getDbName());
         Assert.assertEquals(AlterType.COLUMN, stmt.getAlterType());
         Assert.assertEquals("testTbl", stmt.getTableName());
 
         stmt = new CancelAlterTableStmt(AlterType.ROLLUP,
-                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "testTbl"));
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "testDb", "testTbl"));
         stmt.analyze(analyzer);
-        Assert.assertEquals("CANCEL ALTER ROLLUP FROM `testDb`.`testTbl`", stmt.toString());
-        Assert.assertEquals("testDb", stmt.getDbName());
+        Assert.assertEquals("CANCEL ALTER ROLLUP FROM `default_cluster:testDb`.`testTbl`", stmt.toString());
+        Assert.assertEquals("default_cluster:testDb", stmt.getDbName());
         Assert.assertEquals(AlterType.ROLLUP, stmt.getAlterType());
     }
 }

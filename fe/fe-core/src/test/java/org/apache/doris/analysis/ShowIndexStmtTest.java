@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -48,7 +47,7 @@ public class ShowIndexStmtTest {
 
     @Test
     public void testNormal() throws UserException {
-        ShowIndexStmt stmt = new ShowIndexStmt("testDb", new TableName(internalCtl, "", "testTbl"));
+        ShowIndexStmt stmt = new ShowIndexStmt("testDb", new TableName(internalCtl, "testDb", "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW INDEX FROM `testCluster:testDb`.`testTbl`", stmt.toSql());
         stmt = new ShowIndexStmt("", new TableName(internalCtl, "", "testTbl"));
@@ -60,11 +59,5 @@ public class ShowIndexStmtTest {
         stmt = new ShowIndexStmt("testDb", new TableName(internalCtl, "testDb2", "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW INDEX FROM `testCluster:testDb`.`testTbl`", stmt.toSql());
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoTbl() throws UserException {
-        ShowIndexStmt stmt = new ShowIndexStmt("testDb", new TableName(internalCtl, "", ""));
-        stmt.analyze(analyzer);
     }
 }

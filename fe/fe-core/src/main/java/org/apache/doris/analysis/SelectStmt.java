@@ -304,15 +304,14 @@ public class SelectStmt extends QueryStmt {
                         tblFuncRef.getTableFunction().getTable());
             } else {
                 TableName tblName = tblRef.getName();
-                // Must anylyze first to get real catalog/db/table name
-                tblName.analyze(analyzer);
-                String dbName = tblName.getDb();
                 String tableName = tblName.getTbl();
-                if (isViewTableRef(tblName.toString(), parentViewNameSet)) {
+                if (isViewTableRef(tableName, parentViewNameSet)) {
                     continue;
                 }
+
+                tblName.analyze(analyzer);
                 DatabaseIf db = analyzer.getEnv().getCatalogMgr()
-                        .getCatalogOrAnalysisException(tblName.getCtl()).getDbOrAnalysisException(dbName);
+                        .getCatalogOrAnalysisException(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
                 if (expandView && (table instanceof View)) {
@@ -324,7 +323,7 @@ public class SelectStmt extends QueryStmt {
                             .checkTblPriv(ConnectContext.get(), tblName, PrivPredicate.SELECT)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                                 ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                                dbName + ": " + tableName);
+                                tblName.toSql());
                     }
                     tableMap.put(table.getId(), table);
                 }
