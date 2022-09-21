@@ -175,8 +175,11 @@ Status VOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
-        _tablet_reader_params.direct_mode = _aggregation || single_version;
+        _tablet_reader_params.direct_mode = _aggregation || single_version ||
+                                            _parent->_olap_scan_node.__isset.push_down_agg_type_opt;
     }
+    if (_parent->_olap_scan_node.__isset.push_down_agg_type_opt)
+        _push_down_agg_type_opt = _parent->_olap_scan_node.push_down_agg_type_opt;
 
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
@@ -228,6 +231,7 @@ Status VOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
+    _tablet_reader_params.push_down_agg_type_opt= _push_down_agg_type_opt;
 
     if (_tablet_reader_params.direct_mode) {
         _tablet_reader_params.return_columns = _return_columns;
@@ -283,7 +287,6 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         int32_t index = slot->col_unique_id() >= 0
                                 ? _tablet_schema->field_index(slot->col_unique_id())
                                 : _tablet_schema->field_index(slot->col_name());
-
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();

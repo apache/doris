@@ -65,6 +65,7 @@ import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -153,6 +154,8 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
+    private TPushAggOp pushDownAggNoGroupingOp = null;
+
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
@@ -173,6 +176,10 @@ public class OlapScanNode extends ScanNode {
         this.isPreAggregation = isPreAggregation;
         this.reasonOfPreAggregation = this.reasonOfPreAggregation == null ? reason :
                                       this.reasonOfPreAggregation + " " + reason;
+    }
+
+    public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
+        this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
     }
 
     public boolean isPreAggregation() {
@@ -923,6 +930,10 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
+
+        if (pushDownAggNoGroupingOp != null) {
+            msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        }
     }
 
     // export some tablets

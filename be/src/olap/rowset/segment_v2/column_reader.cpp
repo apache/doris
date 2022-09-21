@@ -171,6 +171,45 @@ Status ColumnReader::get_row_ranges_by_zone_map(
     return Status::OK();
 }
 
+Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const {
+    // TODO: this work to get min/max value seems should only do once
+    FieldType type = _type_info->type();
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
+    _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+
+    dst->reserve(*n);
+    bool is_string = is_olap_string_type(type);
+    if (max_value->is_null()) {
+        assert_cast<vectorized::ColumnNullable&>(*dst).insert_default();
+    } else {
+        if (is_string) {
+            auto sv = (StringValue*)max_value->cell_ptr();
+            dst->insert_data(sv->ptr, sv->len);
+        } else {
+            dst->insert_many_fix_len_data(static_cast<const char*>(max_value->cell_ptr()), 1);
+        }
+    }
+
+
+    auto size = *n - 1;
+    if (min_value->is_null()) {
+        assert_cast<vectorized::ColumnNullable&>(*dst).insert_null_elements(size);
+    } else {
+        if (is_string) {
+            auto sv = (StringValue*) min_value->cell_ptr();
+            dst->insert_many_data(sv->ptr, sv->len, size);
+        } else {
+            // TODO: the work may cause performance problem, opt latter
+            for (int i = 0; i < size; ++i) {
+                dst->insert_many_fix_len_data(static_cast<const char*>(min_value->cell_ptr()), 1);
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
 bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates) const {
     if (_zone_map_index_meta == nullptr) {
         return true;
@@ -708,6 +747,10 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
     // bytes_read = data size + null bitmap size
     _opts.stats->bytes_read += *n * dst->type_info()->size() + BitmapSize(*n);
     return Status::OK();
+}
+
+Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) {
+    return _reader->next_batch_of_zone_map(n, dst);
 }
 
 Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
