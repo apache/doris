@@ -103,36 +103,11 @@ Status ParquetReader::_init_read_columns(const std::vector<SlotDescriptor*>& tup
 std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type() {
     std::unordered_map<std::string, TypeDescriptor> map;
     auto schema_desc = _file_metadata->schema();
-    for (auto& it : _map_column) {
-        TypeDescriptor type;
-        if (it.first == "p_partkey") {
-            type.type = TYPE_INT;
-        } else if (it.first == "p_name") {
-            type.type = TYPE_VARCHAR;
-            type.len = 55;
-        } else if (it.first == "p_mfgr") {
-            type.type = TYPE_VARCHAR;
-            type.len = 25;
-        } else if (it.first == "p_brand") {
-            type.type = TYPE_VARCHAR;
-            type.len = 10;
-        } else if (it.first == "p_type") {
-            type.type = TYPE_VARCHAR;
-            type.len = 25;
-        } else if (it.first == "p_size") {
-            type.type = TYPE_INT;
-        } else if (it.first == "p_container") {
-            type.type = TYPE_VARCHAR;
-            type.len = 10;
-        } else if (it.first == "p_retailprice") {
-            type.type = TYPE_DECIMALV2;
-            type.precision = 27;
-            type.scale = 9;
-        } else if (it.first == "p_comment") {
-            type.type = TYPE_VARCHAR;
-            type.len = 23;
-        }
-        map.emplace(it.first, type);
+    std::unordered_set<std::string> column_names;
+    schema_desc.get_column_names(&column_names);
+    for (auto name : column_names) {
+        auto field = schema_desc.get_column(name);
+        map.emplace(name, field->type);
     }
     return map;
 }
