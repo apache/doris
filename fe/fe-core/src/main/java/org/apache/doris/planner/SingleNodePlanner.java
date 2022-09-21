@@ -414,7 +414,13 @@ public class SingleNodePlanner {
                 String functionName = aggExpr.getFnName().getFunction();
                 if (!functionName.equalsIgnoreCase("MAX")
                         && !functionName.equalsIgnoreCase("MIN")
-                        && (!functionName.equalsIgnoreCase("COUNT") && type != KeysType.DUP_KEYS)) {
+                        && !functionName.equalsIgnoreCase("COUNT")) {
+                    aggExprValidate = false;
+                    break;
+                }
+
+                if (functionName.equalsIgnoreCase("COUNT")
+                        && type != KeysType.DUP_KEYS) {
                     aggExprValidate = false;
                     break;
                 }
