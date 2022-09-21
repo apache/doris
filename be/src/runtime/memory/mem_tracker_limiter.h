@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "service/backend_options.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
@@ -65,7 +66,7 @@ public:
                        size_t upper_level) const;
 
 public:
-    static Status check_sys_mem_info(int64_t bytes) {
+    static bool sys_mem_exceed_limit_check(int64_t bytes) {
         // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
@@ -78,16 +79,9 @@ public:
         if (PerfCounters::get_vm_rss() - MemInfo::allocator_cache_mem() + bytes >=
                     MemInfo::mem_limit() ||
             PerfCounters::get_vm_rss() + bytes >= MemInfo::hard_mem_limit()) {
-            auto st = Status::MemoryLimitExceeded(
-                    fmt::format("process memory used {}, tc/jemalloc cache {}, exceed limit {}, failed alloc "
-                    "size {}",
-                    print_bytes(PerfCounters::get_vm_rss()),
-                    print_bytes(MemInfo::allocator_cache_mem()), print_bytes(MemInfo::mem_limit()),
-                    print_bytes(bytes)));
-            ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(st.get_error_msg());
-            return st;
+            return true;
         }
-        return Status::OK();
+        return false;
     }
 
     int64_t group_num() const { return _group_num; }
@@ -150,9 +144,9 @@ public:
     // If 'failed_allocation_size' is greater than zero, logs the allocation size. If
     // 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     // If 'state' is non-nullptr, logs the error to 'state'.
-    Status mem_limit_exceeded(const std::string& msg, int64_t failed_allocation_size = 0);
-    Status mem_limit_exceeded(const std::string& msg, MemTrackerLimiter* failed_tracker,
-                              Status failed_try_consume_st);
+    std::string mem_limit_exceeded(const std::string& msg, int64_t failed_allocation_size = 0);
+    std::string mem_limit_exceeded(const std::string& msg, MemTrackerLimiter* failed_tracker,
+                                   const std::string& limit_exceeded_errmsg_prefix);
     Status mem_limit_exceeded(RuntimeState* state, const std::string& msg,
                               int64_t failed_allocation_size = 0);
 
@@ -167,7 +161,7 @@ public:
     }
 
     static std::string print_bytes(int64_t bytes) {
-        return fmt::format("{}", PrettyPrinter::print(bytes, TUnit::BYTES));
+        return PrettyPrinter::print(bytes, TUnit::BYTES);
     }
 
 private:
@@ -184,7 +178,7 @@ private:
     // they can all consume 'bytes' without exceeding limit. If limit would be exceed,
     // no MemTrackerLimiters are updated. Returns true if the consumption was successfully updated.
     WARN_UNUSED_RESULT
-    Status try_consume(int64_t bytes);
+    bool try_consume(int64_t bytes, std::string& failed_msg);
 
     // When the accumulated untracked memory value exceeds the upper limit,
     // the current value is returned and set to 0.
@@ -198,7 +192,33 @@ private:
                                  const std::list<MemTrackerLimiter*>& trackers,
                                  int64_t* logged_consumption);
 
-    static Status mem_limit_exceeded_construct(const std::string& msg);
+    static std::string limit_exceeded_errmsg_prefix_str(int64_t bytes,
+                                                        MemTrackerLimiter* exceed_tracker) {
+        return fmt::format(
+                "failed alloc size {}, exceeded tracker:<{}>, limit {}, peak "
+                "used {}, current used {}",
+                print_bytes(bytes), exceed_tracker->label(), print_bytes(exceed_tracker->limit()),
+                print_bytes(exceed_tracker->_consumption->value()),
+                print_bytes(exceed_tracker->_consumption->current_value()));
+    }
+
+    static std::string limit_exceeded_errmsg_suffix_str(const std::string& msg) {
+        return fmt::format(
+                "{}. backend {} process memory used {}, limit {}. If query tracker exceed, `set "
+                "exec_mem_limit=8G` to change limit, details mem usage see be.INFO.",
+                msg, BackendOptions::get_localhost(), PerfCounters::get_vm_rss_str(),
+                MemInfo::mem_limit_str());
+    }
+
+    static std::string limit_exceeded_errmsg_sys_str(int64_t bytes) {
+        auto err_msg = fmt::format(
+                "process memory used {}, tc/jemalloc allocator cache {}, exceed limit {}, failed "
+                "alloc size {}",
+                PerfCounters::get_vm_rss_str(), MemInfo::allocator_cache_mem_str(),
+                MemInfo::mem_limit_str(), print_bytes(bytes));
+        ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(err_msg);
+        return err_msg;
+    }
 
 private:
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit. Used in log_usage。
@@ -258,12 +278,16 @@ inline void MemTrackerLimiter::cache_consume_local(int64_t bytes) {
     }
 }
 
-inline Status MemTrackerLimiter::try_consume(int64_t bytes) {
+inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_msg) {
     if (bytes <= 0) {
         release(-bytes);
-        return Status::OK();
+        failed_msg = std::string();
+        return true;
     }
-    RETURN_IF_ERROR(check_sys_mem_info(bytes));
+    if (sys_mem_exceed_limit_check(bytes)) {
+        failed_msg = limit_exceeded_errmsg_sys_str(bytes);
+        return false;
+    }
     int i;
     // Walk the tracker tree top-down.
     for (i = _all_ancestors.size() - 1; i >= 0; --i) {
@@ -278,34 +302,28 @@ inline Status MemTrackerLimiter::try_consume(int64_t bytes) {
                 for (int j = _all_ancestors.size() - 1; j > i; --j) {
                     _all_ancestors[j]->_consumption->add(-bytes);
                 }
-                return Status::MemoryLimitExceeded(fmt::format(
-                        "failed alloc size {}, exceeded tracker:<{}>, limit {}, peak "
-                        "used {}, current used {}",
-                        print_bytes(bytes), tracker->label(), print_bytes(tracker->limit()),
-                        print_bytes(tracker->_consumption->value()),
-                        print_bytes(tracker->_consumption->current_value())));
+                failed_msg = limit_exceeded_errmsg_prefix_str(bytes, tracker);
+                return false;
             }
         }
     }
     // Everyone succeeded, return.
     DCHECK_EQ(i, -1);
-    return Status::OK();
+    failed_msg = std::string();
+    return true;
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     if (bytes <= 0) return Status::OK();
-    RETURN_IF_ERROR(check_sys_mem_info(bytes));
+    if (sys_mem_exceed_limit_check(bytes)) {
+        return Status::MemoryLimitExceeded(limit_exceeded_errmsg_sys_str(bytes));
+    }
     int i;
     // Walk the tracker tree top-down.
     for (i = _limited_ancestors.size() - 1; i >= 0; --i) {
         MemTrackerLimiter* tracker = _limited_ancestors[i];
         if (tracker->_consumption->current_value() + bytes > tracker->limit()) {
-            return Status::MemoryLimitExceeded(
-                    fmt::format("expected alloc size {}, exceeded tracker:<{}>, limit {}, peak "
-                                "used {}, current used {}",
-                                print_bytes(bytes), tracker->label(), print_bytes(tracker->limit()),
-                                print_bytes(tracker->_consumption->value()),
-                                print_bytes(tracker->_consumption->current_value())));
+            return Status::MemoryLimitExceeded(limit_exceeded_errmsg_prefix_str(bytes, tracker));
         }
     }
     return Status::OK();
