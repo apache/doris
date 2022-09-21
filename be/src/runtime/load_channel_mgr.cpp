@@ -110,12 +110,12 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-void LoadChannelMgr::_pending_if_hard_limit_exceeded() {
+void LoadChannelMgr::_try_to_wait_flushing() {
     std::unique_lock<std::mutex> l(_lock);
-    while (_hard_limit_reached) {
+    while (_should_wait_flush) {
         LOG(INFO) << "Reached the load channel manager mem limit " << _mem_tracker->limit()
                   << ", waiting for flush";
-        _hard_limit_cond.wait(l);
+        _wait_flush_cond.wait(l);
     }
 }
 

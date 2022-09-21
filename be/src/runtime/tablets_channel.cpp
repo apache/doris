@@ -196,6 +196,7 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
 
 template <typename TabletWriterAddResult>
 Status TabletsChannel::reduce_mem_usage(int64_t mem_limit, TabletWriterAddResult* response) {
+    _try_to_wait_flushing();
     std::vector<DeltaWriter*> writers_to_flush;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -333,7 +334,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     return Status::OK();
 }
 
-void TabletsChannel::_pending_on_reduce_mem_usage() {
+void TabletsChannel::_try_to_wait_flushing() {
     std::unique_lock<std::mutex> l(_lock);
     while (_reducing_mem_usage) {
         _reduce_memory_cond.wait(l);
