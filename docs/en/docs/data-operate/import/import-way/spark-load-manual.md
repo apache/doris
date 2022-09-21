@@ -30,7 +30,7 @@ Spark load realizes the preprocessing of load data by spark, improves the perfor
 
 Spark load uses the resources of the spark cluster to sort the data to be imported, and Doris be writes files directly, which can greatly reduce the resource usage of the Doris cluster, and is very good for historical mass data migration to reduce the resource usage and load of the Doris cluster. Effect.
 
-If users do not have the resources of Spark cluster and want to complete the migration of external storage historical data conveniently and quickly, they can use [Broker load](./BROKER-LOAD.md) . Compared with Spark load, importing Broker load will consume more resources on the Doris cluster.
+If users do not have the resources of Spark cluster and want to complete the migration of external storage historical data conveniently and quickly, they can use [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) . Compared with Spark load, importing Broker load will consume more resources on the Doris cluster.
 
 Spark load is an asynchronous load method. Users need to create spark type load job by MySQL protocol and view the load results by `show load`.
 
