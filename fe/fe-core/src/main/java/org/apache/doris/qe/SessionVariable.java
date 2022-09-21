@@ -220,7 +220,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
 
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
-    
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
