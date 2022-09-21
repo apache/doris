@@ -22,8 +22,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -33,20 +34,32 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-/**
- * MergeConsecutiveFilter ut
- */
 public class EliminateFilterTest {
     @Test
-    public void testEliminateFilter() {
-        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(BooleanLiteral.FALSE, scan);
+    public void testEliminateFilterFalse() {
+        LogicalPlan filterFalse = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .filter(BooleanLiteral.FALSE)
+                .build();
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filterFalse);
         List<Rule> rules = Lists.newArrayList(new EliminateFilter().build());
         cascadesContext.topDownRewrite(rules);
 
         Plan actual = cascadesContext.getMemo().copyOut();
         Assertions.assertTrue(actual instanceof LogicalEmptyRelation);
+    }
+
+    @Test
+    public void testEliminateFilterTrue() {
+        LogicalPlan filterFalse = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+                .filter(BooleanLiteral.TRUE)
+                .build();
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filterFalse);
+        List<Rule> rules = Lists.newArrayList(new EliminateFilter().build());
+        cascadesContext.topDownRewrite(rules);
+
+        Plan actual = cascadesContext.getMemo().copyOut();
+        Assertions.assertTrue(actual instanceof LogicalOlapScan);
     }
 }
