@@ -17,8 +17,34 @@
 
 suite("test_with") {
     sql "use test_query_db"
+    //Basic WITH
     qt_select """
                 select 1 from (with w as (select 1 from baseall 
                 where exists (select 1 from baseall)) select 1 from w ) tt
               """
+    qt_select """
+                WITH q1(x,y) AS (SELECT 1,2)
+                SELECT * FROM q1, q1 AS q2;
+              """
+ 
+    qt_select """
+                WITH outermost(x) AS (
+                  SELECT 1
+                  UNION (WITH innermost as (SELECT 2)
+                        SELECT * FROM innermost
+                        UNION SELECT 3)
+                )
+                SELECT * FROM outermost;
+              """
+    qt_select """
+                WITH outermost(x) AS (
+                  SELECT 1
+                  UNION (WITH innermost as (SELECT 2)
+                        SELECT * FROM innermost
+                        UNION SELECT 3)
+                )
+                SELECT * FROM outermost ORDER BY 1;
+              """
+
+
 }
