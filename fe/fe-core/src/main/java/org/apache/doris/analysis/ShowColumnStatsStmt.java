@@ -28,6 +28,7 @@ import org.apache.doris.statistics.ColumnStats;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.Collections;
 import java.util.List;
 
 public class ShowColumnStatsStmt extends ShowStmt {
@@ -43,22 +44,35 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add(ColumnStats.MAX_VALUE.getValue())
                     .build();
 
-    private TableName tableName;
+    private final TableName tableName;
+    private final PartitionNames partitionNames;
 
-    public ShowColumnStatsStmt(TableName tableName) {
+    public ShowColumnStatsStmt(TableName tableName, PartitionNames partitionNames) {
         this.tableName = tableName;
+        this.partitionNames = partitionNames;
     }
 
     public TableName getTableName() {
         return tableName;
     }
 
+    public List<String> getPartitionNames() {
+        if (partitionNames == null) {
+            return Collections.emptyList();
+        }
+        return partitionNames.getPartitionNames();
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+
+        if (partitionNames != null) {
+            partitionNames.analyze(analyzer);
+        }
     }
 
     @Override
@@ -69,10 +83,5 @@ public class ShowColumnStatsStmt extends ShowStmt {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
-    }
-
-    public List<String> getPartitionNames() {
-        // TODO(WZT): partition statistics
-        return Lists.newArrayList();
     }
 }
