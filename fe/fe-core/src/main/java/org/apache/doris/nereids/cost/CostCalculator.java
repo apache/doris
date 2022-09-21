@@ -176,10 +176,10 @@ public class CostCalculator {
             // TODO: handle some case
             // handle cross join, onClause is empty .....
             if (physicalHashJoin.getJoinType().isCrossJoin()) {
-                return CostEstimate.sum(inputCost, outputCost, outputCost);
+                return CostEstimate.sum1(inputCost, outputCost, outputCost);
             }
 
-            return CostEstimate.sum(inputCost, outputCost);
+            return CostEstimate.sum1(inputCost, outputCost);
         }
 
         @Override
