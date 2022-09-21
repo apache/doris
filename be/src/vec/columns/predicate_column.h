@@ -278,35 +278,22 @@ public:
             }
 
             char* destination = (char*)_pool->allocate(total_mem_size);
-
-            // Although the data array is always continuous for predicate column, because it is read continuous
-            // during first read stage, but the interface does not acquire the data array is continuous, so that
-            // add a check here.
-            bool is_continuous_copy = true;
-            for (size_t i = 1; i < num; i++) {
-                if (start_offset_array[i] != start_offset_array[i - 1] + len_array[i - 1]) {
-                    is_continuous_copy = false;
-                    break;
-                }
-            }
-            if (is_continuous_copy) {
-                memcpy(destination, data_array + start_offset_array[0], total_mem_size);
-                // Resize the underline data to allow data copy directly
-                size_t org_elem_num = data.size();
-                data.resize(org_elem_num + num);
-                for (size_t i = 0; i < num; i++) {
-                    data[org_elem_num + i].ptr = destination;
-                    data[org_elem_num + i].len = len_array[i];
-                    destination += len_array[i];
-                }
-            } else {
-                for (size_t i = 0; i < num; i++) {
-                    uint32_t len = len_array[i];
-                    uint32_t start_offset = start_offset_array[i];
-                    memcpy(destination, data_array + start_offset, len);
-                    StringValue sv(destination, len);
-                    data.push_back_without_reserve(sv);
-                    destination += len;
+            size_t org_elem_num = data.size();
+            data.resize(org_elem_num + num);
+            uint32_t fragment_start_offset = start_offset_array[0];
+            size_t fragment_len = 0;
+            for (size_t i = 0; i < num; i++) {
+                data[org_elem_num + i].ptr = destination + fragment_len;
+                data[org_elem_num + i].len = len_array[i];
+                fragment_len += len_array[i];
+                // Compute the largest continuous memcpy block and copy them.
+                // If this is the last element in data array, then should copy the current memory block.
+                if (i == num - 1 ||
+                    start_offset_array[i + 1] != start_offset_array[i] + len_array[i]) {
+                    memcpy(destination, data_array + fragment_start_offset, fragment_len);
+                    destination += fragment_len;
+                    fragment_start_offset = (i == num - 1 ? 0 : start_offset_array[i + 1]);
+                    fragment_len = 0;
                 }
             }
         } else {
