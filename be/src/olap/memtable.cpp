@@ -34,15 +34,14 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
                    const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
-                   bool support_vec)
+                   const std::shared_ptr<MemTrackerLimiter>& tracker, bool support_vec)
         : _tablet(std::move(tablet)),
           _schema(schema),
           _tablet_schema(tablet_schema),
           _slot_descs(slot_descs),
-          _mem_tracker(std::make_unique<MemTracker>(
-                  fmt::format("MemTable:tabletId={}", std::to_string(tablet_id())))),
-          _buffer_mem_pool(new MemPool(_mem_tracker.get())),
-          _table_mem_pool(new MemPool(_mem_tracker.get())),
+          _mem_tracker_hook(std::make_shared<MemTrackerLimiter>(
+                  -1, fmt::format("MemTableHook:tabletId={}", std::to_string(tablet_id())),
+                  tracker)),
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer),
           _is_first_insertion(true),
@@ -53,6 +52,12 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _delete_bitmap(delete_bitmap),
           _rowset_ids(rowset_ids),
           _cur_max_version(cur_max_version) {
+    _mem_tracker_hook->enable_reset_zero();
+    SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
+    _mem_tracker_manual = std::make_unique<MemTracker>(
+            fmt::format("MemTableManual:tabletId={}", std::to_string(tablet_id())));
+    _buffer_mem_pool = std::make_unique<MemPool>(_mem_tracker_manual.get());
+    _table_mem_pool = std::make_unique<MemPool>(_mem_tracker_manual.get());
     if (support_vec) {
         _skip_list = nullptr;
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
@@ -147,12 +152,12 @@ MemTable::~MemTable() {
         }
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
-    _mem_tracker->release(_mem_usage);
+    _mem_tracker_manual->release(_mem_usage);
     _buffer_mem_pool->free_all();
     _table_mem_pool->free_all();
-    DCHECK_EQ(_mem_tracker->consumption(), 0)
+    DCHECK_EQ(_mem_tracker_manual->consumption(), 0)
             << std::endl
-            << MemTracker::log_usage(_mem_tracker->make_snapshot(0));
+            << MemTracker::log_usage(_mem_tracker_manual->make_snapshot(0));
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -170,6 +175,7 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
 }
 
 void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs) {
+    SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
     auto target_block = input_block->copy_block(_column_offset);
     if (_is_first_insertion) {
         _is_first_insertion = false;
@@ -186,7 +192,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
     size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
     _mem_usage += input_size;
-    _mem_tracker->consume(input_size);
+    _mem_tracker_manual->consume(input_size);
 
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
@@ -367,7 +373,7 @@ void MemTable::_collect_vskiplist_results() {
         if constexpr (!is_final) {
             // if is not final, we collect the agg results to input_block and then continue to insert
             size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
-            _mem_tracker->consume(shrunked_after_agg - _mem_usage);
+            _mem_tracker_manual->consume(shrunked_after_agg - _mem_usage);
             _mem_usage = shrunked_after_agg;
             _input_mutable_block.swap(_output_mutable_block);
             //TODO(weixang):opt here.
@@ -385,6 +391,7 @@ void MemTable::_collect_vskiplist_results() {
 }
 
 void MemTable::shrink_memtable_by_agg() {
+    SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
     if (keys_type() == KeysType::DUP_KEYS) {
         return;
     }
@@ -421,6 +428,7 @@ Status MemTable::_generate_delete_bitmap() {
 }
 
 Status MemTable::flush() {
+    SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
