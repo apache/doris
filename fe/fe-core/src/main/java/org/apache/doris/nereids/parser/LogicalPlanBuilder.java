@@ -398,7 +398,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.PLUS:
                     return e;
                 case DorisParser.MINUS:
-                    //TODO: Add single operator subtraction
+                    // TODO: Add single operator subtraction
                 default:
                     throw new ParseException("Unsupported arithmetic unary type: " + ctx.operator.getText(), ctx);
             }
@@ -745,6 +745,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withLimit(LogicalPlan input, Optional<LimitClauseContext> limitCtx) {
         return input.optionalMap(limitCtx, () -> {
             long limit = Long.parseLong(limitCtx.get().limit.getText());
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", limitCtx.get());
+            }
             long offset = 0;
             Token offsetToken = limitCtx.get().offset;
             if (offsetToken != null) {
