@@ -203,6 +203,6 @@ public class PushPredicateThroughJoinTest {
     }
 
     private Memo rewrite(Plan plan) {
-        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushPredicatesThroughJoin());
+        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushdownFilterThroughJoin());
     }
 }
