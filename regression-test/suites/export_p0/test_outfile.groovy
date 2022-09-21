@@ -132,4 +132,56 @@ suite("test_outfile") {
         }
     }
 
+    // test hll column outfile
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """
+        CREATE TABLE ${tableName} (
+          `k1` int(11) NOT NULL,
+          `v1` hll HLL_UNION NOT NULL,
+          `v2` int(11) SUM NOT NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+
+        sql """
+            insert into ${tableName} values (7483648, hll_hash(7483648), 1), (7483648, hll_hash(7483648), 1), 
+            (706432 , hll_hash(706432 ), 1), (706432 , hll_hash(706432 ), 1)
+        """
+
+        File path = new File(outFilePath)
+        if (!path.exists()) {
+            assert path.mkdirs()
+        } else {
+            throw new IllegalStateException("""${outFilePath} already exists! """)
+        }
+
+        sql "set return_object_data_as_binary = false"
+        sql """
+            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFilePath}/";
+        """
+
+        File[] files = path.listFiles()
+        assert files.length == 1
+        List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
+        assertEquals(2, outLines.size())
+        String[] outLine1 = outLines.get(0).split("\t")
+        assertEquals(3, outLine1.size())
+        assert outLine1[1] == "\\N"
+        assert outLines.get(1).split("\t")[1] == "\\N"
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${tableName}")
+        File path = new File(outFilePath)
+        if (path.exists()) {
+            for (File f: path.listFiles()) {
+                f.delete();
+            }
+            path.delete();
+        }
+    }
 }
