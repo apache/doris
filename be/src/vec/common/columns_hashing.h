@@ -257,6 +257,37 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
             return EmplaceResult(inserted);
     }
 
+    template <typename Data, typename Func, typename CreatorForNull>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
+            Data& data, size_t row, Arena& pool, Func&& f, CreatorForNull&& null_creator) {
+        if (key_columns[0]->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+            if (!has_null_key) std::forward<CreatorForNull>(null_creator)(data.get_null_key_data());
+            return data.get_null_key_data();
+        }
+        auto key_holder = Base::get_key_holder(row, pool);
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, std::forward<Func>(f));
+        return *lookup_result_get_mapped(it);
+    }
+
+    template <typename Data, typename Func, typename CreatorForNull>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
+            Data& data, size_t row, Arena& pool, size_t hash_value, Func&& f,
+            CreatorForNull&& null_creator) {
+        if (key_columns[0]->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+            if (!has_null_key) std::forward<CreatorForNull>(null_creator)(data.get_null_key_data());
+            return data.get_null_key_data();
+        }
+        auto key_holder = Base::get_key_holder(row, pool);
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
+        return *lookup_result_get_mapped(it);
+    }
+
     template <typename Data>
     ALWAYS_INLINE FindResult find_key(Data& data, size_t row, Arena& pool) {
         if (key_columns[0]->is_null_at(row)) {
@@ -274,6 +305,17 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
         else
             return FindResult(it != nullptr);
     }
+};
+
+template <typename HashMethod>
+struct IsSingleNullableColumnMethod {
+    static constexpr bool value = false;
+};
+
+template <typename SingleColumnMethod, typename Mapped, bool use_cache>
+struct IsSingleNullableColumnMethod<
+        HashMethodSingleLowNullableColumn<SingleColumnMethod, Mapped, use_cache>> {
+    static constexpr bool value = true;
 };
 
 } // namespace ColumnsHashing

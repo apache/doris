@@ -209,3 +209,17 @@ public:
     char* get_null_key_data() { return nullptr; }
     bool has_null_key_data() const { return false; }
 };
+
+template <typename TMapped, typename Allocator>
+struct HashTableTraits<StringHashMap<TMapped, Allocator>> {
+    static constexpr bool is_phmap = false;
+    static constexpr bool is_parallel_phmap = false;
+    static constexpr bool is_string_hash_table = true;
+};
+
+template <template <typename> class Derived, typename TMapped, typename Allocator>
+struct HashTableTraits<Derived<StringHashMap<TMapped, Allocator>>> {
+    static constexpr bool is_phmap = false;
+    static constexpr bool is_parallel_phmap = false;
+    static constexpr bool is_string_hash_table = true;
+};
