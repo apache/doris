@@ -337,13 +337,19 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     public ShowResultSet getShowResultSet() {
-        if (masterOpExecutor == null) {
+        if(masterOpExecutor == null) {
             return null;
         } else {
             return masterOpExecutor.getProxyResultSet();
         }
     }
 
+    public String getProxyStatus() {
+        if(masterOpExecutor == null) {
+           return null;
+        }
+        return masterOpExecutor.getProxyStatus();
+    }
     public boolean isQueryStmt() {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }

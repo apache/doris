@@ -165,6 +165,12 @@ public class MasterOpExecutor {
         }
     }
 
+    public String getProxyStatus() {
+        if (result == null) {
+            return null;
+        }
+        return result.getStatus();
+    }
 
     public ShowResultSet getProxyResultSet() {
         if (result == null) {
