@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -217,7 +219,8 @@ public class JoinUtils {
      * return true if we should do colocate join when translate plan.
      */
     public static boolean shouldColocateJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+        if (ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
         DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
@@ -240,7 +243,8 @@ public class JoinUtils {
      * return true if we should do bucket shuffle join when translate plan.
      */
     public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
+        if (ConnectContext.get() == null
+                || !ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
         }
         DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
@@ -254,9 +258,43 @@ public class JoinUtils {
                 || !(rightDistributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
+        DistributionSpecHash leftHash = (DistributionSpecHash) leftDistributionSpec;
+        // when we plan a bucket shuffle join, the left should not add a distribution enforce.
+        // so its shuffle type should be NATURAL(olap scan node or result of colocate join / bucket shuffle join with
+        // left child's shuffle type is also NATURAL), or be BUCKETED(result of join / agg).
+        if (leftHash.getShuffleType() != ShuffleType.BUCKETED && leftHash.getShuffleType() != ShuffleType.NATURAL) {
+            return false;
+        }
         // there must use left as required and join as source.
         // Because after property derive upper node's properties is contains lower node
         // if their properties are satisfy.
         return joinDistributionSpec.satisfy(leftDistributionSpec);
+    }
+
+    /**
+     * could do colocate join with left and right child distribution spec.
+     */
+    public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
+        if (ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+            return false;
+        }
+        if (leftHashSpec.getShuffleType() != ShuffleType.NATURAL
+                || rightHashSpec.getShuffleType() != ShuffleType.NATURAL) {
+            return false;
+        }
+        final long leftTableId = leftHashSpec.getTableId();
+        final long rightTableId = rightHashSpec.getTableId();
+        final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
+        final Set<Long> rightTablePartitions = rightHashSpec.getPartitionIds();
+        boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
+                && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
+        ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+        if (noNeedCheckColocateGroup
+                || (colocateIndex.isSameGroup(leftTableId, rightTableId)
+                && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+            return true;
+        }
+        return false;
     }
 }
