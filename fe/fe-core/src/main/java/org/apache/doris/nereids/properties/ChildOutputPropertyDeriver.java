@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.catalog.ColocateTableIndex;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -43,7 +41,6 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -85,7 +82,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         .map(SlotReference.class::cast)
                         .map(SlotReference::getExprId)
                         .collect(Collectors.toList());
-                return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.AGGREGATE));
+                // TODO: change ENFORCED back to bucketed, when coordinator could process bucket on agg correctly.
+                return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.ENFORCED));
             case DISTINCT_GLOBAL:
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
@@ -148,12 +146,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         // broadcast
         if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
             DistributionSpec parentDistributionSpec = leftOutputProperty.getDistributionSpec();
-            if (leftOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
-                DistributionSpecHash leftHash = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
-                List<ExprId> rightHashEqualSlots = JoinUtils.getOnClauseUsedSlots(hashJoin).second;
-                DistributionSpecHash rightHash = new DistributionSpecHash(rightHashEqualSlots, ShuffleType.JOIN);
-                parentDistributionSpec = DistributionSpecHash.merge(leftHash, rightHash);
-            }
             return new PhysicalProperties(parentDistributionSpec);
         }
 
@@ -166,22 +158,15 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             // colocate join
             if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                     && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-                final long leftTableId = leftHashSpec.getTableId();
-                final long rightTableId = rightHashSpec.getTableId();
-                final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
-                final Set<Long> rightTablePartitions = rightHashSpec.getPartitionIds();
-                boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
-                        && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
-                ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-                if (noNeedCheckColocateGroup
-                        || (colocateIndex.isSameGroup(leftTableId, rightTableId)
-                        && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
                     return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec));
                 }
             }
 
-            // shuffle
-            return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec, ShuffleType.JOIN));
+            // shuffle, if left child is natural mean current join is bucket shuffle join
+            // and remain natural for colocate join on upper join.
+            return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec,
+                    leftHashSpec.getShuffleType() == ShuffleType.NATURAL ? ShuffleType.NATURAL : ShuffleType.BUCKETED));
         }
 
         throw new RuntimeException("Could not derive hash join's output properties. join: " + hashJoin);
