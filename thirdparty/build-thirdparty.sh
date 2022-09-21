@@ -246,6 +246,30 @@ remove_all_dylib() {
     fi
 }
 
+if [[ -z "${STRIP_TP_LIB}" ]]; then
+    STRIP_TP_LIB='ON'
+fi
+
+if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
+    echo "Strip thirdparty libraries"
+else
+    echo "Do not strip thirdparty libraries"
+fi
+
+strip_lib() {
+    if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
+        if [[ -z $1 ]]; then
+            echo "Must specify the library to be stripped."
+            exit 1
+        fi
+        if [[ ! -f "${TP_LIB_DIR}/$1" ]]; then
+            echo "Library to be stripped (${TP_LIB_DIR}/$1) does not exist."
+            exit 1
+        fi
+        strip --strip-debug --strip-unneeded "${TP_LIB_DIR}/$1"
+    fi
+}
+
 #libbacktrace
 build_libbacktrace() {
     check_if_source_exist "${LIBBACKTRACE_SOURCE}"
@@ -278,7 +302,7 @@ build_libevent() {
     "${BUILD_SYSTEM}" install
 
     remove_all_dylib
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libevent.a
+    strip_lib libevent.a
 }
 
 build_openssl() {
@@ -340,8 +364,8 @@ build_thrift() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libthrift.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libthriftnb.a
+    strip_lib libthrift.a
+    strip_lib libthriftnb.a
 }
 
 # protobuf
@@ -386,8 +410,8 @@ build_protobuf() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libprotobuf.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libprotoc.a
+    strip_lib libprotobuf.a
+    strip_lib libprotoc.a
 }
 
 # gflags
@@ -423,7 +447,7 @@ build_glog() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libglog.a
+    strip_lib libglog.a
 }
 
 # gtest
@@ -441,7 +465,7 @@ build_gtest() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libgtest.a
+    strip_lib libgtest.a
 }
 
 # rapidjson
@@ -552,7 +576,7 @@ build_zstd() {
         -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libzstd.a
+    strip_lib libzstd.a
 }
 
 # bzip
@@ -574,7 +598,7 @@ build_lzo2() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/liblzo2.a
+    strip_lib liblzo2.a
 }
 
 # curl
@@ -597,7 +621,7 @@ build_curl() {
 
     make curl_LDFLAGS=-all-static -j "${PARALLEL}"
     make curl_LDFLAGS=-all-static install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libcurl.a
+    strip_lib libcurl.a
 }
 
 # re2
@@ -607,7 +631,7 @@ build_re2() {
 
     "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libre2.a
+    strip_lib libre2.a
 }
 
 # hyperscan
@@ -634,7 +658,7 @@ build_hyperscan() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
         -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libhs.a
+    strip_lib libhs.a
 }
 
 # boost
@@ -697,7 +721,7 @@ build_mysql() {
     # copy libmysqlclient.a
     cp libmysql/libmysqlclient.a ../../../installed/lib/
     echo "mysql client lib is installed."
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libmysqlclient.a
+    strip_lib libmysqlclient.a
 }
 
 #leveldb
@@ -713,7 +737,7 @@ build_leveldb() {
     CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
         -DLEVELDB_BUILD_TESTS=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libleveldb.a
+    strip_lib libleveldb.a
 }
 
 # brpc
@@ -744,7 +768,7 @@ build_brpc() {
     "${BUILD_SYSTEM}" install
 
     remove_all_dylib
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libbrpc.a
+    strip_lib libbrpc.a
 }
 
 # rocksdb
@@ -767,7 +791,7 @@ build_rocksdb() {
         PORTABLE=1 make USE_RTTI=1 -j "${PARALLEL}" static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/librocksdb.a
+    strip_lib librocksdb.a
 }
 
 # cyrus_sasl
@@ -802,8 +826,8 @@ build_librdkafka() {
     make install
 
     remove_all_dylib
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/librdkafka.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/librdkafka++.a
+    strip_lib librdkafka.a
+    strip_lib librdkafka++.a
 }
 
 # libunixodbc
@@ -913,9 +937,9 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libarrow.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libjemalloc.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libparquet.a
+    strip_lib libarrow.a
+    strip_lib libjemalloc.a
+    strip_lib libparquet.a
 }
 
 # s2
@@ -948,7 +972,7 @@ build_s2() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libs2.a
+    strip_lib libs2.a
 }
 
 # bitshuffle
@@ -1096,7 +1120,7 @@ build_orc() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/liborc.a
+    strip_lib liborc.a
 }
 
 #cctz
@@ -1156,22 +1180,22 @@ build_aws_sdk() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-cpp-sdk-s3-crt.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-cpp-sdk-s3.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-cpp-sdk-core.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libs2n.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-crt-cpp.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-http.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-common.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-auth.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-io.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-mqtt.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-s3.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-event-stream.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-cal.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-cpp-sdk-transfer.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-checksums.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-compression.a
+    strip_lib libaws-cpp-sdk-s3-crt.a
+    strip_lib libaws-cpp-sdk-s3.a
+    strip_lib libaws-cpp-sdk-core.a
+    strip_lib libs2n.a
+    strip_lib libaws-crt-cpp.a
+    strip_lib libaws-c-http.a
+    strip_lib libaws-c-common.a
+    strip_lib libaws-c-auth.a
+    strip_lib libaws-c-io.a
+    strip_lib libaws-c-mqtt.a
+    strip_lib libaws-c-s3.a
+    strip_lib libaws-c-event-stream.a
+    strip_lib libaws-c-cal.a
+    strip_lib libaws-cpp-sdk-transfer.a
+    strip_lib libaws-checksums.a
+    strip_lib libaws-c-compression.a
 }
 
 # lzma
@@ -1195,7 +1219,7 @@ build_lzma() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/liblzma.a
+    strip_lib liblzma.a
 }
 
 # xml2
@@ -1222,7 +1246,7 @@ build_xml2() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libxml2.a
+    strip_lib libxml2.a
 }
 
 # idn
@@ -1294,7 +1318,7 @@ build_hdfs3() {
 
     make CXXFLAGS="${libhdfs_cxx17}" -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libhdfs3.a
+    strip_lib libhdfs3.a
 }
 
 # jemalloc
@@ -1382,13 +1406,13 @@ build_opentelemetry() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_exporter_zipkin_trace.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_trace.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_proto.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_resources.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_exporter_ostream_span.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_http_client_curl.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_exporter_otlp_http_client.a
+    strip_lib libopentelemetry_exporter_zipkin_trace.a
+    strip_lib libopentelemetry_trace.a
+    strip_lib libopentelemetry_proto.a
+    strip_lib libopentelemetry_resources.a
+    strip_lib libopentelemetry_exporter_ostream_span.a
+    strip_lib libopentelemetry_http_client_curl.a
+    strip_lib libopentelemetry_exporter_otlp_http_client.a
 }
 
 # sse2neon
