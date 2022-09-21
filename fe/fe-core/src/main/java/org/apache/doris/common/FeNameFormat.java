@@ -128,6 +128,15 @@ public class FeNameFormat {
         }
     }
 
+    /**
+     * Check catalog's name.
+     * Do not allow "__" in name, because we need to support flattened catalog name like: __catalog__db,
+     * so that we can parse it and extract catalog and database name.
+     *
+     * @param type
+     * @param name
+     * @throws AnalysisException
+     */
     public static void checkCatalogName(String type, String name) throws AnalysisException {
         if (Strings.isNullOrEmpty(name) || !name.matches(COMMON_NAME_REGEX) || name.contains(DOUBLE_UNDERLINE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);

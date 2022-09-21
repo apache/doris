@@ -60,9 +60,9 @@ public class TableName implements Writable {
 
     private enum Level {
         NONE,
-        ONE,
-        TWO,
-        THREE
+        ONE,    // tbl
+        TWO,    // db.tbl
+        THREE   // ctl.db.tbl
     }
 
     public TableName(String ctl, String db, String tbl) {
@@ -91,7 +91,7 @@ public class TableName implements Writable {
     // 1. tbl: Will use default catalog and db
     // 2. db.tbl: Will use default catalog and specific db
     // 3. ctl.db.tbl: Will use sepcific ctalog and db
-    // 4. __ctl__db.tbl: If flattenCatalog is enabled, parse and use specific catalog and db
+    // 4. __ctl__db.tbl: flattened catalog_db, parse and use specific catalog and db
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (isAnalyzed) {
             return;

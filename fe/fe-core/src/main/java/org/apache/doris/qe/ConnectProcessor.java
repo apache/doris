@@ -119,7 +119,6 @@ public class ConnectProcessor {
         }
 
         Pair<String, String> ctlDb = CatalogFlattenUtils.analyzeFlattenName(fullDbName);
-
         String catalogName = ctlDb.first;
         String dbName = ctlDb.second;
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);

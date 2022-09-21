@@ -62,12 +62,4 @@ public class CatalogFlattenUtils {
     public static String flatten(String ctl, String db) {
         return FLATTEN_SEPARATOR + ctl + FLATTEN_SEPARATOR + db;
     }
-
-    public static boolean isFlattenCatalogEnabled() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return false;
-        }
-        return connectContext.getSessionVariable().flattenCatalog;
-    }
 }

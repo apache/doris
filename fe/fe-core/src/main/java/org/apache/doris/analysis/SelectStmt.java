@@ -304,6 +304,7 @@ public class SelectStmt extends QueryStmt {
                         tblFuncRef.getTableFunction().getTable());
             } else {
                 TableName tblName = tblRef.getName();
+                // Must anylyze first to get real catalog/db/table name
                 tblName.analyze(analyzer);
                 String dbName = tblName.getDb();
                 String tableName = tblName.getTbl();

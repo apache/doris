@@ -79,10 +79,10 @@ public class UseStmt extends StatementBase {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
 
-        // We support 2 formats:
-        // 1. use db: use default catalog in context and the specific db
-        // 2. use catalog.db: use specific catalog and db
-        // 3. use __catalog__db: when flattenCatalog is enabled, parse and use specific catalog and db
+        // We support following formats:
+        // 1. use db: Will use default catalog in context and the specific db
+        // 2. use catalog.db: Will use specific catalog and db
+        // 3. use __catalog__db: flattened catalog_db, will parse and use specific catalog and db
         if (Strings.isNullOrEmpty(catalogName)) {
             Pair<String, String> ctlDb = CatalogFlattenUtils.analyzeFlattenName(database);
             catalogName = ctlDb.first;
