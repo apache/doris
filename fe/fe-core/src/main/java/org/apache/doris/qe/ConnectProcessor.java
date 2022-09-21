@@ -41,6 +41,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.datasource.CatalogFlattenUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -116,18 +117,11 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
             return;
         }
-        String catalogName = null;
-        String dbName = null;
-        String[] dbNames = fullDbName.split("\\.");
-        if (dbNames.length == 1) {
-            dbName = fullDbName;
-        } else if (dbNames.length == 2) {
-            catalogName = dbNames[0];
-            dbName = dbNames[1];
-        } else if (dbNames.length > 2) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
-            return;
-        }
+
+        Pair<String, String> ctlDb = CatalogFlattenUtils.analyzeFlattenName(fullDbName);
+
+        String catalogName = ctlDb.first;
+        String dbName = ctlDb.second;
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
 
         // check catalog and db exists

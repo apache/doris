@@ -107,6 +107,11 @@ public class FlattenCatalogTest {
         Assert.assertEquals("hive", res.first);
         Assert.assertEquals("db1", res.second);
 
+        name = "hive.db1";
+        res = CatalogFlattenUtils.analyzeFlattenName(name);
+        Assert.assertEquals("hive", res.first);
+        Assert.assertEquals("db1", res.second);
+
         String name2 = "__db1";
         ExceptionChecker.expectThrowsWithMsg(RuntimeException.class, "invalid flatten name", () -> {
             CatalogFlattenUtils.analyzeFlattenName(name2);
