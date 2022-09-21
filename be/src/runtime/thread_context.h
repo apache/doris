@@ -134,9 +134,11 @@ public:
     void attach_task(const TaskType& type, const std::string& task_id,
                      const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+#ifndef BE_TEST
         DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) && _task_id == "")
                 << ",new tracker label: " << mem_tracker->label() << ",old tracker label: "
                 << _thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label();
+#endif
         DCHECK(type != TaskType::UNKNOWN);
         _type = type;
         _task_id = task_id;
