@@ -87,8 +87,16 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
         newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
         newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-        Plan left = PlanUtils.projectOrSelf(newLeftProjects, newBottomJoin);
-        Plan right = PlanUtils.projectOrSelf(newRightProjects, b);
+        Plan left = newBottomJoin;
+        if (!newLeftProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet())
+                .equals(newBottomJoin.getOutputSet())) {
+            left = PlanUtils.projectOrSelf(newLeftProjects, newBottomJoin);
+        }
+        Plan right = b;
+        if (!newRightProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet())
+                .equals(b.getOutputSet())) {
+            right = PlanUtils.projectOrSelf(newRightProjects, b);
+        }
 
         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
                 newTopHashJoinConjuncts,
