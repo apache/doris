@@ -221,8 +221,8 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
         }
-        if(!Env.getCurrentEnv().isMaster()){
-            if(ctx.executor.isForwardToMaster()) {
+        if (!Env.getCurrentEnv().isMaster()) {
+            if (ctx.executor.isForwardToMaster()) {
                 ctx.getAuditEventBuilder().setState (ctx.executor.getProxyStatus());
             }
         }
