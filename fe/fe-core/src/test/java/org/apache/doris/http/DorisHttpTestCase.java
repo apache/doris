@@ -75,6 +75,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -123,6 +124,7 @@ public abstract class DorisHttpTestCase {
 
     static {
         String dorisHome = System.getenv("DORIS_HOME");
+
         if (Strings.isNullOrEmpty(dorisHome)) {
             try {
                 dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
@@ -360,7 +362,7 @@ public abstract class DorisHttpTestCase {
 
     @AfterClass
     public static void afterClass() throws IOException {
-        FileUtils.forceDelete(new File(DORIS_HOME));
+        Files.deleteIfExists(Paths.get(DORIS_HOME));
     }
 
 
