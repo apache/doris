@@ -288,7 +288,7 @@ JEMALLOC_SOURCE="jemalloc-5.2.1"
 JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
 
 # cctz
-CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
+CCTZ_DOWNLOAD="https://codeload.github.com/google/cctz/tar.gz/refs/tags/v2.3"
 CCTZ_NAME="cctz-2.3.tar.gz"
 CCTZ_SOURCE="cctz-2.3"
 CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
