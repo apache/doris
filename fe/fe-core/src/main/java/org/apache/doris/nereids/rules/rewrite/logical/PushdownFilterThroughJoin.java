@@ -21,12 +21,11 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -59,14 +58,18 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
             JoinType.CROSS_JOIN
     );
 
-    private static final ImmutableList<JoinType> COULD_PUSH_EQUAL_TO = ImmutableList.of(
-            JoinType.INNER_JOIN
+    private static final ImmutableList<JoinType> COULD_PUSH_INSIDE = ImmutableList.of(
+            JoinType.INNER_JOIN,
+            JoinType.CROSS_JOIN
     );
 
     /*
      * For example:
      * select a.k1, b.k1 from a join b on a.k1 = b.k1 and a.k2 > 2 and b.k2 > 5
      *     where a.k1 > 1 and b.k1 > 2 and a.k2 > b.k2
+     *
+     * TODO(jakevin): following graph is wrong, we should add a new rule to extract
+     *   a.k2 > 2 and b.k2 > 5, and pushdown.
      *
      * Logical plan tree:
      *                 project
@@ -79,9 +82,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
      * transformed:
      *                      project
      *                        |
-     *                filter(a.k2 > b.k2)
-     *                        |
-     *           join (otherConditions: a.k1 = b.k1)
+     *           join (otherConditions: a.k1 = b.k1, a.k2 > b.k2)
      *                /                \
      * filter(a.k1 > 1 and a.k2 > 2)   filter(b.k1 > 2 and b.k2 > 5)
      *             |                                    |
@@ -95,27 +96,27 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
 
             Expression filterPredicates = filter.getPredicates();
 
-            List<Expression> filterConditions = Lists.newArrayList();
+            List<Expression> extractPredicates = Lists.newArrayList();
             List<Expression> joinConditions = Lists.newArrayList();
 
             Set<Slot> leftInput = join.left().getOutputSet();
             Set<Slot> rightInput = join.right().getOutputSet();
 
-            ExpressionUtils.extractConjunction(filterPredicates)
-                    .forEach(predicate -> {
-                        if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))
-                                && COULD_PUSH_EQUAL_TO.contains(join.getJoinType())) {
-                            joinConditions.add(predicate);
-                        } else {
-                            filterConditions.add(predicate);
-                        }
-                    });
+            List<Expression> predicates = ExpressionUtils.extractConjunction(filterPredicates);
+            for (Expression predicate : predicates) {
+                if (Objects.nonNull(getJoinCondition(predicate, leftInput, rightInput))
+                        && COULD_PUSH_INSIDE.contains(join.getJoinType())) {
+                    joinConditions.add(predicate);
+                } else {
+                    extractPredicates.add(predicate);
+                }
+            }
 
             List<Expression> leftPredicates = Lists.newArrayList();
             List<Expression> rightPredicates = Lists.newArrayList();
-
-            for (Expression p : filterConditions) {
-                Set<Slot> slots = p.getInputSlots();
+            List<Expression> remainingPredicates = Lists.newArrayList();
+            for (Expression p : extractPredicates) {
+                Set<Slot> slots = p.collect(SlotReference.class::isInstance);
                 if (slots.isEmpty()) {
                     leftPredicates.add(p);
                     rightPredicates.add(p);
@@ -123,29 +124,22 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
                 }
                 if (leftInput.containsAll(slots) && COULD_PUSH_THROUGH_LEFT.contains(join.getJoinType())) {
                     leftPredicates.add(p);
-                }
-                if (rightInput.containsAll(slots) && COULD_PUSH_THROUGH_RIGHT.contains(join.getJoinType())) {
+                } else if (rightInput.containsAll(slots) && COULD_PUSH_THROUGH_RIGHT.contains(join.getJoinType())) {
                     rightPredicates.add(p);
+                } else {
+                    remainingPredicates.add(p);
                 }
             }
 
-            filterConditions.removeAll(leftPredicates);
-            filterConditions.removeAll(rightPredicates);
             join.getOtherJoinCondition().map(joinConditions::add);
 
-            return PlanUtils.filterOrSelf(filterConditions,
-                    pushDownPredicate(join, joinConditions, leftPredicates, rightPredicates));
+            return PlanUtils.filterOrSelf(remainingPredicates,
+                    new LogicalJoin<>(join.getJoinType(),
+                            join.getHashJoinConjuncts(),
+                            ExpressionUtils.optionalAnd(joinConditions),
+                            PlanUtils.filterOrSelf(leftPredicates, join.left()),
+                            PlanUtils.filterOrSelf(rightPredicates, join.right())));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_JOIN);
-    }
-
-    private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> join,
-            List<Expression> joinConditions, List<Expression> leftPredicates, List<Expression> rightPredicates) {
-        // todo expr should optimize again using expr rewrite
-        Plan leftPlan = PlanUtils.filterOrSelf(leftPredicates, join.left());
-        Plan rightPlan = PlanUtils.filterOrSelf(rightPredicates, join.right());
-
-        return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
-                ExpressionUtils.optionalAnd(joinConditions), leftPlan, rightPlan);
     }
 
     private Expression getJoinCondition(Expression predicate, Set<Slot> leftOutputs, Set<Slot> rightOutputs) {
@@ -155,12 +149,8 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
 
         ComparisonPredicate comparison = (ComparisonPredicate) predicate;
 
-        if (!(comparison instanceof EqualTo)) {
-            return null;
-        }
-
-        Set<Slot> leftSlots = comparison.left().getInputSlots();
-        Set<Slot> rightSlots = comparison.right().getInputSlots();
+        Set<Slot> leftSlots = comparison.left().collect(SlotReference.class::isInstance);
+        Set<Slot> rightSlots = comparison.right().collect(SlotReference.class::isInstance);
 
         if ((leftOutputs.containsAll(leftSlots) && rightOutputs.containsAll(rightSlots))
                 || (leftOutputs.containsAll(rightSlots) && rightOutputs.containsAll(leftSlots))) {
