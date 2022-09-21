@@ -196,6 +196,7 @@ Status NodeChannel::open_wait() {
         // add batch closure
         _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
         _add_batch_closure->addFailedHandler([this](bool is_last_rpc) {
+            SCOPED_ATTACH_TASK(_state);
             std::lock_guard<std::mutex> l(this->_closed_lock);
             if (this->_is_closed) {
                 // if the node channel is closed, no need to call `mark_as_failed`,
@@ -217,6 +218,7 @@ Status NodeChannel::open_wait() {
 
         _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
                                                      bool is_last_rpc) {
+            SCOPED_ATTACH_TASK(_state);
             std::lock_guard<std::mutex> l(this->_closed_lock);
             if (this->_is_closed) {
                 // if the node channel is closed, no need to call the following logic,
