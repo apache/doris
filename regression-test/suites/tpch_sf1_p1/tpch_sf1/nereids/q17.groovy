@@ -25,9 +25,7 @@ suite("tpch_sf1_q17_nereids") {
     sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
-    sql 'set disable_colocate_plan=true'
-
-    sql 'set enable_bucket_shuffle_join=false'
+    sql 'set enable_fallback_to_original_planner=false'
 
     qt_select """
     select
@@ -53,7 +51,7 @@ suite("tpch_sf1_q17_nereids") {
     select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=1, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
         sum(l_extendedprice) / 7.0 as avg_yearly
     from
-        lineitem join [broadcast]
+        lineitem join
         part p1 on p1.p_partkey = l_partkey
     where
         p1.p_brand = 'Brand#23'
@@ -62,7 +60,7 @@ suite("tpch_sf1_q17_nereids") {
             select
                 0.2 * avg(l_quantity)
             from
-                lineitem join [broadcast]
+                lineitem join
                 part p2 on p2.p_partkey = l_partkey
             where
                 l_partkey = p1.p_partkey

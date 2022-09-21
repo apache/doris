@@ -25,46 +25,45 @@ suite("tpch_sf1_q18_nereids") {
     sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
-    sql 'set disable_colocate_plan=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
-    sql 'set enable_bucket_shuffle_join=false'
-    qt_select """
-select
-    c_name,
-    c_custkey,
-    o_orderkey,
-    o_orderdate,
-    o_totalprice,
-    sum(l_quantity)
-from
-    customer,
-    orders,
-    lineitem
-where
-    o_orderkey in (
-        select
-            l_orderkey
-        from
-            lineitem
-        group by
-            l_orderkey having
-                sum(l_quantity) > 300
-    )
-    and c_custkey = o_custkey
-    and o_orderkey = l_orderkey
-group by
-    c_name,
-    c_custkey,
-    o_orderkey,
-    o_orderdate,
-    o_totalprice
-order by
-    o_totalprice desc,
-    o_orderdate
-limit 100;
-    """
+//     qt_select """
+// select
+//     c_name,
+//     c_custkey,
+//     o_orderkey,
+//     o_orderdate,
+//     o_totalprice,
+//     sum(l_quantity)
+// from
+//     customer,
+//     orders,
+//     lineitem
+// where
+//     o_orderkey in (
+//         select
+//             l_orderkey
+//         from
+//             lineitem
+//         group by
+//             l_orderkey having
+//                 sum(l_quantity) > 300
+//     )
+//     and c_custkey = o_custkey
+//     and o_orderkey = l_orderkey
+// group by
+//     c_name,
+//     c_custkey,
+//     o_orderkey,
+//     o_orderdate,
+//     o_totalprice
+// order by
+//     o_totalprice desc,
+//     o_orderdate
+// limit 100;
+//     """
 
-    qt_select """
+     qt_select """
 select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
     c_name,
     c_custkey,
@@ -103,7 +102,7 @@ order by
     t3.o_totalprice desc,
     t3.o_orderdate
 limit 100;
-
-    """
-
+ 
+     """
 }
+

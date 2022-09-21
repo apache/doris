@@ -168,6 +168,10 @@ public class DistributionSpecHash extends DistributionSpec {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
+        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType != ShuffleType.NATURAL) {
+            return false;
+        }
+
         return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
     }
 
@@ -191,6 +195,11 @@ public class DistributionSpecHash extends DistributionSpec {
             }
         }
         return true;
+    }
+
+    public DistributionSpecHash withShuffleType(ShuffleType shuffleType) {
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet);
     }
 
     @Override
@@ -226,13 +235,16 @@ public class DistributionSpecHash extends DistributionSpec {
      * Enums for concrete shuffle type.
      */
     public enum ShuffleType {
-        // for olap scan node and colocate join
-        NATURAL,
-        // for add distribute node Explicitly
-        ENFORCE,
-        // for shuffle to Aggregate node
+        // require, need to satisfy the distribution spec by aggregation way.
         AGGREGATE,
-        // for Shuffle to Join node
-        JOIN
+        // require, need to satisfy the distribution spec by join way.
+        JOIN,
+        // output, for olap scan node and colocate join
+        NATURAL,
+        // output, for all join except colocate join
+        BUCKETED,
+        // output, all distribute enforce
+        ENFORCED,
+        ;
     }
 }
