@@ -179,7 +179,7 @@ INTO OUTFILE "file_path"
     );
     ```
     
-5. 将 select 语句的查询结果导出到文件 `cos://${bucket_name}/path/result.txt`。指定导出格式为 csv。
+5. 将 select 语句的查询结果导出到文件 `s3a://${bucket_name}/path/result.txt`。指定导出格式为 csv。
     导出完成后，生成一个标识文件。
     
     ```sql
@@ -277,6 +277,26 @@ INTO OUTFILE "file_path"
     
     最终生成文件如如果不大于 100MB，则为：`result_0.csv`。
     如果大于 100MB，则可能为 `result_0.csv, result_1.csv, ...`。
+
+9. 将 select 语句的查询结果导出到腾讯云cos的文件 `cosn://${bucket_name}/path/result.txt`。指定导出格式为 csv。
+    导出完成后，生成一个标识文件。
+
+    ```sql
+    select k1,k2,v1 from tbl1 limit 100000
+    into outfile "cosn://my_bucket/export/my_file_"
+    FORMAT AS CSV
+    PROPERTIES
+    (
+        "broker.name" = "broker_name",
+        "broker.fs.cosn.userinfo.secretId" = "xxx",
+        "broker.fs.cosn.userinfo.secretKey" = "xxxx",
+        "broker.fs.cosn.bucket.endpoint_suffix" = "https://cos.xxxxxx.myqcloud.com/",
+        "column_separator" = ",",
+        "line_delimiter" = "\n",
+        "max_file_size" = "1024MB",
+        "success_file_name" = "SUCCESS"
+    )
+    ```
 
 ### keywords
     SELECT, INTO, OUTFILE
