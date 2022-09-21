@@ -318,7 +318,9 @@ suite("test_date_function") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                test_time datetime NULL COMMENT ""
+                test_time datetime NULL COMMENT "",
+                test_time1 datetimev2(3) NULL COMMENT "",
+                test_time2 datetimev2(6) NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(test_time)
             COMMENT "OLAP"
@@ -329,37 +331,97 @@ suite("test_date_function") {
                 "storage_format" = "V2"
             )
         """
-    sql """ insert into ${tableName} values ("2019-08-01 13:21:03") """
-    //years_add 
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03", "2019-08-01 13:21:03.111", "2019-08-01 13:21:03.111111") """
+    //years_add
     qt_sql """ select years_add(test_time,1) result from ${tableName}; """
-    //months_add 
+    //months_add
     qt_sql """ select months_add(test_time,1) result from ${tableName}; """
-    //weeks_add 
+    //weeks_add
     qt_sql """ select weeks_add(test_time,1) result from ${tableName}; """
-    //days_add 
+    //days_add
     qt_sql """ select days_add(test_time,1) result from ${tableName}; """
-    //hours_add 
+    //hours_add
     qt_sql """ select hours_add(test_time,1) result from ${tableName}; """
-    //minutes_add 
+    //minutes_add
     qt_sql """ select minutes_add(test_time,1) result from ${tableName}; """
-    //seconds_add 
+    //seconds_add
     qt_sql """ select seconds_add(test_time,1) result from ${tableName}; """
 
-    //years_sub 
+    //years_sub
     qt_sql """ select years_sub(test_time,1) result from ${tableName}; """
-    //months_sub 
+    //months_sub
     qt_sql """ select months_sub(test_time,1) result from ${tableName}; """
-    //weeks_sub 
+    //weeks_sub
     qt_sql """ select weeks_sub(test_time,1) result from ${tableName}; """
-    //days_sub 
+    //days_sub
     qt_sql """ select days_sub(test_time,1) result from ${tableName}; """
-    //hours_sub 
+    //hours_sub
     qt_sql """ select hours_sub(test_time,1) result from ${tableName}; """
-    //minutes_sub 
+    //minutes_sub
     qt_sql """ select minutes_sub(test_time,1) result from ${tableName}; """
-    //seconds_sub 
+    //seconds_sub
     qt_sql """ select seconds_sub(test_time,1) result from ${tableName}; """
 
     qt_sql """ select date_add(NULL, INTERVAL 1 month); """
     qt_sql """ select date_add(NULL, INTERVAL 1 day); """
+
+    //years_add
+    qt_sql """ select years_add(test_time1,1) result from ${tableName}; """
+    //months_add
+    qt_sql """ select months_add(test_time1,1) result from ${tableName}; """
+    //weeks_add
+    qt_sql """ select weeks_add(test_time1,1) result from ${tableName}; """
+    //days_add
+    qt_sql """ select days_add(test_time1,1) result from ${tableName}; """
+    //hours_add
+    qt_sql """ select hours_add(test_time1,1) result from ${tableName}; """
+    //minutes_add
+    qt_sql """ select minutes_add(test_time1,1) result from ${tableName}; """
+    //seconds_add
+    qt_sql """ select seconds_add(test_time1,1) result from ${tableName}; """
+
+    //years_sub
+    qt_sql """ select years_sub(test_time1,1) result from ${tableName}; """
+    //months_sub
+    qt_sql """ select months_sub(test_time1,1) result from ${tableName}; """
+    //weeks_sub
+    qt_sql """ select weeks_sub(test_time1,1) result from ${tableName}; """
+    //days_sub
+    qt_sql """ select days_sub(test_time1,1) result from ${tableName}; """
+    //hours_sub
+    qt_sql """ select hours_sub(test_time1,1) result from ${tableName}; """
+    //minutes_sub
+    qt_sql """ select minutes_sub(test_time1,1) result from ${tableName}; """
+    //seconds_sub
+    qt_sql """ select seconds_sub(test_time1,1) result from ${tableName}; """
+
+    //years_add
+    qt_sql """ select years_add(test_time2,1) result from ${tableName}; """
+    //months_add
+    qt_sql """ select months_add(test_time2,1) result from ${tableName}; """
+    //weeks_add
+    qt_sql """ select weeks_add(test_time2,1) result from ${tableName}; """
+    //days_add
+    qt_sql """ select days_add(test_time2,1) result from ${tableName}; """
+    //hours_add
+    qt_sql """ select hours_add(test_time2,1) result from ${tableName}; """
+    //minutes_add
+    qt_sql """ select minutes_add(test_time2,1) result from ${tableName}; """
+    //seconds_add
+    qt_sql """ select seconds_add(test_time2,1) result from ${tableName}; """
+
+    //years_sub
+    qt_sql """ select years_sub(test_time2,1) result from ${tableName}; """
+    //months_sub
+    qt_sql """ select months_sub(test_time2,1) result from ${tableName}; """
+    //weeks_sub
+    qt_sql """ select weeks_sub(test_time2,1) result from ${tableName}; """
+    //days_sub
+    qt_sql """ select days_sub(test_time2,1) result from ${tableName}; """
+    //hours_sub
+    qt_sql """ select hours_sub(test_time2,1) result from ${tableName}; """
+    //minutes_sub
+    qt_sql """ select minutes_sub(test_time2,1) result from ${tableName}; """
+    //seconds_sub
+    qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
 }
