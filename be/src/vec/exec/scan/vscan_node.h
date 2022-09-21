@@ -204,9 +204,6 @@ protected:
 
     bool _need_agg_finalize = true;
 
-    // TODO: should be moved to olap scan node?
-    std::vector<TCondition> _olap_filters;
-
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
