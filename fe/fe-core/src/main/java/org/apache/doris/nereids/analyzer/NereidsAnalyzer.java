@@ -45,6 +45,9 @@ public class NereidsAnalyzer {
         this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
     }
 
+    /**
+     * nereids analyze sql.
+     */
     public void analyze() {
         new AnalyzeRulesJob(cascadesContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();

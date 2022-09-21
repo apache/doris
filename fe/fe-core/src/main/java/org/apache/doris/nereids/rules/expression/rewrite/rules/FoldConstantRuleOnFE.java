@@ -52,7 +52,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Constant evaluation of an expression.
+ * evaluate an expression on fe.
  */
 public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     public static final FoldConstantRuleOnFE INSTANCE = new FoldConstantRuleOnFE();
@@ -67,6 +67,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         return expr;
     }
 
+    /**
+     * process constant expression.
+     */
     public Expression process(Expression expr, ExpressionRewriteContext ctx) {
         if (expr instanceof PropagateNullable) {
             List<Expression> children = expr.children()

@@ -23,8 +23,13 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 
 import com.google.common.collect.ImmutableList;
 
-public class TypeCoercionJob extends BatchRulesJob{
-
+/**
+ * type coercion job.
+ */
+public class TypeCoercionJob extends BatchRulesJob {
+    /**
+     * constructor.
+     */
     public TypeCoercionJob(CascadesContext cascadesContext) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
