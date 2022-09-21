@@ -68,16 +68,17 @@ public class JoinUtils {
             rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
         }
 
-        boolean isCoveredByLeftSlots(Set<Slot> slots) {
-            return slots.stream()
-                    .map(Slot::getExprId)
-                    .allMatch(leftExprIds::contains);
+        JoinSlotCoverageChecker(Set<ExprId> left, Set<ExprId> right) {
+            leftExprIds = left;
+            rightExprIds = right;
         }
 
-        boolean isCoveredByRightSlots(Set<Slot> slots) {
-            return slots.stream()
-                    .map(Slot::getExprId)
-                    .allMatch(rightExprIds::contains);
+        boolean isCoveredByLeftSlots(Set<ExprId> slots) {
+            return leftExprIds.containsAll(slots);
+        }
+
+        boolean isCoveredByRightSlots(Set<ExprId> slots) {
+            return rightExprIds.containsAll(slots);
         }
 
         /**
@@ -155,25 +156,24 @@ public class JoinUtils {
         Pair<List<ExprId>, List<ExprId>> childSlotsExprId =
                 Pair.of(Lists.newArrayList(), Lists.newArrayList());
 
-        List<Slot> leftSlots = join.left().getOutput();
-        List<Slot> rightSlots = join.right().getOutput();
         List<EqualTo> equalToList = join.getHashJoinConjuncts().stream()
                 .map(e -> (EqualTo) e).collect(Collectors.toList());
-        JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
+        // JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
+        JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(
+                join.left().getOutputExprIdSet(),
+                join.right().getOutputExprIdSet());
 
         for (EqualTo equalTo : equalToList) {
-            Set<Slot> leftOnSlots = equalTo.left().collect(Slot.class::isInstance);
-            Set<Slot> rightOnSlots = equalTo.right().collect(Slot.class::isInstance);
-            List<ExprId> leftOnSlotsExprId = leftOnSlots.stream()
-                    .map(Slot::getExprId).collect(Collectors.toList());
-            List<ExprId> rightOnSlotsExprId = rightOnSlots.stream()
-                    .map(Slot::getExprId).collect(Collectors.toList());
-            if (checker.isCoveredByLeftSlots(leftOnSlots)
-                    && checker.isCoveredByRightSlots(rightOnSlots)) {
+            Set<ExprId> leftOnSlotsExprId = ((Set<Slot>) equalTo.left().collect(Slot.class::isInstance)).stream()
+                    .map(Slot::getExprId).collect(Collectors.toSet());
+            Set<ExprId> rightOnSlotsExprId = ((Set<Slot>) equalTo.right().collect(Slot.class::isInstance)).stream()
+                    .map(Slot::getExprId).collect(Collectors.toSet());
+            if (checker.isCoveredByLeftSlots(leftOnSlotsExprId)
+                    && checker.isCoveredByRightSlots(rightOnSlotsExprId)) {
                 childSlotsExprId.first.addAll(leftOnSlotsExprId);
                 childSlotsExprId.second.addAll(rightOnSlotsExprId);
-            } else if (checker.isCoveredByLeftSlots(rightOnSlots)
-                    && checker.isCoveredByRightSlots(leftOnSlots)) {
+            } else if (checker.isCoveredByLeftSlots(rightOnSlotsExprId)
+                    && checker.isCoveredByRightSlots(leftOnSlotsExprId)) {
                 childSlotsExprId.first.addAll(rightOnSlotsExprId);
                 childSlotsExprId.second.addAll(leftOnSlotsExprId);
             } else {
