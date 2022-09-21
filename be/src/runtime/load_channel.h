@@ -185,7 +185,7 @@ Status LoadChannel::handle_mem_exceed_limit(TabletWriterAddResult* response) {
     // Release lock so that other threads can still call add_batch concurrently.
     if (found) {
         DCHECK(channel != nullptr);
-        return channel->reduce_mem_usage(_mem_tracker->consumption(), response);
+        return channel->reduce_mem_usage(response);
     } else {
         // should not happen, add log to observe
         LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "

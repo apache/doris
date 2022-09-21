@@ -525,7 +525,7 @@ CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 // soft limit which can trigger the memtable flush for the load channel who
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
-CONF_Int32(load_process_soft_limit_percent, "80");
+CONF_Int32(load_process_soft_limit_percent, "50");
 
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");

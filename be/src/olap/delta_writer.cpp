@@ -250,15 +250,6 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    if (_flush_token->get_stats().flush_running_count == 0) {
-        // equal means there is no memtable in flush queue, just flush this memtable
-        VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                    << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
-                    << ", load id: " << print_id(_req.load_id);
-        RETURN_NOT_OK(_flush_memtable_async());
-        _reset_mem_table();
-    }
-
     if (need_wait) {
         // wait all memtables in flush queue to be flushed.
         RETURN_NOT_OK(_flush_token->wait());
