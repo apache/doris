@@ -54,7 +54,7 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
         return Status::NotSupported("Function {} is not implemented", _fn.name.function_name);
     }
     VExpr::register_function_context(state, context);
-    _expr_name = fmt::format("(CAST {}, TO {})", child_name, _target_data_type_name);
+    _expr_name = fmt::format("(CAST {} TO {})", child_name, _target_data_type_name);
     return Status::OK();
 }
 
