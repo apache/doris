@@ -34,6 +34,8 @@ public class FeNameFormat {
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
 
+    public static final String DOUBLE_UNDERLINE = "__";
+
     public static void checkClusterName(String clusterName) throws AnalysisException {
         if (Strings.isNullOrEmpty(clusterName) || !clusterName.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CLUSTER_NAME, clusterName);
@@ -122,6 +124,12 @@ public class FeNameFormat {
 
     public static void checkCommonName(String type, String name) throws AnalysisException {
         if (Strings.isNullOrEmpty(name) || !name.matches(COMMON_NAME_REGEX)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
+        }
+    }
+
+    public static void checkCatalogName(String type, String name) throws AnalysisException {
+        if (Strings.isNullOrEmpty(name) || !name.matches(COMMON_NAME_REGEX) || name.contains(DOUBLE_UNDERLINE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
         }
     }

@@ -489,7 +489,7 @@ public class Util {
         }
 
         if (!catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            FeNameFormat.checkCommonName("catalog", catalog);
+            FeNameFormat.checkCatalogName("catalog", catalog);
         }
     }
 

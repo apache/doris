@@ -94,10 +94,7 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("jdbc");
     }
 
-    public CreateTableStmt() {
-        // for persist
-        tableName = new TableName();
-        columnDefs = Lists.newArrayList();
+    protected CreateTableStmt() {
     }
 
     public CreateTableStmt(boolean ifNotExists,

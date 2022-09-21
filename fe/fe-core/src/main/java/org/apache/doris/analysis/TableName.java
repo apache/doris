@@ -26,9 +26,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogFlattenUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -49,9 +50,17 @@ public class TableName implements Writable {
     private String tbl;
     @SerializedName(value = "db")
     private String db;
+    private Level level;
 
-    public TableName() {
+    private TableName() {
 
+    }
+
+    private enum Level {
+        NONE,
+        ONE,
+        TWO,
+        THREE
     }
 
     public TableName(String ctl, String db, String tbl) {
@@ -61,32 +70,47 @@ public class TableName implements Writable {
         this.ctl = ctl;
         this.db = db;
         this.tbl = tbl;
+        setLevel();
     }
 
+    private void setLevel() {
+        if (!Strings.isNullOrEmpty(ctl)) {
+            level = Level.THREE;
+        } else if (!Strings.isNullOrEmpty(db)) {
+            level = Level.TWO;
+        } else if (!Strings.isNullOrEmpty(tbl)) {
+            level = Level.ONE;
+        } else {
+            level = Level.NONE;
+        }
+    }
+
+    // We support following formats:
+    // 1. tbl: Will use default catalog and db
+    // 2. db.tbl: Will use default catalog and specific db
+    // 3. ctl.db.tbl: Will use sepcific ctalog and db
+    // 4. __ctl__db.tbl: If flattenCatalog is enabled, parse and use specific catalog and db
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(ctl)) {
+        if (level == Level.NONE) {
+            throw new AnalysisException("Empty table name");
+        }
+
+        if (level == Level.TWO) {
+            Pair<String, String> ctlDb = CatalogFlattenUtils.analyzeFlattenName(db);
+            this.ctl = ctlDb.first;
+            this.db = ctlDb.second;
+        } else if (level == Level.ONE) {
             ctl = analyzer.getDefaultCatalog();
             if (Strings.isNullOrEmpty(ctl)) {
                 ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
-        }
-        if (!ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            Util.checkCatalogEnabled();
-        }
-        if (Strings.isNullOrEmpty(db)) {
             db = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(db)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
-            }
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
-
-        if (Strings.isNullOrEmpty(tbl)) {
-            throw new AnalysisException("Table name is null");
+        if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
     }
 
@@ -184,7 +208,14 @@ public class TableName implements Writable {
         Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    public static TableName read(DataInput in) throws IOException {
+        TableName name = new TableName();
+        name.readFields(in);
+        name.setLevel();
+        return name;
+    }
+
+    private void readFields(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
             TableName fromJson = GsonUtils.GSON.fromJson(Text.readString(in), TableName.class);
             ctl = fromJson.ctl;

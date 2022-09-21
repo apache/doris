@@ -221,6 +221,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
+    public static final String FLATTEN_CATALOG = "flatten_catalog";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -564,6 +566,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
     public boolean enableNewShffleHashMethod = true;
+
+    @VariableMgr.VarAttr(name = FLATTEN_CATALOG)
+    public boolean flattenCatalog = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;

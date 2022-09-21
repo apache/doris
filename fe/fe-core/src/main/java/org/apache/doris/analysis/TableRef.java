@@ -832,8 +832,7 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        name = new TableName();
-        name.readFields(in);
+        name = TableName.read(in);
         if (in.readBoolean()) {
             partitionNames = PartitionNames.read(in);
         }

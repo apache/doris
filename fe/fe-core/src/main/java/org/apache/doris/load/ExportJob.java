@@ -845,8 +845,7 @@ public class ExportJob implements Writable {
             brokerDesc = BrokerDesc.read(in);
         }
 
-        tableName = new TableName();
-        tableName.readFields(in);
+        tableName = TableName.read(in);
         origStmt = OriginStatement.read(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

@@ -19,10 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogFlattenUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -71,12 +73,30 @@ public class UseStmt extends StatementBase {
         return toSql();
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(database)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
-        database = ClusterNamespace.getFullName(getClusterName(), database);
+
+        // We support 2 formats:
+        // 1. use db: use default catalog in context and the specific db
+        // 2. use catalog.db: use specific catalog and db
+        // 3. use __catalog__db: when flattenCatalog is enabled, parse and use specific catalog and db
+        if (Strings.isNullOrEmpty(catalogName)) {
+            Pair<String, String> ctlDb = CatalogFlattenUtils.analyzeFlattenName(database);
+            catalogName = ctlDb.first;
+            database = ctlDb.second;
+        }
+
+        if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            database = ClusterNamespace.getFullName(getClusterName(), database);
+        }
+
+        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(ConnectContext.get(), catalogName, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
+                    analyzer.getQualifiedUser(), catalogName);
+        }
 
         if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), database, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,

@@ -432,8 +432,7 @@ public class SlotRef extends Expr {
 
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
-            tblName = new TableName();
-            tblName.readFields(in);
+            tblName = TableName.read(in);
         }
         col = Text.readString(in);
     }
