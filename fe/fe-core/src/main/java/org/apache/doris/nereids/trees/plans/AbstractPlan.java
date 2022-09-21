@@ -70,6 +70,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return groupExpression;
     }
 
+    public StatsDeriveResult getStats() {
+        return statsDeriveResult;
+    }
+
+    public void setStats(StatsDeriveResult statsDeriveResult) {
+        this.statsDeriveResult = statsDeriveResult;
+    }
+
     @Override
     public boolean canBind() {
         return !bound()
@@ -98,13 +106,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             return false;
         }
         AbstractPlan that = (AbstractPlan) o;
-        return Objects.equals(statsDeriveResult, that.statsDeriveResult)
-                && Objects.equals(getLogicalProperties(), that.getLogicalProperties());
+        // stats should don't need.
+        return Objects.equals(getLogicalProperties(), that.getLogicalProperties());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(statsDeriveResult, getLogicalProperties());
+        // stats should don't need.
+        return Objects.hash(getLogicalProperties());
     }
 
     @Override
