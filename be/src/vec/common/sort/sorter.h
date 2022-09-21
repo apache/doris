@@ -47,8 +47,8 @@ public:
 
     Status merge_sort_read(doris::RuntimeState* state, doris::vectorized::Block* block, bool* eos);
 
-    std::priority_queue<SortCursor> priority_queue;
-    std::vector<SortCursorImpl> cursors;
+    std::priority_queue<MergeSortCursor> priority_queue;
+    std::vector<MergeSortCursorImpl> cursors;
     std::unique_ptr<MutableBlock> unsorted_block;
     std::vector<Block> sorted_blocks;
     uint64_t num_rows = 0;
@@ -60,11 +60,9 @@ private:
 
 class Sorter {
 public:
-    Sorter(SortDescription& sort_description, VSortExecExprs& vsort_exec_exprs, int limit,
-           int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
-           std::vector<bool>& nulls_first)
-            : _sort_description(sort_description),
-              _vsort_exec_exprs(vsort_exec_exprs),
+    Sorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
+           std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first)
+            : _vsort_exec_exprs(vsort_exec_exprs),
               _limit(limit),
               _offset(offset),
               _pool(pool),
@@ -73,10 +71,10 @@ public:
 
     virtual ~Sorter() = default;
 
-    void init_profile(RuntimeProfile* runtime_profile) {
+    virtual void init_profile(RuntimeProfile* runtime_profile) {
         _partial_sort_timer = ADD_TIMER(runtime_profile, "PartialSortTime");
         _merge_block_timer = ADD_TIMER(runtime_profile, "MergeBlockTime");
-    }
+    };
 
     virtual Status append_block(Block* block, bool* mem_reuse) = 0;
 
@@ -87,7 +85,7 @@ public:
 protected:
     Status partial_sort(Block& block);
 
-    SortDescription& _sort_description;
+    SortDescription _sort_description;
     VSortExecExprs& _vsort_exec_exprs;
     int _limit;
     int64_t _offset;
@@ -95,16 +93,17 @@ protected:
     std::vector<bool>& _is_asc_order;
     std::vector<bool>& _nulls_first;
 
-    std::priority_queue<SortBlockCursor> _block_priority_queue;
     RuntimeProfile::Counter* _partial_sort_timer = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
+
+    std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
 };
 
 class FullSorter final : public Sorter {
 public:
-    FullSorter(SortDescription& sort_description, VSortExecExprs& vsort_exec_exprs, int limit,
-               int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
-               std::vector<bool>& nulls_first, const RowDescriptor& row_desc);
+    FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
+               std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
+               const RowDescriptor& row_desc);
 
     ~FullSorter() override = default;
 
@@ -126,26 +125,6 @@ private:
 
     static constexpr size_t BUFFERED_BLOCK_SIZE = 1024 * 1024;
     static constexpr size_t BUFFERED_BLOCK_BYTES = 16 << 20;
-};
-
-class TopNSorter final : public Sorter {
-public:
-    TopNSorter(SortDescription& sort_description, VSortExecExprs& vsort_exec_exprs, int limit,
-               int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
-               std::vector<bool>& nulls_first, const RowDescriptor& row_desc);
-
-    ~TopNSorter() override = default;
-
-    Status append_block(Block* block, bool* mem_reuse) override;
-
-    Status prepare_for_read() override;
-
-    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-
-private:
-    Status _do_sort(Block* block, bool* mem_reuse);
-
-    std::unique_ptr<MergeSorterState> _state;
 };
 
 } // namespace doris::vectorized

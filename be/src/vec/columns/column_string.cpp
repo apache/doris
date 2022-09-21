@@ -487,4 +487,28 @@ void ColumnString::protect() {
     get_offsets().protect();
 }
 
+void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                                    int direction, std::vector<uint8>& cmp_res,
+                                    uint8* __restrict filter) const {
+    auto sz = this->size();
+    DCHECK(cmp_res.size() == sz);
+    const auto& cmp_base = assert_cast<const ColumnString&>(rhs).get_data_at(rhs_row_id);
+    size_t begin = simd::find_zero(cmp_res, 0);
+    while (begin < sz) {
+        size_t end = simd::find_one(cmp_res, begin + 1);
+        for (size_t row_id = begin; row_id < end; row_id++) {
+            auto value_a = get_data_at(row_id);
+            int res = memcmp_small_allow_overflow15(value_a.data, value_a.size, cmp_base.data,
+                                                    cmp_base.size);
+            if (res * direction < 0) {
+                filter[row_id] = 1;
+                cmp_res[row_id] = 1;
+            } else if (res * direction > 0) {
+                cmp_res[row_id] = 1;
+            }
+        }
+        begin = simd::find_zero(cmp_res, end + 1);
+    }
+}
+
 } // namespace doris::vectorized
