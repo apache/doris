@@ -171,6 +171,7 @@ public class ExpressionUtils {
      * Choose the minimum slot from input parameter.
      */
     public static Slot selectMinimumColumn(List<Slot> slots) {
+        Preconditions.checkArgument(!slots.isEmpty());
         Slot minSlot = null;
         for (Slot slot : slots) {
             if (minSlot == null) {
