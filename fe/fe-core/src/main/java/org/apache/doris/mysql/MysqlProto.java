@@ -279,7 +279,7 @@ public class MysqlProto {
             Pair<String, String> ctlDb = CatalogFlattenUtils.analyzeFlattenName(db);
             try {
                 Env.getCurrentEnv().changeCatalog(context, ctlDb.first);
-                String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), db);
+                String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), ctlDb.second);
                 Env.getCurrentEnv().changeDb(context, dbFullName);
             } catch (DdlException e) {
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());

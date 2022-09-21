@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.cluster.ClusterNamespace;
+
 public class QueryDetail {
     public enum QueryMemState {
         RUNNING,
@@ -54,12 +56,7 @@ public class QueryDetail {
         this.endTime = endTime;
         this.latency = latency;
         this.state = state;
-        if (database.equals("")) {
-            this.database = "";
-        } else {
-            String[] stringPieces = database.split(":", -1);
-            this.database = stringPieces[1]; // eliminate cluster name
-        }
+        this.database = ClusterNamespace.getNameFromFullName(database);
         this.sql = sql;
     }
 

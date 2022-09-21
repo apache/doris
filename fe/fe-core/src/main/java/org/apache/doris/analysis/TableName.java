@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -113,6 +114,12 @@ public class TableName implements Writable {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         }
+
+        if (db.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+            // There is only one information_schema db which exit in internal catalog.
+            ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
+
         if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
