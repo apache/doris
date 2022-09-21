@@ -25,9 +25,8 @@ suite("tpch_sf1_q9_nereids") {
     sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
-    sql 'set disable_colocate_plan=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
-    sql 'set enable_bucket_shuffle_join=false'
     qt_select """
     select
         nation,
@@ -76,10 +75,10 @@ suite("tpch_sf1_q9_nereids") {
                 l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
             from
                 lineitem join orders on o_orderkey = l_orderkey
-                join[shuffle] part on p_partkey = l_partkey
-                join[shuffle] partsupp on ps_partkey = l_partkey
-                join[shuffle] supplier on s_suppkey = l_suppkey
-                join[broadcast] nation on s_nationkey = n_nationkey
+                join part on p_partkey = l_partkey
+                join partsupp on ps_partkey = l_partkey
+                join supplier on s_suppkey = l_suppkey
+                join nation on s_nationkey = n_nationkey
             where
                 ps_suppkey = l_suppkey and 
                 p_name like '%green%'

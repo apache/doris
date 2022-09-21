@@ -194,7 +194,7 @@ public class NereidsPlanner extends Planner {
         }
 
         // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
-        return ((PhysicalPlan) plan).withPhysicalProperties(physicalProperties);
+        return ((PhysicalPlan) plan).withPhysicalProperties(groupExpression.getOutputProperties(physicalProperties));
     }
 
     @Override
