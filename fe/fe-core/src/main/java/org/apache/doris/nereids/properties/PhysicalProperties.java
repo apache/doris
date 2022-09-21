@@ -34,7 +34,7 @@ public class PhysicalProperties {
 
     private final DistributionSpec distributionSpec;
 
-    Integer hashCode = null;
+    private Integer hashCode = null;
 
     private PhysicalProperties() {
         this.orderSpec = new OrderSpec();
