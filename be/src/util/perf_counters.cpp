@@ -46,6 +46,9 @@ namespace doris {
 
 static std::unordered_map<std::string, std::string> _process_state;
 
+int64_t PerfCounters::_vm_rss = 0;
+std::string PerfCounters::_vm_rss_str = "";
+
 // This is the order of the counters in /proc/self/io
 enum PERF_IO_IDX {
     PROC_IO_READ = 0,
@@ -575,6 +578,9 @@ void PerfCounters::refresh_proc_status() {
     }
 
     if (statusinfo.is_open()) statusinfo.close();
+
+    _vm_rss = parse_bytes("status/VmRSS");
+    _vm_rss_str = PrettyPrinter::print(_vm_rss, TUnit::BYTES);
 }
 
 void PerfCounters::get_proc_status(ProcStatus* out) {
