@@ -17,7 +17,7 @@
  * under the License.
  */
 
-suite("tpch_sf1_q15_nereids") {
+suite("tpch_sf1_q16_nereids") {
     String realDb = context.config.getDbNameByFile(context.file)
     // get parent directory's group
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))
@@ -25,9 +25,7 @@ suite("tpch_sf1_q15_nereids") {
     sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
-    sql 'set disable_colocate_plan=true'
-
-    sql 'set enable_bucket_shuffle_join=false'
+    sql 'set enable_fallback_to_original_planner=false'
 
     qt_select """
 select
