@@ -262,6 +262,11 @@ CREATE [AGGREGATE] FUNCTION
 
 UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函数的作用域是全局的，而 UDF 的作用域是 DB内部。当链接 session 位于数据内部时，直接使用 UDF 名字会在当前DB内部查找对应的 UDF。否则用户需要显示的指定 UDF 的数据库名字，例如 `dbName`.`funcName`。
 
+当前版本中，使用原生UDF时还需要将向量化关闭  
+```
+set enable_vectorized_engine = false;
+```
+
 
 ## 删除 UDF函数
 
