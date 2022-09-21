@@ -34,9 +34,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-/**
- * MergeConsecutiveFilter ut
- */
 public class EliminateFilterTest {
     @Test
     public void testEliminateFilterFalse() {

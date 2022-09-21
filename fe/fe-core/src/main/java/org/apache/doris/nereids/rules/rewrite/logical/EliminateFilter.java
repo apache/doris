@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 
 /**
- * Eliminate filter false.
+ * Eliminate filter which is FALSE or TRUE.
  */
 public class EliminateFilter extends OneRewriteRuleFactory {
     @Override
