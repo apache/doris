@@ -28,7 +28,13 @@ public class LogicalEmptyRelationToPhysicalEmptyRelation extends OneImplementati
     @Override
     public Rule build() {
         return logicalEmptyRelation()
-                .then(relation -> new PhysicalEmptyRelation(relation.getProjects(), relation.getLogicalProperties()))
+                .then(logicalEmptyRelation -> {
+                    PhysicalEmptyRelation physicalEmptyRelation = new PhysicalEmptyRelation(
+                            logicalEmptyRelation.getProjects(),
+                            logicalEmptyRelation.getLogicalProperties());
+                    physicalEmptyRelation.setStats(logicalEmptyRelation.getStats());
+                    return physicalEmptyRelation;
+                })
                 .toRule(RuleType.LOGICAL_EMPTY_RELATION_TO_PHYSICAL_EMPTY_RELATION_RULE);
     }
 }

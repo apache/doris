@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 
 /**
@@ -27,12 +28,15 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 public class LogicalTopNToPhysicalTopN extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalTopN().then(topN -> new PhysicalTopN<>(
-                topN.getOrderKeys(),
-                topN.getLimit(),
-                topN.getOffset(),
-                topN.getLogicalProperties(),
-                topN.child())
-        ).toRule(RuleType.LOGICAL_TOP_N_TO_PHYSICAL_TOP_N_RULE);
+        return logicalTopN().then(topN -> {
+            PhysicalTopN<GroupPlan> physicalTopN = new PhysicalTopN<>(
+                    topN.getOrderKeys(),
+                    topN.getLimit(),
+                    topN.getOffset(),
+                    topN.getLogicalProperties(),
+                    topN.child());
+            physicalTopN.setStats(topN.getStats());
+            return physicalTopN;
+        }).toRule(RuleType.LOGICAL_TOP_N_TO_PHYSICAL_TOP_N_RULE);
     }
 }

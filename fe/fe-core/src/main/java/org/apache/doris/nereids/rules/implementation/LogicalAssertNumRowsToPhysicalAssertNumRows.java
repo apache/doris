@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 
 /**
@@ -27,10 +28,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 public class LogicalAssertNumRowsToPhysicalAssertNumRows extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalAssertNumRows().then(topN -> new PhysicalAssertNumRows<>(
-                topN.getAssertNumRowsElement(),
-                topN.getLogicalProperties(),
-                topN.child())
-        ).toRule(RuleType.LOGICAL_ASSERT_NUM_ROWS_TO_PHYSICAL_ASSERT_NUM_ROWS);
+        return logicalAssertNumRows().then(logicalAssertNumRows -> {
+            PhysicalAssertNumRows<GroupPlan> physicalAssertNumRows = new PhysicalAssertNumRows<>(
+                    logicalAssertNumRows.getAssertNumRowsElement(),
+                    logicalAssertNumRows.getLogicalProperties(),
+                    logicalAssertNumRows.child());
+            physicalAssertNumRows.setStats(logicalAssertNumRows.getStats());
+            return physicalAssertNumRows;
+        }).toRule(RuleType.LOGICAL_ASSERT_NUM_ROWS_TO_PHYSICAL_ASSERT_NUM_ROWS);
     }
 }

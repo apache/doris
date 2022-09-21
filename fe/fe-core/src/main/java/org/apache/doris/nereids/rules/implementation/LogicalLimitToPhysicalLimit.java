@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 
 /**
@@ -27,11 +28,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 public class LogicalLimitToPhysicalLimit extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalLimit().then(limit -> new PhysicalLimit<>(
-                limit.getLimit(),
-                limit.getOffset(),
-                limit.getLogicalProperties(),
-                limit.child())
-        ).toRule(RuleType.LOGICAL_LIMIT_TO_PHYSICAL_LIMIT_RULE);
+        return logicalLimit().then(limit -> {
+            PhysicalLimit<GroupPlan> physicalLimit = new PhysicalLimit<>(
+                    limit.getLimit(),
+                    limit.getOffset(),
+                    limit.getLogicalProperties(),
+                    limit.child());
+            physicalLimit.setStats(limit.getStats());
+            return physicalLimit;
+        }).toRule(RuleType.LOGICAL_LIMIT_TO_PHYSICAL_LIMIT_RULE);
     }
 }

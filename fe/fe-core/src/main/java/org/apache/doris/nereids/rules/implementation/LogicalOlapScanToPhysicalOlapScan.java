@@ -43,8 +43,8 @@ import java.util.Optional;
 public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapScan().then(olapScan ->
-            new PhysicalOlapScan(
+        return logicalOlapScan().then(olapScan -> {
+            PhysicalOlapScan physicalOlapScan = new PhysicalOlapScan(
                     olapScan.getId(),
                     olapScan.getTable(),
                     olapScan.getQualifier(),
@@ -53,8 +53,10 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     olapScan.getSelectedPartitionIds(),
                     convertDistribution(olapScan),
                     Optional.empty(),
-                    olapScan.getLogicalProperties())
-        ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
+                    olapScan.getLogicalProperties());
+            physicalOlapScan.setStats(olapScan.getStats());
+            return physicalOlapScan;
+        }).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
     private DistributionSpec convertDistribution(LogicalOlapScan olapScan) {

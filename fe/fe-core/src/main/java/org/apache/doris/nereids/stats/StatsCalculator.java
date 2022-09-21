@@ -26,6 +26,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
@@ -100,6 +101,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     private void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
+        ((AbstractPlan) groupExpression.getPlan()).setStats(stats);
         groupExpression.getOwnerGroup().setStatistics(stats);
         groupExpression.setStatDerived(true);
     }

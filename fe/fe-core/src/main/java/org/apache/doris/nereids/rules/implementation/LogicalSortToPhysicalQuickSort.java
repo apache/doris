@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 
 /**
@@ -27,10 +28,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 public class LogicalSortToPhysicalQuickSort extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalSort().then(sort -> new PhysicalQuickSort<>(
-                sort.getOrderKeys(),
-                sort.getLogicalProperties(),
-                sort.child())
-            ).toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_QUICK_SORT_RULE);
+        return logicalSort().then(sort -> {
+            PhysicalQuickSort<GroupPlan> physicalSort = new PhysicalQuickSort<>(
+                    sort.getOrderKeys(),
+                    sort.getLogicalProperties(),
+                    sort.child());
+            physicalSort.setStats(sort.getStats());
+            return physicalSort;
+        }).toRule(RuleType.LOGICAL_SORT_TO_PHYSICAL_QUICK_SORT_RULE);
     }
 }
