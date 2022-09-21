@@ -55,7 +55,6 @@ TEST_F(ParquetThriftReaderTest, normal) {
     parse_thrift_footer(&reader, meta_data);
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
-    LOG(WARNING) << "num columns: " << meta_data->num_columns();
     LOG(WARNING) << "=====================================";
     for (auto value : t_metadata.row_groups) {
         LOG(WARNING) << "row group num_rows: " << value.num_rows;

@@ -330,10 +330,9 @@ Status VFileScanner::_get_next_reader() {
             file_reader->close();
             continue;
         }
-
+        std::vector<std::string> column_names;
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET:
-            std::vector<std::string> column_names;
             for (int i = 0; i < _file_slot_descs.size(); i++) {
                 column_names.push_back(_file_slot_descs[i]->col_name());
             }
