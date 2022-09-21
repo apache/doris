@@ -90,18 +90,14 @@ public class InnerJoinLAsscomProjectTest {
                     Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalJoin);
 
                     GroupExpression newTopJoinGroupExpr = root.logicalExpressionsAt(1);
-                    GroupExpression leftProjectGroupExpr = newTopJoinGroupExpr.child(0).getLogicalExpression();
+                    GroupExpression leftScanGroupExpression = newTopJoinGroupExpr.child(0).getLogicalExpression();
                     GroupExpression rightProjectGroupExpr = newTopJoinGroupExpr.child(1).getLogicalExpression();
-                    Plan leftProject = newTopJoinGroupExpr.child(0).getLogicalExpression().getPlan();
                     Plan rightProject = newTopJoinGroupExpr.child(1).getLogicalExpression().getPlan();
-                    Assertions.assertEquals(4, ((LogicalProject) leftProject).getProjects().size());
                     Assertions.assertEquals(1, ((LogicalProject) rightProject).getProjects().size());
 
                     Plan t2 = rightProjectGroupExpr.child(0).getLogicalExpression().getPlan();
-                    Plan t1 = leftProjectGroupExpr.child(0).getLogicalExpression().child(0).getLogicalExpression()
-                            .getPlan();
-                    Plan t3 = leftProjectGroupExpr.child(0).getLogicalExpression().child(1).getLogicalExpression()
-                            .getPlan();
+                    Plan t1 = leftScanGroupExpression.child(0).getLogicalExpression().getPlan();
+                    Plan t3 = leftScanGroupExpression.child(1).getLogicalExpression().getPlan();
                     Assertions.assertEquals("t2", ((LogicalOlapScan) t2).getTable().getName());
                     Assertions.assertEquals("t1", ((LogicalOlapScan) t1).getTable().getName());
                     Assertions.assertEquals("t3", ((LogicalOlapScan) t3).getTable().getName());
