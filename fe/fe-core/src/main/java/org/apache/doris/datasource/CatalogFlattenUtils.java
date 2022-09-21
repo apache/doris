@@ -34,6 +34,7 @@ public class CatalogFlattenUtils {
     public static Pair<String, String> analyzeFlattenName(String name) {
         String[] nameParts = name.split("\\.");
         if (nameParts.length == 1) {
+            // db or __catalog__db
             if (!name.startsWith(FLATTEN_SEPARATOR)) {
                 String ctl = null;
                 if (ConnectContext.get() != null) {
@@ -51,6 +52,7 @@ public class CatalogFlattenUtils {
             String db = name.substring(idx + FLATTEN_SEPARATOR.length());
             return Pair.of(ctl, db);
         } else if (nameParts.length == 2) {
+            // catalog.db
             return Pair.of(nameParts[0], nameParts[1]);
         } else {
             throw new RuntimeException("invalid flatten name: " + name);

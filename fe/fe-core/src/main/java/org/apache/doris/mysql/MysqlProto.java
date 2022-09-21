@@ -25,6 +25,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogFlattenUtils;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.UserResource;
@@ -274,7 +276,9 @@ public class MysqlProto {
         // set database
         String db = authPacket.getDb();
         if (!Strings.isNullOrEmpty(db)) {
+            Pair<String, String> ctlDb = CatalogFlattenUtils.analyzeFlattenName(db);
             try {
+                Env.getCurrentEnv().changeCatalog(context, ctlDb.first);
                 String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), db);
                 Env.getCurrentEnv().changeDb(context, dbFullName);
             } catch (DdlException e) {
