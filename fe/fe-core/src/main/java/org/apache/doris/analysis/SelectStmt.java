@@ -30,7 +30,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
 import org.apache.doris.common.ErrorCode;
@@ -46,7 +45,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-import com.google.common.base.Strings;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -305,19 +303,15 @@ public class SelectStmt extends QueryStmt {
                 tableMap.put(tblFuncRef.getTableFunction().getTable().getId(),
                         tblFuncRef.getTableFunction().getTable());
             } else {
-                String dbName = tblRef.getName().getDb();
-                String tableName = tblRef.getName().getTbl();
-                if (Strings.isNullOrEmpty(dbName)) {
-                    dbName = analyzer.getDefaultDb();
-                } else {
-                    dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
-                }
-                if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
+                TableName tblName = tblRef.getName();
+                tblName.analyze(analyzer);
+                String dbName = tblName.getDb();
+                String tableName = tblName.getTbl();
+                if (isViewTableRef(tblName.toString(), parentViewNameSet)) {
                     continue;
                 }
-                tblRef.getName().analyze(analyzer);
                 DatabaseIf db = analyzer.getEnv().getCatalogMgr()
-                        .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
+                        .getCatalogOrAnalysisException(tblName.getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
                 if (expandView && (table instanceof View)) {
@@ -326,7 +320,7 @@ public class SelectStmt extends QueryStmt {
                 } else {
                     // check auth
                     if (!Env.getCurrentEnv().getAuth()
-                            .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
+                            .checkTblPriv(ConnectContext.get(), tblName, PrivPredicate.SELECT)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                                 ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                                 dbName + ": " + tableName);
@@ -358,7 +352,7 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    // if tableName in parentViewNameSetor tableName in withClause views
+    // if tableName in parentViewNameSet, or tableName in withClause views
     // means this tableref is inlineview, no need check dbname again
     private boolean isViewTableRef(String tblName, Set<String> parentViewNameSet) {
         if (parentViewNameSet.contains(tblName)) {

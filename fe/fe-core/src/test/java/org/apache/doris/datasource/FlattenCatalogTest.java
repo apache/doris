@@ -108,9 +108,13 @@ public class FlattenCatalogTest {
         Assert.assertEquals("db1", res.second);
 
         String name2 = "__db1";
-        ExceptionChecker.expectThrowsWithMsg(RuntimeException.class, "invalid flatten name", ()->{CatalogFlattenUtils.analyzeFlattenName(name2);});
+        ExceptionChecker.expectThrowsWithMsg(RuntimeException.class, "invalid flatten name", () -> {
+            CatalogFlattenUtils.analyzeFlattenName(name2);
+        });
 
         String name3 = "__hive_db1";
-        ExceptionChecker.expectThrowsWithMsg(RuntimeException.class, "invalid flatten name", ()->{CatalogFlattenUtils.analyzeFlattenName(name3);});
+        ExceptionChecker.expectThrowsWithMsg(RuntimeException.class, "invalid flatten name", () -> {
+            CatalogFlattenUtils.analyzeFlattenName(name3);
+        });
     }
 }

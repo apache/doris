@@ -51,6 +51,7 @@ public class TableName implements Writable {
     @SerializedName(value = "db")
     private String db;
     private Level level;
+    private boolean isAnalyzed = false;
 
     private TableName() {
 
@@ -91,6 +92,9 @@ public class TableName implements Writable {
     // 3. ctl.db.tbl: Will use sepcific ctalog and db
     // 4. __ctl__db.tbl: If flattenCatalog is enabled, parse and use specific catalog and db
     public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (isAnalyzed) {
+            return;
+        }
         if (level == Level.NONE) {
             throw new AnalysisException("Empty table name");
         }
@@ -112,6 +116,7 @@ public class TableName implements Writable {
         if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
+        isAnalyzed = true;
     }
 
     public String getCtl() {
