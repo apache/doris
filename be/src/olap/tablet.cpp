@@ -2002,19 +2002,30 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
             }
             for (size_t i = 0; i < num_read; i++) {
                 const Slice* key = reinterpret_cast<const Slice*>(cvb->cell_ptr(i));
+                RowLocation loc;
                 // first check if exist in pre segment
                 if (check_pre_segments) {
-                    bool find = _check_pk_in_pre_segments(pre_segments, *key, dummy_version,
-                                                          delete_bitmap);
-                    if (find) {
+                    auto st = _check_pk_in_pre_segments(pre_segments, *key, dummy_version,
+                                                        delete_bitmap, &loc);
+                    if (st.ok()) {
+                        delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
+                                           loc.row_id);
                         cnt++;
+                        ++row_id;
+                        continue;
+                    } else if (st.is_already_exist()) {
+                        delete_bitmap->add({rowset_id, seg->id(), dummy_version.first}, row_id);
+                        cnt++;
+                        ++row_id;
                         continue;
                     }
                 }
-                RowLocation loc;
                 auto st = lookup_row_key(*key, specified_rowset_ids, &loc, dummy_version.first - 1);
                 CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
-                if (st.is_not_found()) continue;
+                if (st.is_not_found()) {
+                    ++row_id;
+                    continue;
+                }
 
                 // sequence id smaller than the previous one, so delete current row
                 if (st.is_already_exist()) {
@@ -2041,20 +2052,24 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
     return Status::OK();
 }
 
-bool Tablet::_check_pk_in_pre_segments(
+Status Tablet::_check_pk_in_pre_segments(
         const std::vector<segment_v2::SegmentSharedPtr>& pre_segments, const Slice& key,
-        const Version& version, DeleteBitmapPtr delete_bitmap) {
+        const Version& version, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
     for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
-        RowLocation loc;
-        auto st = (*it)->lookup_row_key(key, &loc);
-        CHECK(st.ok() || st.is_not_found());
+        auto st = (*it)->lookup_row_key(key, loc);
+        CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
         if (st.is_not_found()) {
             continue;
+        } else if (st.ok() && _schema->has_sequence_col() &&
+                   delete_bitmap->contains({loc->rowset_id, loc->segment_id, version.first},
+                                           loc->row_id)) {
+            // if has sequence col, we continue to compare the sequence_id of
+            // all segments, util we find an existing key.
+            continue;
         }
-        delete_bitmap->add({loc.rowset_id, loc.segment_id, version.first}, loc.row_id);
-        return true;
+        return st;
     }
-    return false;
+    return Status::NotFound("Can't find key in the segment");
 }
 
 void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
