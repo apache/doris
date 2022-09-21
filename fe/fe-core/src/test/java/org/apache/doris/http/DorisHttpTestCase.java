@@ -360,7 +360,7 @@ public abstract class DorisHttpTestCase {
 
     @AfterClass
     public static void afterClass() throws IOException {
-        FileUtils.deleteDirectory(new File(DORIS_HOME));
+        FileUtils.forceDelete(new File(DORIS_HOME));
     }
 
 
