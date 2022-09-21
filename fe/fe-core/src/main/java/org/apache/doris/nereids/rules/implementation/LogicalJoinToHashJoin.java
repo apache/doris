@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 
@@ -31,16 +30,13 @@ public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .whenNot(JoinUtils::shouldNestedLoopJoin)
-                .then(join -> {
-                    PhysicalHashJoin<GroupPlan, GroupPlan> physicalHashJoin = new PhysicalHashJoin<>(
-                            join.getJoinType(),
-                            join.getHashJoinConjuncts(),
-                            join.getOtherJoinCondition(),
-                            join.getLogicalProperties(),
-                            join.left(),
-                            join.right());
-                    physicalHashJoin.setStats(join.getStats());
-                    return physicalHashJoin;
-                }).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
+                .then(join -> new PhysicalHashJoin<>(
+            join.getJoinType(),
+            join.getHashJoinConjuncts(),
+            join.getOtherJoinCondition(),
+            join.getLogicalProperties(),
+            join.left(),
+            join.right())
+        ).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
     }
 }

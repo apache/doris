@@ -28,13 +28,7 @@ public class LogicalOneRowRelationToPhysicalOneRowRelation extends OneImplementa
     @Override
     public Rule build() {
         return logicalOneRowRelation()
-                .then(logicalOneRowRelation -> {
-                    PhysicalOneRowRelation physicalOneRowRelation = new PhysicalOneRowRelation(
-                            logicalOneRowRelation.getProjects(),
-                            logicalOneRowRelation.getLogicalProperties());
-                    physicalOneRowRelation.setStats(logicalOneRowRelation.getStats());
-                    return physicalOneRowRelation;
-                })
+                .then(relation -> new PhysicalOneRowRelation(relation.getProjects(), relation.getLogicalProperties()))
                 .toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
     }
 }

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 
 import com.google.common.collect.ImmutableList;
@@ -30,19 +29,16 @@ import com.google.common.collect.ImmutableList;
 public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalAggregate().then(agg -> {
-            PhysicalAggregate<GroupPlan> phyiscalAgg = new PhysicalAggregate<>(
-                    // TODO: for use a function to judge whether use stream
-                    agg.getGroupByExpressions(),
-                    agg.getOutputExpressions(),
-                    ImmutableList.of(),
-                    agg.getAggPhase(),
-                    false,
-                    agg.isFinalPhase(),
-                    agg.getLogicalProperties(),
-                    agg.child());
-            phyiscalAgg.setStats(agg.getStats());
-            return phyiscalAgg;
-        }).toRule(RuleType.LOGICAL_AGG_TO_PHYSICAL_HASH_AGG_RULE);
+        return logicalAggregate().then(agg -> new PhysicalAggregate<>(
+                // TODO: for use a function to judge whether use stream
+                agg.getGroupByExpressions(),
+                agg.getOutputExpressions(),
+                ImmutableList.of(),
+                agg.getAggPhase(),
+                false,
+                agg.isFinalPhase(),
+                agg.getLogicalProperties(),
+                agg.child())
+        ).toRule(RuleType.LOGICAL_AGG_TO_PHYSICAL_HASH_AGG_RULE);
     }
 }
