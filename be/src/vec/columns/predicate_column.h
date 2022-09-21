@@ -278,6 +278,7 @@ public:
             }
 
             char* destination = (char*)_pool->allocate(total_mem_size);
+            char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
             uint32_t fragment_start_offset = start_offset_array[0];
@@ -296,6 +297,8 @@ public:
                     fragment_len = 0;
                 }
             }
+            CHECK(destination - org_dst == total_mem_size)
+                    << "Copied size not equal to expected size";
         } else {
             LOG(FATAL) << "Method insert_many_binary_data is not supported";
         }

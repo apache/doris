@@ -288,9 +288,7 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
-    void insert_default() override {
-        offsets.push_back(chars.size());
-    }
+    void insert_default() override { offsets.push_back(chars.size()); }
 
     void insert_many_defaults(size_t length) override {
         offsets.resize_fill(offsets.size() + length, chars.size());
@@ -327,31 +325,19 @@ public:
 
     void get_extremes(Field& min, Field& max) const override;
 
-    bool can_be_inside_nullable() const override {
-        return true;
-    }
+    bool can_be_inside_nullable() const override { return true; }
 
-    bool is_column_string() const override {
-        return true;
-    }
+    bool is_column_string() const override { return true; }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnString);
     }
 
-    Chars& get_chars() {
-        return chars;
-    }
-    const Chars& get_chars() const {
-        return chars;
-    }
+    Chars& get_chars() { return chars; }
+    const Chars& get_chars() const { return chars; }
 
-    Offsets& get_offsets() {
-        return offsets;
-    }
-    const Offsets& get_offsets() const {
-        return offsets;
-    }
+    Offsets& get_offsets() { return offsets; }
+    const Offsets& get_offsets() const { return offsets; }
 
     void clear() override {
         chars.clear();
