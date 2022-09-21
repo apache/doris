@@ -142,7 +142,8 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testBetweenToCompoundRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE), null);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE,
+                SimplifyNotExprRule.INSTANCE), null);
 
         assertRewrite("a between c and d", "(a >= c) and (a <= d)");
         assertRewrite("a not between c and d)", "(a < c) or (a > d)");

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
@@ -86,20 +87,20 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     }
 
     @Override
-    public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, ExpressionRewriteContext context) {
-        Expression left = rewrite(binaryArithmetic.left(), context);
-        Expression right = rewrite(binaryArithmetic.right(), context);
+    public Expression visitDivide(Divide divide, ExpressionRewriteContext context) {
+        Expression left = rewrite(divide.left(), context);
+        Expression right = rewrite(divide.right(), context);
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
         DataType commonType = TypeCoercionUtils.findCommonType(t1, t2);
-        if (binaryArithmetic.getLegacyOperator() == Operator.DIVIDE) {
+        if (divide.getLegacyOperator() == Operator.DIVIDE) {
             if (commonType.isBigIntType() || commonType.isLargeIntType()) {
                 commonType = DoubleType.INSTANCE;
             }
         }
         Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
         Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
-        return binaryArithmetic.withChildren(newLeft, newRight);
+        return divide.withChildren(newLeft, newRight);
     }
 
     @Override

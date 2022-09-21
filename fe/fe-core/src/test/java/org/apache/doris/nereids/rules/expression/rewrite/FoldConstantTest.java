@@ -171,10 +171,10 @@ public class FoldConstantTest {
     @Test
     public void testArithmeticFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE), null);
-        assertRewrite("1 + 1", Literal.of(2L));
-        assertRewrite("1 - 1", Literal.of(0L));
-        assertRewrite("100 + 100", Literal.of(200L));
-        assertRewrite("1 - 2", Literal.of(-1L));
+        assertRewrite("1 + 1", Literal.of((byte) 2));
+        assertRewrite("1 - 1", Literal.of((byte) 0));
+        assertRewrite("100 + 100", Literal.of((byte) 200));
+        assertRewrite("1 - 2", Literal.of((byte) -1));
 
         assertRewrite("1 - 2 > 1", "false");
         assertRewrite("1 - 2 + 1 > 1 + 1 - 100", "true");
@@ -238,27 +238,27 @@ public class FoldConstantTest {
         e8 = new DateTimeLiteral(1991, 8, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval '3' + 1 month + '1991-05-01'";
+        interval = "interval 3 + 1 month + '1991-05-01'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = new DateTimeLiteral(1991, 9, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval '3' + 1 year + '1991-05-01'";
+        interval = "interval 3 + 1 year + '1991-05-01'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = new DateTimeLiteral(1995, 5, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval '3' + 3 / 2 hour + '1991-05-01 10:00:00'";
+        interval = "interval 3 + 3 / 2 hour + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = new DateTimeLiteral(1991, 5, 1, 14, 0, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval '3' * 2 / 3 minute + '1991-05-01 10:00:00'";
+        interval = "interval 3 * 2 / 3 minute + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = new DateTimeLiteral(1991, 5, 1, 10, 2, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval '3' / 2 + 1 second + '1991-05-01 10:00:00'";
+        interval = "interval 3 / 2 + 1 second + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = new DateTimeLiteral(1991, 5, 1, 10, 0, 2);
         assertRewrite(e7, e8);
