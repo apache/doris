@@ -52,6 +52,7 @@ public class PlanPostProcessors {
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()) {
             builder.add(new RuntimeFilterGenerator());
+            builder.add(new Validator());
         }
         return builder.build();
     }
