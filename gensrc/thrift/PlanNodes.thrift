@@ -269,8 +269,9 @@ struct TFileScanRangeParams {
     // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
     11: optional bool strict_mode
 
-    12: list<Types.TNetworkAddress> broker_addresses
-    13: TFileAttributes file_attributes
+    12: optional list<Types.TNetworkAddress> broker_addresses
+    13: optional TFileAttributes file_attributes
+    14: optional Exprs.TExpr pre_filter_exprs
 }
 
 struct TFileRangeDesc {
@@ -364,7 +365,6 @@ struct TBrokerScanNode {
 
 struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
-    2: optional list<Exprs.TExpr> pre_filter_exprs
 }
 
 struct TEsScanNode {
