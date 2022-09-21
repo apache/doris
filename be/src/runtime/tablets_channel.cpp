@@ -447,7 +447,7 @@ template Status
 TabletsChannel::add_batch<PTabletWriterAddBlockRequest, PTabletWriterAddBlockResult>(
         PTabletWriterAddBlockRequest const&, PTabletWriterAddBlockResult*);
 template Status TabletsChannel::reduce_mem_usage<PTabletWriterAddBatchResult>(
-        int64_t, PTabletWriterAddBatchResult*);
+        PTabletWriterAddBatchResult*);
 template Status TabletsChannel::reduce_mem_usage<PTabletWriterAddBlockResult>(
-        int64_t, PTabletWriterAddBlockResult*);
+        PTabletWriterAddBlockResult*);
 } // namespace doris
