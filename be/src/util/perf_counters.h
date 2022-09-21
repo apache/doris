@@ -115,7 +115,8 @@ public:
     static void refresh_proc_status();
     static void get_proc_status(ProcStatus* out);
     // Return the process actual physical memory in bytes.
-    static inline int64_t get_vm_rss() { return parse_bytes("status/VmRSS"); }
+    static inline int64_t get_vm_rss() { return _vm_rss; }
+    static inline std::string get_vm_rss_str() { return _vm_rss_str; }
 
 private:
     // Copy constructor and assignment not allowed
@@ -159,6 +160,9 @@ private:
     // System perf counters can be grouped together.  The OS will update all grouped counters
     // at the same time.  This is useful to better correlate counter values.
     int _group_fd;
+
+    static int64_t _vm_rss;
+    static std::string _vm_rss_str;
 };
 
 } // namespace doris
