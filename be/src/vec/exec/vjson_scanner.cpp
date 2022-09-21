@@ -331,9 +331,9 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
         } else if (value->IsInt()) {
             wbytes = sprintf(tmp_buf, "%d", value->GetInt());
         } else if (value->IsUint64()) {
-            wbytes = sprintf(tmp_buf, "%lu", value->GetUint64());
+            wbytes = sprintf(tmp_buf, "%" PRIu64, value->GetUint64());
         } else if (value->IsInt64()) {
-            wbytes = sprintf(tmp_buf, "%ld", value->GetInt64());
+            wbytes = sprintf(tmp_buf, "%" PRId64, value->GetInt64());
         } else {
             wbytes = sprintf(tmp_buf, "%f", value->GetDouble());
         }

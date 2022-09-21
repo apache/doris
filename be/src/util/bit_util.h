@@ -20,7 +20,9 @@
 
 #pragma once
 
+#ifndef __APPLE__
 #include <endian.h>
+#endif
 
 #include "common/compiler_util.h"
 #include "gutil/bits.h"

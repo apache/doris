@@ -17,9 +17,12 @@
 
 #include "testutil/test_util.h"
 
+#ifndef __APPLE__
+#include <linux/limits.h>
+#endif
+
 #include <common/configbase.h>
 #include <libgen.h>
-#include <linux/limits.h>
 #include <strings.h>
 #include <sys/types.h>
 #include <unistd.h>

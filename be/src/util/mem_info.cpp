@@ -18,7 +18,11 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/mem-info.cc
 // and modified by Doris
 
-#include "util/mem_info.h"
+#include "mem_info.h"
+
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -53,6 +57,7 @@ std::string MemInfo::_s_allocator_cache_mem_str = "";
 size_t MemInfo::_s_virtual_memory_used = 0;
 int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
 
+#ifndef __APPLE__
 void MemInfo::init() {
     // Read from /proc/meminfo
     std::ifstream meminfo("/proc/meminfo", std::ios::in);
@@ -100,11 +105,30 @@ void MemInfo::init() {
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
-    _s_hard_mem_limit = _s_physical_mem - std::max(209715200L, _s_physical_mem / 10); // 200M
+    _s_hard_mem_limit =
+            _s_physical_mem - std::max<int64_t>(209715200L, _s_physical_mem / 10); // 200M
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;
 }
+#else
+void MemInfo::init() {
+    size_t size = sizeof(_s_physical_mem);
+    if (sysctlbyname("hw.memsize", &_s_physical_mem, &size, nullptr, 0) != 0) {
+        LOG(WARNING) << "Could not determine amount of physical memory on this machine.";
+        _s_physical_mem = -1;
+    }
+
+    bool is_percent = true;
+    _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+    _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
+    _s_hard_mem_limit =
+            _s_physical_mem - std::max<int64_t>(209715200L, _s_physical_mem / 10); // 200M
+
+    LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
+    _s_initialized = true;
+}
+#endif
 
 std::string MemInfo::debug_string() {
     DCHECK(_s_initialized);
@@ -113,7 +137,8 @@ std::string MemInfo::debug_string() {
     stream << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
     stream << "Memory Limt: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
-    stream << "Current Usage: " << PrettyPrinter::print(_s_allocator_physical_mem, TUnit::BYTES)
+    stream << "Current Usage: "
+           << PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_physical_mem), TUnit::BYTES)
            << std::endl;
     stream << "CGroup Info: " << util.debug_string() << std::endl;
     return stream.str();

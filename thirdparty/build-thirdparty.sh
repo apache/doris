@@ -247,7 +247,11 @@ remove_all_dylib() {
 }
 
 if [[ -z "${STRIP_TP_LIB}" ]]; then
-    STRIP_TP_LIB='ON'
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        STRIP_TP_LIB='ON'
+    else
+        STRIP_TP_LIB='OFF'
+    fi
 fi
 
 if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
@@ -822,7 +826,7 @@ build_librdkafka() {
     cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
+        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
 
     make -j "${PARALLEL}"
@@ -1329,10 +1333,16 @@ build_hdfs3() {
     cd "${BUILD_DIR}"
     rm -rf ./*
 
-    # build libhdfs3 with kerberos support
-    CPPLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        ../bootstrap --dependency="${TP_INSTALL_DIR}" --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF \
+        -DProtobuf_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" \
+        -DProtobuf_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DProtobuf_LIBRARIES="${TP_INSTALL_DIR}/lib/libprotoc.a" \
+        -DKERBEROS_INCLUDE_DIRS="${TP_INSTALL_DIR}/include" \
+        -DKERBEROS_LIBRARIES="${TP_INSTALL_DIR}/lib/libkrb5.a" \
+        -DGSASL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DGSASL_LIBRARIES="${TP_INSTALL_DIR}/lib/libgsasl.a" \
+        ..
 
     make CXXFLAGS="${libhdfs_cxx17}" -j "${PARALLEL}"
     make install
@@ -1449,6 +1459,39 @@ build_xxhash() {
     cp -r ./*.h "${TP_INSTALL_DIR}/include/"
     cp libxxhash.a "${TP_INSTALL_DIR}/lib64"
 }
+
+build_binutils() {
+    check_if_source_exist "${BINUTILS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${BINUTILS_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    ../configure --prefix="${TP_INSTALL_DIR}" --enable-install-libiberty
+    make -j "${PARALLEL}"
+    make install
+}
+
+build_gettext() {
+    check_if_source_exist "${GETTEXT_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${GETTEXT_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    ../configure --prefix="${TP_INSTALL_DIR}"
+    make -j "${PARALLEL}"
+    make install
+
+    remove_all_dylib
+}
+
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    build_binutils
+    build_gettext
+fi
 
 build_libunixodbc
 build_openssl
