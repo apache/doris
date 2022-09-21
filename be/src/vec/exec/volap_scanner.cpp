@@ -178,15 +178,14 @@ Status VOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.direct_mode = _aggregation || single_version ||
                                             _parent->_olap_scan_node.__isset.push_down_agg_type_opt;
     }
-    if (_parent->_olap_scan_node.__isset.push_down_agg_type_opt)
-        _push_down_agg_type_opt = _parent->_olap_scan_node.push_down_agg_type_opt;
-
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
+    if (_parent->_olap_scan_node.__isset.push_down_agg_type_opt)
+        _tablet_reader_params.push_down_agg_type_opt = _parent->_olap_scan_node.push_down_agg_type_opt;
     _tablet_reader_params.version = Version(0, _version);
 
     // Condition
@@ -231,7 +230,6 @@ Status VOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
-    _tablet_reader_params.push_down_agg_type_opt= _push_down_agg_type_opt;
 
     if (_tablet_reader_params.direct_mode) {
         _tablet_reader_params.return_columns = _return_columns;

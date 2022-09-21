@@ -191,13 +191,12 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
         }
     }
 
-
     auto size = *n - 1;
     if (min_value->is_null()) {
         assert_cast<vectorized::ColumnNullable&>(*dst).insert_null_elements(size);
     } else {
         if (is_string) {
-            auto sv = (StringValue*) min_value->cell_ptr();
+            auto sv = (StringValue*)min_value->cell_ptr();
             dst->insert_many_data(sv->ptr, sv->len, size);
         } else {
             // TODO: the work may cause performance problem, opt latter

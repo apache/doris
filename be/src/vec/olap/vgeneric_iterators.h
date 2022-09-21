@@ -19,6 +19,10 @@
 
 namespace doris {
 
+namespace segment_v2 {
+class Segment;
+}
+
 namespace vectorized {
 
 // Create a merge iterator for input iterators. Merge iterator will merge

@@ -133,13 +133,13 @@ public:
                 auto cid = _schema.column_id(i);
                 auto unique_id = _schema.column(cid)->unique_id();
                 if (_column_iterators_map.count(unique_id) < 1) {
-                    RETURN_IF_ERROR(_segment->new_column_iterator(opts.tablet_schema->column(cid),
-                                                                  &_column_iterators_map[unique_id]));
+                    RETURN_IF_ERROR(_segment->new_column_iterator(
+                            opts.tablet_schema->column(cid), &_column_iterators_map[unique_id]));
                 }
                 _column_iterators.push_back(_column_iterators_map[unique_id]);
             }
 
-            _target_rows =  _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : _segment->num_rows();
+            _target_rows = _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : _segment->num_rows();
             _init = true;
         }
 
@@ -152,8 +152,9 @@ public:
             block->clear_column_data();
             auto columns = block->mutate_columns();
 
-            size_t size = _push_down_agg_type_opt == TPushAggOp::MINMAX ?
-                 2 : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
+            size_t size = _push_down_agg_type_opt == TPushAggOp::MINMAX
+                                  ? 2
+                                  : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
             if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
                 size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
                 for (int i = 0; i < block->columns(); ++i) {

@@ -127,7 +127,6 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
-    TPushAggOp::type _push_down_agg_type_opt = TPushAggOp::NONE;
 
     // time costed and row returned statistics
     int64_t _num_rows_read = 0;

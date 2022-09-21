@@ -35,7 +35,6 @@
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice
-
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -102,7 +101,8 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     }
 
     RETURN_IF_ERROR(load_index());
-    if (read_options.col_id_to_del_predicates.empty() && read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
+    if (read_options.col_id_to_del_predicates.empty() &&
+        read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), schema));
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
