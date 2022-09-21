@@ -32,8 +32,7 @@ class NewFileScanNode;
 class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile,
-                 const std::vector<TExpr>& pre_filter_texprs, TFileFormatType::type format);
+                 const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
 
@@ -43,15 +42,9 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
-    // TODO: Use prefilters to filter input block
-    Status _filter_input_block(Block* block) { return Status::OK(); }
-
-    // TODO: Convert input block to output block, if needed.
-    Status _convert_to_output_block(Block* output_block) { return Status::OK(); }
-
     void _init_profiles(RuntimeProfile* profile);
 
-    Status _fill_columns_from_path(vectorized::Block* output_block, size_t rows);
+    Status _fill_columns_from_path();
 
     Status _get_next_reader();
 
@@ -64,12 +57,9 @@ protected:
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 
-    ParquetReader* _cur_reader;
+    GenericReader* _cur_reader;
     bool _cur_reader_eof;
-    TFileFormatType::type _file_format;
 
-    // Used for constructing tuple
-    std::vector<SlotDescriptor*> _required_slot_descs;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // File slot id to index map.
@@ -78,9 +68,6 @@ protected:
     std::vector<SlotDescriptor*> _partition_slot_descs;
     // Partition slot id to index map
     std::map<SlotId, int> _partition_slot_index_map;
-    std::unique_ptr<RowDescriptor> _row_desc;
-    doris::Tuple* _src_tuple;
-    TupleRow* _src_tuple_row;
 
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     std::unique_ptr<MemPool> _mem_pool;
@@ -97,11 +84,7 @@ protected:
     int _rows = 0;
     int _num_of_columns_from_file;
 
-    const std::vector<TExpr> _pre_filter_texprs;
-
     std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-    // to filter src tuple directly.
-    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
 
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
@@ -110,7 +93,19 @@ protected:
     bool _src_block_mem_reuse = false;
     bool _strict_mode;
 
+    Block* _src_block_ptr;
+    Block _src_block;
+
+    // dest slot desc index to src slot desc index
+    std::unordered_map<int, int> _dest_slot_to_src_slot_index;
+
+    std::unordered_map<std::string, size_t> _src_block_name_to_idx;
+
 private:
     Status _init_expr_ctxes();
+    Status _init_src_block(Block* block);
+    Status _cast_to_input_block(Block* block);
+    Status _pre_filter_src_block();
+    Status _convert_to_output_block(Block* block);
 };
 } // namespace doris::vectorized
