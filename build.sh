@@ -231,7 +231,10 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
 fi
 # For soft upgrade, to minimize complaints of build issues, enable it by default in the future
-if [[ "${ENABLE_INCREMENTAL_THIRD_PARTY_BUILD}" == "1" ]]; then
+if [[ -z "${ENABLE_INCREMENTAL_THIRD_PARTY_BUILD}" ]]; then
+    ENABLE_INCREMENTAL_THIRD_PARTY_BUILD="OFF"
+fi
+if [[ "${ENABLE_INCREMENTAL_THIRD_PARTY_BUILD}" == "ON" ]]; then
     "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
 fi
 

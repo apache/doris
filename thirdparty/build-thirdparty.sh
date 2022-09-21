@@ -1420,21 +1420,21 @@ build_xxhash() {
 
 # Choose what to compile
 if [[ -d ${TP_INSTALL_DIR} && "${DEPS}" != "" ]]; then
-    for i in $(echo ${DEPS}); do
-        build_${i}
+    for i in $(echo "${DEPS}"); do
+        "build_${i}"
     done
     echo "Built specified dependencies: ${DEPS}"
     exit
 fi
 
 if [[ -f version.txt ]]; then
-    CUR_VERSION=$(cat version.txt | grep -v "#")
+    CUR_VERSION=$(grep -v "#" version.txt)
 else
     CUR_VERSION="y"
 fi
 
 if [[ -f ${TP_INSTALL_DIR}/version.txt ]]; then
-    INSTALLED_VERSION=$(cat ${TP_INSTALL_DIR}/version.txt | grep -v "#")
+    INSTALLED_VERSION=$(grep -v "#" "${TP_INSTALL_DIR}/version.txt")
 else
     INSTALLED_VERSION="x"
 fi
@@ -1446,27 +1446,27 @@ fi
 
 # Incremental build
 if [[ -f version.txt && -f ${TP_INSTALL_DIR}/version.txt && ${BUILD_ALL} -eq 0 ]]; then
-    CUR_VERSION=$(cat version.txt | grep -v "#" | awk '{print $1; exit}')
-    INSTALLED_VERSION=$(cat ${TP_INSTALL_DIR}/version.txt | grep -v "#" | awk '{print $1; exit}')
+    CUR_VERSION=$(grep -v "#" version.txt | awk '{print $1; exit}')
+    INSTALLED_VERSION=$(grep -v "#" "${TP_INSTALL_DIR}/version.txt" | awk '{print $1; exit}')
     if [[ "${INSTALLED_VERSION}" -gt "${CUR_VERSION}" ]]; then
         echo "Installed dependencies are up to date, if you want to downgrade, use -a or -d option to rebuild"
         exit
     fi
-    VER_DIFF=$((${CUR_VERSION} - ${INSTALLED_VERSION}))
+    VER_DIFF=$((CUR_VERSION - INSTALLED_VERSION))
     if [[ ${VER_DIFF} -lt 2 ]]; then
         INC_BUILD_DEPS=""
         CNT=0
-        for i in $(cat version.txt | grep -v "#"); do
+        for i in $(grep -v "#" version.txt); do
             if [[ ${CNT} -lt 2 ]]; then
-                CNT=$((${CNT} + 1))
+                CNT=$((CNT + 1))
                 continue
             fi
             INC_BUILD_DEPS="${INC_BUILD_DEPS} ${i}"
-            build_${i}
+            "build_${i}"
         done
         if [[ "${INC_BUILD_DEPS}" != "" ]]; then
             echo "Incremental build done:${INC_BUILD_DEPS}"
-            cp -f version.txt ${TP_INSTALL_DIR}/version.txt
+            cp -f version.txt "${TP_INSTALL_DIR}/version.txt"
             exit
         else
             echo "Continue to full build"
@@ -1481,10 +1481,10 @@ fi
 echo "Full build dependencies"
 if [[ ${BUILD_ALL} -eq 1 ]]; then
     # Remove all except source code
-    rm -rf ${TP_INSTALL_DIR}/include
-    rm -rf ${TP_INSTALL_DIR}/lib
-    rm -rf ${TP_INSTALL_DIR}/lib64
-    rm -rf ${TP_INSTALL_DIR}/gperftools
+    rm -rf "${TP_INSTALL_DIR}/include"
+    rm -rf "${TP_INSTALL_DIR}/lib"
+    rm -rf "${TP_INSTALL_DIR}/lib64"
+    rm -rf "${TP_INSTALL_DIR}/gperftools"
 fi
 
 build_libunixodbc
