@@ -251,6 +251,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 new FilterSelectivityCalculator(stats.getSlotToColumnStats());
         double selectivity = selectivityCalculator.estimate(filter.getPredicates());
         stats.updateRowCountBySelectivity(selectivity);
+        stats.isReduced = selectivity < 1.0;
         return stats;
     }
 

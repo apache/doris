@@ -392,15 +392,20 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
         this.id = in.readLong();
         this.name = Text.readString(in);
-
+        List<Column> keys = Lists.newArrayList();
         // base schema
         int columnCount = in.readInt();
         for (int i = 0; i < columnCount; i++) {
             Column column = Column.read(in);
+            if (column.isKey()) {
+                keys.add(column);
+            }
             this.fullSchema.add(column);
             this.nameToColumn.put(column.getName(), column);
         }
-
+        if (keys.size() > 1) {
+            keys.forEach(key -> key.setCompoundKey(true));
+        }
         comment = Text.readString(in);
 
         // read create time

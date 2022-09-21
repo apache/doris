@@ -19,27 +19,31 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Estimate hash join stats.
  * TODO: Update other props in the ColumnStats properly.
  */
 public class JoinEstimation {
-
-    private static final double DEFAULT_JOIN_RATIO = 10.0;
+    private static final Logger LOG = LogManager.getLogger(JoinEstimation.class);
 
     /**
      * Do estimate.
@@ -52,15 +56,62 @@ public class JoinEstimation {
         // List<Expression> normalizedConjuncts = hashJoinConjuncts.stream().map(EqualTo.class::cast)
         //         .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, leftStats.getSlotToColumnStats().keySet()))
         //         .collect(Collectors.toList());
-
+        boolean isReducedByHashJoin = false;
         long rowCount;
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
-            rowCount = Math.round(leftStats.getRowCount() / DEFAULT_JOIN_RATIO) + 1;
+            rowCount = leftStats.getRowCount() + 1;
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
-            rowCount = Math.round(rightStats.getRowCount() / DEFAULT_JOIN_RATIO) + 1;
+            rowCount = rightStats.getRowCount();
         } else if (joinType == JoinType.INNER_JOIN) {
             long childRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
-            rowCount = Math.round(childRowCount / DEFAULT_JOIN_RATIO) + 1;
+            rowCount = childRowCount;
+            if (!join.getHashJoinConjuncts().isEmpty()) {
+                /*
+                 * Doris does not support primary key and foreign key. But the data may satisfy pk and fk constraints.
+                 * This fact is indicated by session variable `support_star_schema_nereids`.
+                 * If `support_star_schema_nereids` is true, we have the following implications:
+                 * 1. the duplicate key, the unique key and the aggregate key are primary key.
+                 * 2. the inner join is between fact table and dimension table
+                 * 3. if the dimension table is not filtered, after join, the output tuple number is the tuple
+                 * number of fact table.
+                 * 4. if we choose fact table as right table (building hash table), the output tuple number is 4 times
+                 * of the tuple number in dimension table. The magic number `4` is from tpch, in which every
+                 * o_orderkey is corresponding to 1-7 l_orderkey.
+                  */
+                //TODO:
+                // 1.currently, we only consider single primary key table. The idea could be expanded to table
+                //   with compond keys, like tpch lineitem/partsupp.
+                // 2.after aggregation, group key is unique. we could use it as primary key.
+                // 3.isReduced should be replaced by selectivity. and we need to refine the propagation of selectivity.
+                EqualTo equalto = (EqualTo) join.getHashJoinConjuncts().get(0);
+                if (join instanceof PhysicalHashJoin) {
+                    SlotReference eqLeft = (SlotReference) equalto.child(0);
+                    SlotReference eqRight = (SlotReference) equalto.child(1);
+                    if (eqLeft.getColumn().isPresent() || eqRight.getColumn().isPresent()) {
+                        Set<Slot> rightSlots = ((PhysicalHashJoin<?, ?>) join).child(1).getOutputSet();
+                        if ((rightSlots.contains(eqRight)
+                                && eqRight.getColumn().isPresent()
+                                && eqRight.getColumn().get().isKey()
+                                && !eqRight.getColumn().get().isCompoundKey())
+                                || (rightSlots.contains(eqLeft)
+                                && eqLeft.getColumn().isPresent()
+                                && eqLeft.getColumn().get().isKey()
+                                && !eqLeft.getColumn().get().isCompoundKey())) {
+                            if (rightStats.isReduced) {
+                                isReducedByHashJoin = true;
+                                rowCount = leftStats.getRowCount() / 2;
+                            } else {
+                                rowCount = leftStats.getRowCount();
+                            }
+                        } else {
+                            rowCount = leftStats.getRowCount() * 4;
+                        }
+                    } else {
+                        LOG.debug("HashJoin cost calculation: slot.column is null, star-schema support failed.");
+                    }
+                }
+            }
+
         } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
             rowCount = leftStats.getRowCount();
         } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
@@ -80,6 +131,7 @@ public class JoinEstimation {
             statsDeriveResult.merge(rightStats);
         }
         statsDeriveResult.setRowCount(rowCount);
+        statsDeriveResult.isReduced = isReducedByHashJoin || leftStats.isReduced;
         return statsDeriveResult;
     }
 
