@@ -611,6 +611,9 @@ char* write_four_digits_to_string(int number, char* dst) {
 }
 
 bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) const {
+    if (check_range(_year, _month, _day, _hour, _minute, _second, _type)) {
+        return false;
+    }
     char buf[64];
     char* cursor = buf;
     char* pos = NULL;
@@ -1050,7 +1053,7 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
         return false;
     }
     // Skip '0'
-    while (ptr < end && * ptr == '0') {
+    while (ptr < end && *ptr == '0') {
         ptr++;
     }
     const char* n_end = ptr + 9;
@@ -1091,7 +1094,7 @@ static int find_in_lib(const char* lib[], const char* str, const char* end) {
     for (; lib[pos] != NULL; ++pos) {
         const char* i = str;
         const char* j = lib[pos];
-        while (i < end && * j) {
+        while (i < end && *j) {
             if (toupper(*i) != toupper(*j)) {
                 break;
             }
@@ -2722,6 +2725,9 @@ void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
 
 template <typename T>
 bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) const {
+    if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
+        return false;
+    }
     char buf[64];
     char* pos = nullptr;
     char* cursor = buf;
