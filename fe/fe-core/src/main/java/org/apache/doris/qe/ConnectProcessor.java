@@ -54,6 +54,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -158,7 +159,11 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
         }
-
+        if(!Catalog.getCurrentCatalog().isMaster()) {
+            if(ctx.executor.isForwardToMaster()) {
+                ctx.getAuditEventBuilder().setState(ctx.executor.getProxyStatus());
+            }
+        }
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
@@ -506,6 +511,7 @@ public class ConnectProcessor {
         }
         result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
         result.setPacket(getResultPacket());
+        result.setStatus(ctx.getState().toString());
         if (executor != null && executor.getProxyResultSet() != null) {
             result.setResultSet(executor.getProxyResultSet().tothrift());
         }

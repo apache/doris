@@ -479,6 +479,7 @@ struct TMasterOpResult {
     2: required binary packet;
     3: optional TShowResultSet resultSet;
     4: optional Types.TUniqueId queryId;
+    5: optional string status;
 }
 
 struct TLoadCheckRequest {
