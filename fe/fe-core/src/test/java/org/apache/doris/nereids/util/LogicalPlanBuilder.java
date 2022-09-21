@@ -19,8 +19,10 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -85,4 +87,10 @@ public class LogicalPlanBuilder {
     public LogicalPlanBuilder limit(long limit) {
         return limit(limit, 0);
     }
+
+    public LogicalPlanBuilder filter(Expression predicate) {
+        LogicalFilter<LogicalPlan> limitPlan = new LogicalFilter<>(predicate, this.plan);
+        return from(limitPlan);
+    }
+
 }
