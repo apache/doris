@@ -428,8 +428,6 @@ class HashTable : private boost::noncopyable,
                                              Cell> /// empty base optimization
 {
 protected:
-    friend class const_iterator;
-    friend class iterator;
     friend class Reader;
 
     template <typename, typename, typename, typename, typename, typename, size_t>
@@ -1031,7 +1029,7 @@ public:
         this->clear_get_has_zero();
         m_size = 0;
 
-        size_t new_size = 0;
+        doris::vectorized::UInt64 new_size = 0;
         doris::vectorized::read_var_uint(new_size, rb);
 
         free();

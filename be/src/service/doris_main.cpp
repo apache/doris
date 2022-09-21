@@ -17,6 +17,7 @@
 
 #include <errno.h>
 #include <gperftools/malloc_extension.h>
+#include <libgen.h>
 #include <setjmp.h>
 #include <sys/file.h>
 #include <unistd.h>
@@ -181,7 +182,9 @@ void check_required_instructions_impl(volatile InstructionFail& fail) {
 
 #if defined(__ARM_NEON__)
     fail = InstructionFail::ARM_NEON;
+#ifndef __APPLE__
     __asm__ volatile("vadd.i32  q8, q8, q8" : : : "q8");
+#endif
 #endif
 
     fail = InstructionFail::NONE;

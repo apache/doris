@@ -242,7 +242,11 @@ if [[ -z "${WITH_MYSQL}" ]]; then
     WITH_MYSQL='OFF'
 fi
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    GLIBC_COMPATIBILITY='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        GLIBC_COMPATIBILITY='ON'
+    else
+        GLIBC_COMPATIBILITY='OFF'
+    fi
 fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
@@ -251,7 +255,11 @@ if [[ -z "${WITH_LZO}" ]]; then
     WITH_LZO='OFF'
 fi
 if [[ -z "${USE_LIBCPP}" ]]; then
-    USE_LIBCPP='OFF'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
 fi
 if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'

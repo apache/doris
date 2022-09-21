@@ -26,7 +26,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
     set (ARCH_AMD64 1)
 endif ()
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*)")
     set (ARCH_AARCH64 1)
 endif ()
 if (ARCH_AARCH64 OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
@@ -58,8 +58,12 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif ()
 
 # Set boost/stacktrace use backtrace api to unwind
-add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
-#add_definitions(-DPRINT_ALL_ERR_STATUS_STACKTRACE)
+if (NOT OS_MACOSX)
+    add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
+    #add_definitions(-DPRINT_ALL_ERR_STATUS_STACKTRACE)
+else()
+    add_definitions(-DBOOST_STACKTRACE_USE_NOOP)
+endif()
 
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
@@ -90,11 +94,7 @@ set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
 
-if (APPLE)
-    set(MAKE_TEST "ON")
-else()
-    option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
-endif()
+option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 option(WITH_MYSQL "Support access MySQL" ON)
 
@@ -325,8 +325,10 @@ set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DI
 add_library(aws-c-s3 STATIC IMPORTED)
 set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
 
-add_library(aws-s2n STATIC IMPORTED)
-set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+if (NOT OS_MACOSX)
+    add_library(aws-s2n STATIC IMPORTED)
+    set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+endif()
 
 add_library(minizip STATIC IMPORTED)
 set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
@@ -399,6 +401,17 @@ set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/l
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
+if (OS_MACOSX)
+    add_library(bfd STATIC IMPORTED)
+    set_target_properties(bfd PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libbfd.a")
+
+    add_library(iberty STATIC IMPORTED)
+    set_target_properties(iberty PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libiberty.a")
+
+    add_library(intl STATIC IMPORTED)
+    set_target_properties(intl PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libintl.a")
+endif()
+
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
 # You can check funcion here which depends on platform. Don't forget add this
@@ -447,7 +460,10 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
 endif()
 
 if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
+    if (NOT OS_MACOSX)
+        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -lstdc++")
+    endif()
     add_definitions(-DUSE_LIBCPP)
 endif()
 
@@ -597,9 +613,10 @@ if (BUILD_JAVA_UDF)
     endif()
 endif()
 
-set(WL_START_GROUP "-Wl,--start-group")
-set(WL_END_GROUP "-Wl,--end-group")
-
+if (NOT OS_MACOSX)
+    set(WL_START_GROUP "-Wl,--start-group")
+    set(WL_END_GROUP "-Wl,--end-group")
+endif()
 
 set(KRB5_LIBS
     krb5support
@@ -626,6 +643,10 @@ set(AWS_LIBS
     aws-c-mqtt
     aws-sdk-s3-crt)
 
+if (OS_MACOSX)
+    list(REMOVE_ITEM AWS_LIBS aws-s2n)
+endif()
+
 # Set Doris libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
@@ -648,7 +669,6 @@ set(DORIS_LINK_LIBS
     Vec
     ${WL_END_GROUP}
 )
-
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -716,6 +736,10 @@ set(COMMON_THIRDPARTY
     simdjson
 )
 
+if (OS_MACOSX)
+    set(COMMON_THIRDPARTY ${COMMON_THIRDPARTY} bfd iberty intl)
+endif()
+
 if (${MAKE_TEST} STREQUAL "ON")
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
@@ -731,15 +755,11 @@ set(DORIS_DEPENDENCIES
 )
 
 if(WITH_LZO)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-        lzo
-    )
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} lzo)
 endif()
 
 if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-        mysql
-        )
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
@@ -748,13 +768,23 @@ message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    ${DORIS_DEPENDENCIES}
-    -static-libstdc++
-    -static-libgcc
-    -lstdc++fs
-    -lresolv
-)
+if (NOT OS_MACOSX)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        ${DORIS_DEPENDENCIES}
+        -static-libstdc++
+        -static-libgcc
+        -lstdc++fs
+        -lresolv
+    )
+else()
+    set(DORIS_LINK_LIBS
+        ${DORIS_LINK_LIBS}
+        ${DORIS_DEPENDENCIES}
+        -lapple_nghttp2
+        -lresolv
+        -liconv
+    )
+endif()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(ASAN_LIBS -static-libasan)
@@ -793,9 +823,26 @@ if (GLIBC_COMPATIBILITY)
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-explicit glibc-compatibility)
 endif()
 
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
-)
+if (NOT OS_MACOSX)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
+    )
+else()
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework Foundation"
+        "-framework SystemConfiguration"
+        "-framework Security"
+    )
+    if (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE")
+        set(DORIS_LINK_LIBS
+            ${DORIS_LINK_LIBS}
+            "-Wl,-U,_MallocExtension_ReleaseFreeMemory"
+        )
+    endif()
+endif()
 
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
@@ -805,12 +852,21 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_END_GROUP}
 )
 
+if (NOT MAKE_TEST)
+    message(STATUS "Link Flags: ${DORIS_LINK_LIBS}")
+else()
+    message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
+endif()
+
 # Only build static libs
 set(BUILD_SHARED_LIBS OFF)
 
 if (${MAKE_TEST} STREQUAL "ON")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
-    SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
+    SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+    if (NOT OS_MACOSX)
+        SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+    endif()
     add_definitions(-DBE_TEST)
 endif ()
 

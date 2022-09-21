@@ -57,10 +57,12 @@ DORIS_HOME="$(
 )"
 export DORIS_HOME
 
-MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
-if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-    echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
-    exit 1
+if [[ "$(uname -s)" != 'Darwin' ]]; then
+    MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
+    if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
+        echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
+        exit 1
+    fi
 fi
 
 # add libs to CLASSPATH

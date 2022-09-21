@@ -31,6 +31,7 @@
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
+#include "util/exception.h"
 #include "util/faststring.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -714,9 +715,9 @@ Status Block::serialize(PBlock* pblock,
         column_values.resize(content_uncompressed_size);
     } catch (...) {
         std::exception_ptr p = std::current_exception();
-        std::string msg = fmt::format(
-                "Try to alloc {} bytes for pblock column values failed. reason {}",
-                content_uncompressed_size, p ? p.__cxa_exception_type()->name() : "null");
+        std::string msg =
+                fmt::format("Try to alloc {} bytes for pblock column values failed. reason {}",
+                            content_uncompressed_size, get_current_exception_type_name(p));
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }

@@ -177,7 +177,7 @@ public:
     void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
                                Arena* arena) const override {
         auto& set = this->data(place).set;
-        size_t size;
+        UInt64 size;
         read_var_uint(size, buf);
 
         set.rehash(size + set.size());

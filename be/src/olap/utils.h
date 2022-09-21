@@ -147,9 +147,9 @@ public:
 };
 
 // iterator offset，用于二分查找
-typedef uint32_t iterator_offset_t;
+using iterator_offset_t = size_t;
 
-class BinarySearchIterator : public std::iterator<std::random_access_iterator_tag, size_t> {
+class BinarySearchIterator : public std::iterator_traits<iterator_offset_t*> {
 public:
     BinarySearchIterator() : _offset(0u) {}
     explicit BinarySearchIterator(iterator_offset_t offset) : _offset(offset) {}
