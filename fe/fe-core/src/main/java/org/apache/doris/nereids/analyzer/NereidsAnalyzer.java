@@ -51,8 +51,8 @@ public class NereidsAnalyzer {
     public void analyze() {
         new AnalyzeRulesJob(cascadesContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();
-        new FinalizeAnalyzeJob(cascadesContext).execute();
         new TypeCoercionJob(cascadesContext).execute();
+        new FinalizeAnalyzeJob(cascadesContext).execute();
         // check whether analyze result is meaningful
         new CheckAnalysisJob(cascadesContext).execute();
     }
