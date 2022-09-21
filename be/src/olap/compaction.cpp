@@ -37,18 +37,13 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
 #ifndef BE_TEST
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, label, StorageEngine::instance()->compaction_mem_tracker());
+    _mem_tracker->enable_reset_zero();
 #else
     _mem_tracker = std::make_shared<MemTrackerLimiter>(-1, label);
 #endif
 }
 
-Compaction::~Compaction() {
-#ifndef BE_TEST
-    // Compaction tracker cannot be completely accurate, offset the global impact.
-    StorageEngine::instance()->compaction_mem_tracker()->cache_consume_local(
-            -_mem_tracker->consumption());
-#endif
-}
+Compaction::~Compaction() {}
 
 Status Compaction::compact() {
     RETURN_NOT_OK(prepare_compact());

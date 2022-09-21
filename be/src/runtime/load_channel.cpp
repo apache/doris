@@ -38,6 +38,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimi
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
     _last_updated_time.store(time(nullptr));
+    _mem_tracker->enable_reset_zero();
 }
 
 LoadChannel::~LoadChannel() {
@@ -45,8 +46,6 @@ LoadChannel::~LoadChannel() {
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
               << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip
               << ", is_vec=" << _is_vec;
-    // Load channel tracker cannot be completely accurate, offsetting the impact on the load channel mgr tracker.
-    _mem_tracker->parent()->cache_consume_local(-_mem_tracker->consumption());
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
