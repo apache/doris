@@ -157,6 +157,8 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.__isset.push_down_agg_type_opt;
     }
 
+	RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
+
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
