@@ -144,18 +144,22 @@ public class AccessTestUtil {
                 }
             };
 
-            CatalogMgr dsMgr = new CatalogMgr();
-            new Expectations(dsMgr) {
+            CatalogMgr catalogMgr = new CatalogMgr();
+            new Expectations(catalogMgr) {
                 {
-                    dsMgr.getCatalog((String) any);
+                    catalogMgr.getCatalog((String) any);
                     minTimes = 0;
                     result = catalog;
 
-                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    catalogMgr.getCatalogNullable((String) any);
                     minTimes = 0;
                     result = catalog;
 
-                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    catalogMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = catalog;
+
+                    catalogMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
                     result = catalog;
                 }
@@ -200,7 +204,7 @@ public class AccessTestUtil {
 
                     env.getCatalogMgr();
                     minTimes = 0;
-                    result = dsMgr;
+                    result = catalogMgr;
                 }
             };
             return env;

@@ -48,7 +48,7 @@ public class UseStmtTest {
         UseStmt stmt = new UseStmt("testDb");
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("USE `testCluster:testDb`", stmt.toString());
+        Assert.assertEquals("USE `internal`.`testCluster:testDb`", stmt.toString());
         Assert.assertEquals("testCluster:testDb", stmt.getDatabase());
     }
 
@@ -60,13 +60,12 @@ public class UseStmtTest {
         Assert.fail("No exception throws.");
     }
 
-
     @Test
     public void testFromCatalog() throws UserException, AnalysisException {
         UseStmt stmt = new UseStmt("cn", "testDb");
         stmt.analyze(analyzer);
-        Assert.assertEquals("USE `cn`.`testCluster:testDb`", stmt.toString());
-        Assert.assertEquals("testCluster:testDb", stmt.getDatabase());
+        Assert.assertEquals("USE `cn`.`testDb`", stmt.toString());
+        Assert.assertEquals("testDb", stmt.getDatabase());
         Assert.assertEquals("cn", stmt.getCatalogName());
     }
 }

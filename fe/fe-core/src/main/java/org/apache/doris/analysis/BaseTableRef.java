@@ -66,7 +66,6 @@ public class BaseTableRef extends TableRef {
      */
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        name = analyzer.getFqTableName(name);
         name.analyze(analyzer);
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true;  // true that we have assigned desc

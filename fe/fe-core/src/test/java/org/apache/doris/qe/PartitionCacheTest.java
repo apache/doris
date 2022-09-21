@@ -1170,10 +1170,10 @@ public class PartitionCacheTest {
 
             cache.rewriteSelectStmt(null);
             Assert.assertEquals(cache.getNokeyStmt().getWhereClause(), null);
-            Assert.assertEquals(cache.getSqlWithViewStmt(),
-                    "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`cnt` AS `cnt` FROM (SELECT "
+            Assert.assertEquals("SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`cnt` AS `cnt` FROM (SELECT "
                             + "<slot 4> `eventdate` AS `eventdate`, <slot 5> count(`userid`) AS `cnt` FROM "
-                            + "`testDb`.`view2` GROUP BY `eventdate`) origin|select eventdate, userid FROM appevent");
+                            + "`testCluster:testDb`.`view2` GROUP BY `eventdate`) origin|select eventdate, userid FROM appevent",
+                    cache.getSqlWithViewStmt());
         } catch (Exception e) {
             LOG.warn("ex={}", e);
             Assert.fail(e.getMessage());

@@ -79,7 +79,7 @@ public class CreateTableStmtTest {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         // table name
         tblName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db1", "table1");
-        tblNameNoDb = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "", "table1");
+        tblNameNoDb = new TableName("", "", "table1");
         // col
         cols = Lists.newArrayList();
         cols.add(new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
@@ -190,7 +190,7 @@ public class CreateTableStmtTest {
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testDb", stmt.getDbName());
+        Assert.assertEquals("testCluster:testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getPartitionDesc());
         Assert.assertNull(stmt.getProperties());

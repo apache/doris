@@ -99,6 +99,9 @@ public class MysqlProtoTest {
 
                 env.changeDb((ConnectContext) any, anyString);
                 minTimes = 0;
+
+                env.changeCatalog((ConnectContext) any, anyString);
+                minTimes = 0;
             }
         };
 

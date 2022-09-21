@@ -47,7 +47,7 @@ public class DropTableStmtTest {
     @Before
     public void setUp() {
         tbl = new TableName(internalCtl, "db1", "table1");
-        noDbTbl = new TableName(internalCtl, "", "table1");
+        noDbTbl = new TableName("", "", "table1");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
 
         new Expectations() {
@@ -94,12 +94,4 @@ public class DropTableStmtTest {
         stmt.analyze(noDbAnalyzer);
         Assert.fail("No Exception throws.");
     }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoTableFail() throws UserException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, new TableName(internalCtl, "db1", ""), true);
-        stmt.analyze(noDbAnalyzer);
-        Assert.fail("No Exception throws.");
-    }
-
 }

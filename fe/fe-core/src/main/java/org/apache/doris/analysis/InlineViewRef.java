@@ -192,8 +192,8 @@ public class InlineViewRef extends TableRef {
 
         queryStmt.getMaterializedTupleIds(materializedTupleIds);
         if (view != null && !hasExplicitAlias() && !view.isLocalView()) {
-            name = analyzer.getFqTableName(name);
-            aliases = new String[] { name.toString(), view.getName() };
+            name.analyze(analyzer);
+            aliases = new String[] {name.toString(), view.getName()};
         }
         //TODO(chenhao16): fix TableName in Db.Table style
         // name.analyze(analyzer);

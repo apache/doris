@@ -111,7 +111,7 @@ public class ShowViewStmtTest {
     @Test(expected = UserException.class)
     public void testNoDb() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "", "testTbl"));
+        ShowViewStmt stmt = new ShowViewStmt("", new TableName("", "", "testTbl"));
         stmt.analyze(new Analyzer(ctx.getEnv(), ctx));
         Assert.fail();
     }
