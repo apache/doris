@@ -77,7 +77,7 @@ struct EqualRangeIterator {
         // should continue to sort this row according to current column. Using the first non-zero
         // value and first zero value after first non-zero value as two bounds, we can get an equal range here
         if (!(_cur_range_begin == 0) || !(_flags[_cur_range_begin] == 1)) {
-            _cur_range_begin = simd::find_nonzero(_flags, _cur_range_begin + 1);
+            _cur_range_begin = simd::find_one(_flags, _cur_range_begin + 1);
             if (_cur_range_begin >= _end) {
                 return false;
             }

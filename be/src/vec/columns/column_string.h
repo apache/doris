@@ -371,6 +371,10 @@ public:
             offsets[self_row] = offsets[self_row - 1];
         }
     }
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
 };
 
 } // namespace doris::vectorized
