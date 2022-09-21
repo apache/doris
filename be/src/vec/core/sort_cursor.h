@@ -21,22 +21,133 @@
 #pragma once
 
 #include "vec/columns/column.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
 #include "vec/core/sort_description.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris::vectorized {
+
+struct HeapSortCursorBlockView {
+public:
+    Block block;
+    ColumnRawPtrs sort_columns;
+    SortDescription& desc;
+
+    HeapSortCursorBlockView(Block&& cur_block, SortDescription& sort_desc)
+            : block(cur_block), desc(sort_desc) {
+        _reset();
+    }
+
+    void filter_block(IColumn::Filter& filter) {
+        Block::filter_block_internal(&block, filter, block.columns());
+        _reset();
+    }
+
+private:
+    void _reset() {
+        sort_columns.clear();
+        auto columns = block.get_columns();
+        for (size_t j = 0, size = desc.size(); j < size; ++j) {
+            auto& column_desc = desc[j];
+            size_t column_number = !column_desc.column_name.empty()
+                                           ? block.get_position_by_name(column_desc.column_name)
+                                           : column_desc.column_number;
+            sort_columns.push_back(columns[column_number].get());
+        }
+    }
+};
+
+// Use `SharedHeapSortCursorBlockView` for `HeapSortCursorBlockView` instead of shared_ptr because there will be no
+// concurrent operation for `HeapSortCursorBlockView` and we don't need the lock inside shared_ptr
+class SharedHeapSortCursorBlockView {
+public:
+    SharedHeapSortCursorBlockView(HeapSortCursorBlockView&& reference)
+            : _ref_count(0), _reference(std::move(reference)) {}
+    SharedHeapSortCursorBlockView(const SharedHeapSortCursorBlockView&) = delete;
+    void unref() noexcept {
+        DCHECK_GT(_ref_count, 0);
+        _ref_count--;
+        if (_ref_count == 0) {
+            delete this;
+        }
+    }
+    void ref() noexcept { _ref_count++; }
+
+    HeapSortCursorBlockView& value() { return _reference; }
+
+private:
+    ~SharedHeapSortCursorBlockView() noexcept = default;
+    int _ref_count;
+    HeapSortCursorBlockView _reference;
+};
+
+struct HeapSortCursorImpl {
+public:
+    HeapSortCursorImpl(int row_id, SharedHeapSortCursorBlockView* block_view)
+            : _row_id(row_id), _block_view(block_view) {
+        block_view->ref();
+    }
+
+    HeapSortCursorImpl(const HeapSortCursorImpl& other) {
+        _row_id = other._row_id;
+        _block_view = other._block_view;
+        _block_view->ref();
+    }
+
+    HeapSortCursorImpl(HeapSortCursorImpl&& other) {
+        _row_id = other._row_id;
+        _block_view = other._block_view;
+        other._block_view = nullptr;
+    }
+
+    HeapSortCursorImpl& operator=(HeapSortCursorImpl&& other) {
+        std::swap(_row_id, other._row_id);
+        std::swap(_block_view, other._block_view);
+        return *this;
+    }
+
+    ~HeapSortCursorImpl() {
+        if (_block_view) {
+            _block_view->unref();
+        }
+    };
+
+    const size_t row_id() const { return _row_id; }
+
+    const ColumnRawPtrs& sort_columns() const { return _block_view->value().sort_columns; }
+
+    const Block* block() const { return &_block_view->value().block; }
+
+    const SortDescription& sort_desc() const { return _block_view->value().desc; }
+
+    bool operator<(const HeapSortCursorImpl& rhs) const {
+        for (size_t i = 0; i < sort_desc().size(); ++i) {
+            int direction = sort_desc()[i].direction;
+            int nulls_direction = sort_desc()[i].nulls_direction;
+            int res = direction * sort_columns()[i]->compare_at(row_id(), rhs.row_id(),
+                                                                *(rhs.sort_columns()[i]),
+                                                                nulls_direction);
+            // ASC: direction == 1. If bigger, res > 0. So we return true.
+            if (res < 0) {
+                return true;
+            }
+            if (res > 0) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+private:
+    size_t _row_id;
+    SharedHeapSortCursorBlockView* _block_view;
+};
 
 /** Cursor allows to compare rows in different blocks (and parts).
   * Cursor moves inside single block.
   * It is used in priority queue.
   */
-struct SortCursorImpl {
+struct MergeSortCursorImpl {
     ColumnRawPtrs all_columns;
     ColumnRawPtrs sort_columns;
     SortDescription desc;
@@ -44,20 +155,21 @@ struct SortCursorImpl {
     size_t pos = 0;
     size_t rows = 0;
 
-    SortCursorImpl() = default;
-    virtual ~SortCursorImpl() = default;
+    MergeSortCursorImpl() = default;
+    virtual ~MergeSortCursorImpl() = default;
 
-    SortCursorImpl(const Block& block, const SortDescription& desc_)
+    MergeSortCursorImpl(const Block& block, const SortDescription& desc_)
             : desc(desc_), sort_columns_size(desc.size()) {
         reset(block);
     }
 
-    SortCursorImpl(const Columns& columns, const SortDescription& desc_)
+    MergeSortCursorImpl(const Columns& columns, const SortDescription& desc_)
             : desc(desc_), sort_columns_size(desc.size()) {
         for (auto& column_desc : desc) {
             if (!column_desc.column_name.empty()) {
-                LOG(FATAL) << "SortDesctiption should contain column position if SortCursor was "
-                              "used without header.";
+                LOG(FATAL)
+                        << "SortDesctiption should contain column position if MergeSortCursor was "
+                           "used without header.";
             }
         }
         reset(columns, {});
@@ -101,7 +213,7 @@ struct SortCursorImpl {
 
 using BlockSupplier = std::function<Status(Block**)>;
 
-struct ReceiveQueueSortCursorImpl : public SortCursorImpl {
+struct ReceiveQueueSortCursorImpl : public MergeSortCursorImpl {
     ReceiveQueueSortCursorImpl(const BlockSupplier& block_supplier,
                                const std::vector<VExprContext*>& ordering_expr,
                                const std::vector<bool>& is_asc_order,
@@ -123,7 +235,7 @@ struct ReceiveQueueSortCursorImpl : public SortCursorImpl {
             for (int i = 0; i < desc.size(); ++i) {
                 _ordering_expr[i]->execute(_block_ptr, &desc[i].column_number);
             }
-            SortCursorImpl::reset(*_block_ptr);
+            MergeSortCursorImpl::reset(*_block_ptr);
             return true;
         }
         _block_ptr = nullptr;
@@ -150,14 +262,14 @@ struct ReceiveQueueSortCursorImpl : public SortCursorImpl {
 };
 
 /// For easy copying.
-struct SortCursor {
-    SortCursorImpl* impl;
+struct MergeSortCursor {
+    MergeSortCursorImpl* impl;
 
-    SortCursor(SortCursorImpl* impl_) : impl(impl_) {}
-    SortCursorImpl* operator->() const { return impl; }
+    MergeSortCursor(MergeSortCursorImpl* impl_) : impl(impl_) {}
+    MergeSortCursorImpl* operator->() const { return impl; }
 
     /// The specified row of this cursor is greater than the specified row of another cursor.
-    int8_t greater_at(const SortCursor& rhs, size_t lhs_pos, size_t rhs_pos) const {
+    int8_t greater_at(const MergeSortCursor& rhs, size_t lhs_pos, size_t rhs_pos) const {
         for (size_t i = 0; i < impl->sort_columns_size; ++i) {
             int direction = impl->desc[i].direction;
             int nulls_direction = impl->desc[i].nulls_direction;
@@ -175,7 +287,7 @@ struct SortCursor {
     }
 
     /// Checks that all rows in the current block of this cursor are less than or equal to all the rows of the current block of another cursor.
-    bool totally_less(const SortCursor& rhs) const {
+    bool totally_less(const MergeSortCursor& rhs) const {
         if (impl->rows == 0 || rhs.impl->rows == 0) {
             return false;
         }
@@ -184,23 +296,23 @@ struct SortCursor {
         return greater_at(rhs, impl->rows - 1, 0) == -1;
     }
 
-    bool greater(const SortCursor& rhs) const {
+    bool greater(const MergeSortCursor& rhs) const {
         return !impl->empty() && greater_at(rhs, impl->pos, rhs.impl->pos) > 0;
     }
 
     /// Inverted so that the priority queue elements are removed in ascending order.
-    bool operator<(const SortCursor& rhs) const { return greater(rhs); }
+    bool operator<(const MergeSortCursor& rhs) const { return greater(rhs); }
 };
 
 /// For easy copying.
-struct SortBlockCursor {
-    SortCursorImpl* impl;
+struct MergeSortBlockCursor {
+    MergeSortCursorImpl* impl;
 
-    SortBlockCursor(SortCursorImpl* impl_) : impl(impl_) {}
-    SortCursorImpl* operator->() const { return impl; }
+    MergeSortBlockCursor(MergeSortCursorImpl* impl_) : impl(impl_) {}
+    MergeSortCursorImpl* operator->() const { return impl; }
 
     /// The specified row of this cursor is greater than the specified row of another cursor.
-    int8_t less_at(const SortBlockCursor& rhs, int rows) const {
+    int8_t less_at(const MergeSortBlockCursor& rhs, int rows) const {
         for (size_t i = 0; i < impl->sort_columns_size; ++i) {
             int direction = impl->desc[i].direction;
             int nulls_direction = impl->desc[i].nulls_direction;
@@ -218,7 +330,7 @@ struct SortBlockCursor {
     }
 
     /// Checks that all rows in the current block of this cursor are less than or equal to all the rows of the current block of another cursor.
-    bool totally_greater(const SortBlockCursor& rhs) const {
+    bool totally_greater(const MergeSortBlockCursor& rhs) const {
         if (impl->rows == 0 || rhs.impl->rows == 0) {
             return false;
         }
@@ -228,7 +340,9 @@ struct SortBlockCursor {
     }
 
     /// Inverted so that the priority queue elements are removed in ascending order.
-    bool operator<(const SortBlockCursor& rhs) const { return less_at(rhs, impl->rows - 1) == 1; }
+    bool operator<(const MergeSortBlockCursor& rhs) const {
+        return less_at(rhs, impl->rows - 1) == 1;
+    }
 };
 
 } // namespace doris::vectorized
