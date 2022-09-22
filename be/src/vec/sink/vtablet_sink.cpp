@@ -361,9 +361,9 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     } else {
         _add_block_closure->cntl.http_request().Clear();
         {
-             SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
-             _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
-                                            &_add_block_closure->result, _add_block_closure);
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
+                                           &_add_block_closure->result, _add_block_closure);
         }
     }
 
