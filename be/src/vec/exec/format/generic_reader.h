@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "runtime/types.h"
 
 namespace doris::vectorized {
 
