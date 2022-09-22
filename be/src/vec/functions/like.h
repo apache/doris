@@ -96,12 +96,21 @@ struct LikeSearchState {
     }
 };
 
-using LikeFn = std::function<doris::Status(LikeSearchState* state, const StringValue&,
-                                           const StringValue&, unsigned char*)>;
+using LikeFn = std::function<doris::Status(LikeSearchState*, const StringValue&, const StringValue&,
+                                           unsigned char*)>;
+
+using LikeFnVec =
+        std::function<doris::Status(LikeSearchState*, const StringValue&, const StringValue*,
+                                    uint16_t*, uint16_t, bool, uint16_t*)>;
+
+using LikeFnVecDict = std::function<doris::Status(LikeSearchState*, const StringValue&,
+                                                  const StringValue*, uint16_t, unsigned char*)>;
 
 struct LikeState {
     LikeSearchState search_state;
     LikeFn function;
+    LikeFnVec function_vec;
+    LikeFnVecDict function_vec_dict;
 };
 
 class FunctionLikeBase : public IFunction {
@@ -136,6 +145,14 @@ protected:
 
     static Status constant_substring_fn(LikeSearchState* state, const StringValue& val,
                                         const StringValue& pattern, unsigned char* result);
+
+    static Status constant_substring_fn_vec(LikeSearchState* state, const StringValue& pattern,
+                                            const StringValue* values, uint16_t* sel, uint16_t size,
+                                            bool opposite, uint16_t* new_size);
+
+    static Status constant_substring_fn_vec_dict(LikeSearchState* state, const StringValue& pattern,
+                                                 const StringValue* values, uint16_t size,
+                                                 unsigned char* result);
 
     static Status constant_regex_fn(LikeSearchState* state, const StringValue& val,
                                     const StringValue& pattern, unsigned char* result);
