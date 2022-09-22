@@ -1018,7 +1018,6 @@ public class Coordinator {
 
                 int bucketSeq = 0;
                 int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
-                TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
 
                 // when left table is empty, it's bucketset is empty.
                 // set right table destination address to the address of left table
@@ -1029,30 +1028,35 @@ public class Coordinator {
                 }
                 // process bucket shuffle join on fragment without scan node
                 if (bucketNum < 0) {
-                    for (int i = 0; i < destParams.instanceExecParams.size(); i++) {
-                        if (destParams.instanceExecParams.get(i).bucketSeqSet.isEmpty()) {
-                            destParams.instanceExecParams.get(i).bucketSeqSet.add(i);
-                        }
+                    // add destination host to this fragment's destination
+                    for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                        dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
+                        dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
+                        dest.setBrpcServer(toBrpcHost(destParams.instanceExecParams.get(j).host));
+                        params.destinations.add(dest);
                     }
-                }
-                while (bucketSeq < bucketNum) {
-                    TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                } else {
+                    TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
+                    while (bucketSeq < bucketNum) {
+                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
 
-                    dest.fragment_instance_id = new TUniqueId(-1, -1);
-                    dest.server = dummyServer;
-                    dest.setBrpcServer(dummyServer);
+                        dest.fragment_instance_id = new TUniqueId(-1, -1);
+                        dest.server = dummyServer;
+                        dest.setBrpcServer(dummyServer);
 
-                    for (FInstanceExecParam instanceExecParams : destParams.instanceExecParams) {
-                        if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
-                            dest.fragment_instance_id = instanceExecParams.instanceId;
-                            dest.server = toRpcHost(instanceExecParams.host);
-                            dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
-                            break;
+                        for (FInstanceExecParam instanceExecParams : destParams.instanceExecParams) {
+                            if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
+                                dest.fragment_instance_id = instanceExecParams.instanceId;
+                                dest.server = toRpcHost(instanceExecParams.host);
+                                dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                                break;
+                            }
                         }
-                    }
 
-                    bucketSeq++;
-                    params.destinations.add(dest);
+                        bucketSeq++;
+                        params.destinations.add(dest);
+                    }
                 }
             } else {
                 // add destination host to this fragment's destination
