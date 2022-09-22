@@ -421,6 +421,7 @@ public class Coordinator {
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getDestFragment().getFragmentId());
             params.inputFragments.add(fragment.getFragmentId());
 
+            bucketShuffleJoinController.isBucketShuffleJoin(fragment.getFragmentId().asInt(), fragment.getPlanRoot());
         }
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
@@ -1026,6 +1027,14 @@ public class Coordinator {
                     bucketNum = 1;
                     destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                 }
+                // process bucket shuffle join on fragment without scan node
+                if (bucketNum < 0) {
+                    for (int i = 0; i < destParams.instanceExecParams.size(); i++) {
+                        if (destParams.instanceExecParams.get(i).bucketSeqSet.isEmpty()) {
+                            destParams.instanceExecParams.get(i).bucketSeqSet.add(i);
+                        }
+                    }
+                }
                 while (bucketSeq < bucketNum) {
                     TPlanFragmentDestination dest = new TPlanFragmentDestination();
 
@@ -1521,7 +1530,7 @@ public class Coordinator {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode,
                         idToBackend, addressToBackendID);
             }
-            if (!(fragmentContainsColocateJoin | fragmentContainsBucketShuffleJoin)) {
+            if (!(fragmentContainsColocateJoin || fragmentContainsBucketShuffleJoin)) {
                 computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost);
             }
         }
@@ -1862,7 +1871,7 @@ public class Coordinator {
         }
 
         private int getFragmentBucketNum(PlanFragmentId fragmentId) {
-            return fragmentIdToBucketNumMap.get(fragmentId);
+            return fragmentIdToBucketNumMap.getOrDefault(fragmentId, -1);
         }
 
         // make sure each host have average bucket to scan
