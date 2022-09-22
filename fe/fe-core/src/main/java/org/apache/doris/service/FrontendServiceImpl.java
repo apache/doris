@@ -905,8 +905,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        LOG.info(
-                "debug stream load get request db: {}, db: {}, request tbl: {}, tbl id: {}, tbl: {}, request columns: {}",
+        LOG.info("debug stream load get request db: {}, db: {}, request tbl: {}, tbl id: {}, tbl: {}, "
+                        + "request columns: {}",
                 request.getDb(), db.getFullName(), request.getTbl(), table.getId(), table.getName(), request.columns);
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
