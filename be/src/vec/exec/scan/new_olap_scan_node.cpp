@@ -149,6 +149,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
     // 1. construct scan key except last olap engine short key
     _scan_keys.set_is_convertible(limit() == -1);
+    _scan_keys.set_max_scan_key_num(_max_scan_key_num);
 
     // we use `exact_range` to identify a key range is an exact range or not when we convert
     // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
@@ -162,8 +163,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
-                    RETURN_IF_ERROR(
-                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    RETURN_IF_ERROR(_scan_keys.extend_scan_key(range, &exact_range));
                     if (exact_range) {
                         _colname_to_value_range.erase(iter->first);
                     }
@@ -265,11 +265,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 
     // ranges constructed from scan keys
     std::vector<std::unique_ptr<doris::OlapScanRange>> cond_ranges;
-    RETURN_IF_ERROR(_scan_keys.get_key_range(&cond_ranges));
-    // if we can't get ranges from conditions, we give it a total range
-    if (cond_ranges.empty()) {
-        cond_ranges.emplace_back(new doris::OlapScanRange());
-    }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
     std::unordered_set<std::string> disk_set;
@@ -285,13 +280,24 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             return Status::InternalError(ss.str());
         }
 
-        std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &cond_ranges;
         int size_based_scanners_per_tablet = 1;
 
         if (config::doris_scan_range_max_mb > 0) {
             size_based_scanners_per_tablet = std::max(
                     1, (int)(tablet->tablet_footprint() / (config::doris_scan_range_max_mb << 20)));
         }
+
+        if (_scan_keys.size() > size_based_scanners_per_tablet && _scan_keys.is_mergeable()) {
+            auto scan_keys = _scan_keys.merge(size_based_scanners_per_tablet);
+            RETURN_IF_ERROR(scan_keys.get_key_range(&cond_ranges));
+        } else {
+            RETURN_IF_ERROR(_scan_keys.get_key_range(&cond_ranges));
+        }
+        // if we can't get ranges from conditions, we give it a total range
+        if (cond_ranges.empty()) {
+            cond_ranges.emplace_back(new doris::OlapScanRange());
+        }
+        std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &cond_ranges;
 
         int ranges_per_scanner =
                 std::max(1, (int)ranges->size() /
