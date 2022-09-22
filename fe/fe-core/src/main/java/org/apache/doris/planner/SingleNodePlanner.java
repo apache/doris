@@ -470,19 +470,31 @@ public class SingleNodePlanner {
                             }
                         }
 
-                        PrimitiveType colType = col.getDataType();
-                        if (colType.isArrayType() || colType.isComplexType()
-                                || colType == PrimitiveType.STRING) {
-                            returnColumnValidate = false;
-                            break;
-                        }
-
                         // The zone map max length of CharFamily is 512, do not
                         // over the length: https://github.com/apache/doris/pull/6293
-                        if (colType.isCharFamily() && aggOp != TPushAggOp.COUNT
-                                && col.getType().getLength() > 512) {
-                            returnColumnValidate = false;
-                            break;
+                        if (aggOp == TPushAggOp.MINMAX || aggOp == TPushAggOp.MIX) {
+                            PrimitiveType colType = col.getDataType();
+                            if (colType.isArrayType() || colType.isComplexType()
+                                    || colType == PrimitiveType.STRING) {
+                                returnColumnValidate = false;
+                                break;
+                            }
+
+                            if (colType.isCharFamily() && aggOp != TPushAggOp.COUNT
+                                    && col.getType().getLength() > 512) {
+                                returnColumnValidate = false;
+                                break;
+                            }
+                        }
+
+                        if (aggOp == TPushAggOp.COUNT || aggOp == TPushAggOp.MIX) {
+                            // NULL value behavior in `count` function is zero, so
+                            // we should not use row_count to speed up query. the col
+                            // must be not null
+                            if (col.isAllowNull()) {
+                                returnColumnValidate = false;
+                                break;
+                            }
                         }
                     }
                 }
