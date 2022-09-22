@@ -85,6 +85,9 @@ public final class CostEstimate {
         return new CostEstimate(0, memoryCost, 0);
     }
 
+    /**
+     * sum of cost estimate
+     */
     public static CostEstimate sum(CostEstimate one, CostEstimate two, CostEstimate... more) {
         double v1 = one.cpuCost + two.cpuCost;
         double v2 = one.memoryCost + two.memoryCost;

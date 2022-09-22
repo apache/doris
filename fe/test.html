@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<style>
+	body {margin: 0; padding: 10px; background-color: #ffffff}
+	h1 {margin: 5px 0 0 0; font-size: 18px; font-weight: normal; text-align: center}
+	header {margin: -24px 0 5px 0; line-height: 24px}
+	button {font: 12px sans-serif; cursor: pointer}
+	p {margin: 5px 0 5px 0}
+	a {color: #0366d6}
+	#hl {position: absolute; display: none; overflow: hidden; white-space: nowrap; pointer-events: none; background-color: #ffffe0; outline: 1px solid #ffc000; height: 15px}
+	#hl span {padding: 0 3px 0 3px}
+	#status {overflow: hidden; white-space: nowrap}
+	#match {overflow: hidden; white-space: nowrap; display: none; float: right; text-align: right}
+	#reset {cursor: pointer}
+	#canvas {width: 100%; height: 816px}
+</style>
+</head>
+<body style='font: 12px Verdana, sans-serif'>
+<h1>CPU profile</h1>
+<header style='text-align: left'><button id='reverse' title='Reverse'>&#x1f53b;</button>&nbsp;&nbsp;<button id='search' title='Search'>&#x1f50d;</button></header>
+<header style='text-align: right'>Produced by <a href='https://github.com/jvm-profiling-tools/async-profiler'>async-profiler</a></header>
+<canvas id='canvas'></canvas>
+<div id='hl'><span></span></div>
+<p id='match'>Matched: <span id='matchval'></span> <span id='reset' title='Clear'>&#x274c;</span></p>
+<p id='status'>&nbsp;</p>
+<script>
+	// Copyright 2020 Andrei Pangin
+	// Licensed under the Apache License, Version 2.0.
+	'use strict';
+	var root, rootLevel, px, pattern;
+	var reverse = false;
+	const levels = Array(51);
+	for (let h = 0; h < levels.length; h++) {
+		levels[h] = [];
+	}
+
+	const canvas = document.getElementById('canvas');
+	const c = canvas.getContext('2d');
+	const hl = document.getElementById('hl');
+	const status = document.getElementById('status');
+
+	const canvasWidth = canvas.offsetWidth;
+	const canvasHeight = canvas.offsetHeight;
+	canvas.style.width = canvasWidth + 'px';
+	canvas.width = canvasWidth * (devicePixelRatio || 1);
+	canvas.height = canvasHeight * (devicePixelRatio || 1);
+	if (devicePixelRatio) c.scale(devicePixelRatio, devicePixelRatio);
+	c.font = document.body.style.font;
+
+	const palette = [
+		[0xb2e1b2, 20, 20, 20],
+		[0x50e150, 30, 30, 30],
+		[0x50cccc, 30, 30, 30],
+		[0xe15a5a, 30, 40, 40],
+		[0xc8c83c, 30, 30, 10],
+		[0xe17d00, 30, 30,  0],
+		[0xcce880, 20, 20, 20],
+	];
+
+	function getColor(p) {
+		const v = Math.random();
+		return '#' + (p[0] + ((p[1] * v) << 16 | (p[2] * v) << 8 | (p[3] * v))).toString(16);
+	}
+
+	function f(level, left, width, type, title, inln, c1, int) {
+		levels[level].push({left: left, width: width, color: getColor(palette[type]), title: title,
+			details: (int ? ', int=' + int : '') + (c1 ? ', c1=' + c1 : '') + (inln ? ', inln=' + inln : '')
+		});
+	}
+
+	function samples(n) {
+		return n === 1 ? '1 sample' : n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' samples';
+	}
+
+	function pct(a, b) {
+		return a >= b ? '100' : (100 * a / b).toFixed(2);
+	}
+
+	function findFrame(frames, x) {
+		let left = 0;
+		let right = frames.length - 1;
+
+		while (left <= right) {
+			const mid = (left + right) >>> 1;
+			const f = frames[mid];
+
+			if (f.left > x) {
+				right = mid - 1;
+			} else if (f.left + f.width <= x) {
+				left = mid + 1;
+			} else {
+				return f;
+			}
+		}
+
+		if (frames[left] && (frames[left].left - x) * px < 0.5) return frames[left];
+		if (frames[right] && (x - (frames[right].left + frames[right].width)) * px < 0.5) return frames[right];
+
+		return null;
+	}
+
+	function search(r) {
+		if (r === true && (r = prompt('Enter regexp to search:', '')) === null) {
+			return;
+		}
+
+		pattern = r ? RegExp(r) : undefined;
+		const matched = render(root, rootLevel);
+		document.getElementById('matchval').textContent = pct(matched, root.width) + '%';
+		document.getElementById('match').style.display = r ? 'inherit' : 'none';
+	}
+
+	function render(newRoot, newLevel) {
+		if (root) {
+			c.fillStyle = '#ffffff';
+			c.fillRect(0, 0, canvasWidth, canvasHeight);
+		}
+
+		root = newRoot || levels[0][0];
+		rootLevel = newLevel || 0;
+		px = canvasWidth / root.width;
+
+		const x0 = root.left;
+		const x1 = x0 + root.width;
+		const marked = [];
+
+		function mark(f) {
+			return marked[f.left] >= f.width || (marked[f.left] = f.width);
+		}
+
+		function totalMarked() {
+			let total = 0;
+			let left = 0;
+			Object.keys(marked).sort(function(a, b) { return a - b; }).forEach(function(x) {
+				if (+x >= left) {
+					total += marked[x];
+					left = +x + marked[x];
+				}
+			});
+			return total;
+		}
+
+		function drawFrame(f, y, alpha) {
+			if (f.left < x1 && f.left + f.width > x0) {
+				c.fillStyle = pattern && f.title.match(pattern) && mark(f) ? '#ee00ee' : f.color;
+				c.fillRect((f.left - x0) * px, y, f.width * px, 15);
+
+				if (f.width * px >= 21) {
+					const chars = Math.floor(f.width * px / 7);
+					const title = f.title.length <= chars ? f.title : f.title.substring(0, chars - 2) + '..';
+					c.fillStyle = '#000000';
+					c.fillText(title, Math.max(f.left - x0, 0) * px + 3, y + 12, f.width * px - 6);
+				}
+
+				if (alpha) {
+					c.fillStyle = 'rgba(255, 255, 255, 0.5)';
+					c.fillRect((f.left - x0) * px, y, f.width * px, 15);
+				}
+			}
+		}
+
+		for (let h = 0; h < levels.length; h++) {
+			const y = reverse ? h * 16 : canvasHeight - (h + 1) * 16;
+			const frames = levels[h];
+			for (let i = 0; i < frames.length; i++) {
+				drawFrame(frames[i], y, h < rootLevel);
+			}
+		}
+
+		return totalMarked();
+	}
+
+	canvas.onmousemove = function() {
+		const h = Math.floor((reverse ? event.offsetY : (canvasHeight - event.offsetY)) / 16);
+		if (h >= 0 && h < levels.length) {
+			const f = findFrame(levels[h], event.offsetX / px + root.left);
+			if (f) {
+				if (f != root) getSelection().removeAllRanges();
+				hl.style.left = (Math.max(f.left - root.left, 0) * px + canvas.offsetLeft) + 'px';
+				hl.style.width = (Math.min(f.width, root.width) * px) + 'px';
+				hl.style.top = ((reverse ? h * 16 : canvasHeight - (h + 1) * 16) + canvas.offsetTop) + 'px';
+				hl.firstChild.textContent = f.title;
+				hl.style.display = 'block';
+				canvas.title = f.title + '\n(' + samples(f.width) + f.details + ', ' + pct(f.width, levels[0][0].width) + '%)';
+				canvas.style.cursor = 'pointer';
+				canvas.onclick = function() {
+					if (f != root) {
+						render(f, h);
+						canvas.onmousemove();
+					}
+				};
+				status.textContent = 'Function: ' + canvas.title;
+				return;
+			}
+		}
+		canvas.onmouseout();
+	}
+
+	canvas.onmouseout = function() {
+		hl.style.display = 'none';
+		status.textContent = '\xa0';
+		canvas.title = '';
+		canvas.style.cursor = '';
+		canvas.onclick = '';
+	}
+
+	canvas.ondblclick = function() {
+		getSelection().selectAllChildren(hl);
+	}
+
+	document.getElementById('reverse').onclick = function() {
+		reverse = !reverse;
+		render();
+	}
+
+	document.getElementById('search').onclick = function() {
+		search(true);
+	}
+
+	document.getElementById('reset').onclick = function() {
+		search(false);
+	}
+
+	window.onkeydown = function() {
+		if (event.ctrlKey && event.keyCode === 70) {
+			event.preventDefault();
+			search(true);
+		} else if (event.keyCode === 27) {
+			search(false);
+		}
+	}
+
+f(0,0,1746,3,'all')
+f(1,0,1,3,'[not_walkable_Java]')
+f(2,0,1,3,'Interpreter')
+f(1,1,55,3,'[unknown_Java]')
+f(2,1,1,1,'com/google/common/collect/ImmutableList.forEach')
+f(2,2,14,1,'java/util/AbstractSet.equals')
+f(2,16,7,1,'java/util/stream/AbstractPipeline.wrapAndCopyInto')
+f(2,23,10,1,'java/util/stream/ReduceOps$ReduceOp.evaluateSequential')
+f(2,33,1,1,'org/apache/doris/nereids/properties/DistributionSpecHash.<init>')
+f(2,34,21,1,'org/apache/doris/nereids/properties/RequestPropertyDeriver.visitPhysicalHashJoin')
+f(2,55,1,1,'org/apache/doris/nereids/trees/plans/logical/LogicalJoin.withLogicalProperties')
+f(1,56,807,1,'java/lang/Thread.run')
+f(2,56,801,1,'java/util/concurrent/ThreadPoolExecutor$Worker.run')
+f(3,56,801,1,'java/util/concurrent/ThreadPoolExecutor.runWorker')
+f(4,56,801,1,'org/apache/doris/mysql/nio/ReadListener$$Lambda$784/987205755.run')
+f(5,56,801,1,'org/apache/doris/mysql/nio/ReadListener.lambda$handleEvent$0')
+f(6,56,801,1,'org/apache/doris/qe/ConnectProcessor.processOnce')
+f(7,56,801,1,'org/apache/doris/qe/ConnectProcessor.dispatch')
+f(8,56,801,1,'org/apache/doris/qe/ConnectProcessor.handleQuery')
+f(9,56,1,1,'org/apache/doris/nereids/parser/NereidsParser.parseSQL')
+f(10,56,1,1,'org/apache/doris/nereids/parser/NereidsParser.parseMultiple')
+f(11,56,1,1,'org/apache/doris/nereids/parser/NereidsParser.parse')
+f(12,56,1,1,'org/apache/doris/nereids/parser/NereidsParser.toAst')
+f(13,56,1,1,'org/apache/doris/nereids/parser/NereidsParser$$Lambda$831/1159854126.apply')
+f(14,56,1,1,'org/apache/doris/nereids/DorisParser.multiStatements')
+f(15,56,1,1,'org/antlr/v4/runtime/Parser.enterRule')
+f(16,56,1,1,'org/antlr/v4/runtime/CommonTokenStream.LT')
+f(17,56,1,1,'org/antlr/v4/runtime/BufferedTokenStream.lazyInit')
+f(18,56,1,1,'org/antlr/v4/runtime/BufferedTokenStream.setup')
+f(19,56,1,1,'org/antlr/v4/runtime/BufferedTokenStream.sync')
+f(20,56,1,1,'org/antlr/v4/runtime/BufferedTokenStream.fetch')
+f(21,56,1,1,'org/antlr/v4/runtime/Lexer.nextToken')
+f(22,56,1,4,'SharedRuntime::resolve_virtual_call_C(JavaThread*)')
+f(23,56,1,4,'SharedRuntime::resolve_helper(JavaThread*, bool, bool, Thread*)')
+f(24,56,1,4,'SharedRuntime::resolve_sub_helper(JavaThread*, bool, bool, Thread*)')
+f(25,56,1,4,'CompiledIC::set_to_monomorphic(CompiledICInfo&)')
+f(26,56,1,4,'CodeBlob::is_adapter_blob() const')
+f(9,57,800,1,'org/apache/doris/qe/StmtExecutor.execute')
+f(10,57,800,1,'org/apache/doris/qe/StmtExecutor.execute')
+f(11,57,800,1,'org/apache/doris/qe/StmtExecutor.analyze')
+f(12,57,800,1,'org/apache/doris/qe/StmtExecutor.analyzeAndGenerateQueryPlan')
+f(13,57,800,1,'org/apache/doris/nereids/NereidsPlanner.plan')
+f(14,57,799,1,'org/apache/doris/nereids/NereidsPlanner.plan')
+f(15,57,1,1,'org/apache/doris/nereids/NereidsPlanner.analyze')
+f(16,57,1,1,'org/apache/doris/nereids/analyzer/NereidsAnalyzer.analyze')
+f(17,57,1,1,'org/apache/doris/nereids/jobs/batch/BatchRulesJob.execute')
+f(18,57,1,1,'org/apache/doris/nereids/jobs/scheduler/SimpleJobScheduler.executeJobPool')
+f(19,57,1,1,'org/apache/doris/nereids/jobs/rewrite/RewriteBottomUpJob.execute')
+f(20,57,1,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching.iterator')
+f(21,57,1,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.<init>')
+f(22,57,1,2,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.assembleAllCombinationPlanTree',1,0,0)
+f(15,58,797,1,'org/apache/doris/nereids/NereidsPlanner.optimize')
+f(16,58,797,1,'org/apache/doris/nereids/jobs/batch/BatchRulesJob.execute')
+f(17,58,797,1,'org/apache/doris/nereids/jobs/scheduler/SimpleJobScheduler.executeJobPool')
+f(18,63,6,1,'org/apache/doris/nereids/jobs/cascades/ApplyRuleJob.execute')
+f(19,63,1,1,'org/apache/doris/nereids/memo/Memo.copyIn')
+f(20,63,1,1,'org/apache/doris/nereids/memo/Memo.doCopyIn')
+f(21,63,1,1,'org/apache/doris/nereids/memo/Memo.insertGroupExpression')
+f(22,63,1,1,'java/util/HashMap.get')
+f(23,63,1,1,'java/util/HashMap.hash')
+f(24,63,1,1,'org/apache/doris/nereids/memo/GroupExpression.hashCode')
+f(25,63,1,1,'java/util/Objects.hash')
+f(26,63,1,1,'java/util/Arrays.hashCode')
+f(27,63,1,1,'org/apache/doris/nereids/trees/plans/logical/LogicalProject.hashCode')
+f(28,63,1,1,'java/util/Objects.hash')
+f(29,63,1,1,'java/util/Arrays.hashCode')
+f(30,63,1,1,'com/google/common/collect/ImmutableList.hashCode')
+f(31,63,1,1,'org/apache/doris/nereids/trees/expressions/SlotReference.hashCode')
+f(32,63,1,1,'java/util/Objects.hash')
+f(33,63,1,1,'java/util/Arrays.hashCode')
+f(34,63,1,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(35,63,1,2,'java/util/Objects.hash',1,0,0)
+f(36,63,1,2,'java/util/Arrays.hashCode',1,0,0)
+f(19,64,4,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching.iterator')
+f(20,64,4,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.<init>')
+f(21,64,4,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.matchingChildGroup',1,0,0)
+f(22,64,4,1,'java/lang/Iterable.forEach',1,0,0)
+f(23,64,4,1,'org/apache/doris/nereids/pattern/GroupMatching.iterator',1,0,0)
+f(24,64,4,1,'org/apache/doris/nereids/pattern/GroupMatching$GroupIterator.<init>',1,0,0)
+f(25,65,3,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching.iterator')
+f(26,65,3,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.<init>')
+f(27,65,1,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.assembleAllCombinationPlanTree')
+f(28,65,1,1,'org/apache/doris/nereids/trees/plans/logical/LogicalJoin.withLogicalProperties')
+f(29,65,1,1,'org/apache/doris/nereids/trees/plans/logical/LogicalJoin.<init>')
+f(30,65,1,1,'org/apache/doris/nereids/trees/plans/logical/LogicalJoin.<init>')
+f(31,65,1,2,'org/apache/doris/nereids/trees/plans/logical/LogicalBinary.<init>',1,0,0)
+f(27,66,2,2,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.matchingChildGroup',1,0,0)
+f(28,66,2,2,'java/lang/Iterable.forEach',1,0,0)
+f(29,66,2,2,'org/apache/doris/nereids/pattern/GroupMatching.iterator',1,0,0)
+f(30,66,2,2,'org/apache/doris/nereids/pattern/GroupMatching$GroupIterator.<init>',1,0,0)
+f(31,66,2,2,'org/apache/doris/nereids/pattern/GroupExpressionMatching.iterator',1,0,0)
+f(32,67,1,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.<init>')
+f(33,67,1,1,'org/apache/doris/nereids/pattern/GroupExpressionMatching$GroupExpressionIterator.assembleAllCombinationPlanTree')
+f(34,67,1,1,'org/apache/doris/nereids/trees/plans/logical/LogicalJoin.withGroupExpression')
+f(35,67,1,1,'org/apache/doris/nereids/trees/plans/AbstractPlan.getLogicalProperties')
+f(36,67,1,1,'com/google/common/base/Suppliers$NonSerializableMemoizingSupplier.get')
+f(37,67,1,1,'org/apache/doris/nereids/trees/plans/AbstractPlan$$Lambda$839/161115598.get')
+f(38,67,1,2,'org/apache/doris/nereids/trees/plans/AbstractPlan.lambda$new$0',1,0,0)
+f(19,68,1,1,'org/apache/doris/nereids/pattern/PatternMatcher$1.transform')
+f(20,68,1,1,'org/apache/doris/nereids/pattern/PatternDescriptor$$Lambda$880/1500676257.apply')
+f(21,68,1,1,'org/apache/doris/nereids/pattern/PatternDescriptor.lambda$then$0')
+f(22,68,1,1,'org/apache/doris/nereids/rules/exploration/join/InnerJoinLAsscomProject$$Lambda$886/1319487980.apply')
+f(23,68,1,1,'org/apache/doris/nereids/rules/exploration/join/InnerJoinLAsscomProject.lambda$build$1')
+f(24,68,1,1,'org/apache/doris/nereids/rules/exploration/join/JoinLAsscomHelper.<init>')
+f(25,68,1,1,'org/apache/doris/nereids/rules/exploration/join/ThreeJoinHelper.<init>')
+f(26,68,1,1,'org/apache/doris/nereids/trees/plans/Plan.getOutputSet')
+f(27,68,1,1,'com/google/common/collect/ImmutableSet.copyOf')
+f(28,68,1,1,'com/google/common/collect/ImmutableSet.constructUnknownDuplication')
+f(29,68,1,1,'com/google/common/collect/ImmutableSet.construct')
+f(30,68,1,2,'com/google/common/collect/ImmutableSet$RegularSetBuilderImpl.<init>',1,0,0)
+f(31,68,1,2,'com/google/common/collect/ImmutableSet.access$000',1,0,0)
+f(32,68,1,2,'com/google/common/collect/ImmutableSet.maxRunBeforeFallback',1,0,0)
+f(33,68,1,2,'com/google/common/math/IntMath.log2',1,0,0)
+f(18,69,774,1,'org/apache/doris/nereids/jobs/cascades/CostAndEnforcerJob.execute')
+f(19,78,2,2,'java/util/ArrayList.add',2,0,0)
+f(20,78,2,2,'java/util/ArrayList.ensureCapacityInternal',2,0,0)
+f(21,78,2,2,'java/util/ArrayList.ensureExplicitCapacity',2,0,0)
+f(22,78,2,2,'java/util/ArrayList.grow',2,0,0)
+f(23,78,2,2,'java/util/Arrays.copyOf',2,0,0)
+f(19,80,2,1,'java/util/ArrayList.set')
+f(20,80,2,2,'java/util/ArrayList.elementData',2,0,0)
+f(19,82,51,1,'java/util/HashMap.get')
+f(20,83,49,1,'java/util/HashMap.getNode',9,0,0)
+f(21,92,40,1,'org/apache/doris/nereids/properties/PhysicalProperties.equals')
+f(22,92,36,2,'org/apache/doris/nereids/properties/DistributionSpecHash.equals',13,0,0)
+f(23,94,2,2,'com/google/common/collect/ImmutableList.equals',2,0,0)
+f(24,94,2,2,'com/google/common/collect/Lists.equalsImpl',2,0,0)
+f(23,96,23,1,'java/util/AbstractList.equals')
+f(24,98,19,1,'java/util/AbstractSet.equals')
+f(25,98,19,1,'java/util/AbstractCollection.containsAll',5,0,0)
+f(26,103,3,3,'itable stub')
+f(26,106,1,1,'java/util/HashMap$HashIterator.hasNext')
+f(26,107,3,1,'java/util/HashMap$KeyIterator.next')
+f(27,108,2,2,'java/util/HashMap$HashIterator.nextNode',2,0,0)
+f(26,110,4,1,'java/util/HashSet.contains')
+f(27,110,4,2,'java/util/HashMap.containsKey',2,0,0)
+f(28,110,2,2,'java/util/HashMap.getNode',2,0,0)
+f(28,112,2,1,'java/util/HashMap.hash')
+f(29,112,1,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(29,113,1,3,'vtable stub')
+f(26,114,3,1,'java/util/HashSet.iterator')
+f(27,116,1,2,'java/util/HashMap$KeySet.iterator',1,0,0)
+f(28,116,1,2,'java/util/HashMap$KeyIterator.<init>',1,0,0)
+f(29,116,1,2,'java/util/HashMap$HashIterator.<init>',1,0,0)
+f(24,117,2,2,'java/util/ArrayList.listIterator',2,0,0)
+f(23,119,2,2,'java/util/AbstractMap.equals',2,0,0)
+f(24,119,2,2,'java/util/HashMap.get',2,0,0)
+f(25,119,2,2,'java/util/HashMap.getNode',2,0,0)
+f(23,121,7,2,'java/util/AbstractSet.equals',7,0,0)
+f(22,128,4,1,'org/apache/doris/nereids/properties/OrderSpec.equals',1,0,0)
+f(23,129,3,1,'java/util/AbstractList.equals')
+f(20,132,1,1,'java/util/HashMap.hash')
+f(21,132,1,1,'org/apache/doris/nereids/properties/PhysicalProperties.hashCode')
+f(19,133,223,1,'org/apache/doris/nereids/cost/CostCalculator.calculateCost',7,0,0)
+f(20,140,5,3,'itable stub')
+f(20,145,30,1,'org/apache/doris/nereids/PlanContext.<init>')
+f(21,162,6,2,'com/google/common/collect/Lists.newArrayList',6,0,0)
+f(21,168,7,2,'java/util/ArrayList.add',7,0,0)
+f(22,168,7,2,'java/util/ArrayList.ensureCapacityInternal',7,0,0)
+f(23,168,7,2,'java/util/ArrayList.ensureExplicitCapacity',7,0,0)
+f(24,168,7,2,'java/util/ArrayList.grow',7,0,0)
+f(25,168,7,2,'java/util/Arrays.copyOf',7,0,0)
+f(20,175,2,1,'org/apache/doris/nereids/cost/CostCalculator$CostEstimator.<init>')
+f(20,177,177,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalHashJoin.accept')
+f(21,180,173,1,'org/apache/doris/nereids/cost/CostCalculator$CostEstimator.visitPhysicalHashJoin')
+f(22,181,172,2,'org/apache/doris/nereids/cost/CostCalculator$CostEstimator.visitPhysicalHashJoin',68,0,0)
+f(23,181,91,2,'org/apache/doris/nereids/cost/CostCalculator.access$100',33,0,0)
+f(24,181,91,2,'org/apache/doris/nereids/cost/CostCalculator.calculateJoinInputCost',33,0,0)
+f(25,181,91,2,'org/apache/doris/nereids/PlanContext.getChildOutputIds',33,0,0)
+f(26,186,58,1,'com/google/common/collect/ImmutableList.forEach')
+f(27,188,56,2,'org/apache/doris/nereids/PlanContext$$Lambda$1166/486934336.accept',56,0,0)
+f(28,188,56,2,'org/apache/doris/nereids/PlanContext.lambda$getChildOutputIds$0',56,0,0)
+f(29,191,53,2,'java/util/ArrayList.add',53,0,0)
+f(30,191,53,2,'java/util/ArrayList.ensureCapacityInternal',53,0,0)
+f(31,191,53,2,'java/util/ArrayList.ensureExplicitCapacity',53,0,0)
+f(32,191,53,2,'java/util/ArrayList.grow',53,0,0)
+f(33,191,53,2,'java/util/Arrays.copyOf',53,0,0)
+f(26,244,28,2,'org/apache/doris/nereids/properties/LogicalProperties.getOutput',28,0,0)
+f(27,258,14,2,'com/google/common/base/Suppliers$NonSerializableMemoizingSupplier.get',14,0,0)
+f(23,272,81,2,'org/apache/doris/nereids/cost/CostCalculator.access$200',35,0,0)
+f(24,272,81,2,'org/apache/doris/nereids/cost/CostCalculator.calculateJoinOutputCost',35,0,0)
+f(25,272,81,2,'org/apache/doris/statistics/StatsDeriveResult.computeSize',35,0,0)
+f(26,272,28,2,'java/util/Collection.stream',28,0,0)
+f(27,272,28,2,'java/util/stream/StreamSupport.stream',28,0,0)
+f(28,272,2,2,'java/util/stream/ReferencePipeline$Head.<init>',2,0,0)
+f(29,272,2,2,'java/util/stream/ReferencePipeline.<init>',2,0,0)
+f(30,272,2,2,'java/util/stream/AbstractPipeline.<init>',2,0,0)
+f(31,272,2,2,'java/util/stream/PipelineHelper.<init>',2,0,0)
+f(28,274,26,2,'java/util/stream/StreamOpFlag.fromCharacteristics',26,0,0)
+f(26,300,53,1,'java/util/stream/ReferencePipeline.reduce',7,0,0)
+f(27,300,53,1,'java/util/stream/AbstractPipeline.evaluate',7,0,0)
+f(28,307,45,1,'java/util/stream/ReduceOps$ReduceOp.evaluateSequential')
+f(29,313,6,3,'itable stub')
+f(29,319,28,1,'java/util/stream/AbstractPipeline.wrapAndCopyInto')
+f(30,321,24,1,'java/util/stream/AbstractPipeline.copyInto',7,0,0)
+f(31,324,4,3,'itable stub')
+f(31,328,9,1,'java/util/Spliterator.getExactSizeIfKnown')
+f(32,334,1,3,'itable stub')
+f(32,335,2,1,'java/util/HashMap$HashMapSpliterator.estimateSize')
+f(33,336,1,2,'java/util/HashMap$HashMapSpliterator.getFence',1,0,0)
+f(31,337,4,2,'java/util/stream/AbstractPipeline.copyIntoWithCancel',4,0,0)
+f(31,341,1,6,'java/util/stream/ReduceOps$1ReducingSink.begin',0,1,0)
+f(31,342,3,6,'java/util/stream/Sink.end',0,3,0)
+f(30,345,2,2,'java/util/stream/AbstractPipeline.wrapSink',2,0,0)
+f(29,347,3,1,'java/util/stream/ReduceOps$1.makeSink')
+f(30,349,1,2,'java/util/stream/ReduceOps$1.makeSink',1,0,0)
+f(29,350,1,6,'java/util/stream/ReduceOps$Box.get',0,1,0)
+f(29,351,1,3,'vtable stub')
+f(28,352,1,6,'java/util/stream/TerminalOp.getOpFlags',0,1,0)
+f(21,353,1,3,'vtable stub')
+f(20,354,2,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalProject.accept')
+f(21,355,1,1,'org/apache/doris/nereids/cost/CostCalculator$CostEstimator.visitPhysicalProject')
+f(22,355,1,2,'org/apache/doris/nereids/cost/CostCalculator$CostEstimator.visitPhysicalProject',1,0,0)
+f(23,355,1,2,'org/apache/doris/nereids/cost/CostEstimate.ofCpu',1,0,0)
+f(19,356,3,1,'org/apache/doris/nereids/jobs/cascades/CostAndEnforcerJob.clear')
+f(20,356,3,2,'java/util/ArrayList.clear',3,0,0)
+f(19,359,187,2,'org/apache/doris/nereids/memo/Group.getLowestCostPlan',78,0,0)
+f(20,359,187,2,'java/util/HashMap.get',78,0,0)
+f(21,359,113,2,'java/util/HashMap.getNode',76,0,0)
+f(22,360,112,2,'org/apache/doris/nereids/properties/PhysicalProperties.equals',75,0,0)
+f(23,360,58,2,'org/apache/doris/nereids/properties/DistributionSpecHash.equals',25,0,0)
+f(24,375,32,1,'java/util/AbstractList.equals')
+f(25,379,27,1,'java/util/AbstractSet.equals')
+f(26,381,25,1,'java/util/AbstractCollection.containsAll',5,0,0)
+f(27,386,4,3,'itable stub')
+f(27,390,4,1,'java/util/HashMap$KeyIterator.next')
+f(28,392,2,2,'java/util/HashMap$HashIterator.nextNode',2,0,0)
+f(27,394,9,1,'java/util/HashSet.contains')
+f(28,394,9,2,'java/util/HashMap.containsKey',4,0,0)
+f(29,394,3,2,'java/util/HashMap.getNode',3,0,0)
+f(29,397,6,1,'java/util/HashMap.hash',1,0,0)
+f(30,398,5,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(31,399,4,2,'java/util/Objects.hash',4,0,0)
+f(32,399,4,2,'java/util/Arrays.hashCode',4,0,0)
+f(27,403,3,1,'java/util/HashSet.iterator')
+f(28,403,3,2,'java/util/HashMap$KeySet.iterator',3,0,0)
+f(29,403,3,2,'java/util/HashMap$KeyIterator.<init>',3,0,0)
+f(30,403,3,2,'java/util/HashMap$HashIterator.<init>',3,0,0)
+f(25,406,1,3,'vtable stub')
+f(24,407,11,2,'java/util/AbstractMap.equals',10,0,0)
+f(25,407,1,2,'java/util/HashMap.entrySet',1,0,0)
+f(26,407,1,2,'java/util/HashMap$EntrySet.<init>',1,0,0)
+f(27,407,1,2,'java/util/AbstractSet.<init>',1,0,0)
+f(28,407,1,2,'java/util/AbstractCollection.<init>',1,0,0)
+f(25,408,10,2,'java/util/HashMap.get',9,0,0)
+f(26,408,9,2,'java/util/HashMap.getNode',9,0,0)
+f(26,417,1,1,'java/util/HashMap.hash')
+f(27,417,1,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(28,417,1,1,'java/util/Objects.hash')
+f(29,417,1,1,'java/util/Arrays.hashCode')
+f(30,417,1,1,'java/lang/Integer.hashCode')
+f(23,418,54,2,'org/apache/doris/nereids/properties/OrderSpec.equals',50,0,0)
+f(24,468,4,1,'java/util/AbstractList.equals')
+f(21,472,74,1,'java/util/HashMap.hash',2,0,0)
+f(22,472,74,1,'org/apache/doris/nereids/properties/PhysicalProperties.hashCode',2,0,0)
+f(23,472,74,1,'java/util/Objects.hash',2,0,0)
+f(24,472,74,1,'java/util/Arrays.hashCode',2,0,0)
+f(25,474,67,1,'org/apache/doris/nereids/properties/DistributionSpecHash.hashCode')
+f(26,475,66,1,'java/util/Objects.hash',9,0,0)
+f(27,475,66,1,'java/util/Arrays.hashCode',9,0,0)
+f(28,484,8,1,'com/google/common/collect/ImmutableList.hashCode')
+f(29,488,4,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(30,491,1,2,'java/util/Objects.hash',1,0,0)
+f(31,491,1,2,'java/util/Arrays.hashCode',1,0,0)
+f(28,492,1,1,'java/lang/Long.hashCode')
+f(28,493,22,1,'java/util/AbstractList.hashCode')
+f(29,496,19,1,'java/util/AbstractSet.hashCode')
+f(30,496,4,3,'itable stub')
+f(30,500,3,1,'java/util/HashMap$HashIterator.hasNext')
+f(30,503,4,1,'java/util/HashMap$KeyIterator.next')
+f(31,506,1,2,'java/util/HashMap$HashIterator.nextNode',1,0,0)
+f(30,507,5,1,'java/util/HashSet.iterator')
+f(31,508,4,2,'java/util/HashMap$KeySet.iterator',4,0,0)
+f(32,508,4,2,'java/util/HashMap$KeyIterator.<init>',4,0,0)
+f(33,508,4,2,'java/util/HashMap$HashIterator.<init>',4,0,0)
+f(30,512,3,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(31,512,3,2,'java/util/Objects.hash',2,0,0)
+f(32,512,3,2,'java/util/Arrays.hashCode',2,0,0)
+f(33,514,1,1,'java/lang/Integer.hashCode')
+f(28,515,18,1,'java/util/AbstractMap.hashCode')
+f(29,528,5,1,'java/util/HashMap$Node.hashCode')
+f(30,528,5,1,'java/util/Objects.hashCode')
+f(31,528,2,1,'java/lang/Integer.hashCode')
+f(31,530,2,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(32,530,2,2,'java/util/Objects.hash',2,0,0)
+f(33,530,2,2,'java/util/Arrays.hashCode',2,0,0)
+f(31,532,1,3,'vtable stub')
+f(28,533,7,1,'java/util/AbstractSet.hashCode')
+f(29,535,2,3,'itable stub')
+f(29,537,2,6,'java/util/Collections$EmptyIterator.hasNext',0,2,0)
+f(29,539,1,1,'java/util/Collections$EmptySet.iterator')
+f(28,540,1,3,'vtable stub')
+f(25,541,5,1,'org/apache/doris/nereids/properties/OrderSpec.hashCode')
+f(26,542,4,2,'java/util/Objects.hash',2,0,0)
+f(27,542,4,2,'java/util/Arrays.hashCode',2,0,0)
+f(28,544,2,1,'java/util/AbstractList.hashCode')
+f(19,546,1,1,'org/apache/doris/nereids/memo/GroupExpression.arity')
+f(19,547,88,2,'org/apache/doris/nereids/memo/GroupExpression.getOutputProperties',34,0,0)
+f(20,550,1,1,'com/google/common/base/Preconditions.checkNotNull')
+f(20,551,84,2,'java/util/HashMap.get',31,0,0)
+f(21,551,84,2,'java/util/HashMap.getNode',31,0,0)
+f(22,555,80,2,'org/apache/doris/nereids/properties/PhysicalProperties.equals',27,0,0)
+f(23,555,51,1,'org/apache/doris/nereids/properties/DistributionSpecHash.equals',11,0,0)
+f(24,556,3,2,'com/google/common/collect/ImmutableList.equals',2,0,0)
+f(25,556,3,2,'com/google/common/collect/Lists.equalsImpl',3,0,0)
+f(24,559,27,1,'java/util/AbstractList.equals')
+f(25,562,24,1,'java/util/AbstractSet.equals')
+f(26,566,20,1,'java/util/AbstractCollection.containsAll',2,0,0)
+f(27,568,5,3,'itable stub')
+f(27,573,8,1,'java/util/HashSet.contains')
+f(28,573,8,2,'java/util/HashMap.containsKey',4,0,0)
+f(29,573,3,2,'java/util/HashMap.getNode',3,0,0)
+f(29,576,5,1,'java/util/HashMap.hash',1,0,0)
+f(30,577,4,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(31,578,3,2,'java/util/Objects.hash',3,0,0)
+f(32,578,3,2,'java/util/Arrays.hashCode',3,0,0)
+f(27,581,5,1,'java/util/HashSet.iterator')
+f(28,584,2,2,'java/util/HashMap$KeySet.iterator',2,0,0)
+f(29,584,2,2,'java/util/HashMap$KeyIterator.<init>',2,0,0)
+f(30,584,2,2,'java/util/HashMap$HashIterator.<init>',2,0,0)
+f(24,586,19,2,'java/util/AbstractMap.equals',7,0,0)
+f(25,592,2,1,'java/util/HashMap$EntryIterator.next')
+f(26,592,2,1,'java/util/HashMap$EntryIterator.next')
+f(27,592,2,1,'java/util/HashMap$HashIterator.nextNode')
+f(25,594,3,1,'java/util/HashMap$EntrySet.iterator')
+f(25,597,4,1,'java/util/HashMap$HashIterator.hasNext')
+f(25,601,4,1,'java/util/HashMap.get',1,0,0)
+f(26,601,2,2,'java/util/HashMap.getNode',2,0,0)
+f(26,603,2,1,'java/util/HashMap.hash')
+f(27,603,2,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(28,603,2,2,'java/util/Objects.hash',2,0,0)
+f(29,603,2,2,'java/util/Arrays.hashCode',2,0,0)
+f(24,605,1,2,'java/util/AbstractSet.equals',1,0,0)
+f(23,606,29,2,'org/apache/doris/nereids/properties/OrderSpec.equals',21,0,0)
+f(24,627,6,1,'java/util/AbstractList.equals')
+f(25,632,1,2,'java/util/ArrayList.listIterator',1,0,0)
+f(24,633,2,3,'jlong_disjoint_arraycopy')
+f(19,635,1,1,'org/apache/doris/nereids/properties/ChildOutputPropertyDeriver.getOutputProperties')
+f(20,635,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalProject.accept')
+f(21,635,1,6,'org/apache/doris/nereids/properties/ChildOutputPropertyDeriver.visitPhysicalProject',0,1,0)
+f(19,636,1,1,'org/apache/doris/nereids/properties/ChildrenPropertiesRegulator.adjustChildrenProperties')
+f(20,636,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalHashJoin.accept')
+f(21,636,1,1,'org/apache/doris/nereids/properties/ChildrenPropertiesRegulator.visitPhysicalHashJoin')
+f(22,636,1,1,'org/apache/doris/nereids/properties/ChildrenPropertiesRegulator.visitPhysicalHashJoin')
+f(23,636,1,1,'org/apache/doris/nereids/util/JoinUtils.couldColocateJoin')
+f(24,636,1,1,'org/apache/doris/qe/ConnectContext.get')
+f(25,636,1,1,'java/lang/ThreadLocal.get')
+f(26,636,1,6,'java/lang/ThreadLocal.getMap',0,1,0)
+f(19,637,206,1,'org/apache/doris/nereids/properties/RequestPropertyDeriver.getRequestChildrenPropertyList',6,0,0)
+f(20,643,4,3,'itable stub')
+f(20,647,15,1,'org/apache/doris/nereids/PlanContext.<init>')
+f(21,659,1,2,'com/google/common/collect/Lists.newArrayList',1,0,0)
+f(21,660,2,2,'java/util/ArrayList.add',2,0,0)
+f(22,660,2,2,'java/util/ArrayList.ensureCapacityInternal',2,0,0)
+f(23,660,2,2,'java/util/ArrayList.ensureExplicitCapacity',2,0,0)
+f(24,660,2,2,'java/util/ArrayList.grow',2,0,0)
+f(25,660,2,2,'java/util/Arrays.copyOf',2,0,0)
+f(20,662,173,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalHashJoin.accept')
+f(21,668,167,1,'org/apache/doris/nereids/properties/RequestPropertyDeriver.visitPhysicalHashJoin')
+f(22,668,167,2,'org/apache/doris/nereids/properties/RequestPropertyDeriver.visitPhysicalHashJoin',70,0,0)
+f(23,668,87,1,'org/apache/doris/nereids/properties/DistributionSpecHash.<init>',8,0,0)
+f(24,676,79,1,'org/apache/doris/nereids/properties/DistributionSpecHash.<init>')
+f(25,684,47,2,'com/google/common/collect/Sets.newHashSet',23,0,0)
+f(26,684,47,2,'java/util/Collections.addAll',23,0,0)
+f(27,684,47,2,'java/util/HashSet.add',23,0,0)
+f(28,684,47,2,'java/util/HashMap.put',23,0,0)
+f(29,707,2,1,'java/util/HashMap.hash')
+f(30,707,2,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(31,707,2,1,'java/util/Objects.hash')
+f(32,707,2,1,'java/util/Arrays.hashCode')
+f(33,707,2,1,'java/lang/Integer.hashCode')
+f(29,709,22,1,'java/util/HashMap.putVal')
+f(30,715,2,1,'java/util/HashMap.newNode')
+f(30,717,14,1,'java/util/HashMap.resize')
+f(25,731,24,1,'java/util/HashMap.put',1,0,0)
+f(26,731,7,1,'java/util/HashMap.hash',1,0,0)
+f(27,732,6,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(28,732,6,2,'java/util/Objects.hash',3,0,0)
+f(29,732,6,2,'java/util/Arrays.hashCode',3,0,0)
+f(30,735,3,1,'java/lang/Integer.hashCode')
+f(26,738,17,1,'java/util/HashMap.putVal')
+f(27,742,1,6,'java/util/HashMap.afterNodeInsertion',0,1,0)
+f(27,743,1,1,'java/util/HashMap.newNode')
+f(27,744,10,1,'java/util/HashMap.resize')
+f(27,754,1,3,'vtable stub')
+f(23,755,16,2,'org/apache/doris/nereids/properties/RequestPropertyDeriver.addToRequestPropertyToChildren',7,0,0)
+f(24,762,9,1,'com/google/common/collect/Lists.newArrayList')
+f(23,771,64,2,'org/apache/doris/nereids/util/JoinUtils.getOnClauseUsedSlots',55,0,0)
+f(24,772,13,2,'org/apache/doris/nereids/trees/BinaryNode.left',13,0,0)
+f(25,772,13,2,'org/apache/doris/nereids/trees/plans/AbstractPlan.child',13,0,0)
+f(26,772,13,2,'org/apache/doris/nereids/trees/plans/AbstractPlan.child',13,0,0)
+f(27,776,9,2,'org/apache/doris/nereids/trees/AbstractTreeNode.child',9,0,0)
+f(24,785,6,2,'org/apache/doris/nereids/trees/BinaryNode.right',6,0,0)
+f(25,785,6,2,'org/apache/doris/nereids/trees/plans/AbstractPlan.child',6,0,0)
+f(26,785,6,2,'org/apache/doris/nereids/trees/plans/AbstractPlan.child',6,0,0)
+f(27,786,5,2,'org/apache/doris/nereids/trees/AbstractTreeNode.child',5,0,0)
+f(28,788,3,2,'com/google/common/collect/SingletonImmutableList.get',3,0,0)
+f(29,788,3,2,'com/google/common/base/Preconditions.checkElementIndex',3,0,0)
+f(30,788,3,2,'com/google/common/base/Preconditions.checkElementIndex',3,0,0)
+f(24,791,21,2,'org/apache/doris/nereids/trees/plans/AbstractPlan.getOutputExprIdSet',21,0,0)
+f(25,791,21,2,'org/apache/doris/nereids/trees/plans/AbstractPlan.getLogicalProperties',21,0,0)
+f(26,791,21,2,'com/google/common/base/Suppliers$NonSerializableMemoizingSupplier.get',21,0,0)
+f(24,812,17,2,'org/apache/doris/nereids/util/JoinUtils$JoinSlotCoverageChecker.isCoveredByLeftSlots',14,0,0)
+f(25,826,3,1,'java/util/HashSet.contains')
+f(26,826,3,2,'java/util/HashMap.containsKey',2,0,0)
+f(27,826,2,2,'java/util/HashMap.getNode',2,0,0)
+f(27,828,1,1,'java/util/HashMap.hash')
+f(28,828,1,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(29,828,1,1,'java/util/Objects.hash')
+f(30,828,1,1,'java/util/Arrays.hashCode')
+f(31,828,1,1,'java/lang/Integer.hashCode')
+f(24,829,6,1,'org/apache/doris/nereids/util/JoinUtils$JoinSlotCoverageChecker.isCoveredByRightSlots')
+f(25,829,6,1,'java/util/HashSet.contains')
+f(26,829,6,2,'java/util/HashMap.containsKey',3,0,0)
+f(27,829,2,2,'java/util/HashMap.getNode',2,0,0)
+f(27,831,4,1,'java/util/HashMap.hash',1,0,0)
+f(28,832,3,1,'org/apache/doris/nereids/trees/expressions/ExprId.hashCode')
+f(29,832,3,2,'java/util/Objects.hash',2,0,0)
+f(30,832,3,2,'java/util/Arrays.hashCode',2,0,0)
+f(31,834,1,1,'java/lang/Integer.hashCode')
+f(20,835,8,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalProject.accept')
+f(21,835,8,1,'org/apache/doris/nereids/trees/plans/visitor/PlanVisitor.visitPhysicalProject')
+f(22,836,7,2,'org/apache/doris/nereids/properties/RequestPropertyDeriver.visit',7,0,0)
+f(23,836,7,2,'org/apache/doris/nereids/properties/RequestPropertyDeriver.visit',7,0,0)
+f(24,838,5,2,'java/util/ArrayList.add',5,0,0)
+f(25,838,5,2,'java/util/ArrayList.ensureCapacityInternal',5,0,0)
+f(26,838,5,2,'java/util/ArrayList.ensureExplicitCapacity',5,0,0)
+f(27,838,5,2,'java/util/ArrayList.grow',5,0,0)
+f(28,838,5,2,'java/util/Arrays.copyOf',5,0,0)
+f(18,843,11,1,'org/apache/doris/nereids/jobs/cascades/OptimizeGroupJob.execute')
+f(19,852,2,2,'org/apache/doris/nereids/memo/Group.getLowestCostPlan',1,0,0)
+f(20,852,2,2,'java/util/HashMap.get',1,0,0)
+f(21,852,2,2,'java/util/HashMap.getNode',1,0,0)
+f(22,853,1,1,'org/apache/doris/nereids/properties/PhysicalProperties.equals')
+f(18,854,1,3,'vtable stub')
+f(15,855,1,1,'org/apache/doris/nereids/NereidsPlanner.rewrite')
+f(16,855,1,1,'org/apache/doris/nereids/jobs/batch/NereidsRewriteJobExecutor.<init>')
+f(17,855,1,1,'org/apache/doris/nereids/jobs/batch/ConvertApplyToJoinJob.<init>')
+f(18,855,1,0,'org/apache/doris/nereids/jobs/batch/BatchRulesJob.topDownBatch',0,0,1)
+f(19,855,1,4,'InterpreterRuntime::frequency_counter_overflow(JavaThread*, unsigned char*)')
+f(20,855,1,4,'InterpreterRuntime::frequency_counter_overflow_inner(JavaThread*, unsigned char*)')
+f(21,855,1,4,'SimpleThresholdPolicy::event(methodHandle, methodHandle, int, int, CompLevel, nmethod*, JavaThread*)')
+f(22,855,1,4,'AdvancedThresholdPolicy::method_invocation_event(methodHandle, methodHandle, CompLevel, nmethod*, JavaThread*)')
+f(23,855,1,4,'AdvancedThresholdPolicy::call_event(Method*, CompLevel)')
+f(24,855,1,4,'AdvancedThresholdPolicy::common(bool (AdvancedThresholdPolicy::*)(int, int, CompLevel), Method*, CompLevel, bool)')
+f(14,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.translatePlan')
+f(15,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalQuickSort.accept')
+f(16,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalQuickSort')
+f(17,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalQuickSort')
+f(18,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitAbstractPhysicalSort')
+f(19,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalProject.accept')
+f(20,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalProject')
+f(21,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalProject')
+f(22,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalAggregate.accept')
+f(23,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalAggregate')
+f(24,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalAggregate')
+f(25,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalDistribute.accept')
+f(26,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalDistribute')
+f(27,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalDistribute')
+f(28,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalAggregate.accept')
+f(29,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalAggregate')
+f(30,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalAggregate')
+f(31,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalProject.accept')
+f(32,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalProject')
+f(33,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalProject')
+f(34,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalHashJoin.accept')
+f(35,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalHashJoin')
+f(36,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalHashJoin')
+f(37,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalDistribute.accept')
+f(38,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalDistribute')
+f(39,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalDistribute')
+f(40,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalProject.accept')
+f(41,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalProject')
+f(42,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalProject')
+f(43,856,1,1,'org/apache/doris/nereids/trees/plans/physical/PhysicalOlapScan.accept')
+f(44,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalOlapScan')
+f(45,856,1,1,'org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.visitPhysicalOlapScan')
+f(46,856,1,1,'org/apache/doris/planner/OlapScanNode.<init>')
+f(47,856,1,6,'org/apache/doris/planner/ScanNode.<init>',0,1,0)
+f(48,856,1,2,'org/apache/doris/common/Id.asList',1,0,0)
+f(49,856,1,2,'java/util/ArrayList.add',1,0,0)
+f(50,856,1,2,'java/util/ArrayList.ensureCapacityInternal',1,0,0)
+f(2,857,6,1,'org/apache/doris/qe/AuditEventProcessor$Worker.run')
+f(3,857,6,1,'org/apache/doris/qe/AuditLogBuilder.exec')
+f(4,857,6,1,'org/apache/doris/qe/AuditLogBuilder.auditQueryLog')
+f(5,857,6,1,'java/lang/reflect/Field.getAnnotation')
+f(6,857,6,1,'java/lang/reflect/Field.declaredAnnotations')
+f(7,857,6,1,'java/lang/reflect/Field.declaredAnnotations')
+f(8,857,6,1,'sun/reflect/annotation/AnnotationParser.parseAnnotations')
+f(9,857,6,1,'sun/reflect/annotation/AnnotationParser.parseAnnotations2')
+f(10,857,6,1,'sun/reflect/annotation/AnnotationParser.parseAnnotation2')
+f(11,857,6,1,'sun/reflect/annotation/AnnotationParser.annotationForMap')
+f(12,857,6,1,'java/security/AccessController.doPrivileged')
+f(13,857,6,1,'sun/reflect/annotation/AnnotationParser$1.run')
+f(14,857,6,1,'sun/reflect/annotation/AnnotationParser$1.run')
+f(15,857,6,1,'java/lang/reflect/Proxy.newProxyInstance')
+f(16,857,6,1,'java/lang/reflect/Constructor.newInstance')
+f(17,857,6,1,'sun/reflect/DelegatingConstructorAccessorImpl.newInstance')
+f(18,857,6,1,'sun/reflect/NativeConstructorAccessorImpl.newInstance')
+f(19,857,6,1,'sun/reflect/MethodAccessorGenerator.generateConstructor')
+f(20,857,6,1,'sun/reflect/MethodAccessorGenerator.generate')
+f(21,857,6,1,'java/security/AccessController.doPrivileged')
+f(22,857,6,1,'sun/reflect/MethodAccessorGenerator$1.run')
+f(23,857,6,1,'sun/reflect/MethodAccessorGenerator$1.run')
+f(24,857,6,1,'java/lang/Class.newInstance')
+f(25,857,6,1,'java/lang/Class.getConstructor0')
+f(26,857,6,1,'java/lang/Class.privateGetDeclaredConstructors')
+f(27,857,6,1,'java/lang/Class.getDeclaredConstructors0')
+f(28,857,6,3,'JVM_GetClassDeclaredConstructors')
+f(29,857,6,3,'get_class_declared_methods_helper(JNIEnv_*, _jclass*, unsigned char, bool, Klass*, Thread*)')
+f(30,857,6,4,'InstanceKlass::link_class(Thread*)')
+f(31,857,6,4,'InstanceKlass::link_class_impl(instanceKlassHandle, bool, Thread*)')
+f(32,857,6,4,'JvmtiExport::post_class_prepare(JavaThread*, Klass*)')
+f(33,857,6,3,'cbClassPrepare')
+f(34,857,6,3,'event_callback')
+f(35,857,6,3,'classTrack_processUnloads')
+f(36,857,3,3,'jni_IsSameObject')
+f(36,860,2,3,'jvmti_GetLoadedClasses')
+f(37,860,2,4,'JvmtiGetLoadedClasses::getLoadedClasses(JvmtiEnv*, int*, _jclass***)')
+f(38,860,2,4,'ClassLoaderDataGraph::loaded_classes_do(KlassClosure*)')
+f(39,860,1,4,'LoadedClassesClosure::do_klass(Klass*)')
+f(40,860,1,4,'JNIHandleBlock::allocate_handle(oopDesc*)')
+f(39,861,1,4,'Monitor::lock_without_safepoint_check()')
+f(40,861,1,4,'Monitor::ILock(Thread*)')
+f(36,862,1,3,'objectHashCode')
+f(37,862,1,3,'jvmti_GetObjectHashCode')
+f(38,862,1,4,'JvmtiEnv::GetObjectHashCode(_jobject*, int*)')
+f(1,863,1,1,'org/apache/doris/common/util/Daemon.run')
+f(2,863,1,1,'org/apache/doris/common/util/MasterDaemon.runOneCycle')
+f(3,863,1,1,'org/apache/doris/clone/TabletChecker.runAfterCatalogReady')
+f(4,863,1,1,'org/apache/doris/clone/TabletSchedulerStat.incrementalBrief')
+f(5,863,1,1,'java/lang/reflect/AccessibleObject.isAnnotationPresent')
+f(6,863,1,1,'java/lang/reflect/AnnotatedElement.isAnnotationPresent')
+f(7,863,1,1,'java/lang/reflect/Field.getAnnotation')
+f(8,863,1,1,'java/lang/reflect/Field.declaredAnnotations')
+f(9,863,1,1,'java/lang/reflect/Field.declaredAnnotations')
+f(10,863,1,1,'sun/reflect/annotation/AnnotationParser.parseAnnotations')
+f(11,863,1,1,'sun/reflect/annotation/AnnotationParser.parseAnnotations2')
+f(12,863,1,1,'sun/reflect/annotation/AnnotationParser.parseAnnotation2')
+f(13,863,1,1,'sun/reflect/annotation/AnnotationParser.annotationForMap')
+f(14,863,1,1,'java/security/AccessController.doPrivileged')
+f(15,863,1,1,'sun/reflect/annotation/AnnotationParser$1.run')
+f(16,863,1,1,'sun/reflect/annotation/AnnotationParser$1.run')
+f(17,863,1,1,'java/lang/reflect/Proxy.newProxyInstance')
+f(18,863,1,1,'java/lang/reflect/Constructor.newInstance')
+f(19,863,1,1,'sun/reflect/DelegatingConstructorAccessorImpl.newInstance')
+f(20,863,1,1,'sun/reflect/NativeConstructorAccessorImpl.newInstance')
+f(21,863,1,1,'sun/reflect/MethodAccessorGenerator.generateConstructor')
+f(22,863,1,1,'sun/reflect/MethodAccessorGenerator.generate')
+f(23,863,1,1,'java/security/AccessController.doPrivileged')
+f(24,863,1,1,'sun/reflect/MethodAccessorGenerator$1.run')
+f(25,863,1,1,'sun/reflect/MethodAccessorGenerator$1.run')
+f(26,863,1,1,'java/lang/Class.newInstance')
+f(27,863,1,1,'java/lang/Class.getConstructor0')
+f(28,863,1,1,'java/lang/Class.privateGetDeclaredConstructors')
+f(29,863,1,1,'java/lang/Class.getDeclaredConstructors0')
+f(30,863,1,3,'JVM_GetClassDeclaredConstructors')
+f(31,863,1,3,'get_class_declared_methods_helper(JNIEnv_*, _jclass*, unsigned char, bool, Klass*, Thread*)')
+f(32,863,1,4,'InstanceKlass::link_class(Thread*)')
+f(33,863,1,4,'InstanceKlass::link_class_impl(instanceKlassHandle, bool, Thread*)')
+f(34,863,1,4,'JvmtiExport::post_class_prepare(JavaThread*, Klass*)')
+f(35,863,1,3,'cbClassPrepare')
+f(36,863,1,3,'event_callback')
+f(37,863,1,3,'classTrack_processUnloads')
+f(38,863,1,3,'jni_IsSameObject')
+f(1,864,882,3,'start_thread')
+f(2,864,882,3,'java_start(Thread*)')
+f(3,864,860,4,'GangWorker::loop()')
+f(4,864,1,4,'Monitor::lock(Thread*)')
+f(5,864,1,4,'Monitor::ILock(Thread*)')
+f(4,865,1,4,'Monitor::wait(bool, long, bool)')
+f(5,865,1,4,'Monitor::IWait(Thread*, long)')
+f(6,865,1,3,'__lll_unlock_wake')
+f(4,866,857,4,'ParNewGenTask::work(unsigned int)')
+f(5,866,110,4,'GenCollectedHeap::gen_process_roots(int, bool, bool, GenCollectedHeap::ScanningOption, bool, OopsInGenClosure*, OopsInGenClosure*, CLDClosure*)')
+f(6,866,32,4,'ConcurrentMarkSweepGeneration::younger_refs_iterate(OopsInGenClosure*)')
+f(7,866,32,4,'CardTableRS::younger_refs_in_space_iterate(Space*, OopsInGenClosure*)')
+f(8,866,32,4,'CardTableModRefBS::non_clean_card_iterate_possibly_parallel(Space*, MemRegion, OopsInGenClosure*, CardTableRS*)')
+f(9,866,32,4,'CardTableModRefBS::non_clean_card_iterate_parallel_work(Space*, MemRegion, OopsInGenClosure*, CardTableRS*, int)')
+f(10,866,32,4,'CardTableModRefBS::process_stride(Space*, MemRegion, int, int, OopsInGenClosure*, CardTableRS*, signed char**, unsigned long, unsigned long)')
+f(11,868,2,4,'BlockOffsetArrayNonContigSpace::block_start_unsafe(void const*) const')
+f(11,870,17,4,'CardTableModRefBS::process_chunk_boundaries(Space*, DirtyCardToOopClosure*, MemRegion, MemRegion, signed char**, unsigned long, unsigned long)')
+f(12,872,14,4,'BlockOffsetArrayNonContigSpace::block_start_unsafe(void const*) const')
+f(12,886,1,4,'CompactibleFreeListSpace::block_size(HeapWord const*) const')
+f(11,887,9,4,'ClearNoncleanCardWrapper::do_MemRegion(MemRegion)')
+f(12,892,4,4,'DirtyCardToOopClosure::do_MemRegion(MemRegion)')
+f(13,892,2,4,'BlockOffsetArrayNonContigSpace::block_start_unsafe(void const*) const')
+f(14,892,2,4,'CompactibleFreeListSpace::block_size(HeapWord const*) const')
+f(13,894,2,4,'Filtering_DCTOC::walk_mem_region(MemRegion, HeapWord*, HeapWord*)')
+f(14,894,2,4,'FreeListSpace_DCTOC::walk_mem_region_with_cl(MemRegion, HeapWord*, HeapWord*, FilteringClosure*)')
+f(15,894,1,4,'FreeListSpace_DCTOC::walk_mem_region_with_cl_par(MemRegion, HeapWord*, HeapWord*, FilteringClosure*)')
+f(16,894,1,4,'ObjArrayKlass::oop_oop_iterate_nv_m(oopDesc*, FilteringClosure*, MemRegion)')
+f(15,895,1,4,'Klass::oop_oop_iterate_nv_m(oopDesc*, FilteringClosure*, MemRegion)')
+f(11,896,2,4,'CompactibleFreeListSpace::new_dcto_cl(ExtendedOopClosure*, CardTableModRefBS::PrecisionStyle, HeapWord*)')
+f(12,896,1,4,'Arena::grow(unsigned long, AllocFailStrategy::AllocFailEnum)')
+f(13,896,1,4,'Chunk::operator new(unsigned long, AllocFailStrategy::AllocFailEnum, unsigned long)')
+f(14,896,1,4,'ChunkPool::allocate(unsigned long, AllocFailStrategy::AllocFailEnum)')
+f(15,896,1,3,'__lll_lock_wait')
+f(12,897,1,4,'resource_allocate_bytes(unsigned long, AllocFailStrategy::AllocFailEnum)')
+f(6,898,78,4,'GenCollectedHeap::process_roots(bool, GenCollectedHeap::ScanningOption, OopClosure*, OopClosure*, CLDClosure*, CLDClosure*, CodeBlobClosure*)')
+f(7,898,9,4,'ClassLoaderDataGraph::roots_cld_do(CLDClosure*, CLDClosure*)')
+f(8,898,9,4,'ClassLoaderData::oops_do(OopClosure*, KlassClosure*, bool)')
+f(9,900,1,4,'JNIHandleBlock::oops_do(OopClosure*)')
+f(9,901,6,4,'KlassScanClosure::do_klass(Klass*)')
+f(7,907,12,4,'CodeCache::scavenge_root_nmethods_do(CodeBlobClosure*)')
+f(8,907,5,4,'MarkingCodeBlobClosure::do_code_blob(CodeBlob*)')
+f(9,907,4,4,'nmethod::oops_do(OopClosure*, bool)')
+f(10,908,3,4,'oop_Relocation::oop_value()')
+f(11,908,3,4,'Assembler::locate_operand(unsigned char*, Assembler::WhichOperand)')
+f(9,911,1,4,'nmethod::test_set_oops_do_mark()')
+f(8,912,7,4,'nmethod::fix_oop_relocations(unsigned char*, unsigned char*, bool)')
+f(9,917,2,4,'metadata_Relocation::fix_metadata_relocation()')
+f(7,919,53,4,'StringTable::possibly_parallel_oops_do(OopClosure*)')
+f(8,970,2,4,'ParRootScanWithoutBarrierClosure::do_oop(oopDesc**)')
+f(7,972,4,4,'Threads::possibly_parallel_oops_do(OopClosure*, CLDClosure*, CodeBlobClosure*)')
+f(8,974,2,4,'JavaThread::oops_do(OopClosure*, CLDClosure*, CodeBlobClosure*)')
+f(9,974,2,4,'frame::oops_interpreted_do(OopClosure*, CLDClosure*, RegisterMap const*, bool)')
+f(10,975,1,4,'Method::mask_for(int, InterpreterOopMap*)')
+f(11,975,1,4,'InstanceKlass::mask_for(methodHandle, int, InterpreterOopMap*)')
+f(5,976,747,4,'ParEvacuateFollowersClosure::do_void()')
+f(6,979,34,4,'GenericTaskQueueSet<Padded<GenericTaskQueue<oopDesc*, (MemoryType)5, 131072u>, 64ul>, (MemoryType)5>::steal_best_of_2(unsigned int, int*, oopDesc*&)')
+f(6,1013,40,4,'ParScanThreadState::trim_queues(int)')
+f(7,1015,15,4,'InstanceKlass::oop_oop_iterate_nv(oopDesc*, ParScanWithBarrierClosure*)')
+f(8,1016,7,4,'ParNewGeneration::copy_to_survivor_space_avoiding_promotion_undo(ParScanThreadState*, oopDesc*, unsigned long, markOopDesc*)')
+f(9,1016,7,4,'ConcurrentMarkSweepGeneration::par_promote(int, oopDesc*, markOopDesc*, unsigned long)')
+f(10,1016,7,4,'CFLS_LAB::alloc(unsigned long)')
+f(11,1016,6,4,'CFLS_LAB::get_from_global_pool(unsigned long, AdaptiveFreeList<FreeChunk>*)')
+f(12,1016,4,4,'CompactibleFreeListSpace::par_get_chunk_of_blocks_IFL(unsigned long, unsigned long, AdaptiveFreeList<FreeChunk>*)')
+f(13,1017,1,4,'AdaptiveFreeList<FreeChunk>::AdaptiveFreeList()')
+f(13,1018,2,4,'Monitor::lock_without_safepoint_check()')
+f(14,1018,2,4,'Monitor::ILock(Thread*)')
+f(12,1020,2,4,'CompactibleFreeListSpace::par_get_chunk_of_blocks_dictionary(unsigned long, unsigned long, AdaptiveFreeList<FreeChunk>*)')
+f(13,1020,1,4,'CompactibleFreeListSpace::get_n_way_chunk_to_split(unsigned long, unsigned long)')
+f(14,1020,1,3,'__pthread_cond_signal')
+f(13,1021,1,4,'Monitor::lock_without_safepoint_check()')
+f(14,1021,1,4,'Monitor::ILock(Thread*)')
+f(11,1022,1,4,'FreeList<FreeChunk>::get_chunk_at_head()')
+f(8,1023,7,4,'ParNewGeneration::real_forwardee_slow(oopDesc*)')
+f(7,1030,9,4,'InstanceKlass::oop_oop_iterate_nv(oopDesc*, ParScanWithoutBarrierClosure*)')
+f(8,1035,3,4,'ParNewGeneration::copy_to_survivor_space_avoiding_promotion_undo(ParScanThreadState*, oopDesc*, unsigned long, markOopDesc*)')
+f(8,1038,1,4,'ParNewGeneration::real_forwardee_slow(oopDesc*)')
+f(7,1039,3,4,'ObjArrayKlass::oop_oop_iterate_nv(oopDesc*, ParScanWithBarrierClosure*)')
+f(8,1040,2,4,'void ParScanClosure::do_oop_work<unsigned int>(unsigned int*, bool, bool)')
+f(9,1040,2,4,'ParNewGeneration::copy_to_survivor_space_avoiding_promotion_undo(ParScanThreadState*, oopDesc*, unsigned long, markOopDesc*)')
+f(10,1041,1,4,'ConcurrentMarkSweepGeneration::par_promote(int, oopDesc*, markOopDesc*, unsigned long)')
+f(11,1041,1,4,'CFLS_LAB::alloc(unsigned long)')
+f(12,1041,1,4,'CFLS_LAB::get_from_global_pool(unsigned long, AdaptiveFreeList<FreeChunk>*)')
+f(13,1041,1,4,'CompactibleFreeListSpace::par_get_chunk_of_blocks_IFL(unsigned long, unsigned long, AdaptiveFreeList<FreeChunk>*)')
+f(14,1041,1,4,'Monitor::lock_without_safepoint_check()')
+f(15,1041,1,4,'Monitor::ILock(Thread*)')
+f(7,1042,6,4,'ObjArrayKlass::oop_oop_iterate_nv(oopDesc*, ParScanWithoutBarrierClosure*)')
+f(8,1042,1,4,'objArrayOopDesc::object_size()')
+f(8,1043,5,4,'void ParScanClosure::do_oop_work<unsigned int>(unsigned int*, bool, bool)')
+f(9,1045,3,4,'ParNewGeneration::copy_to_survivor_space_avoiding_promotion_undo(ParScanThreadState*, oopDesc*, unsigned long, markOopDesc*)')
+f(7,1048,1,4,'ObjArrayKlass::oop_oop_iterate_range_nv(oopDesc*, ParScanWithBarrierClosure*, int, int)')
+f(7,1049,2,4,'ObjArrayKlass::oop_oop_iterate_range_nv(oopDesc*, ParScanWithoutBarrierClosure*, int, int)')
+f(8,1050,1,4,'void ParScanClosure::do_oop_work<unsigned int>(unsigned int*, bool, bool)')
+f(9,1050,1,4,'ParNewGeneration::copy_to_survivor_space_avoiding_promotion_undo(ParScanThreadState*, oopDesc*, unsigned long, markOopDesc*)')
+f(7,1051,1,4,'ParNewGeneration::real_forwardee(oopDesc*)')
+f(7,1052,1,4,'void ParScanClosure::do_oop_work<unsigned int>(unsigned int*, bool, bool)')
+f(6,1053,101,4,'ParallelTaskTerminator::offer_termination(TerminatorTerminator*)')
+f(7,1139,15,4,'GenericTaskQueueSet<Padded<GenericTaskQueue<oopDesc*, (MemoryType)5, 131072u>, 64ul>, (MemoryType)5>::peek()')
+f(6,1154,568,3,'SpinPause')
+f(6,1722,1,3,'__GI_sched_yield')
+f(4,1723,1,3,'__pthread_mutex_lock')
+f(3,1724,12,4,'JavaThread::run()')
+f(4,1724,12,4,'JavaThread::thread_main_inner()')
+f(5,1724,12,4,'CompileBroker::compiler_thread_loop()')
+f(6,1724,11,4,'CompileBroker::invoke_compiler_on_method(CompileTask*)')
+f(7,1724,8,4,'C2Compiler::compile_method(ciEnv*, ciMethod*, int)')
+f(8,1724,8,4,'Compile::Compile(ciEnv*, C2Compiler*, ciMethod*, int, bool, bool, bool)')
+f(9,1724,5,4,'Compile::Code_Gen()')
+f(10,1724,1,4,'Compile::fill_buffer(CodeBuffer*, unsigned int*)')
+f(11,1724,1,4,'CallStaticJavaDirectNode::compute_padding(int) const')
+f(10,1725,4,4,'PhaseChaitin::Register_Allocate()')
+f(11,1725,2,4,'PhaseChaitin::build_ifg_physical(ResourceArea*)')
+f(12,1726,1,4,'RegMask::smear_to_sets(int)')
+f(11,1727,1,4,'PhaseIFG::Compute_Effective_Degree()')
+f(12,1727,1,4,'IndexSetIterator::advance_and_next()')
+f(11,1728,1,3,'__memset_sse2')
+f(9,1729,2,4,'Compile::Optimize()')
+f(10,1729,2,4,'PhaseIdealLoop::build_and_optimize(bool, bool)')
+f(11,1729,1,4,'Node::is_CFG() const')
+f(11,1730,1,4,'PhaseIterGVN::optimize()')
+f(12,1730,1,4,'PhaseIterGVN::transform_old(Node*)')
+f(13,1730,1,4,'ConvI2LNode::Value(PhaseTransform*) const')
+f(14,1730,1,4,'Type::hashcons()')
+f(15,1730,1,4,'Dict::Insert(void*, void*, bool)')
+f(16,1730,1,4,'TypeLong::eq(Type const*) const')
+f(9,1731,1,4,'Type::Initialize(Compile*)')
+f(10,1731,1,4,'Dict::Insert(void*, void*, bool)')
+f(7,1732,3,4,'Compiler::compile_method(ciEnv*, ciMethod*, int)')
+f(8,1732,3,4,'Compilation::Compilation(AbstractCompiler*, ciEnv*, ciMethod*, int, BufferBlob*)')
+f(9,1732,3,4,'Compilation::compile_method()')
+f(10,1732,3,4,'Compilation::compile_java_method()')
+f(11,1732,1,4,'Compilation::build_hir()')
+f(12,1732,1,4,'IR::IR(Compilation*, ciMethod*, int)')
+f(13,1732,1,4,'IRScope::IRScope(Compilation*, IRScope*, int, ciMethod*, int, bool)')
+f(14,1732,1,4,'GraphBuilder::GraphBuilder(Compilation*, IRScope*)')
+f(15,1732,1,4,'GraphBuilder::iterate_all_blocks(bool)')
+f(16,1732,1,4,'GraphBuilder::iterate_bytecodes_for_block(int)')
+f(17,1732,1,4,'ciInstanceKlass::is_instance_klass() const')
+f(11,1733,1,4,'Compilation::emit_code_body()')
+f(12,1733,1,4,'LIR_Assembler::emit_code(BlockList*)')
+f(13,1733,1,4,'LIR_Assembler::emit_profile_call(LIR_OpProfileCall*)')
+f(14,1733,1,4,'LIR_Assembler::type_profile_helper(RegisterImpl*, ciMethodData*, ProfileData*, RegisterImpl*, Label*)')
+f(15,1733,1,4,'Assembler::movq(Address, RegisterImpl*)')
+f(11,1734,1,4,'Compilation::emit_lir()')
+f(12,1734,1,4,'BlockList::iterate_forward(BlockClosure*)')
+f(13,1734,1,4,'LIRGenerator::block_do(BlockBegin*)')
+f(14,1734,1,4,'LIRGenerator::do_Goto(Goto*)')
+f(15,1734,1,4,'LIRGenerator::move_to_phi(ValueStack*)')
+f(16,1734,1,4,'PhiResolverState::reset(int)')
+f(6,1735,1,4,'CompileQueue::get()')
+f(7,1735,1,4,'NMethodSweeper::possibly_sweep()')
+f(8,1735,1,4,'NMethodSweeper::sweep_code_cache()')
+f(9,1735,1,4,'NMethodSweeper::process_nmethod(nmethod*)')
+f(3,1736,1,4,'Monitor::wait(bool, long, bool)')
+f(3,1737,9,4,'VMThread::run()')
+f(4,1737,9,4,'VMThread::loop()')
+f(5,1737,1,4,'SafepointSynchronize::begin()')
+f(6,1737,1,4,'SafepointSynchronize::do_cleanup_tasks()')
+f(7,1737,1,4,'NMethodSweeper::mark_active_nmethods()')
+f(8,1737,1,4,'Threads::nmethods_do(CodeBlobClosure*)')
+f(9,1737,1,4,'JavaThread::nmethods_do(CodeBlobClosure*)')
+f(10,1737,1,4,'frame::sender(RegisterMap*) const')
+f(5,1738,1,4,'SafepointSynchronize::end()')
+f(5,1739,7,4,'VMThread::evaluate_operation(VM_Operation*)')
+f(6,1739,7,4,'VM_Operation::evaluate()')
+f(7,1739,7,4,'VM_GenCollectForAllocation::doit()')
+f(8,1739,7,4,'GenCollectorPolicy::satisfy_failed_allocation(unsigned long, bool)')
+f(9,1739,7,4,'GenCollectedHeap::do_collection(bool, bool, unsigned long, bool, int)')
+f(10,1739,7,4,'ParNewGeneration::collect(bool, bool, unsigned long, bool)')
+f(11,1739,1,4,'ParScanThreadStateSet::flush()')
+f(12,1739,1,4,'PromotionInfo::promoted_oops_iterate_nv(ParScanWithoutBarrierClosure*)')
+f(11,1740,1,4,'ReferenceProcessor::process_discovered_references(BoolObjectClosure*, OopClosure*, VoidClosure*, AbstractRefProcTaskExecutor*, GCTimer*, GCId)')
+f(12,1740,1,4,'JNIHandles::weak_oops_do(BoolObjectClosure*, OopClosure*)')
+f(11,1741,1,4,'WorkGang::run_task(AbstractGangTask*, unsigned int)')
+f(12,1741,1,4,'Monitor::wait(bool, long, bool)')
+f(13,1741,1,4,'Monitor::IWait(Thread*, long)')
+f(11,1742,4,4,'nmethod::oops_do_marking_epilogue()')
+f(12,1745,1,4,'RelocIterator::initialize(nmethod*, unsigned char*, unsigned char*)')
+
+search();
+</script></body></html>
