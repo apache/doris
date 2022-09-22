@@ -46,9 +46,10 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _profile(profile),
           _strict_mode(false) {}
 
-Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
+Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr,
+                             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-
+    _colname_to_value_range = colname_to_value_range;
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
         RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
@@ -339,7 +340,8 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader = new ParquetReader(_profile, _params, range, column_names,
                                             _state->query_options().batch_size,
                                             const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-            Status status = ((ParquetReader*)_cur_reader)->init_reader(_conjunct_ctxs);
+            RETURN_IF_ERROR(((ParquetReader*)_cur_reader)->init_reader(_colname_to_value_range));
+            break;
             if (status.ok()) {
                 _cur_reader_eof = false;
                 return status;

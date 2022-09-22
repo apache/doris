@@ -22,7 +22,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/file_hdfs_scanner.h"
+#include "vec/scan/new_file_scan_node.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 
 namespace doris {
@@ -113,7 +113,7 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.init_instance_mem_tracker();
 
     std::vector<ExprContext*> conjunct_ctxs = std::vector<ExprContext*>();
-    p_reader->init_reader(conjunct_ctxs);
+//    p_reader->init_reader(conjunct_ctxs);
     Block* block = new Block();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type =
@@ -185,11 +185,10 @@ TEST_F(ParquetReaderTest, scanner) {
     }
 
     // set scan range
-    //    std::vector<TScanRangeParams> scan_ranges;
-    TFileScanRange file_scan_range;
+    std::vector<TScanRangeParams> scan_ranges;
     {
-        //        TScanRangeParams scan_range_params;
-        //        TFileScanRange file_scan_range;
+        TScanRangeParams scan_range_params;
+        TFileScanRange TFileScanRange;
         TFileScanRangeParams params;
         {
             params.__set_src_tuple_id(0);
@@ -215,8 +214,8 @@ TEST_F(ParquetReaderTest, scanner) {
             range.__set_columns_from_path(columns_from_path);
         }
         file_scan_range.ranges.push_back(range);
-        //        scan_range_params.scan_range.ext_scan_range.__set_file_scan_range(broker_scan_range);
-        //        scan_ranges.push_back(scan_range_params);
+        scan_range_params.scan_range.ext_scan_range.__set_file_scan_range(TFileScanRange);
+        scan_ranges.push_back(scan_range_params);
     }
 
     std::vector<TExpr> pre_filter_texprs = std::vector<TExpr>();
@@ -227,23 +226,41 @@ TEST_F(ParquetReaderTest, scanner) {
     ObjectPool obj_pool;
     DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
     runtime_state.set_desc_tbl(desc_tbl);
-    ScannerCounter counter;
-    std::vector<ExprContext*> conjunct_ctxs = std::vector<ExprContext*>();
-    auto scan = new ParquetFileHdfsScanner(&runtime_state, runtime_state.runtime_profile(),
-                                           file_scan_range.params, file_scan_range.ranges,
-                                           pre_filter_texprs, &counter);
-    scan->reg_conjunct_ctxs(0, conjunct_ctxs);
-    Status st = scan->open();
-    EXPECT_TRUE(st.ok());
 
-    bool eof = false;
-    Block* block = new Block();
-    scan->get_next(block, &eof);
-    for (auto& col : block->get_columns_with_type_and_name()) {
-        ASSERT_EQ(col.column->size(), 10);
+    TPlanNode tnode;
+    tnode.node_id = 0;
+    tnode.node_type = TPlanNodeType::FILE_SCAN_NODE;
+    tnode.num_children = 0;
+    tnode.limit = -1;
+    tnode.row_tuples.push_back(0);
+    tnode.nullable_tuples.push_back(false);
+    tnode.file_scan_node.tuple_id = 0;
+    tnode.__isset.file_scan_node = true;
+
+    NewFileScanNode scan_node(&_obj_pool, tnode, *_desc_tbl);
+    scan_node.init(tnode, &runtime_state);
+    auto status = scan_node.prepare(&runtime_state);
+
+    EXPECT_TRUE(st.ok());
+    //
+    scan_node.set_scan_ranges(scan_ranges);
+    status = scan_node.open(&_runtime_state);
+    ASSERT_TRUE(status.ok());
+
+    doris::vectorized::Block block;
+    bool eos = false;
+    status = scan_node.get_next(&_runtime_state, &block, &eos);
+//    for (auto& col : block->get_columns_with_type_and_name()) {
+//        ASSERT_EQ(col.column->size(), 10);
+//    }
+    ASSERT_TRUE(eos);
+
+    scan_node.close(&_runtime_state);
+    {
+        std::stringstream ss;
+        scan_node.runtime_profile()->pretty_print(&ss);
+        LOG(INFO) << ss.str();
     }
-    delete block;
-    delete scan;
 }
 
 } // namespace vectorized

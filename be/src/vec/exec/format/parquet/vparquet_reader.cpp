@@ -98,13 +98,13 @@ Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
         // Get the Column Reader for the boolean column
         _map_column.emplace(schema_desc.get_column(i)->name, i);
     }
+    _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_init_read_columns());
-    RETURN_IF_ERROR(_init_row_group_readers(conjunct_ctxs));
+    RETURN_IF_ERROR(_init_row_group_readers());
     return Status::OK();
 }
 
 Status ParquetReader::_init_read_columns() {
-    _include_column_ids.clear();
     for (auto& file_col_name : _column_names) {
         auto iter = _map_column.find(file_col_name);
         if (iter != _map_column.end()) {
@@ -160,8 +160,7 @@ bool ParquetReader::_next_row_group_reader() {
     return true;
 }
 
-Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& conjunct_ctxs) {
-    _init_conjuncts(conjunct_ctxs);
+Status ParquetReader::_init_row_group_readers() {
     RETURN_IF_ERROR(_filter_row_groups());
     for (auto row_group_id : _read_row_groups) {
         auto& row_group = _t_metadata->row_groups[row_group_id];
@@ -181,39 +180,6 @@ Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& c
         return Status::EndOfFile("No next reader");
     }
     return Status::OK();
-}
-
-void ParquetReader::_init_conjuncts(const std::vector<ExprContext*>& conjunct_ctxs) {
-    std::unordered_set<int> parquet_col_ids(_include_column_ids.begin(), _include_column_ids.end());
-    for (auto& col_name : _column_names) {
-        auto col_iter = _map_column.find(col_name);
-        if (col_iter == _map_column.end()) {
-            continue;
-        }
-        int parquet_col_id = col_iter->second;
-        if (parquet_col_ids.end() == parquet_col_ids.find(parquet_col_id)) {
-            continue;
-        }
-        for (int conj_idx = 0; conj_idx < conjunct_ctxs.size(); conj_idx++) {
-            Expr* conjunct = conjunct_ctxs[conj_idx]->root();
-            if (conjunct->get_num_children() == 0) {
-                continue;
-            }
-            Expr* raw_slot = conjunct->get_child(0);
-            if (TExprNodeType::SLOT_REF != raw_slot->node_type()) {
-                continue;
-            }
-            auto iter = _slot_conjuncts.find(parquet_col_id);
-            if (_slot_conjuncts.end() == iter) {
-                std::vector<ExprContext*> conjuncts;
-                conjuncts.emplace_back(conjunct_ctxs[conj_idx]);
-                _slot_conjuncts.emplace(std::make_pair(parquet_col_id, conjuncts));
-            } else {
-                std::vector<ExprContext*> conjuncts = iter->second;
-                conjuncts.emplace_back(conjunct_ctxs[conj_idx]);
-            }
-        }
-    }
 }
 
 Status ParquetReader::_filter_row_groups() {
@@ -279,8 +245,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 
     std::vector<RowRange> skipped_row_ranges;
     for (auto& read_col : _read_columns) {
-        auto conjunct_iter = _slot_conjuncts.find(read_col._parquet_col_id);
-        if (_slot_conjuncts.end() == conjunct_iter) {
+        auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
+        if (_colname_to_value_range->end() == conjunct_iter) {
             continue;
         }
         auto& chunk = row_group.columns[read_col._parquet_col_id];
@@ -352,29 +318,22 @@ Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_gr
 
 Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& columns,
                                                   bool* filter_group) {
-    // It will not filter if head_group_offset equals tail_group_offset
-    std::unordered_set<int> _parquet_column_ids(_include_column_ids.begin(),
-                                                _include_column_ids.end());
     for (auto& col_name : _column_names) {
         auto col_iter = _map_column.find(col_name);
         if (col_iter == _map_column.end()) {
             continue;
         }
+        auto slot_iter = _colname_to_value_range->find(col_name);
+        if (slot_iter == _colname_to_value_range->end()) {
+            continue;
+        }
         int parquet_col_id = col_iter->second;
-        auto slot_iter = _slot_conjuncts.find(parquet_col_id);
-        if (slot_iter == _slot_conjuncts.end()) {
-            continue;
-        }
-        if (_parquet_column_ids.end() == _parquet_column_ids.find(parquet_col_id)) {
-            // Column not exist in parquet file
-            continue;
-        }
         auto& statistic = columns[parquet_col_id].meta_data.statistics;
         if (!statistic.__isset.max || !statistic.__isset.min) {
             continue;
         }
         // Min-max of statistic is plain-encoded value
-        *filter_group = _determine_filter_min_max(slot_iter->second, statistic.min, statistic.max);
+        *filter_group = determine_filter_min_max(slot_iter->second, statistic.min, statistic.max);
         if (*filter_group) {
             break;
         }

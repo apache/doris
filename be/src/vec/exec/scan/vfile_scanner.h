@@ -24,6 +24,7 @@
 #include "runtime/tuple.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
+#include "exec/olap_common.h"
 
 namespace doris::vectorized {
 
@@ -47,7 +48,8 @@ public:
     Status open(RuntimeState* state) override;
 
 public:
-    Status prepare(VExprContext** vconjunct_ctx_ptr);
+    Status prepare(VExprContext** vconjunct_ctx_ptr,
+                   std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -71,11 +73,11 @@ protected:
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // File slot id to index map.
-    std::map<SlotId, int> _file_slot_index_map;
+    std::unordered_map<SlotId, int> _file_slot_index_map;
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
     // Partition slot id to index map
-    std::map<SlotId, int> _partition_slot_index_map;
+    std::unordered_map<SlotId, int> _partition_slot_index_map;
 
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     std::unique_ptr<MemPool> _mem_pool;
@@ -92,7 +94,7 @@ protected:
     int _num_of_columns_from_file;
 
     std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;

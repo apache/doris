@@ -17,9 +17,9 @@
 
 #pragma once
 #include <common/status.h>
+#include "parquet_pred_cmp.h"
 #include <gen_cpp/parquet_types.h>
-
-#include "exprs/expr_context.h"
+#include "vparquet_reader.h"
 
 namespace doris::vectorized {
 class ParquetReader;
@@ -32,15 +32,13 @@ public:
     Status create_skipped_row_range(tparquet::OffsetIndex& offset_index, int total_rows_of_group,
                                     int page_idx, RowRange* row_range);
     Status collect_skipped_page_range(tparquet::ColumnIndex* column_index,
-                                      std::vector<ExprContext*> conjuncts,
-                                      std::vector<int>& page_range);
+                                      ColumnValueRangeType& col_val_range,
+                                      std::vector<int>& skipped_ranges);
     bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
     Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
                               tparquet::ColumnIndex* _column_index);
     Status parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
                               int64_t buffer_size, tparquet::OffsetIndex* _offset_index);
-    bool _filter_page_by_min_max(ExprContext* conjunct_expr, const std::string& encoded_min,
-                                 const std::string& encoded_max);
 
 private:
     friend class ParquetReader;
