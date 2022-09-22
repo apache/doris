@@ -24,6 +24,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -71,8 +72,9 @@ public:
         // for fast, expect MemInfo::initialized() to be true.
         if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
             auto st = Status::MemoryLimitExceeded(
-                    fmt::format("process memory used {} B, exceed limit {} B, failed_alloc_size={} B",
-                    PerfCounters::get_vm_rss(), MemInfo::mem_limit(), bytes));
+                    fmt::format("process memory used {}, exceed limit {}, failed alloc size {}",
+                    print_bytes(PerfCounters::get_vm_rss()), print_bytes(MemInfo::mem_limit()),
+                    print_bytes(bytes)));
             ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(st.get_error_msg());
             return st;
         }
@@ -108,21 +110,6 @@ public:
     // Returns the lowest limit for this tracker limiter and its ancestors. Returns -1 if there is no limit.
     int64_t get_lowest_limit() const;
 
-    typedef std::function<void(int64_t bytes_to_free)> GcFunction;
-    // Add a function 'f' to be called if the limit is reached, if none of the other
-    // previously-added GC functions were successful at freeing up enough memory.
-    // 'f' does not need to be thread-safe as long as it is added to only one tracker limiter.
-    // Note that 'f' must be valid for the lifetime of this tracker limiter.
-    void add_gc_function(GcFunction f) { _gc_functions.push_back(f); }
-
-    // TODO Should be managed in a separate process_mem_mgr, not in NewMemTracker
-    // If consumption is higher than max_consumption, attempts to free memory by calling
-    // any added GC functions.  Returns true if max_consumption is still exceeded. Takes gc_lock.
-    // Note: If the cache of segment/chunk is released due to insufficient query memory at a certain moment,
-    // the performance of subsequent queries may be degraded, so the use of gc function should be careful enough.
-    bool gc_memory(int64_t max_consumption);
-    Status try_gc_memory(int64_t bytes);
-
 public:
     // up to (but not including) end_tracker.
     // This happens when we want to update tracking on a particular mem tracker but the consumption
@@ -147,6 +134,7 @@ public:
     // Limiting the recursive depth reduces the cost of dumping, particularly
     // for the process tracker limiter.
     std::string log_usage(int max_recursive_depth = INT_MAX, int64_t* logged_consumption = nullptr);
+    void print_log_usage(const std::string& msg);
 
     // Log the memory usage when memory limit is exceeded and return a status object with
     // msg of the allocation which caused the limit to be exceeded.
@@ -167,6 +155,10 @@ public:
             << "all ancestor size: " << _all_ancestors.size() - 1 << "; "
             << "limited ancestor size: " << _limited_ancestors.size() - 1 << "; ";
         return msg.str();
+    }
+
+    static std::string print_bytes(int64_t bytes) {
+        return fmt::format("{}", PrettyPrinter::print(bytes, TUnit::BYTES));
     }
 
 private:
@@ -198,7 +190,6 @@ private:
                                  int64_t* logged_consumption);
 
     static Status mem_limit_exceeded_construct(const std::string& msg);
-    void print_log_usage(const std::string& msg);
 
 private:
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit. Used in log_usage。
@@ -230,19 +221,6 @@ private:
     std::atomic_size_t _had_child_count = 0;
 
     bool _print_log_usage = false;
-
-    // Lock to protect gc_memory(). This prevents many GCs from occurring at once.
-    std::mutex _gc_lock;
-    // Functions to call after the limit is reached to free memory.
-    // GcFunctions can be attached to a NewMemTracker in order to free up memory if the limit is
-    // reached. If limit_exceeded() is called and the limit is exceeded, it will first call
-    // the GcFunctions to try to free memory and recheck the limit. For example, the process
-    // tracker has a GcFunction that releases any unused memory still held by tcmalloc, so
-    // this will be called before the process limit is reported as exceeded. GcFunctions are
-    // called in the order they are added, so expensive functions should be added last.
-    // GcFunctions are called with a global lock held, so should be non-blocking and not
-    // call back into MemTrackers, except to release memory.
-    std::vector<GcFunction> _gc_functions;
 };
 
 inline void MemTrackerLimiter::consume(int64_t bytes) {
@@ -286,19 +264,17 @@ inline Status MemTrackerLimiter::try_consume(int64_t bytes) {
         if (tracker->limit() < 0 || tracker->label() == "Process") {
             tracker->_consumption->add(bytes); // No limit at this tracker.
         } else {
-            // If TryConsume fails, we can try to GC, but we may need to try several times if
-            // there are concurrent consumers because we don't take a lock before trying to
-            // update _consumption.
-            while (true) {
-                if (LIKELY(tracker->_consumption->try_add(bytes, tracker->limit()))) break;
-                Status st = tracker->try_gc_memory(bytes);
-                if (!st) {
-                    // Failed for this mem tracker. Roll back the ones that succeeded.
-                    for (int j = _all_ancestors.size() - 1; j > i; --j) {
-                        _all_ancestors[j]->_consumption->add(-bytes);
-                    }
-                    return st;
+            if (!tracker->_consumption->try_add(bytes, tracker->limit())) {
+                // Failed for this mem tracker. Roll back the ones that succeeded.
+                for (int j = _all_ancestors.size() - 1; j > i; --j) {
+                    _all_ancestors[j]->_consumption->add(-bytes);
                 }
+                return Status::MemoryLimitExceeded(fmt::format(
+                        "failed alloc size {}, exceeded tracker:<{}>, limit {}, peak "
+                        "used {}, current used {}",
+                        print_bytes(bytes), tracker->label(), print_bytes(tracker->limit()),
+                        print_bytes(tracker->_consumption->value()),
+                        print_bytes(tracker->_consumption->current_value())));
             }
         }
     }
@@ -314,11 +290,13 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     // Walk the tracker tree top-down.
     for (i = _limited_ancestors.size() - 1; i >= 0; --i) {
         MemTrackerLimiter* tracker = _limited_ancestors[i];
-        // Process tracker does not participate in the process memory limit, process tracker consumption is virtual memory,
-        // and there is a diff between the real physical memory value of the process. It is replaced by check_sys_mem_info.
-        while (true) {
-            if (LIKELY(tracker->_consumption->current_value() + bytes < tracker->limit())) break;
-            RETURN_IF_ERROR(tracker->try_gc_memory(bytes));
+        if (tracker->_consumption->current_value() + bytes > tracker->limit()) {
+            return Status::MemoryLimitExceeded(
+                    fmt::format("expected alloc size {}, exceeded tracker:<{}>, limit {}, peak "
+                                "used {}, current used {}",
+                                print_bytes(bytes), tracker->label(), print_bytes(tracker->limit()),
+                                print_bytes(tracker->_consumption->value()),
+                                print_bytes(tracker->_consumption->current_value())));
         }
     }
     return Status::OK();
