@@ -420,7 +420,7 @@ public class Coordinator {
             }
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getDestFragment().getFragmentId());
             params.inputFragments.add(fragment.getFragmentId());
-            bucketShuffleJoinController.isBucketShuffleJoin(fragment.getFragmentId().asInt(), fragment.getPlanRoot());
+
         }
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
