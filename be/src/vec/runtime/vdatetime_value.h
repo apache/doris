@@ -1026,6 +1026,17 @@ public:
         return *this;
     }
 
+    DateV2Value<T>& operator+=(int64_t val) {
+        if constexpr (is_datetime) {
+            TimeInterval interval(SECOND, val, false);
+            date_add_interval<SECOND>(interval);
+        } else {
+            TimeInterval interval(DAY, val, false);
+            date_add_interval<DAY>(interval);
+        }
+        return *this;
+    }
+
     uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(this->year(), 1, 1) + 1; }
