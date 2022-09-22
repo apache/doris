@@ -421,7 +421,7 @@ public class CastExpr extends Expr {
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            return new DecimalLiteral(value.getStringValue());
+            return new DecimalLiteral(value.getStringValue(), type.scale);
         } else if (type.isFloatingPointType()) {
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
