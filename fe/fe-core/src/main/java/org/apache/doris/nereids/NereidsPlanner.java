@@ -33,7 +33,6 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -195,9 +194,9 @@ public class NereidsPlanner extends Planner {
         }
 
         // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
-        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalProperties(
-                groupExpression.getOutputProperties(physicalProperties));
-        ((AbstractPlan) physicalPlan).setStats(groupExpression.getOwnerGroup().getStatistics());
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                groupExpression.getOutputProperties(physicalProperties),
+                groupExpression.getOwnerGroup().getStatistics());
         return physicalPlan;
     }
 

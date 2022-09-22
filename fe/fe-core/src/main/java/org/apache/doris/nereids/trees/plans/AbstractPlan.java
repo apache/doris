@@ -37,28 +37,29 @@ import java.util.Optional;
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
 
-    protected StatsDeriveResult statsDeriveResult;
+    protected final StatsDeriveResult statsDeriveResult;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
 
     public AbstractPlan(PlanType type, Plan... children) {
-        this(type, Optional.empty(), Optional.empty(), children);
+        this(type, Optional.empty(), Optional.empty(), null, children);
     }
 
     public AbstractPlan(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
-        this(type, Optional.empty(), optLogicalProperties, children);
+        this(type, Optional.empty(), optLogicalProperties, null, children);
     }
 
     /** all parameter constructor. */
     public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
-                        Optional<LogicalProperties> optLogicalProperties, Plan... children) {
+            Optional<LogicalProperties> optLogicalProperties, StatsDeriveResult statsDeriveResult, Plan... children) {
         super(groupExpression, children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
         Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
+        this.statsDeriveResult = statsDeriveResult;
     }
 
     @Override
@@ -72,10 +73,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     public StatsDeriveResult getStats() {
         return statsDeriveResult;
-    }
-
-    public void setStats(StatsDeriveResult statsDeriveResult) {
-        this.statsDeriveResult = statsDeriveResult;
     }
 
     @Override
