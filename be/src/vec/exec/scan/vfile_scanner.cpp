@@ -339,16 +339,17 @@ Status VFileScanner::_get_next_reader() {
             file_reader->close();
             continue;
         }
-
+        std::vector<std::string> column_names;
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET:
-            _cur_reader = new ParquetReader(file_reader.release(), _file_slot_descs.size(),
+            for (int i = 0; i < _file_slot_descs.size(); i++) {
+                column_names.push_back(_file_slot_descs[i]->col_name());
+            }
+            _cur_reader = new ParquetReader(file_reader.release(), column_names,
                                             _state->query_options().batch_size, range.start_offset,
                                             range.size,
                                             const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-            RETURN_IF_ERROR(((ParquetReader*)_cur_reader)
-                                    ->init_reader(_output_tuple_desc, _file_slot_descs,
-                                                  _conjunct_ctxs, _state->timezone()));
+            RETURN_IF_ERROR(((ParquetReader*)_cur_reader)->init_reader(_conjunct_ctxs));
             break;
         default:
             std::stringstream error_msg;
