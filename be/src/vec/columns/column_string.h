@@ -168,9 +168,8 @@ public:
         for (size_t i = 0; i < num; i++) {
             uint32_t len = len_array[i];
             uint32_t start_offset = start_offset_array[i];
-            if (len) {
-                memcpy(data + offset, data_array + start_offset, len);
-            }
+            // memcpy will deal len == 0, not do it here
+            memcpy(data + offset, data_array + start_offset, len);
             offset += len;
             offsets.push_back(offset);
         }

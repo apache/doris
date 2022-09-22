@@ -191,8 +191,6 @@ Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
-
     for (const auto& row_idx : row_idxs) {
         _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
     }
@@ -218,7 +216,6 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
@@ -236,7 +233,7 @@ Status DeltaWriter::_flush_memtable_async() {
     if (++_segment_counter > config::max_segment_num_per_rowset) {
         return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_SEGMENTS);
     }
-    return _flush_token->submit(std::move(_mem_table), _mem_tracker);
+    return _flush_token->submit(std::move(_mem_table));
 }
 
 Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
@@ -253,7 +250,6 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     if (_flush_token->get_stats().flush_running_count == 0) {
         // equal means there is no memtable in flush queue, just flush this memtable
         VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
@@ -290,7 +286,7 @@ void DeltaWriter::_reset_mem_table() {
     }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
-                                  _rowset_ids, _cur_max_version, _is_vec));
+                                  _rowset_ids, _cur_max_version, _mem_tracker, _is_vec));
 }
 
 Status DeltaWriter::close() {
@@ -308,7 +304,6 @@ Status DeltaWriter::close() {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     RETURN_NOT_OK(_flush_memtable_async());
     _mem_table.reset();
     return Status::OK();
@@ -323,8 +318,6 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     if (_is_cancelled) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
-
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
 
@@ -384,7 +377,6 @@ Status DeltaWriter::cancel() {
     if (!_is_init || _is_cancelled) {
         return Status::OK();
     }
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     _mem_table.reset();
     if (_flush_token != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
@@ -394,13 +386,13 @@ Status DeltaWriter::cancel() {
     return Status::OK();
 }
 
-int64_t DeltaWriter::save_mem_consumption_snapshot() {
-    _mem_consumption_snapshot = mem_consumption();
-    return _mem_consumption_snapshot;
+int64_t DeltaWriter::save_memtable_consumption_snapshot() {
+    _memtable_consumption_snapshot = memtable_consumption();
+    return _memtable_consumption_snapshot;
 }
 
-int64_t DeltaWriter::get_mem_consumption_snapshot() const {
-    return _mem_consumption_snapshot;
+int64_t DeltaWriter::get_memtable_consumption_snapshot() const {
+    return _memtable_consumption_snapshot;
 }
 
 int64_t DeltaWriter::mem_consumption() const {
@@ -410,6 +402,13 @@ int64_t DeltaWriter::mem_consumption() const {
         return 0;
     }
     return _mem_tracker->consumption();
+}
+
+int64_t DeltaWriter::memtable_consumption() const {
+    if (_mem_table == nullptr) {
+        return 0;
+    }
+    return _mem_table->memory_usage();
 }
 
 int64_t DeltaWriter::partition_id() const {
