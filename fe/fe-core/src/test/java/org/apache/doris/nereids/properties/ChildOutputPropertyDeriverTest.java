@@ -323,7 +323,7 @@ public class ChildOutputPropertyDeriverTest {
                 Lists.newArrayList(),
                 Lists.newArrayList(),
                 Lists.newArrayList(),
-                AggPhase.LOCAL,
+                AggPhase.GLOBAL,
                 true,
                 true,
                 logicalProperties,
