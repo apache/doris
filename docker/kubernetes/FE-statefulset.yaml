@@ -28,8 +28,8 @@ spec:
          - name: doris-conf
            configMap:
               name: doris-configmap
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+#      hostNetwork: true
+#      dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: doris-fe
           env:
@@ -39,13 +39,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-          image: doris-fe:1.0.0
-          command: [ "/bin/bash", "-ce", "opt/doris/doris-fe-1.0.0/fe/bin/start_fe.sh" ]
+          image: doris-fe:1.1.2
+          imagePullPolicy: Always
+          command: [ "/bin/bash", "-ce", "/opt/doris/fe/bin/start_fe.sh" ]
           volumeMounts:
             - name: pvc-doris-fe
-              mountPath: /opt/doris/doris-fe-1.0.0/fe/doris-meta
+              mountPath: /opt/doris/fe/doris-meta
             - name: doris-conf
-              mountPath: /opt/doris/doris-fe-1.0.0/fe/conf/fe.conf
+              mountPath: /opt/doris/fe/conf/fe.conf
               subPath: fe.conf
           livenessProbe:
             httpGet:

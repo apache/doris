@@ -28,17 +28,17 @@ spec:
         - name: doris-conf
           configMap:
             name: doris-configmap
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+#      hostNetwork: true
+#      dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: doris-be
           lifecycle:
-            postStart:
-              exec:
-                command: ["/bin/sh", "-c", "echo 'Hello from the postStart handler' >> /dev/null "]
+#            postStart:
+#              exec:
+#                command: ["/bin/sh", "-c", "/opt/register_be.sh "]
             preStop:
               exec:
-                command: ["/bin/sh", "-c", "echo 'Hello from the preStop handler'   >> /dev/null "]
+                command: ["/bin/sh", "-c", "/opt/decommision_be.sh "]
           env:
             - name: POD_NAME
               valueFrom:
@@ -50,8 +50,9 @@ spec:
               valueFrom:
                  fieldRef:
                    fieldPath: status.podIP
-          image: doris-be:1.0.0
-          command: [ "/bin/bash", "-ce", "/opt/doris/doris-be-1.0.0/be/bin/start_be.sh" ]
+          image: doris-be:1.1.2
+          imagePullPolicy: Always
+          command: [ "/bin/bash", "-ce", "/opt/register_be.sh; /opt/doris/be/bin/start_be.sh;  " ]
           livenessProbe:
             httpGet:
               path: /api/health
@@ -80,8 +81,8 @@ spec:
               memory: 1G
           volumeMounts:
             - name: pvc-doris-be
-              mountPath: /opt/doris/doris-be-1.0.0/be/storage
+              mountPath: /opt/doris/be/storage
             - name: doris-conf
-              mountPath: /opt/doris/doris-be-1.0.0/be/conf/be.conf
+              mountPath: /opt/doris/be/conf/be.conf
               subPath: be.conf
 

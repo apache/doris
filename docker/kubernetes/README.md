@@ -1,20 +1,17 @@
 # deploy Doris on kubenetes
-
+## download doris 1.1.2
+```
+cd docker/kubernetes
+wget https://dlcdn.apache.org/doris/1.1/1.1.2-rc05/apache-doris-be-1.1.2-bin-x86_64.tar.gz
+wget https://dlcdn.apache.org/doris/1.1/1.1.2-rc05/apache-doris-fe-1.1.2-bin.tar.gz
+```
 ## build docker image
 ```shell
 sh build_image.sh 
 ```
-## register be
+## install in kubernetes
 ```shell
-mysql -hdoris-fe-0.doris-fe-service -P9030 -uroot
- 
-```
-execute sql script
-```sql
-ALTER SYSTEM ADD BACKEND "doris-be-0.doris-be-service:9050";
-ALTER SYSTEM ADD BACKEND "doris-be-1.doris-be-service:9050";
-ALTER SYSTEM ADD BACKEND "doris-be-2.doris-be-service:9050";
-SHOW PROC '/backends';
+kubectl apply -f . 
 ```
 
 

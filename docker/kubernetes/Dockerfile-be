@@ -17,21 +17,21 @@
 
 FROM ubuntu:trusty
 
-ADD jdk-8u333-linux-x64.tar.gz /opt/jdk
-ADD doris-be-1.0.0.tar.gz /opt/doris
+RUN apt-get install mysql-client curl tar -y
 
-
-ENV JAVA_HOME /opt/jdk/jdk1.8.0_333
-ENV CLASSPATH $JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
-ENV PATH $PATH:$JAVA_HOME/bin
-
-RUN apt-get install mysql-client curl -y
-
-
+COPY apache-doris-be-1.1.2-bin-x86_64.tar.gz /opt/apache-doris-be-1.1.2-bin-x86_64.tar.gz
+RUN tar zxvf /opt/apache-doris-be-1.1.2-bin-x86_64.tar.gz -C /opt/
+RUN rm -rf  /opt/doris/apache-doris-be-1.1.2-bin-x86_64.tar.gz
+RUN  ln -s /opt/apache-doris-be-1.1.2-bin-x86_64 /opt/doris
 
 EXPOSE 9060
 EXPOSE 8040
 EXPOSE 9050
 EXPOSE 8060
 
-CMD /opt/doris/doris-be-1.0.0/be/bin/start_be.sh
+COPY  register_be.sh /opt/register_be.sh
+COPY  decommision_be.sh /opt/decommision_be.sh
+RUN chmod  +x /opt/register_be.sh
+RUN chmod  +x /opt/decommision_be.sh
+
+CMD /opt/doris/be/bin/start_be.sh

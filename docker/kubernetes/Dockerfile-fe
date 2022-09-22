@@ -16,15 +16,22 @@
 # under the License.
 FROM ubuntu:trusty
 
-ADD jdk-8u333-linux-x64.tar.gz /opt/jdk
-ADD doris-fe-1.0.0.tar.gz /opt/doris
+RUN apt-get install mysql-client curl tar -y
 
-ENV JAVA_HOME /opt/jdk/jdk1.8.0_333
+COPY jdk-8u141-linux-x64.tar.gz /opt/jdk/jdk-8u141-linux-x64.tar.gz
+RUN tar zxvf /opt/jdk/jdk-8u141-linux-x64.tar.gz -C  /opt/jdk
+RUN rm -rf  /opt/jdk/jdk-8u141-linux-x64.tar.gz
+
+
+COPY apache-doris-fe-1.1.2-bin.tar.gz /opt/apache-doris-fe-1.1.2-bin.tar.gz
+RUN tar zxvf /opt/apache-doris-fe-1.1.2-bin.tar.gz -C /opt
+RUN rm -rf  /opt/apache-doris-fe-1.1.2-bin.tar.gz
+RUN  ln -s /opt/apache-doris-fe-1.1.2-bin /opt/doris
+
+
+ENV JAVA_HOME /opt/jdk/jdk1.8.0_141
 ENV CLASSPATH $JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
 ENV PATH $PATH:$JAVA_HOME/bin
-
-RUN apt-get install mysql-client curl -y
-
 
 
 EXPOSE 8030
@@ -32,4 +39,4 @@ EXPOSE 9020
 EXPOSE 9030
 EXPOSE 9010
 
-CMD /opt/doris/doris-fe-1.0.0/fe/bin/start_fe.sh
+CMD /opt/doris/apache-doris-fe-1.1.2-bin/fe/bin/start_fe.sh
