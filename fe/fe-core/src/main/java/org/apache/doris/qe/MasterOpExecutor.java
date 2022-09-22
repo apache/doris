@@ -169,7 +169,7 @@ public class MasterOpExecutor {
         if (result == null) {
             return QueryState.MysqlStateType.UNKNOWN.name();
         }
-        if (result.isStatus()) {
+        if (result.isSetStatus()) {
             return QueryState.MysqlStateType.UNKNOWN.name();
         } else {
             return result.getStatus();
