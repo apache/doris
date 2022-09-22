@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -57,7 +58,9 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return leftSemiLogicalJoin(logicalJoin(), group())
+        return logicalJoin(logicalJoin(), group())
+                .when(topJoin -> topJoin.getJoinType() == JoinType.LEFT_SEMI_JOIN
+                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN)
                 .whenNot(topJoin -> topJoin.left().getJoinType().isSemiOrAntiJoin())
                 .when(this::conditionChecker)
                 .then(topSemiJoin -> {
