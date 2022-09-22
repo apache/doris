@@ -299,4 +299,5 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                     return true;
                 }));
     }
+    
 }
