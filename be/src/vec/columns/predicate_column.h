@@ -278,15 +278,29 @@ public:
             }
 
             char* destination = (char*)_pool->allocate(total_mem_size);
-            memcpy(destination, data_array, total_mem_size);
-            // Resize the underline data to allow data copy directly
+            char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
+            uint32_t fragment_start_offset = start_offset_array[0];
+            size_t fragment_len = 0;
             for (size_t i = 0; i < num; i++) {
-                data[org_elem_num + i].ptr = destination;
+                data[org_elem_num + i].ptr = destination + fragment_len;
                 data[org_elem_num + i].len = len_array[i];
-                destination += len_array[i];
+                fragment_len += len_array[i];
+                // Compute the largest continuous memcpy block and copy them.
+                // If this is the last element in data array, then should copy the current memory block.
+                if (i == num - 1 ||
+                    start_offset_array[i + 1] != start_offset_array[i] + len_array[i]) {
+                    memcpy(destination, data_array + fragment_start_offset, fragment_len);
+                    destination += fragment_len;
+                    fragment_start_offset = (i == num - 1 ? 0 : start_offset_array[i + 1]);
+                    fragment_len = 0;
+                }
             }
+            CHECK(destination - org_dst == total_mem_size)
+                    << "Copied size not equal to expected size";
+        } else {
+            LOG(FATAL) << "Method insert_many_binary_data is not supported";
         }
     }
 
