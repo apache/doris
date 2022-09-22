@@ -1132,7 +1132,7 @@ void RowBlockMerger::_pop_heap() {
 }
 
 Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                                   TabletSharedPtr new_tablet,
+                                   TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
                                    TabletSchemaSPtr base_tablet_schema) {
     // In some cases, there may be more than one type of rowset in a tablet,
     // in which case the conversion cannot be done directly by linked schema change,
@@ -1142,7 +1142,8 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
                   << " in base tablet is not same as type " << rowset_writer->type()
                   << ", use direct schema change.";
         return SchemaChangeHandler::get_sc_procedure(_row_block_changer, false, true)
-                ->process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema);
+                ->process(rowset_reader, rowset_writer, new_tablet, base_tablet,
+                          base_tablet_schema);
     } else {
         Status status = rowset_writer->add_rowset_for_linked_schema_change(rowset_reader->rowset());
         if (!status) {
@@ -1150,8 +1151,26 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
                          << ", new_tablet=" << new_tablet->full_name()
                          << ", version=" << rowset_writer->version().first << "-"
                          << rowset_writer->version().second << ", error status " << status;
+            return status;
         }
-        return status;
+        // copy delete bitmap to new tablet.
+        if (new_tablet->keys_type() == UNIQUE_KEYS &&
+            new_tablet->enable_unique_key_merge_on_write()) {
+            DeleteBitmap origin_delete_bitmap(base_tablet->tablet_id());
+            base_tablet->tablet_meta()->delete_bitmap().subset(
+                    {rowset_reader->rowset()->rowset_id(), 0, 0},
+                    {rowset_reader->rowset()->rowset_id(), UINT32_MAX, INT64_MAX},
+                    &origin_delete_bitmap);
+            for (auto iter = origin_delete_bitmap.delete_bitmap.begin();
+                 iter != origin_delete_bitmap.delete_bitmap.end(); ++iter) {
+                int ret = new_tablet->tablet_meta()->delete_bitmap().set(
+                        {rowset_writer->rowset_id(), std::get<1>(iter->first),
+                         std::get<2>(iter->first)},
+                        iter->second);
+                DCHECK(ret == 1);
+            }
+        }
+        return Status::OK();
     }
 }
 
@@ -1874,6 +1893,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.is_vec = config::enable_vectorized_alter_table;
+            reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
             for (auto& rs_reader : rs_readers) {
                 res = rs_reader->init(&reader_context);
                 if (!res) {
@@ -2063,7 +2083,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         }
 
         if (res = sc_procedure->process(rs_reader, rowset_writer.get(), sc_params.new_tablet,
-                                        sc_params.base_tablet_schema);
+                                        sc_params.base_tablet, sc_params.base_tablet_schema);
             !res) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"

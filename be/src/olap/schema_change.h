@@ -87,7 +87,8 @@ public:
     virtual ~SchemaChange() = default;
 
     virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                           TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) {
+                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
+                           TabletSchemaSPtr base_tablet_schema) {
         if (rowset_reader->rowset()->empty() || rowset_reader->rowset()->num_rows() == 0) {
             RETURN_WITH_WARN_IF_ERROR(
                     rowset_writer->flush(),
@@ -154,7 +155,8 @@ public:
     ~LinkedSchemaChange() override = default;
 
     Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                   TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
+                   TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
+                   TabletSchemaSPtr base_tablet_schema) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
