@@ -309,7 +309,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     auto block_per_scanner = (doris_scanner_row_num + (_block_size - 1)) / _block_size;
     auto pre_block_count =
             std::min(_volap_scanners.size(),
-                     static_cast<size_t>(config::doris_scanner_thread_pool_thread_num)) *
+                     static_cast<size_t>(config::max_num_free_block_slot) *
             block_per_scanner;
 
     for (int i = 0; i < pre_block_count; ++i) {
