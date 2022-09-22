@@ -95,6 +95,31 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Str
     return Status::OK();
 }
 
+Status FunctionLikeBase::constant_substring_fn_vec(LikeSearchState* state,
+                                                   const StringValue& pattern,
+                                                   const StringValue* values, uint16_t* sel,
+                                                   uint16_t size, bool opposite,
+                                                   uint16_t* new_size) {
+    uint16_t count = 0;
+    for (uint16_t i = 0; i < size; i++) {
+        uint16_t idx = sel[i];
+        sel[count] = idx;
+        count += opposite ^ (state->substring_pattern.search(&values[idx]) != -1);
+    }
+    *new_size = count;
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_substring_fn_vec_dict(LikeSearchState* state,
+                                                        const StringValue& pattern,
+                                                        const StringValue* values, uint16_t size,
+                                                        unsigned char* result) {
+    for (uint16_t i = 0; i < size; i++) {
+        result[i] = (state->substring_pattern.search(&values[i]) != -1);
+    }
+    return Status::OK();
+}
+
 Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const StringValue& val,
                                            const StringValue& pattern, unsigned char* result) {
     auto ret = hs_scan(state->hs_database.get(), val.ptr, val.len, 0, state->hs_scratch.get(),
@@ -344,6 +369,8 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
             remove_escape_character(&search_string);
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
+            state->function_vec = constant_substring_fn_vec;
+            state->function_vec_dict = constant_substring_fn_vec_dict;
         } else {
             std::string re_pattern;
             convert_like_pattern(&state->search_state, pattern_str, &re_pattern);
@@ -387,6 +414,8 @@ Status FunctionRegexp::prepare(FunctionContext* context,
         } else if (RE2::FullMatch(pattern_str, SUBSTRING_RE, &search_string)) {
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
+            state->function_vec = constant_substring_fn_vec;
+            state->function_vec_dict = constant_substring_fn_vec_dict;
         } else {
             hs_database_t* database = nullptr;
             hs_scratch_t* scratch = nullptr;
