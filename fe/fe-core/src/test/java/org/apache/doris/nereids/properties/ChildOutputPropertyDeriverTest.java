@@ -308,7 +308,7 @@ public class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(ShuffleType.ENFORCED, actual.getShuffleType());
+        Assertions.assertEquals(ShuffleType.BUCKETED, actual.getShuffleType());
         Assertions.assertEquals(Lists.newArrayList(partition).stream()
                         .map(SlotReference::getExprId).collect(Collectors.toList()),
                 actual.getOrderedShuffledColumns());

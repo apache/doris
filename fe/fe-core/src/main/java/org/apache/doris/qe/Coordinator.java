@@ -420,8 +420,6 @@ public class Coordinator {
             }
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getDestFragment().getFragmentId());
             params.inputFragments.add(fragment.getFragmentId());
-
-            bucketShuffleJoinController.isBucketShuffleJoin(fragment.getFragmentId().asInt(), fragment.getPlanRoot());
         }
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
@@ -1027,36 +1025,25 @@ public class Coordinator {
                     destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                 }
                 // process bucket shuffle join on fragment without scan node
-                if (bucketNum < 0) {
-                    // add destination host to this fragment's destination
-                    for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
-                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                        dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
-                        dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
-                        dest.setBrpcServer(toBrpcHost(destParams.instanceExecParams.get(j).host));
-                        params.destinations.add(dest);
-                    }
-                } else {
-                    TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
-                    while (bucketSeq < bucketNum) {
-                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
+                while (bucketSeq < bucketNum) {
+                    TPlanFragmentDestination dest = new TPlanFragmentDestination();
 
-                        dest.fragment_instance_id = new TUniqueId(-1, -1);
-                        dest.server = dummyServer;
-                        dest.setBrpcServer(dummyServer);
+                    dest.fragment_instance_id = new TUniqueId(-1, -1);
+                    dest.server = dummyServer;
+                    dest.setBrpcServer(dummyServer);
 
-                        for (FInstanceExecParam instanceExecParams : destParams.instanceExecParams) {
-                            if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
-                                dest.fragment_instance_id = instanceExecParams.instanceId;
-                                dest.server = toRpcHost(instanceExecParams.host);
-                                dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
-                                break;
-                            }
+                    for (FInstanceExecParam instanceExecParams : destParams.instanceExecParams) {
+                        if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
+                            dest.fragment_instance_id = instanceExecParams.instanceId;
+                            dest.server = toRpcHost(instanceExecParams.host);
+                            dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                            break;
                         }
-
-                        bucketSeq++;
-                        params.destinations.add(dest);
                     }
+
+                    bucketSeq++;
+                    params.destinations.add(dest);
                 }
             } else {
                 // add destination host to this fragment's destination
@@ -1875,7 +1862,7 @@ public class Coordinator {
         }
 
         private int getFragmentBucketNum(PlanFragmentId fragmentId) {
-            return fragmentIdToBucketNumMap.getOrDefault(fragmentId, -1);
+            return fragmentIdToBucketNumMap.get(fragmentId);
         }
 
         // make sure each host have average bucket to scan
