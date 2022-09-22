@@ -19,8 +19,6 @@ package org.apache.doris.nereids.cost;
 
 import com.google.common.base.Preconditions;
 
-import java.util.stream.Stream;
-
 /**
  * Use for estimating the cost of plan.
  */
