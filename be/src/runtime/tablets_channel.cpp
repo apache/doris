@@ -255,6 +255,7 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit, TabletWriterAddResult
             _broken_tablets.insert(writers[i]->tablet_id());
         }
     }
+    // just add a comment to trigger p0 pipeline, not merge
 
     for (int i = 0; i < counter; i++) {
         if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
