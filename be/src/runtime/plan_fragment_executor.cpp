@@ -47,6 +47,7 @@
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/vexchange_node.h"
@@ -170,7 +171,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         ExecNode* node = scan_nodes[i];
         if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
             typeid(*node) == typeid(vectorized::NewFileScanNode) ||
-            typeid(*node) == typeid(vectorized::NewOdbcScanNode)) {
+            typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
+            typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
             vectorized::VScanNode* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             const std::vector<TScanRangeParams>& scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
