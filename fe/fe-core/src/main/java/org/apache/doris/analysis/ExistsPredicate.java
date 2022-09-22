@@ -53,7 +53,7 @@ public class ExistsPredicate extends Predicate {
     @Override
     protected void toThrift(TExprNode msg) {
         // Cannot serialize a nested predicate
-        Preconditions.checkState(false);
+        throw new RuntimeException("ExistsPredicate should be rewritten");
     }
 
     @Override

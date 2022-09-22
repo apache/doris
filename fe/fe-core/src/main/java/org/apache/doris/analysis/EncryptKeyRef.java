@@ -89,7 +89,7 @@ public class EncryptKeyRef extends Expr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        // no operation
+        throw new RuntimeException("EncryptKeyRef should be rewritten");
     }
 
     @Override

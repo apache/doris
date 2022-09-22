@@ -33,7 +33,7 @@ public class DefaultValueExpr extends Expr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-
+        throw new RuntimeException("DefaultValueExpr should be rewritten");
     }
 
     @Override

@@ -50,6 +50,7 @@ public final class MaxLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
+        throw new RuntimeException("MaxLiteral should be rewritten");
     }
 
     @Override

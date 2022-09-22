@@ -201,6 +201,7 @@ public class AnalyticExpr extends Expr {
 
     @Override
     protected void toThrift(TExprNode msg) {
+        throw new RuntimeException("AnalyticExpr should be rewritten");
     }
 
     public static boolean isAnalyticFn(Function fn) {

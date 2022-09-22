@@ -220,5 +220,7 @@ public class Subquery extends Expr {
     }
 
     @Override
-    protected void toThrift(TExprNode msg) {}
+    protected void toThrift(TExprNode msg) {
+        throw new RuntimeException("Subquery should be rewritten");
+    }
 }
