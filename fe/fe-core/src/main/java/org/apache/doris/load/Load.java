@@ -809,7 +809,9 @@ public class Load {
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
             List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad)
             throws UserException {
+        LOG.info("debug before rewrite columns: {}", columnDescs.descs.size());
         rewriteColumns(columnDescs);
+        LOG.info("debug after rewrite columns: {}", columnDescs.descs.size());
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer, srcTupleDesc, slotDescByName,
                 srcSlotIds, formatType, hiddenColumns, useVectorizedLoad, true);
     }
@@ -836,8 +838,11 @@ public class Load {
         //          (k1, k2, tmpk3 = k1 + k2, k3 = k1 + k2)
         //     so "tmpk3 = k1 + k2" is not needed anymore, we can skip it.
         List<ImportColumnDesc> copiedColumnExprs = new ArrayList<>();
+        LOG.info("debug get columnExprs size {} ", columnExprs.size());
         for (ImportColumnDesc importColumnDesc : columnExprs) {
             String mappingColumnName = importColumnDesc.getColumnName();
+            LOG.info("debug check importColumnDesc name: {}, is column: {}, is null: {}", mappingColumnName,
+                    importColumnDesc.isColumn(), (tbl.getColumn(mappingColumnName) != null));
             if (importColumnDesc.isColumn() || tbl.getColumn(mappingColumnName) != null) {
                 copiedColumnExprs.add(importColumnDesc);
             }
@@ -851,6 +856,7 @@ public class Load {
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
         boolean specifyFileFieldNames = copiedColumnExprs.stream().anyMatch(p -> p.isColumn());
+        LOG.info("debug is specifyFileFieldNames: " + specifyFileFieldNames);
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
@@ -859,7 +865,7 @@ public class Load {
                     continue;
                 }
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
-                LOG.debug("add base column {} to stream load task", column.getName());
+                LOG.info("debug add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
             }
             if (hiddenColumns != null) {
@@ -867,19 +873,23 @@ public class Load {
                     Column column = tbl.getColumn(columnName);
                     if (column != null && !column.isVisible()) {
                         ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
-                        LOG.debug("add hidden column {} to stream load task", column.getName());
+                        LOG.info("debug add hidden column {} to stream load task", column.getName());
                         copiedColumnExprs.add(columnDesc);
                     }
                 }
             }
         }
         // generate a map for checking easily
+        LOG.info("debug get importColumnDesc size {} ", copiedColumnExprs.size());
         Map<String, Expr> columnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
+            LOG.info("debug get importColumnDesc col name： {} ", importColumnDesc.getColumnName());
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
 
         // check default value
+        LOG.info("debug get table schema size {}, column expr map keys: {} ", tbl.getBaseSchema().size(),
+                columnExprMap.keySet());
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
             if (columnExprMap.containsKey(columnName)) {

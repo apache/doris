@@ -130,6 +130,9 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
         LoadTaskInfo.ImportColumnDescs columnExprDescs = taskInfo.getColumnExprDescs();
+        LOG.info("debug before get taskInfo.getColumnExprDescs size: {}, is rewrite: {}",
+                taskInfo.getColumnExprDescs().descs.size(),
+                columnExprDescs.isColumnDescsRewrited);
         if (!columnExprDescs.isColumnDescsRewrited) {
             if (mergeType == LoadTask.MergeType.MERGE) {
                 columnExprDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
@@ -141,6 +144,8 @@ public class StreamLoadScanNode extends LoadScanNode {
                         new SlotRef(null, taskInfo.getSequenceCol())));
             }
         }
+        LOG.info("debug after get taskInfo.getColumnExprDescs size: {}", taskInfo.getColumnExprDescs().descs.size());
+
 
         if (params.getSrcSlotIds() == null) {
             params.setSrcSlotIds(new java.util.ArrayList<java.lang.Integer>());
