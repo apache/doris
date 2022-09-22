@@ -63,6 +63,7 @@ add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
 
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
+
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RELEASE)
