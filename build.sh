@@ -270,6 +270,10 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
+if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
+    RECORD_COMPILER_SWITCHES='OFF'
+fi
+
 echo "Get params:
     BUILD_FE            -- ${BUILD_FE}
     BUILD_BE            -- ${BUILD_BE}
