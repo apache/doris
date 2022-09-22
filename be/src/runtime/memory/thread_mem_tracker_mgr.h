@@ -103,12 +103,14 @@ private:
     // If tryConsume fails due to task mem tracker exceeding the limit, the task must be canceled
     void exceeded_cancel_task(const std::string& cancel_details);
 
-    void exceeded(Status failed_try_consume_st);
+    void exceeded(const std::string& failed_msg);
 
 private:
     // Cache untracked mem, only update to _untracked_mems when switching mem tracker.
     // Frequent calls to unordered_map _untracked_mems[] in consume will degrade performance.
     int64_t _untracked_mem = 0;
+    int64_t old_untracked_mem = 0;
+    std::string failed_msg = std::string();
 
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
     std::vector<NewMemTracker*> _consumer_tracker_stack;
@@ -167,6 +169,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the TCMalloc Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;
+    old_untracked_mem = _untracked_mem;
     DCHECK(_limiter_tracker);
     if (CheckLimit) {
 #ifndef BE_TEST
@@ -179,20 +182,19 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
         // DCHECK(!_check_attach || btls_key != EMPTY_BTLS_KEY ||
         //        _limiter_tracker->label() != "Process");
 #endif
-        Status st = _limiter_tracker_raw->try_consume(_untracked_mem);
-        if (!st) {
+        if (!_limiter_tracker_raw->try_consume(old_untracked_mem, failed_msg)) {
             // The memory has been allocated, so when TryConsume fails, need to continue to complete
             // the consume to ensure the accuracy of the statistics.
-            _limiter_tracker_raw->consume(_untracked_mem);
-            exceeded(st);
+            _limiter_tracker_raw->consume(old_untracked_mem);
+            exceeded(failed_msg);
         }
     } else {
-        _limiter_tracker_raw->consume(_untracked_mem);
+        _limiter_tracker_raw->consume(old_untracked_mem);
     }
     for (auto tracker : _consumer_tracker_stack) {
-        tracker->consume(_untracked_mem);
+        tracker->consume(old_untracked_mem);
     }
-    _untracked_mem = 0;
+    _untracked_mem -= old_untracked_mem;
     _stop_consume = false;
 }
 

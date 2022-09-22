@@ -59,7 +59,7 @@ public:
 private:
     // check if the total load mem consumption exceeds limit.
     // If yes, it will pick a load channel to try to reduce memory consumption.
-    void _handle_mem_exceed_limit();
+    Status _handle_mem_exceed_limit();
 
     Status _start_bg_worker();
 

@@ -215,6 +215,7 @@ Status ExecEnv::_init_mem_tracker() {
     }
 #endif
 
+    _allocator_cache_mem_tracker = std::make_shared<NewMemTracker>("Tc/JemallocAllocatorCache");
     _query_pool_mem_tracker =
             std::make_shared<MemTrackerLimiter>(-1, "QueryPool", _process_mem_tracker);
     _load_pool_mem_tracker =

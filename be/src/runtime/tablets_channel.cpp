@@ -272,6 +272,10 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     }
 
     for (int i = 0; i < counter; i++) {
+        if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
+            // skip broken tablets
+            continue;
+        }
         OLAPStatus st = writers[i]->wait_flush();
         if (st != OLAP_SUCCESS) {
             return Status::InternalError(fmt::format("failed to reduce mem consumption by flushing memtable. err: {}", st));

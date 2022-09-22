@@ -32,6 +32,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/debug_util.h"
+#include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
 
@@ -88,8 +89,8 @@ void mem_usage_handler(const std::shared_ptr<MemTracker>& mem_tracker,
         (*output) << "<pre>"
                   << "Mem Limit: " << PrettyPrinter::print(mem_tracker->limit(), TUnit::BYTES)
                   << std::endl
-                  << "Mem Consumption: "
-                  << PrettyPrinter::print(mem_tracker->consumption(), TUnit::BYTES) << std::endl
+                  << "Physical Mem From Perf: "
+                  << PrettyPrinter::print(PerfCounters::get_vm_rss(), TUnit::BYTES) << std::endl
                   << "</pre>";
     } else {
         (*output) << "<pre>"

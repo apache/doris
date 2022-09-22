@@ -105,10 +105,11 @@ void NewMemTracker::make_group_snapshot(std::vector<NewMemTracker::Snapshot>* sn
 }
 
 std::string NewMemTracker::log_usage(NewMemTracker::Snapshot snapshot) {
-    return fmt::format("NewMemTracker Label={}, Parent Label={}, Used={}, Peak={}", snapshot.label,
-                       snapshot.parent,
-                       PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
-                       PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES));
+    return fmt::format(
+            "MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)", snapshot.label,
+            snapshot.parent, PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
+            snapshot.cur_consumption, PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES),
+            snapshot.peak_consumption);
 }
 
 } // namespace doris
