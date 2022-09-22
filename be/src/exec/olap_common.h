@@ -571,27 +571,27 @@ void ColumnValueRange<primitive_type>::convert_to_fixed_value() {
 }
 
 template <>
-[[noreturn]] std::vector<ColumnValueRange<PrimitiveType::TYPE_STRING>>
+std::vector<ColumnValueRange<PrimitiveType::TYPE_STRING>>
 ColumnValueRange<PrimitiveType::TYPE_STRING>::split(size_t count);
 
 template <>
-[[noreturn]] std::vector<ColumnValueRange<PrimitiveType::TYPE_CHAR>>
+std::vector<ColumnValueRange<PrimitiveType::TYPE_CHAR>>
 ColumnValueRange<PrimitiveType::TYPE_CHAR>::split(size_t count);
 
 template <>
-[[noreturn]] std::vector<ColumnValueRange<PrimitiveType::TYPE_VARCHAR>>
+std::vector<ColumnValueRange<PrimitiveType::TYPE_VARCHAR>>
 ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::split(size_t count);
 
 template <>
-[[noreturn]] std::vector<ColumnValueRange<PrimitiveType::TYPE_HLL>>
+std::vector<ColumnValueRange<PrimitiveType::TYPE_HLL>>
 ColumnValueRange<PrimitiveType::TYPE_HLL>::split(size_t count);
 
 template <>
-[[noreturn]] std::vector<ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>>
+std::vector<ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>>
 ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::split(size_t count);
 
 template <>
-[[noreturn]] std::vector<ColumnValueRange<PrimitiveType::TYPE_LARGEINT>>
+std::vector<ColumnValueRange<PrimitiveType::TYPE_LARGEINT>>
 ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::split(size_t count);
 
 template <PrimitiveType primitive_type>
