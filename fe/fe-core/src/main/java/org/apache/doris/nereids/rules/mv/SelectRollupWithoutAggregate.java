@@ -42,7 +42,7 @@ public class SelectRollupWithoutAggregate extends OneRewriteRuleFactory {
         return logicalOlapScan()
                 .whenNot(LogicalOlapScan::isRollupSelected)
                 .then(this::scanWithoutAggregate)
-                .toRule(RuleType.ROLLUP_AGG_FILTER_SCAN);
+                .toRule(RuleType.ROLLUP_WITH_OUT_AGG);
     }
 
     private LogicalOlapScan scanWithoutAggregate(LogicalOlapScan scan) {
