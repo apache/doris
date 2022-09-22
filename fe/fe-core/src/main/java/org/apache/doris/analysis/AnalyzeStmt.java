@@ -51,16 +51,13 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
- * Collect statistics about a database
+ * Collect statistics.
  *
  * syntax:
  * ANALYZE [[ db_name.tb_name ] [( column_name [, ...] )], ...] [ PROPERTIES(...) ]
- *
- *      db_name.tb_name: collect table and column statistics from tb_name
- *
- *      column_name: collect column statistics from column_name
- *
- *      properties: properties of statistics jobs
+ *     db_name.tb_name: collect table and column statistics from tb_name
+ *     column_name: collect column statistics from column_name
+ *     properties: properties of statistics jobs
  */
 public class AnalyzeStmt extends DdlStmt {
     // time to wait for collect  statistics
