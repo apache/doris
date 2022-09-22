@@ -667,7 +667,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         context.setCurrentConnectedFEIp(clientAddr.getHostname());
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
-        context.getState().setError(result.getStatus());
+        if ("ERR".equalsIgnoreCase(result.getStatus())) {
+            context.getState().setError(result.getStatus());
+        } else {
+            context.getState().setOk();
+        }
         ConnectContext.remove();
         return result;
     }

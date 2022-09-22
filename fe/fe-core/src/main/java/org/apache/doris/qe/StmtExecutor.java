@@ -298,7 +298,7 @@ public class StmtExecutor implements ProfileWriter {
 
     public String getProxyStatus() {
         if (masterOpExecutor == null) {
-            return null;
+            return QueryState.MysqlStateType.UNKNOWN.name();
         }
         return masterOpExecutor.getProxyStatus();
     }
