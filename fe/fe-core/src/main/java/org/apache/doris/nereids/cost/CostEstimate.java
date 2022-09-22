@@ -85,10 +85,6 @@ public final class CostEstimate {
         return new CostEstimate(0, memoryCost, 0);
     }
 
-
-    /**
-     * Sums partial cost estimates of some (single) plan node.
-     */
     public static CostEstimate sum(CostEstimate one, CostEstimate two, CostEstimate... more) {
         double v1 = one.cpuCost + two.cpuCost;
         double v2 = one.memoryCost + two.memoryCost;
