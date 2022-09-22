@@ -51,6 +51,7 @@ import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -667,7 +668,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         context.setCurrentConnectedFEIp(clientAddr.getHostname());
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
-        if ("ERR".equalsIgnoreCase(result.getStatus())) {
+
+        if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
             context.getState().setError(result.getStatus());
         } else {
             context.getState().setOk();
