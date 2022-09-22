@@ -34,7 +34,7 @@ suite("test_with") {
                         SELECT * FROM innermost
                         UNION SELECT 3)
                 )
-                SELECT * FROM outermost;
+                SELECT x FROM outermost order by 1;
               """
     qt_select """
                 WITH outermost(x) AS (
