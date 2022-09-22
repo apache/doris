@@ -809,7 +809,8 @@ public class Load {
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
             List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad)
             throws UserException {
-        LOG.info("debug before rewrite columns: {}", columnDescs.descs.size());
+        LOG.info("debug before rewrite columns: {}, tbl id: {}, tbl name: {}", columnDescs.descs.size(), tbl.getId(),
+                tbl.getName());
         rewriteColumns(columnDescs);
         LOG.info("debug after rewrite columns: {}", columnDescs.descs.size());
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer, srcTupleDesc, slotDescByName,
