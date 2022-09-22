@@ -239,7 +239,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                     maxBatchIntervalSec = Long.valueOf(properties.get(PROP_MAX_BATCH_INTERVAL_SEC));
                 }
                 if (properties.containsKey(PROP_MAX_QUEUE_SIZE)) {
-                    maxQueueSize = Integer.valueOf(PROP_MAX_QUEUE_SIZE);
+                    maxQueueSize = Integer.valueOf(properties.get(PROP_MAX_QUEUE_SIZE));
                 }
                 if (properties.containsKey(PROP_FRONTEND_HOST_PORT)) {
                     frontendHostPort = properties.get(PROP_FRONTEND_HOST_PORT);
