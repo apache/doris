@@ -286,4 +286,17 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                     return true;
                 }));
     }
+
+    @Test
+    public void testDuplicatePreAggOnEvenWithoutAggregate() {
+        PlanChecker.from(connectContext)
+                .analyze("select k1, v1 from duplicate_tbl")
+                .applyTopDown(new SelectRollupWithAggregate())
+                .applyTopDown(new SelectRollupWithoutAggregate())
+                .matches(logicalOlapScan().when(scan -> {
+                    PreAggStatus preAgg = scan.getPreAggStatus();
+                    Assertions.assertTrue(preAgg.isOn());
+                    return true;
+                }));
+    }
 }
