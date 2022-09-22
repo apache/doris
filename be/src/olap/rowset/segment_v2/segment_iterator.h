@@ -145,8 +145,8 @@ private:
 
     std::shared_ptr<Segment> _segment;
     const Schema& _schema;
-    // _column_iterators.size() == _schema.num_columns()
-    // map<unique_id, ColumnIterator*> _column_iterators/_bitmap_index_iterators;
+    // _column_iterators_map.size() == _schema.num_columns()
+    // map<unique_id, ColumnIterator*> _column_iterators_map/_bitmap_index_iterators;
     // can use _schema get unique_id by cid
     std::map<int32_t, ColumnIterator*> _column_iterators;
     std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
