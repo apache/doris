@@ -31,6 +31,7 @@ import com.google.common.base.Suppliers;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class for all concrete plan node.
@@ -50,9 +51,12 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this(type, Optional.empty(), optLogicalProperties, null, children);
     }
 
-    /** all parameter constructor. */
+    /**
+     * all parameter constructor.
+     */
     public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> optLogicalProperties, StatsDeriveResult statsDeriveResult, Plan... children) {
+            Optional<LogicalProperties> optLogicalProperties, @Nullable StatsDeriveResult statsDeriveResult,
+            Plan... children) {
         super(groupExpression, children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
