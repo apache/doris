@@ -71,8 +71,8 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     for (size_t i = 0; i < schema->num_fields(); ++i) {
         std::string schemaName =
                 _case_sensitive ? schema->field(i)->name() : to_lower(schema->field(i)->name());
-        // orc index started from 1.
 
+        // orc index started from 1.
         _map_column.emplace(schemaName, i + 1);
     }
     RETURN_IF_ERROR(column_indices());

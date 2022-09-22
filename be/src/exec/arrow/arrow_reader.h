@@ -126,6 +126,7 @@ protected:
     // the src slot index which need to set to null as not the column not exist in parquet file
     std::set<int> _skipped_read_idx;
     // map from column id index to src slot index
+    //
     std::map<int, int> _map_parquet_column_ids_idx;
 
     std::atomic<bool> _closed = false;

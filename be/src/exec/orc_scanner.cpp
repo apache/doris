@@ -445,6 +445,7 @@ void ORCScanner::close() {
 void ORCScanner::build_name_id_map() {
     std::vector<std::string> columns;
     const orc::Type& type = _reader->getType();
+    _map_column_to_id.clear();
     build_name_id_map_impl(columns, &type);
 }
 
