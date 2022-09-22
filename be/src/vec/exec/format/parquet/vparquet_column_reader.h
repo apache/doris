@@ -49,8 +49,7 @@ private:
 
 class ParquetColumnReader {
 public:
-    ParquetColumnReader(const ParquetReadColumn& column, cctz::time_zone* ctz)
-            : _column(column), _ctz(ctz) {};
+    ParquetColumnReader(cctz::time_zone* ctz) : _ctz(ctz) {};
     virtual ~ParquetColumnReader() {
         if (_stream_reader != nullptr) {
             delete _stream_reader;
@@ -70,7 +69,6 @@ protected:
     void _generate_read_ranges(int64_t start_index, int64_t end_index,
                                std::list<RowRange>& read_ranges);
 
-    const ParquetReadColumn& _column;
     BufferedFileStreamReader* _stream_reader;
     std::unique_ptr<ParquetColumnMetadata> _metadata;
     std::vector<RowRange> _row_ranges;
@@ -83,8 +81,7 @@ protected:
 
 class ScalarColumnReader : public ParquetColumnReader {
 public:
-    ScalarColumnReader(const ParquetReadColumn& column, cctz::time_zone* ctz)
-            : ParquetColumnReader(column, ctz) {};
+    ScalarColumnReader(cctz::time_zone* ctz) : ParquetColumnReader(ctz) {};
     ~ScalarColumnReader() override { close(); };
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                 std::vector<RowRange>& row_ranges);
@@ -97,8 +94,7 @@ public:
 
 class ArrayColumnReader : public ParquetColumnReader {
 public:
-    ArrayColumnReader(const ParquetReadColumn& column, cctz::time_zone* ctz)
-            : ParquetColumnReader(column, ctz) {};
+    ArrayColumnReader(cctz::time_zone* ctz) : ParquetColumnReader(ctz) {};
     ~ArrayColumnReader() override { close(); };
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                 std::vector<RowRange>& row_ranges);
