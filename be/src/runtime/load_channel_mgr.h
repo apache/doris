@@ -82,7 +82,7 @@ protected:
 
     // check the total load channel mem consumption of this Backend
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-    int64_t _load_process_soft_limit = -1;
+    int64_t _load_process_soft_mem_limit = -1;
 
     // If hard limit reached, one thread will trigger load channel flush,
     // other threads should wait on the condition variable.
@@ -153,7 +153,8 @@ template <typename TabletWriterAddResult>
 Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response) {
     _try_to_wait_flushing();
     // Check the soft limit.
-    if (_mem_tracker->consumption() < _load_process_soft_limit) {
+    DCHECK(_load_process_soft_mem_limit > 0);
+    if (_mem_tracker->consumption() < _load_process_soft_mem_limit) {
         return Status::OK();
     }
     // Pick load channel to reduce memory.
@@ -197,7 +198,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
             _should_wait_flush = true;
             oss << " hard limit: " << _mem_tracker->limit();
         } else {
-            oss << " soft limit: " << _load_process_soft_limit;
+            oss << " soft limit: " << _load_process_soft_mem_limit;
         }
         LOG(INFO) << oss.str();
     }
