@@ -1376,6 +1376,7 @@ public class SingleNodePlanner {
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
                 unionNode.init(analyzer);
+                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 //set outputSmap to substitute literal in outputExpr
                 if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
                     unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
