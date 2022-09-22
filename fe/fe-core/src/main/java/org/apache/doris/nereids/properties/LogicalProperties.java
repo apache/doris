@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -38,6 +39,7 @@ public class LogicalProperties {
     protected final Supplier<HashSet<ExprId>> outputSetSupplier;
     private Integer hashCode = null;
     private final Set<ExprId> outputExprIdSet;
+    private final List<Id> outputExprIds;
 
     /**
      * constructor of LogicalProperties.
@@ -55,6 +57,8 @@ public class LogicalProperties {
         );
         outputExprIdSet = this.outputSupplier.get().stream()
                 .map(NamedExpression::getExprId).collect(Collectors.toSet());
+        outputExprIds = outputExprIdSet.stream().map(Id.class::cast).collect(Collectors.toList());
+
     }
 
     public List<Slot> getOutput() {
@@ -63,6 +67,10 @@ public class LogicalProperties {
 
     public Set<ExprId> getOutputExprIdSet() {
         return outputExprIdSet;
+    }
+
+    public List<Id> getOutputExprIds() {
+        return outputExprIds;
     }
 
     public LogicalProperties withOutput(List<Slot> output) {

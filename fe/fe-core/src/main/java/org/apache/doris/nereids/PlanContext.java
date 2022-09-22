@@ -76,11 +76,7 @@ public class PlanContext {
     }
 
     public List<Id> getChildOutputIds(int index) {
-        List<Id> ids = Lists.newArrayList();
-        childLogicalPropertyAt(index).getOutput().forEach(slot -> {
-            ids.add(slot.getExprId());
-        });
-        return ids;
+        return childLogicalPropertyAt(index).getOutputExprIds();
     }
 
     /**

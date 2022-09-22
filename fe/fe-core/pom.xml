@@ -891,6 +891,10 @@ under the License.
                         </configuration>
                     </execution>
                 </executions>
+                <configuration>
+                    <source>10</source>
+                    <target>10</target>
+                </configuration>
             </plugin>
             <!-- add gensrc java build src dir -->
             <plugin>
