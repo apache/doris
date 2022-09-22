@@ -83,6 +83,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         .map(SlotReference.class::cast)
                         .map(SlotReference::getExprId)
                         .collect(Collectors.toList());
+                if (columns.isEmpty()) {
+                    return PhysicalProperties.GATHER;
+                }
                 // TODO: change ENFORCED back to bucketed, when coordinator could process bucket on agg correctly.
                 return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.ENFORCED));
             case DISTINCT_GLOBAL:

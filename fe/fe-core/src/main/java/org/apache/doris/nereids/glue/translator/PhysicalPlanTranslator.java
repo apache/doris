@@ -849,8 +849,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (currentFragment.getPlanRoot() instanceof ExchangeNode) {
             currentFragment.setPlanRoot(currentFragment.getPlanRoot().getChild(0));
             currentFragment = createParentFragment(currentFragment, DataPartition.UNPARTITIONED, context);
-            currentFragment.addPlanRoot(assertNumRowsNode);
         }
+        currentFragment.addPlanRoot(assertNumRowsNode);
         return currentFragment;
     }
 
