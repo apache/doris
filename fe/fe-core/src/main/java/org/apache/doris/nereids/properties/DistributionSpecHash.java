@@ -83,12 +83,12 @@ public class DistributionSpecHash extends DistributionSpec {
         this.shuffleType = Objects.requireNonNull(shuffleType);
         this.tableId = tableId;
         this.partitionIds = Objects.requireNonNull(partitionIds);
-        this.equivalenceExprIds = Lists.newArrayList();
+        /*this.equivalenceExprIds = Lists.newArrayList();
         this.exprIdToEquivalenceSet = Maps.newHashMap();
         orderedShuffledColumns.forEach(id -> {
             exprIdToEquivalenceSet.put(id, equivalenceExprIds.size());
             equivalenceExprIds.add(Sets.newHashSet(id));
-        });
+        });*/
 
         List<Set<ExprId>> s1 = Lists.newArrayListWithCapacity(orderedShuffledColumns.size());
         Map<ExprId, Integer> m1 = Maps.newHashMap();
@@ -98,7 +98,9 @@ public class DistributionSpecHash extends DistributionSpec {
         for (int i = 0; i < orderedShuffledColumns.size(); i++) {
             m1.put(orderedShuffledColumns.get(i), i);
         }
-        Preconditions.checkArgument(s1.equals(equivalenceExprIds), m1.equals(exprIdToEquivalenceSet));
+        exprIdToEquivalenceSet = m1;
+        equivalenceExprIds = s1;
+        // Preconditions.checkArgument(s1.equals(equivalenceExprIds), m1.equals(exprIdToEquivalenceSet));
     }
 
     /**
