@@ -20,6 +20,9 @@
 #include "exprs/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 
 namespace doris {
 // this class used in a hash join node
@@ -164,10 +167,13 @@ public:
             }
         }
     }
+
     void insert(std::unordered_map<const vectorized::Block*, std::vector<int>>& datas) {
         for (int i = 0; i < _build_expr_context.size(); ++i) {
             auto iter = _runtime_filters.find(i);
-            if (iter == _runtime_filters.end()) continue;
+            if (iter == _runtime_filters.end()) {
+                continue;
+            }
 
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
             for (auto it : datas) {
@@ -175,24 +181,23 @@ public:
 
                 if (auto* nullable =
                             vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                    auto& column_nested = nullable->get_nested_column();
-                    auto& column_nullmap = nullable->get_null_map_column();
+                    auto& column_nested = nullable->get_nested_column_ptr();
+                    auto& column_nullmap = nullable->get_null_map_column_ptr();
+                    std::vector<int> indexs;
                     for (int row_num : it.second) {
-                        if (column_nullmap.get_bool(row_num)) {
+                        if (assert_cast<const vectorized::ColumnUInt8*>(column_nullmap.get())
+                                    ->get_bool(row_num)) {
                             continue;
                         }
-                        const auto& ref_data = column_nested.get_data_at(row_num);
-                        for (auto filter : iter->second) {
-                            filter->insert(ref_data);
-                        }
+                        indexs.push_back(row_num);
+                    }
+                    for (auto filter : iter->second) {
+                        filter->insert_batch(column_nested, indexs);
                     }
 
                 } else {
-                    for (int row_num : it.second) {
-                        const auto& ref_data = column->get_data_at(row_num);
-                        for (auto filter : iter->second) {
-                            filter->insert(ref_data);
-                        }
+                    for (auto filter : iter->second) {
+                        filter->insert_batch(column, it.second);
                     }
                 }
             }

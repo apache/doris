@@ -19,9 +19,8 @@
 
 #include <stdint.h>
 
-#include <roaring/roaring.hh>
-
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
@@ -34,10 +33,10 @@ namespace doris {
 template <PrimitiveType T>
 class BloomFilterColumnPredicate : public ColumnPredicate {
 public:
-    using SpecificFilter = BloomFilterFunc<T, CurrentBloomFilterAdaptor>;
+    using SpecificFilter = BloomFilterFunc<T>;
 
     BloomFilterColumnPredicate(uint32_t column_id,
-                               const std::shared_ptr<IBloomFilterFuncBase>& filter)
+                               const std::shared_ptr<BloomFilterFuncBase>& filter)
             : ColumnPredicate(column_id),
               _filter(filter),
               _specific_filter(static_cast<SpecificFilter*>(_filter.get())) {}
@@ -81,6 +80,12 @@ private:
                     new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
                 }
             }
+        } else if (IRuntimeFilter::enable_use_batch(T)) {
+            new_size = _specific_filter->find_fixed_len_olap_engine(
+                    (char*)reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                            ->get_data()
+                            .data(),
+                    null_map, sel, size);
         } else {
             uint24_t tmp_uint24_value;
             auto get_cell_value = [&tmp_uint24_value](auto& data) {
@@ -113,7 +118,7 @@ private:
         return new_size;
     }
 
-    std::shared_ptr<IBloomFilterFuncBase> _filter;
+    std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
@@ -174,8 +179,7 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& colu
 class BloomFilterColumnPredicateFactory {
 public:
     static ColumnPredicate* create_column_predicate(
-            uint32_t column_id, const std::shared_ptr<IBloomFilterFuncBase>& filter,
-            FieldType type);
+            uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, FieldType type);
 };
 
 } //namespace doris

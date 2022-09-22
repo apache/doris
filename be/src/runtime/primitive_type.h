@@ -40,6 +40,8 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
 
 bool is_enumeration_type(PrimitiveType type);
 bool is_date_type(PrimitiveType type);
+bool is_float_or_double(PrimitiveType type);
+bool is_int_or_bool(PrimitiveType type);
 bool is_string_type(PrimitiveType type);
 bool has_variable_type(PrimitiveType type);
 

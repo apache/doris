@@ -27,6 +27,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/block.h"
 
@@ -78,7 +79,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
         return_columns.push_back(i);
     }
 
-    std::shared_ptr<IBloomFilterFuncBase> bloom_filter(
+    std::shared_ptr<BloomFilterFuncBase> bloom_filter(
             create_bloom_filter(PrimitiveType::TYPE_FLOAT));
 
     bloom_filter->init(4096, 0.05);
@@ -90,7 +91,6 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     bloom_filter->insert(reinterpret_cast<void*>(&value));
     ColumnPredicate* pred = BloomFilterColumnPredicateFactory::create_column_predicate(
             0, bloom_filter, OLAP_FIELD_TYPE_FLOAT);
-    auto* col_data = reinterpret_cast<float*>(_mem_pool->allocate(size * sizeof(float)));
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -123,6 +123,31 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     EXPECT_EQ(select_size, 1);
     EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.1);
 
+    delete pred;
+}
+
+TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN_VEC) {
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, true, true, tablet_schema);
+    const int size = 10;
+    std::vector<uint32_t> return_columns;
+    for (int i = 0; i < tablet_schema->num_columns(); ++i) {
+        return_columns.push_back(i);
+    }
+
+    std::shared_ptr<BloomFilterFuncBase> bloom_filter(
+            create_bloom_filter(PrimitiveType::TYPE_FLOAT));
+
+    bloom_filter->init(4096, 0.05);
+    auto column_data = ColumnFloat32::create();
+    float values[3] = {4.1, 5.1, 6.1};
+    int offsets[3] = {0, 1, 2};
+
+    bloom_filter->insert_fixed_len((char*)values, offsets, 3);
+    ColumnPredicate* pred = BloomFilterColumnPredicateFactory::create_column_predicate(
+            0, bloom_filter, OLAP_FIELD_TYPE_FLOAT);
+    auto* col_data = reinterpret_cast<float*>(_mem_pool->allocate(size * sizeof(float)));
+
     // for vectorized::Block no null
     auto pred_col = PredicateColumnType<TYPE_FLOAT>::create();
     pred_col->reserve(size);
@@ -130,8 +155,9 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
         *(col_data + i) = i + 0.1f;
         pred_col->insert_data(reinterpret_cast<const char*>(col_data + i), 0);
     }
+    init_row_block(tablet_schema, size);
     _row_block->clear();
-    select_size = _row_block->selected_size();
+    auto select_size = _row_block->selected_size();
     select_size = pred->evaluate(*pred_col, _row_block->selection_vector(), select_size);
     EXPECT_EQ(select_size, 3);
     EXPECT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[0]], 4.1);
@@ -156,5 +182,4 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
 
     delete pred;
 }
-
 } // namespace doris
