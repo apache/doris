@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+
 #include <unordered_map>
 #include <vector>
 
@@ -75,6 +77,10 @@ private:
 
     Status parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                             FieldSchema* node_field);
+
+    TypeDescriptor convert_to_doris_type(tparquet::LogicalType logicalType);
+
+    TypeDescriptor convert_to_doris_type(tparquet::ConvertedType::type convertedType);
 
 public:
     FieldDescriptor() = default;
