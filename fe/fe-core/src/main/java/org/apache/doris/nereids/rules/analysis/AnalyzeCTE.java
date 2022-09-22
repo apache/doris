@@ -17,24 +17,32 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.WithClause;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 
 import java.util.List;
 
 /**
  * Rule to register logical plans of CTEs
  */
-public class RegisterCTE extends OneAnalysisRuleFactory {
+public class AnalyzeCTE extends OneAnalysisRuleFactory {
+
+    public CTEContext cteContext;
+
+    public AnalyzeCTE() {
+        this.cteContext = null;
+    }
+
+    public AnalyzeCTE(CTEContext cteContext) {
+        this.cteContext = cteContext;
+    }
 
     @Override
     public Rule build() {
         return logicalCTE().thenApply(ctx -> {
             List<WithClause> withClauses = ctx.root.getWithClauses();
-            withClauses.stream().forEach(withClause -> ctx.cascadesContext.registerWithQuery(withClause));
+            withClauses.stream().forEach(withClause -> cteContext.registerWithQuery(withClause, ctx.cascadesContext));
             // todo: recursive and columnNames
             return ctx.root.child(0);
         }).toRule(RuleType.REGISTER_CTE);

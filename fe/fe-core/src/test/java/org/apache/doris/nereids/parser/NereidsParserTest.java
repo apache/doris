@@ -26,8 +26,10 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -78,13 +80,25 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testWithClause() {
+    public void testParseCTE() {
         // Just for debug; will be completed before merged;
-         String sql = "with t1 as (select s_suppkey from supplier where s_suppkey < 10) select * from t1";
-        // String sql = "select * from supplier where s_Suppkey < 10";
         NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertTrue(logicalPlan instanceof Plan);
+        LogicalPlan logicalPlan;
+        String cteSql1 = "with t1 as (select s_suppkey from supplier where s_suppkey < 10) select * from t1";
+        logicalPlan = nereidsParser.parseSingle(cteSql1);
+        Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().size(), 1);
+
+        String cteSql2 = "with t1 as (select s_suppkey from supplier), t2 as (select s_suppkey from t1) select * from t2";
+        logicalPlan = nereidsParser.parseSingle(cteSql2);
+        Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().size(), 2);
+
+        String cteSql3 = "with t1 (key, name) as (select s_suppkey, s_name from supplier) select * from t1";
+        logicalPlan = nereidsParser.parseSingle(cteSql3);
+        Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().size(), 1);
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().get(0).getColumnNames().get().size(), 2);
     }
 
     @Test

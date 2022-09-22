@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ResolveHaving;
 import org.apache.doris.nereids.rules.analysis.Scope;
@@ -39,11 +40,11 @@ public class AnalyzeRulesJob extends BatchRulesJob {
      * @param cascadesContext planner context for execute job
      * @param scope Parse the symbolic scope of the field
      */
-    public AnalyzeRulesJob(CascadesContext cascadesContext, Optional<Scope> scope) {
+    public AnalyzeRulesJob(CascadesContext cascadesContext, CTEContext cteContext, Optional<Scope> scope) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(
-                        new BindRelation(),
+                        new BindRelation(cteContext),
                         new BindSlotReference(scope),
                         new BindFunction(),
                         new ResolveHaving(),

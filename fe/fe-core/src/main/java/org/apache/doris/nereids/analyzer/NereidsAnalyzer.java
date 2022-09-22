@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.batch.AnalyzeCTEJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
 import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
@@ -36,21 +37,30 @@ public class NereidsAnalyzer {
     private final CascadesContext cascadesContext;
     private final Optional<Scope> outerScope;
 
+    private CTEContext cteContext;
+
     public NereidsAnalyzer(CascadesContext cascadesContext) {
         this(cascadesContext, Optional.empty());
+    }
+
+    public NereidsAnalyzer(CascadesContext cascadesContext, CTEContext cteContext) {
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
+        this.cteContext = cteContext;
+        this.outerScope = Optional.empty();
     }
 
     public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope) {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
         this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
+        this.cteContext = new CTEContext();
     }
 
     /**
      * nereids analyze sql.
      */
     public void analyze() {
-        new PreprocessAnalyzeJob(cascadesContext).execute();
-        new AnalyzeRulesJob(cascadesContext, outerScope).execute();
+        new AnalyzeCTEJob(cascadesContext, cteContext).execute();
+        new AnalyzeRulesJob(cascadesContext, cteContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();
         new TypeCoercionJob(cascadesContext).execute();
         new FinalizeAnalyzeJob(cascadesContext).execute();
@@ -60,6 +70,10 @@ public class NereidsAnalyzer {
 
     public CascadesContext getCascadesContext() {
         return cascadesContext;
+    }
+
+    public CTEContext getCteContext() {
+        return cteContext;
     }
 
     public Optional<Scope> getOuterScope() {

@@ -18,23 +18,24 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.RegisterCTE;
+import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 
 import com.google.common.collect.ImmutableList;
 
 /**
  * Job to register logical plans of CTEs
  */
-public class PreprocessAnalyzeJob extends BatchRulesJob {
+public class AnalyzeCTEJob extends BatchRulesJob {
 
     /**
      * constructor
      * @param cascadesContext ctx
      */
-    public PreprocessAnalyzeJob(CascadesContext cascadesContext) {
+    public AnalyzeCTEJob(CascadesContext cascadesContext, CTEContext cteContext) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new RegisterCTE()))
+                bottomUpBatch(ImmutableList.of(new AnalyzeCTE(cteContext)))
         ));
     }
 }

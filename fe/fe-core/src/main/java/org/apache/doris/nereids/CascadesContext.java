@@ -33,6 +33,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WithClause;
@@ -59,6 +60,7 @@ public class CascadesContext {
     private JobContext currentJobContext;
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
+    private CTEContext cteContext;
     private Map<String, LogicalPlan> withQueries;
 
     private RuntimeFilterContext runtimeFilterContext;
@@ -87,6 +89,10 @@ public class CascadesContext {
 
     public NereidsAnalyzer newAnalyzer() {
         return new NereidsAnalyzer(this);
+    }
+
+    public NereidsAnalyzer newAnalyzer(CTEContext cteContext) {
+        return new NereidsAnalyzer(this, cteContext);
     }
 
     public NereidsAnalyzer newAnalyzer(Optional<Scope> outerScope) {

@@ -52,6 +52,11 @@ public class WithClause extends Expression {
     }
 
     @Override
+    public String toSql() {
+        return null;
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitWithClause(this, context);
     }

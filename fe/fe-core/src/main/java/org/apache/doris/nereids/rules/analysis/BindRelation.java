@@ -37,11 +37,23 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
+
+    private final CTEContext cteContext;
+
+    public BindRelation() {
+        cteContext = new CTEContext();
+    }
+
+    public BindRelation(CTEContext cteContext) {
+        this.cteContext = cteContext;
+    }
+
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
@@ -75,14 +87,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String nameParts) {
         // check if it is a with reference
-        LogicalPlan ctePlan = cascadesContext.getWithQueries().get(nameParts);
-        if (ctePlan != null) {
+        // LogicalPlan ctePlan = cascadesContext.getWithQueries().get(nameParts);
+        Optional<LogicalPlan> ctePlan = cteContext.findCTE(nameParts);
+        if (ctePlan.isPresent()) {
             // if there exists the same name between a cte-alias and a table, we use cte first
-            // todo: just deliver the parent cascadesCtx; maybe it's better or necessary to use scope after supporting columnNames;
-            CascadesContext cteContext = new Memo(ctePlan).newCascadesContext(cascadesContext.getStatementContext());
-            cteContext.copyWithQuery(cascadesContext);
-            cteContext.newAnalyzer().analyze();
-            return new LogicalSubQueryAlias<>(nameParts, cteContext.getMemo().copyOut(false));
+            // todo: just deliver the parent cascadesCtx; maybe it's better or necessary to use scope after
+            //  supporting columnNames;
+            return new LogicalSubQueryAlias<>(nameParts, ctePlan.get());
         }
 
         String dbName = cascadesContext.getConnectContext().getDatabase();
