@@ -152,7 +152,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
         // 2. check if mem consumption exceed limit
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
-        _handle_mem_exceed_limit();
+        RETURN_IF_ERROR(_handle_mem_exceed_limit());
     }
 
     // 3. add batch to load channel
@@ -175,11 +175,11 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
     return Status::OK();
 }
 
-void LoadChannelMgr::_handle_mem_exceed_limit() {
+Status LoadChannelMgr::_handle_mem_exceed_limit() {
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
     if (!_mem_tracker->limit_exceeded()) {
-        return;
+        return Status::OK();
     }
 
     int64_t max_consume = 0;
@@ -198,14 +198,14 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     if (max_consume == 0) {
         // should not happen, add log to observe
         LOG(WARNING) << "failed to find suitable load channel when total load mem limit exceed";
-        return;
+        return Status::OK();
     }
     DCHECK(channel.get() != nullptr);
 
     // force reduce mem limit of the selected channel
     LOG(INFO) << "reducing memory of " << *channel << " because total load mem consumption "
               << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
-    channel->handle_mem_exceed_limit(true);
+    return channel->handle_mem_exceed_limit(true);
 }
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
