@@ -24,7 +24,7 @@ namespace doris::vectorized {
 
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
-                               const int32_t row_group_id, tparquet::RowGroup& row_group,
+                               const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                cctz::time_zone* ctz)
         : _file_reader(file_reader),
           _read_columns(read_columns),
@@ -47,9 +47,7 @@ Status RowGroupReader::_init_column_readers(
         const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
     for (auto& read_col : _read_columns) {
-        SlotDescriptor* slot_desc = read_col._slot_desc;
-        TypeDescriptor col_type = slot_desc->type();
-        auto field = const_cast<FieldSchema*>(schema.get_column(slot_desc->col_name()));
+        auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
                                                     row_ranges, _ctz, reader));
@@ -62,8 +60,7 @@ Status RowGroupReader::_init_column_readers(
             VLOG_DEBUG << "Init row group reader failed";
             return Status::Corruption("Init row group reader failed");
         }
-
-        _column_readers[slot_desc->id()] = std::move(reader);
+        _column_readers[read_col._file_slot_name] = std::move(reader);
     }
     return Status::OK();
 }
@@ -73,15 +70,14 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
     bool has_eof = false;
     int col_idx = 0;
     for (auto& read_col : _read_columns) {
-        auto slot_desc = read_col._slot_desc;
-        auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
+        auto& column_with_type_and_name = block->get_by_name(read_col._file_slot_name);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         size_t col_read_rows = 0;
         bool col_eof = false;
         while (!col_eof && col_read_rows < batch_size) {
             size_t loop_rows = 0;
-            RETURN_IF_ERROR(_column_readers[slot_desc->id()]->read_column_data(
+            RETURN_IF_ERROR(_column_readers[read_col._file_slot_name]->read_column_data(
                     column_ptr, column_type, batch_size - col_read_rows, &loop_rows, &col_eof));
             col_read_rows += loop_rows;
         }
