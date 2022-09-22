@@ -15,22 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+#ifndef DORIS_BE_SRC_HTTP_ACTION_VERSION_ACTION_H
+#define DORIS_BE_SRC_HTTP_ACTION_VERSION_ACTION_H
 
-import org.apache.doris.common.Config;
+#include "http/http_handler.h"
 
-import java.util.List;
+namespace doris {
 
-/*
-The @SampleSQLStatisticsTask is also a statistical task that executes a query
-and uses the query result as a statistical value (same as @SQLStatisticsTask).
-The only difference from the SQLStatisticsTask is that the query is a sampling table query.
- */
-public class SampleSQLStatisticsTask extends SQLStatisticsTask {
-    private float samplePercentage = Config.cbo_default_sample_percentage;
+class ExecEnv;
 
-    public SampleSQLStatisticsTask(long jobId, List<StatisticsDesc> statsDescs) {
-        // TODO(wzt): implement sql sampling to collect statistics
-        super(jobId, statsDescs);
-    }
-}
+// Get BE version info from http API.
+class VersionAction : public HttpHandler {
+public:
+    VersionAction();
+
+    virtual ~VersionAction() {};
+
+    void handle(HttpRequest* req) override;
+};
+
+} // end namespace doris
+
+#endif // DORIS_BE_SRC_HTTP_ACTION_VERSION_ACTION_H
