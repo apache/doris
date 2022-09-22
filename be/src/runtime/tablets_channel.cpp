@@ -256,6 +256,8 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit, TabletWriterAddResult
         }
     }
 
+    // add comment, just to trigger the pipeline
+
     for (int i = 0; i < counter; i++) {
         if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
             // skip broken tablets
