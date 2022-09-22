@@ -222,10 +222,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 outputTupleDesc, aggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(), aggInfo);
+        if (!aggregate.isFinalPhase()) {
+            aggregationNode.unsetNeedsFinalize();
+        }
         PlanFragment currentFragment = inputPlanFragment;
         switch (aggregate.getAggPhase()) {
             case LOCAL:
-                aggregationNode.unsetNeedsFinalize();
                 aggregationNode.setUseStreamingPreagg(aggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
                 break;
