@@ -867,7 +867,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
+        LOG.info("receive stream load put request: {}, backend: {}", request, clientAddr);
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
