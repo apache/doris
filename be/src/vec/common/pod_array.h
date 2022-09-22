@@ -534,7 +534,7 @@ public:
             arr1.c_end = arr1.c_start + this->byte_size(heap_size);
             arr1.c_end_peak = arr1.c_end;
             THREAD_MEM_TRACKER_TRANSFER_FROM(arr1.c_end_peak - arr1.c_start - heap_peak_used,
-                                         ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
 
             /// Allocate stack space for arr2.
             arr2.alloc(stack_allocated);
@@ -542,7 +542,7 @@ public:
             memcpy(arr2.c_start, stack_c_start, this->byte_size(stack_size));
             arr2.c_end = arr2.c_end_peak = arr2.c_start + this->byte_size(stack_size);
             THREAD_MEM_TRACKER_TRANSFER_FROM(arr2.c_end_peak - arr2.c_start - stack_peak_used,
-                                         ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
         };
 
         auto do_move = [this](PODArray& src, PODArray& dest) {
@@ -552,10 +552,10 @@ public:
                 memcpy(dest.c_start, src.c_start, this->byte_size(src.size()));
                 dest.c_end = dest.c_end_peak = dest.c_start + (src.c_end - src.c_start);
                 THREAD_MEM_TRACKER_TRANSFER_FROM(dest.c_end_peak - dest.c_start,
-                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+                                                 ExecEnv::GetInstance()->orphan_mem_tracker_raw());
 
                 THREAD_MEM_TRACKER_TRANSFER_FROM(src.c_end_of_storage - src.c_end_peak,
-                                         ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+                                                 ExecEnv::GetInstance()->orphan_mem_tracker_raw());
                 src.c_start = Base::null;
                 src.c_end = Base::null;
                 src.c_end_of_storage = Base::null;

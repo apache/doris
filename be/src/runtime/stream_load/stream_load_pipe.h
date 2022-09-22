@@ -24,9 +24,9 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "io/file_reader.h"
 #include "runtime/message_body_sink.h"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 

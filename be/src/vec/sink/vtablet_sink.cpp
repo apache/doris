@@ -354,15 +354,16 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
 
         {
             SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
-            _brpc_http_stub->tablet_writer_add_block_by_http(
-                    &_add_block_closure->cntl, NULL, &_add_block_closure->result, _add_block_closure);
+            _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, NULL,
+                                                             &_add_block_closure->result,
+                                                             _add_block_closure);
         }
     } else {
         _add_block_closure->cntl.http_request().Clear();
         {
              SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
              _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
-                                           &_add_block_closure->result, _add_block_closure);
+                                            &_add_block_closure->result, _add_block_closure);
         }
     }
 

@@ -582,8 +582,9 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         _add_batch_closure->cntl.http_request().set_content_type("application/json");
         {
             SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
-            _brpc_http_stub->tablet_writer_add_batch_by_http(
-                    &_add_batch_closure->cntl, NULL, &_add_batch_closure->result, _add_batch_closure);
+            _brpc_http_stub->tablet_writer_add_batch_by_http(&_add_batch_closure->cntl, NULL,
+                                                             &_add_batch_closure->result,
+                                                             _add_batch_closure);
         }
     } else {
         _add_batch_closure->cntl.http_request().Clear();
