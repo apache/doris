@@ -269,6 +269,31 @@ public:
         this->increase_size();
     }
 
+    class Constructor {
+    public:
+        friend class FixedHashTable;
+        template <typename... Args>
+        void operator()(Args&&... args) const {
+            new (_cell) Cell(std::forward<Args>(args)...);
+        }
+
+    private:
+        Constructor(Cell* cell) : _cell(cell) {}
+        Cell* _cell;
+    };
+
+    template <typename Func>
+    void ALWAYS_INLINE lazy_emplace(const Key& x, LookupResult& it, Func&& f) {
+        it = &buf[x];
+
+        if (!buf[x].is_zero(*this)) {
+            return;
+        }
+
+        f(Constructor(&buf[x]), x);
+        this->increase_size();
+    }
+
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
         std::pair<LookupResult, bool> res;
         emplace(Cell::get_key(x), res.first, res.second);

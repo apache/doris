@@ -42,7 +42,14 @@ MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& labe
     _label = label;
     _limit = byte_limit;
     _group_num = GetCurrentTimeMicros() % 1000;
-    _parent = parent ? parent : thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
+    if (parent || label == "Process") {
+        _parent = parent;
+    } else if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label() ==
+               "Orphan") {
+        _parent = ExecEnv::GetInstance()->process_mem_tracker();
+    } else {
+        _parent = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
+    }
     DCHECK(_parent || label == "Process");
 
     // Walks the MemTrackerLimiter hierarchy and populates _all_ancestors and _limited_ancestors
@@ -70,6 +77,19 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     if (_label == "Process") doris::thread_context_ptr._init = false;
     DCHECK(remain_child_count() == 0 || _label == "Process");
     consume(_untracked_mem.exchange(0));
+#ifndef BE_TEST
+    // In order to ensure `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`
+    // in real time. Merge its consumption into orphan when all third level limiter trackers are destructed, to avoid repetition.
+    // the first layer: process;
+    // the second layer: a tracker that will not be destructed globally (query/load pool, load channel mgr, etc.);
+    // the third layer: a query/load/compaction task generates a tracker (query tracker, load channel tracker, etc.).
+    if ((_parent && _parent->label() == "Process") ||
+        (_parent->parent() && _parent->parent()->label() == "Process")) {
+        ExecEnv::GetInstance()->orphan_mem_tracker_raw()->cache_consume_local(
+                _consumption->current_value());
+    }
+#endif
+    if (_reset_zero) cache_consume_local(-_consumption->current_value());
     if (_parent) {
         std::lock_guard<std::mutex> l(_parent->_child_tracker_limiter_lock);
         if (_child_tracker_it != _parent->_child_tracker_limiters.end()) {
@@ -260,7 +280,7 @@ std::string MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
         // The limit of the current tracker and parents is less than 0, the consume will not fail,
         // and the current process memory has no excess limit.
         detail += fmt::format("unknown exceed reason, executing msg:<{}>", msg);
-        print_log_usage_tracker = ExecEnv::GetInstance()->process_mem_tracker_raw();
+        print_log_usage_tracker = ExecEnv::GetInstance()->process_mem_tracker().get();
     }
     auto failed_msg = MemTrackerLimiter::limit_exceeded_errmsg_suffix_str(detail);
     if (print_log_usage_tracker != nullptr) print_log_usage_tracker->print_log_usage(failed_msg);

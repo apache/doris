@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "runtime/types.h"
 
 namespace doris::vectorized {
 
@@ -28,6 +29,11 @@ class Block;
 class GenericReader {
 public:
     virtual Status get_next_block(Block* block, bool* eof) = 0;
+    virtual std::unordered_map<std::string, TypeDescriptor> get_name_to_type() {
+        std::unordered_map<std::string, TypeDescriptor> map;
+        return map;
+    }
+    virtual ~GenericReader() {}
 };
 
 } // namespace doris::vectorized

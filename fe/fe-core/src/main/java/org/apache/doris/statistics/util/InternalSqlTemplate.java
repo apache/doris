@@ -35,6 +35,11 @@ import java.util.regex.Pattern;
  *   - ${column} and ${table} will be replaced with the actual executed table and column.
  */
 public class InternalSqlTemplate {
+    /** common parameters: tableName, columnName, partitionName */
+    public static final String TABLE = "table";
+    public static final String PARTITION = "partition";
+    public static final String COLUMN = "column";
+
     /** -------------------------- for statistics begin -------------------------- */
     public static final String MIN_VALUE_SQL = "SELECT MIN(${column}) AS min_value FROM ${table};";
     public static final String PARTITION_MIN_VALUE_SQL = "SELECT MIN(${column}) AS min_value"

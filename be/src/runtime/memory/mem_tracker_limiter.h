@@ -129,6 +129,7 @@ public:
     }
 
     void enable_print_log_usage() { _print_log_usage = true; }
+    void enable_reset_zero() { _reset_zero = true; }
 
     // Logs the usage of this tracker limiter and optionally its children (recursively).
     // If 'logged_consumption' is non-nullptr, sets the consumption value logged.
@@ -216,7 +217,7 @@ private:
                 "alloc size {}",
                 PerfCounters::get_vm_rss_str(), MemInfo::allocator_cache_mem_str(),
                 MemInfo::mem_limit_str(), print_bytes(bytes));
-        ExecEnv::GetInstance()->process_mem_tracker_raw()->print_log_usage(err_msg);
+        ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err_msg);
         return err_msg;
     }
 
@@ -250,6 +251,11 @@ private:
     std::atomic_size_t _had_child_count = 0;
 
     bool _print_log_usage = false;
+    // mem hook record tracker cannot guarantee that the final consumption is 0,
+    // nor can it guarantee that the memory alloc and free are recorded in a one-to-one correspondence.
+    // In some cases, in order to avoid the cumulative error of the upper global tracker,
+    // the consumption of the current tracker is reset to zero.
+    bool _reset_zero = false;
 };
 
 inline void MemTrackerLimiter::consume(int64_t bytes) {
