@@ -279,7 +279,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_YEAR,
     KW_NOT_NULL,
     KW_CATALOG, KW_CATALOGS,
-    KW_SWITCH;
+    KW_SWITCH,
+    KW_ANALYZE;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -304,7 +305,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -763,6 +764,8 @@ stmt ::=
     | refresh_stmt:stmt
     {: RESULT = stmt; :}
     | clean_stmt:stmt
+    {: RESULT = stmt; :}
+    | analyze_stmt:stmt
     {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
@@ -2079,6 +2082,14 @@ show_create_routine_load_stmt ::=
     :}
     ;
 
+// analyze statment
+analyze_stmt ::=
+    KW_ANALYZE opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    {:
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
+    :}
+    ;
+
 // Grant statement
 grant_stmt ::=
     KW_GRANT privilege_list:privs KW_ON tbl_pattern:tblPattern KW_TO user_identity:userId
@@ -3093,14 +3104,14 @@ show_param ::=
         RESULT = new ShowSyncJobStmt(dbName);
     :}
     /* show table stats */
-    | KW_TABLE KW_STATS opt_table_name:tbl
+    | KW_TABLE KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowTableStatsStmt(tbl);
+        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
     :}
     /* show column stats */
-    | KW_COLUMN KW_STATS table_name:tbl
+    | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowColumnStatsStmt(tbl);
+        RESULT = new ShowColumnStatsStmt(tbl, partitionNames);
     :}
     /* show table creation statement */
     | KW_TABLE KW_CREATION opt_db:db opt_wild_where
@@ -3115,6 +3126,15 @@ show_param ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_ON table_name:tableName
     {:
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
+    :}
+    /* show analyze job */
+    | KW_ANALYZE integer_list:jobIds
+    {:
+        RESULT = new ShowAnalyzeStmt(jobIds);
+    :}
+    | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
     :}
     ;
 
