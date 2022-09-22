@@ -89,6 +89,16 @@ public class DistributionSpecHash extends DistributionSpec {
             exprIdToEquivalenceSet.put(id, equivalenceExprIds.size());
             equivalenceExprIds.add(Sets.newHashSet(id));
         });
+
+        List<Set<ExprId>> s1 = Lists.newArrayListWithCapacity(orderedShuffledColumns.size());
+        Map<ExprId, Integer> m1 = Maps.newHashMap();
+        for (ExprId id : orderedShuffledColumns) {
+            s1.add(Sets.newHashSet(id));
+        }
+        for (int i = 0; i < orderedShuffledColumns.size(); i++) {
+            m1.put(orderedShuffledColumns.get(i), i);
+        }
+        Preconditions.checkArgument(s1.equals(equivalenceExprIds), m1.equals(exprIdToEquivalenceSet));
     }
 
     /**
