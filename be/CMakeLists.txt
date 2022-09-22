@@ -456,7 +456,7 @@ if (COMPILER_GCC)
 endif ()
 
 if (COMPILER_CLANG)
-    add_compile_options (-fcolor-diagnostics)
+    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
     endif()
