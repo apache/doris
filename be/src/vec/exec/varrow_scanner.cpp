@@ -151,26 +151,38 @@ Status VArrowScanner::_init_arrow_batch_if_necessary() {
 }
 
 Status VArrowScanner::_init_src_block() {
-    size_t batch_pos = 0;
     _src_block.clear();
+    std::map<int, int>* slot_idx_2_file_col_idx = _cur_file_reader->slot_idx_2_file_col_idx();
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
         if (slot_desc == nullptr) {
             continue;
         }
-        auto* array = _batch->column(batch_pos++).get();
-        // let src column be nullable for simplify converting
-        // TODO, support not nullable for exec efficiently
-        auto is_nullable = true;
-        DataTypePtr data_type =
+
+        int file_col_idx = (*slot_idx_2_file_col_idx)[i];
+        if (file_col_idx != -1) {
+            auto* array = _batch->column(file_col_idx).get();
+            // let src column be nullable for simplify converting
+            // TODO, support not nullable for exec efficiently
+            auto is_nullable = true;
+            DataTypePtr data_type =
                 DataTypeFactory::instance().create_data_type(array->type().get(), is_nullable);
-        if (data_type == nullptr) {
-            return Status::NotSupported(
-                    fmt::format("Not support arrow type:{}", array->type()->name()));
+            if (data_type == nullptr) {
+                return Status::NotSupported(
+                        fmt::format("Not support arrow type:{}", array->type()->name()));
+            }
+            MutableColumnPtr data_column = data_type->create_column();
+            _src_block.insert(
+                    ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+        } else {
+            // insert null column
+            LOG(INFO) << "cmy _init_src_block: " << slot_desc->col_name();
+            DataTypePtr data_type =
+                DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
+            MutableColumnPtr data_column = data_type->create_column();
+            _src_block.insert(
+                    ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
         }
-        MutableColumnPtr data_column = data_type->create_column();
-        _src_block.insert(
-                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
     return Status::OK();
 }
@@ -262,17 +274,26 @@ Status VArrowScanner::_cast_src_block(Block* block) {
 Status VArrowScanner::_append_batch_to_src_block(Block* block) {
     size_t num_elements = std::min<size_t>((_state->batch_size() - block->rows()),
                                            (_batch->num_rows() - _arrow_batch_cur_idx));
-    size_t column_pos = 0;
+    std::map<int, int>* slot_idx_2_file_col_idx = _cur_file_reader->slot_idx_2_file_col_idx();
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
         if (slot_desc == nullptr) {
             continue;
         }
-        auto* array = _batch->column(column_pos++).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
-        RETURN_IF_ERROR(arrow_column_to_doris_column(
-                array, _arrow_batch_cur_idx, column_with_type_and_name.column,
-                column_with_type_and_name.type, num_elements, _state->timezone_obj()));
+        int file_col_idx = (*slot_idx_2_file_col_idx)[i];
+        if (file_col_idx != -1) {
+            auto* array = _batch->column(file_col_idx).get();
+            RETURN_IF_ERROR(arrow_column_to_doris_column(
+                        array, _arrow_batch_cur_idx, column_with_type_and_name.column,
+                        column_with_type_and_name.type, num_elements, _state->timezone_obj()));
+        } else {
+            LOG(INFO) << "cmy _append_batch_to_src_block col: " << slot_desc->col_name();
+            CHECK(column_with_type_and_name.column->is_nullable());
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                    (*std::move(column_with_type_and_name.column)).mutate().get());
+            nullable_column->insert_many_defaults(num_elements);
+        }
     }
 
     _arrow_batch_cur_idx += num_elements;

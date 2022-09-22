@@ -71,17 +71,19 @@ void ArrowReaderWrap::close() {
 
 Status ArrowReaderWrap::column_indices() {
     DCHECK(_num_of_columns_from_file <= _file_slot_descs.size());
-    _include_column_ids.clear();
+    _exist_file_col_idxs.clear();
     for (int i = 0; i < _num_of_columns_from_file; i++) {
         auto slot_desc = _file_slot_descs.at(i);
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
         if (iter != _map_column.end()) {
-            _map_parquet_column_ids_idx[_include_column_ids.size()] = i;
-            _include_column_ids.emplace_back(iter->second);
+            _file_col_idx_2_slot_idx[iter->second] = i;
+            _slot_idx_2_file_col_idx[i] = iter->second;
+            _exist_file_col_idxs.emplace_back(iter->second);
         } else {
             // will give null to the slot, if not found in src file
-            _skipped_read_idx.emplace(i);
+            _nonexist_slot_idxs.emplace(i);
+            _slot_idx_2_file_col_idx[i] = -1;
         }
     }
     return Status::OK();
@@ -135,7 +137,7 @@ Status ArrowReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, b
     std::unique_lock<std::mutex> lock(_mtx);
     while (!_closed && _queue.empty()) {
         if (_batch_eof) {
-            _include_column_ids.clear();
+            _exist_file_col_idxs.clear();
             *eof = true;
             _batch_eof = false;
             return Status::OK();

@@ -105,6 +105,8 @@ public:
     void prefetch_batch();
     bool is_case_sensitive() { return _case_sensitive; }
 
+    std::map<int, int>* slot_idx_2_file_col_idx() { return &_slot_idx_2_file_col_idx; }
+
 protected:
     virtual Status column_indices();
     virtual void read_batches(arrow::RecordBatchVector& batches, int current_group) = 0;
@@ -119,15 +121,29 @@ protected:
     std::shared_ptr<::arrow::RecordBatchReader> _rb_reader;
     int _total_groups;                      // num of groups(stripes) of a parquet(orc) file
     int _current_group;                     // current group(stripe)
-    std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::vector<int> _include_column_ids;   // columns that need to get from file
     std::shared_ptr<Statistics> _statistics;
 
-    // the src slot index which need to set to null as not the column not exist in parquet file
-    std::set<int> _skipped_read_idx;
-    // map from column id index to src slot index
-    //
-    std::map<int, int> _map_parquet_column_ids_idx;
+    // Map from file column name to file column index
+    std::map<std::string, int> _map_column;
+    // Save file column index with order of tuple slot
+    // eg,
+    //  File has 3 columns: (A, B, C) with index (0, 1, 2)
+    //  Tuple has 2 slots: (C, A) with index (0, 1)
+    //  The _exist_file_col_idxs will be: [2, 0]
+    std::vector<int> _exist_file_col_idxs;   // columns that need to get from file
+    // Save slot index which does not exist in file
+    std::set<int> _nonexist_slot_idxs;
+    // Map from file column idx to slot idx in tuple
+    // eg:
+    //  File has 3 columns: (A, B, C) with index (0, 1, 2)
+    //  Tuple has 4 columns (B, A, C, D) with index (0, 1, 2, 3)
+    //  So the _file_col_idx_2_slot_idx will be:
+    //   [0 -> 1]
+    //   [1 -> 0]
+    //   [2 -> 2]
+    //  And slot idx 3 will be saved in _nonexist_slot_idxs
+    std::map<int, int> _file_col_idx_2_slot_idx;
+    std::map<int, int> _slot_idx_2_file_col_idx;
 
     std::atomic<bool> _closed = false;
     std::atomic<bool> _batch_eof = false;
