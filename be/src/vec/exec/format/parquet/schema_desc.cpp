@@ -17,6 +17,8 @@
 
 #include "schema_desc.h"
 
+#include "common/logging.h"
+
 namespace doris::vectorized {
 
 static bool is_group_node(const tparquet::SchemaElement& schema) {
@@ -150,6 +152,84 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
     physical_field->physical_type = physical_schema.type;
     _physical_fields.push_back(physical_field);
     physical_field->physical_column_index = _physical_fields.size() - 1;
+    if (physical_schema.__isset.logicalType) {
+        physical_field->type = convert_to_doris_type(physical_schema.logicalType);
+    } else if (physical_schema.__isset.converted_type) {
+        physical_field->type = convert_to_doris_type(physical_schema.converted_type);
+    }
+}
+
+TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logicalType) {
+    TypeDescriptor type;
+    if (logicalType.__isset.STRING) {
+        type.type = TYPE_STRING;
+    } else if (logicalType.__isset.DECIMAL) {
+        type.type = TYPE_DECIMALV2;
+        type.precision = 27;
+        type.scale = 9;
+    } else if (logicalType.__isset.DATE) {
+        type.type = TYPE_DATEV2;
+    } else if (logicalType.__isset.INTEGER) {
+        if (logicalType.INTEGER.isSigned) {
+            if (logicalType.INTEGER.bitWidth <= 32) {
+                type.type = TYPE_INT;
+            } else {
+                type.type = TYPE_BIGINT;
+            }
+        } else {
+            if (logicalType.INTEGER.bitWidth <= 16) {
+                type.type = TYPE_INT;
+            } else {
+                type.type = TYPE_BIGINT;
+            }
+        }
+    } else if (logicalType.__isset.TIME) {
+        type.type = TYPE_TIMEV2;
+    } else if (logicalType.__isset.TIMESTAMP) {
+        type.type = TYPE_DATETIMEV2;
+    } else {
+        LOG(WARNING) << "Not supported parquet LogicalType";
+    }
+    return type;
+}
+
+TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::type convertedType) {
+    TypeDescriptor type;
+    switch (convertedType) {
+    case tparquet::ConvertedType::type::UTF8:
+        type.type = TYPE_STRING;
+    case tparquet::ConvertedType::type::DECIMAL:
+        type.type = TYPE_DECIMALV2;
+        type.precision = 27;
+        type.scale = 9;
+        break;
+    case tparquet::ConvertedType::type::DATE:
+        type.type = TYPE_DATEV2;
+        break;
+    case tparquet::ConvertedType::type::TIME_MILLIS:
+    case tparquet::ConvertedType::type::TIME_MICROS:
+        type.type = TYPE_TIMEV2;
+        break;
+    case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
+    case tparquet::ConvertedType::type::TIMESTAMP_MICROS:
+        type.type = TYPE_DATETIMEV2;
+        break;
+    case tparquet::ConvertedType::type::UINT_8:
+    case tparquet::ConvertedType::type::UINT_16:
+    case tparquet::ConvertedType::type::INT_8:
+    case tparquet::ConvertedType::type::INT_16:
+    case tparquet::ConvertedType::type::INT_32:
+        type.type = TYPE_INT;
+    case tparquet::ConvertedType::type::UINT_32:
+    case tparquet::ConvertedType::type::UINT_64:
+    case tparquet::ConvertedType::type::INT_64:
+        type.type = TYPE_BIGINT;
+        break;
+    default:
+        LOG(WARNING) << "Not supported parquet ConvertedType: " << convertedType;
+        break;
+    }
+    return type;
 }
 
 Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElement>& t_schemas,
