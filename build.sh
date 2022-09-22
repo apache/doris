@@ -270,8 +270,8 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
-if [[ -z "${RCORD_COMPILER_SWITCHES}" ]]; then
-    RCORD_COMPILER_SWITCHES='OFF'
+if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
+    RECORD_COMPILER_SWITCHES='OFF'
 fi
 
 echo "Get params:
