@@ -516,6 +516,27 @@ public:
         return *this;
     }
 
+    DateTimeValue& operator+=(int64_t val) {
+        switch (_type) {
+        case TIME_DATE: {
+            TimeInterval interval(DAY, val, false);
+            date_add_interval(interval, DAY);
+            break;
+        }
+        case TIME_DATETIME: {
+            TimeInterval interval(SECOND, val, false);
+            date_add_interval(interval, SECOND);
+            break;
+        }
+        case TIME_TIME: {
+            TimeInterval interval(SECOND, val, false);
+            date_add_interval(interval, SECOND);
+            break;
+        }
+        }
+        return *this;
+    }
+
     void to_datetime_val(doris_udf::DateTimeVal* tv) const {
         tv->packed_time = to_int64_datetime_packed();
         tv->type = _type;
