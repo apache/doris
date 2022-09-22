@@ -69,6 +69,7 @@ public:
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
+        std::shared_lock l(_lock);
         *segment_num_rows = _segment_num_rows;
         return Status::OK();
     }
@@ -93,7 +94,6 @@ private:
     /// Because we want to flush memtables in parallel.
     /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
-    mutable SpinLock _lock; // lock to protect _wblocks.
     std::vector<io::FileWriterPtr> _file_writers;
 
     // counters and statistics maintained during data write
@@ -105,6 +105,8 @@ private:
     bool _is_pending = false;
     bool _already_built = false;
 
+    // protect following vectors.
+    std::mutex _lock;
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
     // record rows number of every segment

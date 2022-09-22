@@ -327,7 +327,6 @@ Status BetaRowsetWriter::_create_segment_writer(
 }
 
 Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    _segment_num_rows.push_back((*writer)->num_rows_written());
     if ((*writer)->num_rows_written() == 0) {
         return Status::OK();
     }
@@ -346,7 +345,13 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     DCHECK_LE(min_key.compare(max_key), 0);
     key_bounds.set_min_key(min_key.to_string());
     key_bounds.set_max_key(max_key.to_string());
-    _segments_encoded_key_bounds.emplace_back(key_bounds);
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _segment_num_rows.reserve(_num_segment);
+        _segments_encoded_key_bounds.reserve(_num_segment);
+        _segment_num_rows[(*writer)->get_segment_id()] = (*writer)->num_rows_written();
+        _segments_encoded_key_bounds[(*writer)->get_segment_id()] = key_bounds;
+    }
     writer->reset();
     return Status::OK();
 }
