@@ -87,22 +87,11 @@ public final class CostEstimate {
         return new CostEstimate(0, memoryCost, 0);
     }
 
-    /**
-     * Sums partial cost estimates of some (single) plan node.
-     */
-    @Deprecated
-    public static CostEstimate sum(CostEstimate one, CostEstimate two, CostEstimate... more) {
-        return Stream.concat(Stream.of(one, two), Stream.of(more))
-                .reduce(zero(), (a, b) -> new CostEstimate(
-                        a.cpuCost + b.cpuCost,
-                        a.memoryCost + b.memoryCost,
-                        a.networkCost + b.networkCost));
-    }
 
     /**
      * Sums partial cost estimates of some (single) plan node.
      */
-    public static CostEstimate sum1(CostEstimate one, CostEstimate two, CostEstimate... more) {
+    public static CostEstimate sum(CostEstimate one, CostEstimate two, CostEstimate... more) {
         double v1 = one.cpuCost + two.cpuCost;
         double v2 = one.memoryCost + two.memoryCost;
         double v3 = one.networkCost + one.networkCost;
