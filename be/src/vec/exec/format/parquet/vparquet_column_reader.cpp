@@ -37,13 +37,13 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
     }
     if (field->type.type == TYPE_ARRAY) {
         tparquet::ColumnChunk chunk = row_group.columns[field->children[0].physical_column_index];
-        ArrayColumnReader* array_reader = new ArrayColumnReader(column, ctz);
+        ArrayColumnReader* array_reader = new ArrayColumnReader(ctz);
         array_reader->init_column_metadata(chunk);
         RETURN_IF_ERROR(array_reader->init(file, field, &chunk, row_ranges));
         reader.reset(array_reader);
     } else {
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
-        ScalarColumnReader* scalar_reader = new ScalarColumnReader(column, ctz);
+        ScalarColumnReader* scalar_reader = new ScalarColumnReader(ctz);
         scalar_reader->init_column_metadata(chunk);
         RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, row_ranges));
         reader.reset(scalar_reader);
