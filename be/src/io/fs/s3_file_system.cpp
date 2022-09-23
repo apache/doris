@@ -51,7 +51,7 @@ S3FileSystem::S3FileSystem(S3Conf s3_conf, ResourceId resource_id)
                   fmt::format("{}/{}/{}", s3_conf.endpoint, s3_conf.bucket, s3_conf.prefix),
                   std::move(resource_id), FileSystemType::S3),
           _s3_conf(std::move(s3_conf)) {
-    if (_s3_conf.prefix[0] == '/') {
+    if (_s3_conf.prefix.size() > 0 && _s3_conf.prefix[0] == '/') {
         _s3_conf.prefix = _s3_conf.prefix.substr(1);
     }
     _executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
