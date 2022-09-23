@@ -347,8 +347,8 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     key_bounds.set_max_key(max_key.to_string());
     {
         std::lock_guard<SpinLock> l(_lock);
-        _segment_num_rows.reserve(_num_segment);
-        _segments_encoded_key_bounds.reserve(_num_segment);
+        _segment_num_rows.resize(_num_segment);
+        _segments_encoded_key_bounds.resize(_num_segment);
         _segment_num_rows[(*writer)->get_segment_id()] = (*writer)->num_rows_written();
         _segments_encoded_key_bounds[(*writer)->get_segment_id()] = key_bounds;
     }
