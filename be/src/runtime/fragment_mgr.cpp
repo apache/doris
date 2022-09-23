@@ -297,8 +297,9 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
+        UniqueId uid(_query_id.hi, _query_id.lo);
         ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status;
-        LOG(WARNING) << "query_id: " << _query_id << ", " << ss.str();
+        LOG(WARNING) << "query_id: " << uid << ", " << ss.str();
         update_status(Status::InternalError(ss.str()));
         return;
     }
@@ -623,6 +624,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl,
                                               &(fragments_ctx->desc_tbl)));
         fragments_ctx->coord_addr = params.coord;
+        LOG(INFO) << "query_id: "
+                  << UniqueId(fragments_ctx->query_id.hi, fragments_ctx->query_id.lo)
+                  << " coord_addr " << fragments_ctx->coord_addr;
         fragments_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
