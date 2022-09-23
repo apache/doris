@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 
@@ -69,13 +70,12 @@ public class PhysicalNestedLoopJoin<
      * @param hashJoinConjuncts conjunct list could use for build hash table in hash join
      * @param condition join condition except hash join conjuncts
      */
-    public PhysicalNestedLoopJoin(JoinType joinType,
-            List<Expression> hashJoinConjuncts, Optional<Expression> condition,
-            Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+    public PhysicalNestedLoopJoin(JoinType joinType, List<Expression> hashJoinConjuncts, Optional<Expression> condition,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, condition,
-                groupExpression, logicalProperties, physicalProperties, leftChild, rightChild);
+                groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
     }
 
     @Override
@@ -115,10 +115,10 @@ public class PhysicalNestedLoopJoin<
     }
 
     @Override
-    public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalProperties(
-            PhysicalProperties physicalProperties) {
+    public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinCondition, Optional.empty(),
-                getLogicalProperties(), physicalProperties, left(), right());
+                getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
     }
 }
