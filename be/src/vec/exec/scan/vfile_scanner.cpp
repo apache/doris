@@ -330,36 +330,32 @@ Status VFileScanner::_get_next_reader() {
             return Status::OK();
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
-        std::unique_ptr<FileReader> file_reader;
-
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
-                                                        range, file_reader));
-        RETURN_IF_ERROR(file_reader->open());
-        if (file_reader->size() == 0) {
-            file_reader->close();
-            continue;
-        }
         std::vector<std::string> column_names;
         switch (_params.format_type) {
-        case TFileFormatType::FORMAT_PARQUET:
+        case TFileFormatType::FORMAT_PARQUET: {
             for (int i = 0; i < _file_slot_descs.size(); i++) {
                 column_names.push_back(_file_slot_descs[i]->col_name());
             }
-            _cur_reader = new ParquetReader(file_reader.release(), column_names,
-                                            _state->query_options().batch_size, range.start_offset,
-                                            range.size,
+            _cur_reader = new ParquetReader(_profile, _params, range, column_names,
+                                            _state->query_options().batch_size,
                                             const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-            RETURN_IF_ERROR(((ParquetReader*)_cur_reader)->init_reader(_conjunct_ctxs));
-            break;
+            Status status = ((ParquetReader*)_cur_reader)->init_reader(_conjunct_ctxs);
+            if (status.ok()) {
+                _cur_reader_eof = false;
+                return status;
+            } else if (status.is_end_of_file()) {
+                continue;
+            } else {
+                return status;
+            }
+        }
         default:
             std::stringstream error_msg;
             error_msg << "Not supported file format " << _params.format_type;
             return Status::InternalError(error_msg.str());
         }
-
-        _cur_reader_eof = false;
-        return Status::OK();
     }
+    return Status::OK();
 }
 
 Status VFileScanner::_init_expr_ctxes() {
