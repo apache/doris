@@ -58,7 +58,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private StringBuilder auditBuffer = new StringBuilder();
     private long lastLoadTime = 0;
 
-    private BlockingQueue<AuditEvent> auditEventQueue = new LinkedBlockingDeque<AuditEvent>(1);
+    private BlockingQueue<AuditEvent> auditEventQueue = new LinkedBlockingDeque<AuditEvent>(10);
     private DorisStreamLoader streamLoader;
     private Thread loadThread;
 
@@ -134,7 +134,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
 
     public void exec(AuditEvent event) {
         try {
-            auditEventQueue.add(event);
+            auditEventQueue.put(event);
         } catch (Exception e) {
             // In order to ensure that the system can run normally, here we directly
             // discard the current audit_event. If this problem occurs frequently,
@@ -270,8 +270,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                     AuditEvent event = auditEventQueue.poll(5, TimeUnit.SECONDS);
                     if (event != null) {
                         assembleAudit(event);
-                        loadIfNecessary(loader);
                     }
+                    loadIfNecessary(loader);
                 } catch (InterruptedException ie) {
                     LOG.debug("encounter exception when loading current audit batch", ie);
                 } catch (Exception e) {
