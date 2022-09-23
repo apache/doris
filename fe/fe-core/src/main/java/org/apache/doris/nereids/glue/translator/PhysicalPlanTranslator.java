@@ -319,7 +319,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             case UNIQUE_KEYS:
                 // TODO: Improve complete info for aggregate and unique key types table.
                 PreAggStatus preAgg = olapScan.getPreAggStatus();
-                olapScanNode.selectSelectIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(), preAgg.getOffReason());
+                olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(), preAgg.getOffReason());
                 break;
             case DUP_KEYS:
                 try {

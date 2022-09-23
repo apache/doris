@@ -248,7 +248,7 @@ public class OlapScanNode extends ScanNode {
     /**
      * Only used for Neredis to set rollup or materialized view selection result.
      */
-    public void selectSelectIndexInfo(
+    public void setSelectedIndexInfo(
             long selectedIndexId,
             boolean isPreAggregation,
             String reasonOfPreAggregation) {
