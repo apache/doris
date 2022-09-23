@@ -21,7 +21,6 @@
 #include <arrow/status.h>
 #include <time.h>
 
-#include "io/file_writer.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
 #include "vec/columns/column_complex.h"
@@ -150,10 +149,10 @@ Status VParquetWriterWrapper::validate_schema() {
         switch (_output_vexpr_ctxs[i]->root()->type().type) {
         case TYPE_BOOLEAN: {
             if (_str_schema[i][1] != "boolean") {
-                return Status::InvalidArgument(
-                        "project field type is boolean, "
-                        "but the definition type of column {} is {}",
-                        _str_schema[i][2], _str_schema[i][1]);
+                std::stringstream ss;
+                ss << "project field type is boolean, but the definition type of column "
+                   << _str_schema[i][2] << " is " << _str_schema[i][1];
+                return Status::InvalidArgument(ss.str());
             }
             break;
         }
@@ -161,11 +160,11 @@ Status VParquetWriterWrapper::validate_schema() {
         case TYPE_SMALLINT:
         case TYPE_INT: {
             if (_str_schema[i][1] != "int32") {
-                return Status::InvalidArgument(
-                        "project field type is {}, should use int32,"
-                        " but the definition type of column {} is {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
-                        _str_schema[i][1]);
+                std::stringstream ss;
+                ss << "project field type is tiny int/small int/int, should use int32, but the "
+                      "definition type of column "
+                   << _str_schema[i][2] << " is " << _str_schema[i][1];
+                return Status::InvalidArgument(ss.str());
             }
             break;
         }
@@ -174,72 +173,70 @@ Status VParquetWriterWrapper::validate_schema() {
         }
         case TYPE_FLOAT: {
             if (_str_schema[i][1] != "float") {
-                return Status::InvalidArgument(
-                        "project field type is float, "
-                        "but the definition type of column {} is {}",
-                        _str_schema[i][2], _str_schema[i][1]);
+                std::stringstream ss;
+                ss << "project field type is float, but the definition type of column "
+                   << _str_schema[i][2] << " is " << _str_schema[i][1];
+                return Status::InvalidArgument(ss.str());
             }
             break;
         }
         case TYPE_DOUBLE: {
             if (_str_schema[i][1] != "double") {
-                return Status::InvalidArgument(
-                        "project field type is double, "
-                        "but the definition type of column {} is {}",
-                        _str_schema[i][2], _str_schema[i][1]);
+                std::stringstream ss;
+                ss << "project field type is double, but the definition type of column "
+                   << _str_schema[i][2] << " is " << _str_schema[i][1];
+                return Status::InvalidArgument(ss.str());
             }
             break;
         }
         case TYPE_BIGINT:
         case TYPE_DATETIME:
-        case TYPE_DATE:
-        case TYPE_DATEV2:
-        case TYPE_DATETIMEV2: {
+        case TYPE_DATE: {
             if (_str_schema[i][1] != "int64") {
-                return Status::InvalidArgument(
-                        "project field type is {}, should use int64, "
-                        "but the definition type of column {} is {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
-                        _str_schema[i][1]);
+                std::stringstream ss;
+                ss << "project field type is bigint/date/datetime, should use int64, but the "
+                      "definition type of column "
+                   << _str_schema[i][2] << " is " << _str_schema[i][1];
+                return Status::InvalidArgument(ss.str());
             }
             break;
         }
         case TYPE_HLL:
         case TYPE_OBJECT: {
             if (!_output_object_data) {
-                return Status::InvalidArgument(
-                        "Invalid expression type: {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string());
+                std::stringstream ss;
+                ss << "unsupported file format: " << _output_vexpr_ctxs[i]->root()->type().type;
+                return Status::InvalidArgument(ss.str());
             }
             [[fallthrough]];
         }
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING:
-        case TYPE_DECIMALV2:
-        case TYPE_DECIMAL32:
-        case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128: {
+        case TYPE_DECIMALV2: {
             if (_str_schema[i][1] != "byte_array") {
-                return Status::InvalidArgument(
-                        "project field type is {}, should use byte_array, "
-                        "but the definition type of column {} is {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
-                        _str_schema[i][1]);
+                std::stringstream ss;
+                ss << "project field type is decimal v2, should use byte_array, but the "
+                      "definition type of column "
+                   << _str_schema[i][2] << " is " << _str_schema[i][1];
+                return Status::InvalidArgument(ss.str());
             }
             break;
         }
         default: {
-            return Status::InvalidArgument("Invalid expression type: {}",
-                                           _output_vexpr_ctxs[i]->root()->type().debug_string());
+            std::stringstream ss;
+            ss << "unsupported file format: " << _output_vexpr_ctxs[i]->root()->type().type;
+            return Status::InvalidArgument(ss.str());
         }
         }
     }
     return Status::OK();
 }
 
-#define RETURN_WRONG_TYPE \
-    return Status::InvalidArgument("Invalid column type: {}", raw_column->get_name());
+#define RETURN_WRONG_TYPE                                    \
+    std::stringstream ss;                                    \
+    ss << "Invalid column type: " << raw_column->get_name(); \
+    return Status::InvalidArgument(ss.str());
 
 #define DISPATCH_PARQUET_NUMERIC_WRITER(WRITER, COLUMN_TYPE, NATIVE_TYPE)                         \
     parquet::RowGroupWriter* rgWriter = get_rg_writer();                                          \
@@ -343,7 +340,6 @@ Status VParquetWriterWrapper::write(const Block& block) {
                                       block.get_by_position(i).column.get())
                                       ->get_null_map_column_ptr()
                             : nullptr;
-            auto& type = block.get_by_position(i).type;
             switch (_output_vexpr_ctxs[i]->root()->type().type) {
             case TYPE_BOOLEAN: {
                 DISPATCH_PARQUET_NUMERIC_WRITER(BoolWriter, ColumnVector<UInt8>, bool)
@@ -463,72 +459,6 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 }
                 break;
             }
-            case TYPE_DATEV2: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::Int64Writer* col_writer =
-                        static_cast<parquet::Int64Writer*>(rgWriter->column(i));
-                int64_t default_int64 = 0;
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if ((*null_map)[row_id] != 0) {
-                            col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
-                        } else {
-                            uint64_t tmp = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
-                                                   assert_cast<const ColumnVector<UInt32>&>(*col)
-                                                           .get_data()[row_id])
-                                                   .to_olap_datetime();
-                            col_writer->WriteBatch(1, nullptr, nullptr,
-                                                   reinterpret_cast<const int64_t*>(&tmp));
-                        }
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<UInt32>>(col)) {
-                    std::vector<uint64_t> res(sz);
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        res[row_id] = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
-                                              not_nullable_column->get_data()[row_id])
-                                              .to_olap_datetime();
-                    }
-                    col_writer->WriteBatch(sz, nullptr, nullptr,
-                                           reinterpret_cast<const int64_t*>(res.data()));
-                } else {
-                    RETURN_WRONG_TYPE
-                }
-                break;
-            }
-            case TYPE_DATETIMEV2: {
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::Int64Writer* col_writer =
-                        static_cast<parquet::Int64Writer*>(rgWriter->column(i));
-                int64_t default_int64 = 0;
-                if (null_map != nullptr) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if ((*null_map)[row_id] != 0) {
-                            col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
-                        } else {
-                            uint64_t tmp = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                                   assert_cast<const ColumnVector<UInt64>&>(*col)
-                                                           .get_data()[row_id])
-                                                   .to_olap_datetime();
-                            col_writer->WriteBatch(1, nullptr, nullptr,
-                                                   reinterpret_cast<const int64_t*>(&tmp));
-                        }
-                    }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<UInt64>>(col)) {
-                    std::vector<uint64_t> res(sz);
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        res[row_id] = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                              not_nullable_column->get_data()[row_id])
-                                              .to_olap_datetime();
-                    }
-                    col_writer->WriteBatch(sz, nullptr, nullptr,
-                                           reinterpret_cast<const int64_t*>(res.data()));
-                } else {
-                    RETURN_WRONG_TYPE
-                }
-                break;
-            }
             case TYPE_OBJECT: {
                 DISPATCH_PARQUET_COMPLEX_WRITER(ColumnBitmap)
                 break;
@@ -581,22 +511,11 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 }
                 break;
             }
-            case TYPE_DECIMAL32: {
-                DISPATCH_PARQUET_DECIMAL_WRITER(Decimal32)
-                break;
-            }
-            case TYPE_DECIMAL64: {
-                DISPATCH_PARQUET_DECIMAL_WRITER(Decimal64)
-                break;
-            }
-            case TYPE_DECIMAL128: {
-                DISPATCH_PARQUET_DECIMAL_WRITER(Decimal128)
-                break;
-            }
             default: {
-                return Status::InvalidArgument(
-                        "Invalid expression type: {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string());
+                std::stringstream ss;
+                ss << "Invalid expression type:"
+                   << _output_vexpr_ctxs[i]->root()->type().debug_string();
+                return Status::InvalidArgument(ss.str());
             }
             }
         }

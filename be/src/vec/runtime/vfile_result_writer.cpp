@@ -117,7 +117,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     } else if (_storage_type == TStorageBackendType::S3) {
         _file_writer_impl.reset(new S3Writer(_file_opts->broker_properties, file_name, 0 /* offset */));
     } else if (_storage_type == TStorageBackendType::HDFS) {
-        FileWriter* tmp_writer = nullptr;
+        doris::FileWriter* tmp_writer = nullptr;
         RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
                 const_cast<std::map<std::string, std::string>&>(_file_opts->broker_properties),
                 file_name, &tmp_writer));
