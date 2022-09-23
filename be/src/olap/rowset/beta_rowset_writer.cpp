@@ -292,8 +292,9 @@ RowsetSharedPtr BetaRowsetWriter::build_tmp() {
 
 Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    int32_t segment_id = _num_segment.fetch_add(1);
     auto path = BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id,
-                                               _num_segment++);
+                                               segment_id);
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
@@ -309,7 +310,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
-    writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segment,
+    writer->reset(new segment_v2::SegmentWriter(file_writer.get(), segment_id,
                                                 _context.tablet_schema, _context.data_dir,
                                                 _context.max_rows_per_segment, writer_options));
     {
