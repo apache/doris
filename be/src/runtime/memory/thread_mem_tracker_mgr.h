@@ -46,6 +46,7 @@ public:
     ~ThreadMemTrackerMgr() {
         flush_untracked_mem<false>();
         DCHECK(_consumer_tracker_stack.empty());
+        DCHECK(_limiter_tracker_stack.size() == 1);
     }
 
     // only for tcmalloc hook
