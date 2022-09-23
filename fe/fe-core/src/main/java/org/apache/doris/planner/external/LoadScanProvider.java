@@ -93,6 +93,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         ctx.timezone = analyzer.getTimezone();
 
         TFileScanRangeParams params = new TFileScanRangeParams();
+        params.format_type = formatType(fileGroupInfo.getFileGroup().getFileFormat(), "");
         params.setStrictMode(fileGroupInfo.isStrictMode());
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
