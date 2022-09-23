@@ -127,10 +127,10 @@ PROPERTIES
   working_dir = path,
   broker = broker_name,
   broker.property_key = property_value,
-  hadoop.security.authentication = kerberos,
-  kerberos_principal = doris@YOUR.COM,
-  kerberos_keytab = /home/doris/my.keytab
-  kerberos_keytab_content = ASDOWHDLAWIDJHWLDKSALDJSDIWALD
+  broker.hadoop.security.authentication = kerberos,
+  broker.kerberos_principal = doris@YOUR.COM,
+  broker.kerberos_keytab = /home/doris/my.keytab
+  broker.kerberos_keytab_content = ASDOWHDLAWIDJHWLDKSALDJSDIWALD
 )
 
 -- drop spark resource
@@ -162,10 +162,10 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
   - `spark.hadoop.fs.defaultFS`: master为yarn时必填。
   - 其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html
 - `working_dir`: ETL 使用的目录。spark作为ETL资源使用时必填。例如：hdfs://host:port/tmp/doris。
-- `hadoop.security.authentication`：指定认证方式为 kerberos。
-- `kerberos_principal`：指定 kerberos 的 principal。
-- `kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
-- `kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
+- `broker.hadoop.security.authentication`：指定认证方式为 kerberos。
+- `broker.kerberos_principal`：指定 kerberos 的 principal。
+- `broker.kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
+- `broker.kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `broker.kerberos_keytab` 配置二选一即可。
 - `broker`: broker 名字。spark 作为 ETL 资源使用时必填。需要使用 `ALTER SYSTEM ADD BROKER` 命令提前完成配置。
   - `broker.property_key`: broker 读取 ETL 生成的中间文件时需要指定的认证信息等。
 - `env`: 指定spark环境变量,支持动态设置,比如当认证hadoop认为方式为simple时，设置hadoop用户名和密码
@@ -210,10 +210,10 @@ PROPERTIES
 
 如果是 Spark load 访问带有 Kerberos 认证的 Hadoop 集群资源，我们只需要在创建 Spark resource 的时候指定以下参数即可：
 
-- `hadoop.security.authentication`：指定认证方式为 kerberos。
-- `kerberos_principal`：指定 kerberos 的 principal。
-- `kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
-- `kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
+- `broker.hadoop.security.authentication`：指定认证方式为 kerberos。
+- `broker.kerberos_principal`：指定 kerberos 的 principal。
+- `broker.kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
+- `broker.kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
 
 实例：
 
@@ -232,9 +232,9 @@ PROPERTIES
   "spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
   "broker" = "broker0",
-  "hadoop.security.authentication" = "kerberos",
-  "kerberos_principal" = "doris@YOUR.COM",
-  "kerberos_keytab" = "/home/doris/my.keytab"
+  "broker.hadoop.security.authentication" = "kerberos",
+  "broker.kerberos_principal" = "doris@YOUR.COM",
+  "broker.kerberos_keytab" = "/home/doris/my.keytab"
 );
 ```
 
