@@ -214,8 +214,6 @@ public class TimestampArithmeticExpr extends Expr {
         }
 
         Type[] childrenTypes = collectChildReturnTypes();
-        fn = getBuiltinFunction(funcOpName.toLowerCase(), childrenTypes,
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         fn = getBuiltinFunction(analyzer ,funcOpName.toLowerCase(), childrenTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         Preconditions.checkArgument(fn != null);
