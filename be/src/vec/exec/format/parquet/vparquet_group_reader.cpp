@@ -22,9 +22,6 @@
 
 namespace doris::vectorized {
 
-static size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb * 1024 * 1024;
-static size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb * 1024 * 1024;
-
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
@@ -49,6 +46,8 @@ Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>
 Status RowGroupReader::_init_column_readers(
         const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
+    const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
+    const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
     size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
     for (auto& read_col : _read_columns) {
         auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
