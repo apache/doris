@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -97,7 +98,8 @@ public class PlanOutputTest {
                     }
 
                     @Override
-                    public PhysicalPlan withPhysicalProperties(PhysicalProperties physicalProperties) {
+                    public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+                            StatsDeriveResult statsDeriveResult) {
                         return null;
                     }
 

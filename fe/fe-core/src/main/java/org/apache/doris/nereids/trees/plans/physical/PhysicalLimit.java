@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -71,8 +72,10 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
      * @param offset the number of tuples skipped.
      */
     public PhysicalLimit(long limit, long offset, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_LIMIT, groupExpression, logicalProperties, physicalProperties, child);
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_LIMIT, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
+                child);
         this.limit = limit;
         this.offset = offset;
     }
@@ -107,8 +110,10 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     }
 
     @Override
-    public PhysicalLimit<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
-        return new PhysicalLimit<>(limit, offset, groupExpression, getLogicalProperties(), physicalProperties, child());
+    public PhysicalLimit<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult) {
+        return new PhysicalLimit<>(limit, offset, groupExpression, getLogicalProperties(), physicalProperties,
+                statsDeriveResult, child());
     }
 
     @Override
