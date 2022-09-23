@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -969,10 +970,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         // assemble fragment
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
+        if (leftDistributionSpec.getShuffleType() != ShuffleType.NATURAL) {
+            hashJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
+        }
         connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
         leftFragment.setPlanRoot(hashJoinNode);
-        // TODO: use left fragment d
-        DataPartition rhsJoinPartition = new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED,
+        TPartitionType partitionType = TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
+        if (leftDistributionSpec.getShuffleType() != ShuffleType.NATURAL) {
+            partitionType = TPartitionType.HASH_PARTITIONED;
+        }
+        DataPartition rhsJoinPartition = new DataPartition(partitionType,
                 rightPartitionExprIds.stream().map(context::findSlotRef).collect(Collectors.toList()));
         rightFragment.setOutputPartition(rhsJoinPartition);
 
