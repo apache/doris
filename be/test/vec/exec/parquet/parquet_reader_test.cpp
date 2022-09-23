@@ -100,7 +100,14 @@ TEST_F(ParquetReaderTest, normal) {
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
     }
-    auto p_reader = new ParquetReader(reader, column_names, 1024, 0, 1000, &ctz);
+    TFileScanRangeParams scan_params;
+    TFileRangeDesc scan_range;
+    {
+        scan_range.start_offset = 0;
+        scan_range.size = 1000;
+    }
+    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, column_names, 992, &ctz);
+    p_reader->set_file_reader(reader);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
     runtime_state.init_instance_mem_tracker();
