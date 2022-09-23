@@ -114,11 +114,20 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
         break;
-    case TFileFormatType::FORMAT_PARQUET:
-        _parquet_writer = new ParquetWriterWrapper(_file_writer.get(), _output_expr_ctxs,
-                                                   _file_opts->file_properties, _file_opts->schema,
-                                                   _output_object_data);
+    case TFileFormatType::FORMAT_PARQUET: {
+        //TODO: in order to consider the compatibility when upgrading, could remove this code after 1.2
+        if (_file_opts->is_refactor_before_flag) {
+            _parquet_writer = new ParquetWriterWrapper(_file_writer.get(), _output_expr_ctxs,
+                                                       _file_opts->file_properties,
+                                                       _file_opts->schema, _output_object_data);
+        } else {
+            _parquet_writer = new ParquetWriterWrapper(
+                    _file_writer.get(), _output_expr_ctxs, _file_opts->parquet_schemas,
+                    _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
+                    _file_opts->parquet_version, _output_object_data);
+        }
         break;
+    }
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
     }
