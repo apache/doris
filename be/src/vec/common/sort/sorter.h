@@ -76,14 +76,14 @@ public:
         _merge_block_timer = ADD_TIMER(runtime_profile, "MergeBlockTime");
     };
 
-    virtual Status append_block(Block* block, bool* mem_reuse) = 0;
+    virtual Status append_block(Block* block) = 0;
 
     virtual Status prepare_for_read() = 0;
 
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
 
 protected:
-    Status partial_sort(Block& block);
+    Status partial_sort(Block& src_block, Block& dest_block);
 
     SortDescription _sort_description;
     VSortExecExprs& _vsort_exec_exprs;
@@ -107,7 +107,7 @@ public:
 
     ~FullSorter() override = default;
 
-    Status append_block(Block* block, bool* mem_reuse) override;
+    Status append_block(Block* block) override;
 
     Status prepare_for_read() override;
 

@@ -30,6 +30,9 @@ namespace doris::vectorized {
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
 void sort_block(Block& block, const SortDescription& description, UInt64 limit = 0);
 
+void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
+                UInt64 limit = 0);
+
 /** Used only in StorageMergeTree to sort the data with INSERT.
   * Sorting is stable. This is important for keeping the order of rows in the CollapsingMergeTree engine
   *  - because based on the order of rows it is determined whether to delete or leave groups of rows when collapsing.
