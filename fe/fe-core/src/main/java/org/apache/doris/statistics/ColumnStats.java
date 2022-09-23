@@ -38,7 +38,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-
 /**
  * There are the statistics of column.
  * The column stats are mainly used to provide input for the Optimizer's cost model.
