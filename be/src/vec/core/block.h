@@ -70,10 +70,6 @@ private:
     mutable int64_t _compress_time_ns = 0;
 
 public:
-    static const int max_data_version;
-    static const int min_data_version;
-    static int current_serialize_data_version;
-
     Block() = default;
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);

@@ -1259,7 +1259,7 @@ public class Env {
 
         checkCurrentNodeExist();
 
-        checkBlockDataVersion();
+        checkBeExecVersion();
 
         editLog.rollEditLog();
 
@@ -1510,11 +1510,11 @@ public class Env {
         }
     }
 
-    private void checkBlockDataVersion() {
-        if (Config.block_data_version < Config.min_block_data_version
-                || Config.block_data_version > Config.max_block_data_version) {
-            LOG.error("block_data_version={} is not supported, please set block_data_version in interval [{}, {}]",
-                    Config.block_data_version, Config.min_block_data_version, Config.max_block_data_version);
+    private void checkBeExecVersion() {
+        if (Config.be_exec_version < Config.min_be_exec_version
+                || Config.be_exec_version > Config.max_be_exec_version) {
+            LOG.error("be_exec_version={} is not supported, please set be_exec_version in interval [{}, {}]",
+                    Config.be_exec_version, Config.min_be_exec_version, Config.max_be_exec_version);
             System.exit(-1);
         }
     }

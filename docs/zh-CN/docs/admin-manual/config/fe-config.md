@@ -2267,7 +2267,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 是否为 Master FE 节点独有的配置项：true
 
-### `block_data_version`
+### `be_exec_version`
 
 用于定义fragment之间传递block的序列化格式。
 
@@ -2276,14 +2276,14 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 具体的来说，例如集群中有2个BE，其中一台经过升级能够支持最新的$v_1$，而另一台只支持$v_0$，此时由于FE还未升级，所以统一下发$v_0$，BE之间以旧的数据格式进行交互。待BE都升级完成，我们再升级FE，此时新的FE会下发$v_1$，集群统一切换到新的数据格式。
 
 
-默认值为`max_block_data_version`，如果有特殊需要，我们可以手动设置将格式版本降低，但不应低于`min_block_data_version`。
+默认值为`max_be_exec_version`，如果有特殊需要，我们可以手动设置将格式版本降低，但不应低于`min_be_exec_version`。
 
-需要注意的是，我们应该始终保持该变量的值处于**所有**BE的`Block::min_data_version`和`Block::max_data_version`之间。（也就是说如果一个已经完成更新的集群如果需要降级，应该保证先降级FE再降级BE的顺序，或者手动在设置中将该变量调低再降级BE）
+需要注意的是，我们应该始终保持该变量的值处于**所有**BE的`HeartbeatServer::min_data_version`和`HeartbeatServer::max_data_version`之间。（也就是说如果一个已经完成更新的集群如果需要降级，应该保证先降级FE再降级BE的顺序，或者手动在设置中将该变量调低再降级BE）
 
-### `max_block_data_version`
+### `max_be_exec_version`
 
-目前支持的最新数据版本，不可修改，应与配套版本的BE中的`Block::max_data_version`一致。
+目前支持的最新数据版本，不可修改，应与配套版本的BE中的`HeartbeatServer::max_data_version`一致。
 
-### `min_block_data_version`
+### `min_be_exec_version`
 
-目前支持的最旧数据版本，不可修改，应与配套版本的BE中的`Block::min_data_version`一致。
+目前支持的最旧数据版本，不可修改，应与配套版本的BE中的`HeartbeatServer::min_data_version`一致。

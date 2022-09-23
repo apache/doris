@@ -84,11 +84,11 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 //  <size array> : row num | offset1 |offset2 | ...
 //  <value array> : <value1> | <value2 | ...
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                          int data_version) const {
+                                                          int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-    if (data_version == 0) {
+    if (be_exec_version == 0) {
         return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
                data_column.get_chars().size() + column.size();
     }
@@ -97,11 +97,11 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
            data_column.get_chars().size();
 }
 
-char* DataTypeString::serialize(const IColumn& column, char* buf, int data_version) const {
+char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-    if (data_version == 0) {
+    if (be_exec_version == 0) {
         // row num
         *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
         buf += sizeof(IColumn::Offset);
@@ -141,12 +141,13 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int data_versi
     return buf;
 }
 
-const char* DataTypeString::deserialize(const char* buf, IColumn* column, int data_version) const {
+const char* DataTypeString::deserialize(const char* buf, IColumn* column,
+                                        int be_exec_version) const {
     ColumnString* column_string = assert_cast<ColumnString*>(column);
     ColumnString::Chars& data = column_string->get_chars();
     ColumnString::Offsets& offsets = column_string->get_offsets();
 
-    if (data_version == 0) {
+    if (be_exec_version == 0) {
         // row num
         IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
         buf += sizeof(IColumn::Offset);
