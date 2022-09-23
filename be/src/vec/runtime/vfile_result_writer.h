@@ -20,6 +20,7 @@
 #include "exec/file_writer.h"
 #include "runtime/file_result_writer.h"
 #include "vec/sink/result_sink.h"
+#include "vec/runtime/vparquet_writer.h"
 
 namespace doris {
 
@@ -48,6 +49,7 @@ public:
     int64_t get_written_rows() const override { return 1; }
 
 private:
+    Status _write_parquet_file(const Block& block);
     Status _write_csv_file(const Block& block);
 
     // if buffer exceed the limit, write the data buffered in _plain_text_outstream via file_writer
@@ -81,9 +83,7 @@ private:
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    std::unique_ptr<FileWriter> _file_writer_impl;
-    // parquet file writer
-    ParquetWriterWrapper* _parquet_writer = nullptr;
+    std::unique_ptr<doris::FileWriter> _file_writer_impl;
     // Used to buffer the export data of plain text
     // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
     // file writer's write() for every single row.
@@ -119,6 +119,8 @@ private:
     bool _is_result_sent = false;
     bool _header_sent = false;
     RowDescriptor _output_row_descriptor;
+    // parquet file writer
+    std::unique_ptr<VParquetWriterWrapper> _vparquet_writer;
 };
 } // namespace vectorized
 } // namespace doris
