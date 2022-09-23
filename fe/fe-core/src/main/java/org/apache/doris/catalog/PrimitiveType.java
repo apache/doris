@@ -1068,6 +1068,10 @@ public enum PrimitiveType {
         return this == ARRAY;
     }
 
+    public boolean isComplexType() {
+        return this == HLL || this == BITMAP;
+    }
+
     public boolean isStringType() {
         return (this == VARCHAR || this == CHAR || this == HLL || this == STRING);
     }
