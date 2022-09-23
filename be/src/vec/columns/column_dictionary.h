@@ -384,6 +384,7 @@ public:
         void sort() {
             size_t dict_size = _dict_data->size();
 
+            _code_convert_table.reserve(dict_size);
             _perm.resize(dict_size);
             for (size_t i = 0; i < dict_size; ++i) {
                 _perm[i] = i;
