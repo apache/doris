@@ -49,6 +49,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
     read_options.stats = _stats;
+    read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
             read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
