@@ -120,7 +120,7 @@ public:
     int64_t written_len();
 
 private:
-    template<typename T>
+    template <typename T>
     void write_int32_column(int index, T* item);
 
     std::shared_ptr<ParquetOutputStream> _outstream;
