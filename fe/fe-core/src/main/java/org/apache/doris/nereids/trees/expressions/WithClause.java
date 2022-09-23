@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -49,6 +50,11 @@ public class WithClause extends Expression {
 
     public Optional<List<String>> getColumnNames() {
         return columnNames;
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        return true;
     }
 
     @Override
