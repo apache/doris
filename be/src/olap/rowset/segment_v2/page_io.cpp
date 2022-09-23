@@ -34,7 +34,7 @@ namespace doris {
 namespace segment_v2 {
 
 using strings::Substitute;
-
+enum { PAGE_PADDING_SIZE = 16 };
 Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                   const std::vector<Slice>& body, OwnedSlice* compressed_body) {
     size_t uncompressed_size = Slice::compute_total_size(body);
@@ -132,7 +132,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     // hold compressed page at first, reset to decompressed page later
-    std::unique_ptr<char[]> page(new char[page_size]);
+    std::unique_ptr<char[]> page(new char[page_size + PAGE_PADDING_SIZE]);
     Slice page_slice(page.get(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
@@ -167,7 +167,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
         std::unique_ptr<char[]> decompressed_page(
-                new char[footer->uncompressed_size() + footer_size + 4]);
+                new char[footer->uncompressed_size() + footer_size + 4 + PAGE_PADDING_SIZE]);
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);

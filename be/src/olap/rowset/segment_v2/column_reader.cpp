@@ -715,6 +715,8 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
     size_t curr_size = dst->byte_size();
     size_t remaining = *n;
     *has_null = false;
+    bool is_string_column = dst->is_column_string();
+    bool has_reserved = false;
     while (remaining > 0) {
         if (!_page.has_remaining()) {
             bool eos = false;
@@ -760,6 +762,27 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
             _current_ordinal += nrows_to_read;
         }
         remaining -= nrows_in_page;
+        // If the column is string, there are many cost during resize chars array, so that do such optimization:
+        // If already read 100 rows, then could reserve more memory for chars according to the avg size
+        // of the rows has read in order to reduce resize cost in future read
+        if (is_string_column && !has_reserved && *n - remaining > 100) {
+            if (dst->is_nullable()) {
+                vectorized::ColumnString::Chars& chars = const_cast<
+                        vectorized::ColumnString::Chars&>(
+                        vectorized::check_and_get_column<vectorized::ColumnString>(
+                                vectorized::check_and_get_column<vectorized::ColumnNullable>(dst)
+                                        ->get_nested_column_ptr())
+                                ->get_chars());
+                chars.reserve(std::max(chars.size() / (*n - remaining) * (*n), chars.size()));
+            } else {
+                vectorized::ColumnString::Chars& chars =
+                        const_cast<vectorized::ColumnString::Chars&>(
+                                vectorized::check_and_get_column<vectorized::ColumnString>(dst)
+                                        ->get_chars());
+                chars.reserve(std::max(chars.size() / (*n - remaining) * (*n), chars.size()));
+            }
+            has_reserved = true;
+        }
     }
     *n -= remaining;
     _opts.stats->bytes_read += (dst->byte_size() - curr_size) + BitmapSize(*n);

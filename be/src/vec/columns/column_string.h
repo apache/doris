@@ -155,6 +155,9 @@ public:
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
+        if (num == 0) {
+            return;
+        }
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
             new_size += len_array[i];
@@ -162,18 +165,24 @@ public:
 
         const size_t old_size = chars.size();
         chars.resize(old_size + new_size);
-
-        Char* data = chars.data();
+        Char* destination = chars.data() + old_size;
+        uint32_t fragment_start_offset = start_offset_array[0];
+        size_t fragment_len = 0;
         size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
-            uint32_t len = len_array[i];
-            uint32_t start_offset = start_offset_array[i];
-            // memcpy will deal len == 0, not do it here
-            memcpy(data + offset, data_array + start_offset, len);
-            offset += len;
+            fragment_len += len_array[i];
+            offset += len_array[i];
             offsets.push_back(offset);
+            // Compute the largest continuous memcpy block and copy them.
+            // If this is the last element in data array, then should copy the current memory block.
+            if (i == num - 1 || start_offset_array[i + 1] != start_offset_array[i] + len_array[i]) {
+                memcpy(destination, data_array + fragment_start_offset, fragment_len);
+                destination += fragment_len;
+                fragment_start_offset = (i == num - 1 ? 0 : start_offset_array[i + 1]);
+                fragment_len = 0;
+            }
         }
-    };
+    }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
         size_t new_size = 0;
