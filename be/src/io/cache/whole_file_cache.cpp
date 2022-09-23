@@ -29,7 +29,6 @@ WholeFileCache::WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
         : _cache_dir(cache_dir),
           _alive_time_sec(alive_time_sec),
           _remote_file_reader(remote_file_reader),
-          _last_match_time(time(nullptr)),
           _cache_file_reader(nullptr) {}
 
 WholeFileCache::~WholeFileCache() {}
@@ -56,7 +55,7 @@ Status WholeFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) 
                    << ", bytes read: " << bytes_read << " vs required size: " << result.size;
         return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
-    _last_match_time = time(nullptr);
+    update_last_match_time();
     return Status::OK();
 }
 
@@ -132,7 +131,7 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     }
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));
     _cache_file_size = _cache_file_reader->size();
-    _last_match_time = time(nullptr);
+    update_last_match_time();
     LOG(INFO) << "Create cache file from remote file successfully: "
               << _remote_file_reader->path().native() << " -> " << cache_file.native();
     return Status::OK();

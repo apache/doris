@@ -37,6 +37,8 @@ public:
 
     void remove_file_cache(const std::string& cache_path);
 
+    int64_t calc_gc_disk_size() const;
+
     void clean_timeout_caches();
 
     void clean_timeout_file_not_in_mem(const std::string& cache_path);

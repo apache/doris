@@ -839,6 +839,7 @@ CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
 });
+CONF_mInt64(file_cache_max_storage_size_gb, "0"); // no limit
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 

@@ -31,7 +31,7 @@ const std::string CACHE_DONE_FILE_SUFFIX = "_DONE";
 
 class FileCache : public FileReader {
 public:
-    FileCache() = default;
+    FileCache() : _last_match_time(time(nullptr)) {}
     virtual ~FileCache() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileCache);
@@ -49,9 +49,25 @@ public:
     Status download_cache_to_local(const Path& cache_file, const Path& cache_done_file,
                                    io::FileReaderSPtr remote_file_reader, size_t req_size,
                                    size_t offset = 0);
+
+    void update_last_match_time() { _last_match_time = time(nullptr); }
+    int64_t get_last_match_time() const { return _last_match_time; }
+
+    // TODO: move file size logic here
+    size_t get_cache_file_size() const { return _cache_file_size; }
+
+protected:
+    int64_t _last_match_time;
+    size_t _cache_file_size;
 };
 
 using FileCachePtr = std::shared_ptr<FileCache>;
+
+struct FileCacheLRUComparator {
+    bool operator()(const FileCachePtr& lhs, const FileCachePtr& rhs) const {
+        return lhs->get_last_match_time() > rhs->get_last_match_time();
+    }
+};
 
 } // namespace io
 } // namespace doris

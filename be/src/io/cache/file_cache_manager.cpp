@@ -17,6 +17,8 @@
 
 #include "io/cache/file_cache_manager.h"
 
+#include <queue>
+
 #include "gutil/strings/util.h"
 #include "io/cache/sub_file_cache.h"
 #include "io/cache/whole_file_cache.h"
@@ -56,7 +58,22 @@ void FileCacheManager::remove_file_cache(const std::string& cache_path) {
     }
 }
 
+int64_t FileCacheManager::calc_gc_disk_size() const {
+    int64_t conf_size = config::file_cache_max_storage_size_gb * 1024 * 1024 * 1024;
+    if (conf_size <= 0) {
+        return 0;
+    }
+    int64_t used_size = _total_used_file_size.load();
+    if (used_size <= conf_size) {
+        return 0;
+    }
+    return used_size - conf_size;
+}
+
 void FileCacheManager::clean_timeout_caches() {
+    std::priority_queue<FileCachePtr, std::vector<FileCachePtr>, FileCacheLRUComparator> lru_queue;
+    int64_t gc_disk_size = calc_gc_disk_size();
+
     std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
     for (std::map<std::string, FileCachePtr>::const_iterator iter = _file_cache_map.cbegin();
          iter != _file_cache_map.cend(); ++iter) {
@@ -64,6 +81,21 @@ void FileCacheManager::clean_timeout_caches() {
             continue;
         }
         iter->second->clean_timeout_cache();
+
+        if (gc_disk_size > 0 && iter->second->get_cache_file_size() > 0) {
+            lru_queue.push(iter->second);
+        }
+    }
+
+    // update gc_disk_size again, clean_timeout_cache will update used disk size
+    gc_disk_size = calc_gc_disk_size();
+
+    // GC by disk usage, still need keep rdlock
+    while (!lru_queue.empty() && gc_disk_size > 0) {
+        auto file_cache = lru_queue.top();
+        gc_disk_size -= file_cache->get_cache_file_size();
+        file_cache->clean_all_cache();
+        lru_queue.pop();
     }
 }
 

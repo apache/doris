@@ -119,6 +119,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
             _last_match_times[*iter] = time(nullptr);
         }
     }
+    update_last_match_time();
     return Status::OK();
 }
 
@@ -183,6 +184,7 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &cache_reader));
     _cache_file_readers.emplace(offset, cache_reader);
     _last_match_times.emplace(offset, time(nullptr));
+    update_last_match_time();
     LOG(INFO) << "Create cache file from remote file successfully: "
               << _remote_file_reader->path().native() << "(" << offset << ", " << req_size
               << ") -> " << cache_file.native();

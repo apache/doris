@@ -65,7 +65,6 @@ private:
     io::FileReaderSPtr _remote_file_reader;
 
     std::shared_mutex _cache_lock;
-    int64_t _last_match_time;
     io::FileReaderSPtr _cache_file_reader;
 };
 
