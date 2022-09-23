@@ -24,6 +24,7 @@
 #include "exec/file_reader.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/message_body_sink.h"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
 
@@ -43,7 +44,11 @@ public:
               _min_chunk_size(min_chunk_size),
               _total_length(total_length),
               _use_proto(use_proto) {}
-    virtual ~StreamLoadPipe() {}
+
+    virtual ~StreamLoadPipe() {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        while (!_buf_queue.empty()) _buf_queue.pop_front();
+    }
 
     Status open() override { return Status::OK(); }
 
@@ -115,6 +120,7 @@ public:
     }
 
     Status read(uint8_t* data, int64_t data_size, int64_t* bytes_read, bool* eof) override {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
         *bytes_read = 0;
         while (*bytes_read < data_size) {
             std::unique_lock<std::mutex> l(_lock);
