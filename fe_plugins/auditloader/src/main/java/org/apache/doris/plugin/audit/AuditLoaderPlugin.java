@@ -139,7 +139,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             // In order to ensure that the system can run normally, here we directly
             // discard the current audit_event. If this problem occurs frequently,
             // improvement can be considered.
-            LOG.debug("encounter exception when putting current audit batch, discard current audit event", e);
+            LOG.error("encounter exception when putting current audit batch, discard current audit event", e);
         }
     }
 
@@ -194,7 +194,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             DorisStreamLoader.LoadResponse response = loader.loadBatch(auditBuffer);
             LOG.debug("audit loader response: {}", response);
         } catch (Exception e) {
-            LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
+            LOG.error("encounter exception when putting current audit batch, discard current batch", e);
         } finally {
             // make a new string builder to receive following events.
             this.auditBuffer = new StringBuilder();
