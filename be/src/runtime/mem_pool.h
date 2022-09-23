@@ -210,7 +210,7 @@ private:
     void reset_peak() {
         if (total_allocated_bytes_ - peak_allocated_bytes_ > 65536) {
             THREAD_MEM_TRACKER_TRANSFER_FROM(total_allocated_bytes_ - peak_allocated_bytes_,
-                                             ExecEnv::GetInstance()->process_mem_tracker_raw());
+                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
             peak_allocated_bytes_ = total_allocated_bytes_;
         }
     }

@@ -115,7 +115,7 @@ protected:
     inline void reset_peak() {
         if (UNLIKELY(c_end - c_end_peak > 65536)) {
             THREAD_MEM_TRACKER_TRANSFER_FROM(c_end - c_end_peak,
-                                             ExecEnv::GetInstance()->process_mem_tracker_raw());
+                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
             c_end_peak = c_end;
         }
     }
@@ -127,7 +127,7 @@ protected:
     template <typename... TAllocatorParams>
     void alloc(size_t bytes, TAllocatorParams&&... allocator_params) {
         THREAD_MEM_TRACKER_TRANSFER_TO(bytes - pad_right - pad_left,
-                                       ExecEnv::GetInstance()->process_mem_tracker_raw());
+                                       ExecEnv::GetInstance()->orphan_mem_tracker_raw());
         c_start = c_end = c_end_peak =
                 reinterpret_cast<char*>(TAllocator::alloc(
                         bytes, std::forward<TAllocatorParams>(allocator_params)...)) +
@@ -144,7 +144,7 @@ protected:
 
         TAllocator::free(c_start - pad_left, allocated_bytes());
         THREAD_MEM_TRACKER_TRANSFER_FROM(c_end_of_storage - c_end_peak,
-                                         ExecEnv::GetInstance()->process_mem_tracker_raw());
+                                         ExecEnv::GetInstance()->orphan_mem_tracker_raw());
     }
 
     template <typename... TAllocatorParams>
@@ -157,7 +157,7 @@ protected:
         unprotect();
 
         THREAD_MEM_TRACKER_TRANSFER_TO(bytes - allocated_bytes(),
-                                       ExecEnv::GetInstance()->process_mem_tracker_raw());
+                                       ExecEnv::GetInstance()->orphan_mem_tracker_raw());
 
         ptrdiff_t end_diff = c_end - c_start;
 

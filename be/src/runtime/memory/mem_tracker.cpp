@@ -58,12 +58,14 @@ NewMemTracker::NewMemTracker(const std::string& label, RuntimeProfile* profile) 
         _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
     }
 
-    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
-    _label = fmt::format(
-            "{} | {}", label,
-            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label());
-    _bind_group_num =
-            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->group_num();
+    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw() != nullptr);
+    MemTrackerLimiter* parent =
+            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw();
+    _label = fmt::format("[Observer] {} | {}", label,
+                         parent->label() == "Orphan" ? "Process" : parent->label());
+    _bind_group_num = parent->label() == "Orphan"
+                              ? ExecEnv::GetInstance()->new_process_mem_tracker()->group_num()
+                              : parent->group_num();
     {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
         _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(

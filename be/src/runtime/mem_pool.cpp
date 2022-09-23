@@ -60,7 +60,8 @@ MemPool::~MemPool() {
     }
     mem_tracker_->Release(total_bytes_released);
     THREAD_MEM_TRACKER_TRANSFER_FROM(total_bytes_released - peak_allocated_bytes_,
-                                     ExecEnv::GetInstance()->process_mem_tracker_raw());
+                                     ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+
     DorisMetrics::instance()->memory_pool_bytes_total->increment(-total_bytes_released);
 }
 
@@ -81,7 +82,8 @@ void MemPool::free_all() {
         ChunkAllocator::instance()->free(chunk.chunk);
     }
     THREAD_MEM_TRACKER_TRANSFER_FROM(total_bytes_released - peak_allocated_bytes_,
-                                     ExecEnv::GetInstance()->process_mem_tracker_raw());
+                                     ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+
     chunks_.clear();
     next_chunk_size_ = INITIAL_CHUNK_SIZE;
     current_chunk_idx_ = -1;
@@ -146,7 +148,7 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
         mem_tracker_->Release(chunk_size);
         return false;
     }
-    THREAD_MEM_TRACKER_TRANSFER_TO(chunk_size, ExecEnv::GetInstance()->process_mem_tracker_raw());
+    THREAD_MEM_TRACKER_TRANSFER_TO(chunk_size, ExecEnv::GetInstance()->orphan_mem_tracker_raw());
     ASAN_POISON_MEMORY_REGION(chunk.data, chunk_size);
     // Put it before the first free chunk. If no free chunks, it goes at the end.
     if (first_free_idx == static_cast<int>(chunks_.size())) {
