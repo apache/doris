@@ -375,6 +375,7 @@ public:
 
         void clear() {
             _dict_data->clear();
+            _code_convert_table.clear();
             _hash_values.clear();
         }
 
