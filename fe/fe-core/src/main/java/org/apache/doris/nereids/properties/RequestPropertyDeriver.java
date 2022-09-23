@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -150,6 +151,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, PlanContext context) {
         // TODO: currently doris only use NLJ to do cross join, update this if we use NLJ to do other joins.
         addToRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, PlanContext context) {
+        addToRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 
