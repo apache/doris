@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
 
@@ -54,8 +55,8 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
      */
     public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, physicalProperties, child);
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
     }
 

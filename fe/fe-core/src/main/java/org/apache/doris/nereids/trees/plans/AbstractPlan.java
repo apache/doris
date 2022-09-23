@@ -31,34 +31,39 @@ import com.google.common.base.Suppliers;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class for all concrete plan node.
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
 
-    protected StatsDeriveResult statsDeriveResult;
+    protected final StatsDeriveResult statsDeriveResult;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
 
     public AbstractPlan(PlanType type, Plan... children) {
-        this(type, Optional.empty(), Optional.empty(), children);
+        this(type, Optional.empty(), Optional.empty(), null, children);
     }
 
     public AbstractPlan(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
-        this(type, Optional.empty(), optLogicalProperties, children);
+        this(type, Optional.empty(), optLogicalProperties, null, children);
     }
 
-    /** all parameter constructor. */
+    /**
+     * all parameter constructor.
+     */
     public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
-                        Optional<LogicalProperties> optLogicalProperties, Plan... children) {
+            Optional<LogicalProperties> optLogicalProperties, @Nullable StatsDeriveResult statsDeriveResult,
+            Plan... children) {
         super(groupExpression, children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
         Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
+        this.statsDeriveResult = statsDeriveResult;
     }
 
     @Override
@@ -68,6 +73,10 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     public Optional<GroupExpression> getGroupExpression() {
         return groupExpression;
+    }
+
+    public StatsDeriveResult getStats() {
+        return statsDeriveResult;
     }
 
     @Override
@@ -98,13 +107,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             return false;
         }
         AbstractPlan that = (AbstractPlan) o;
-        return Objects.equals(statsDeriveResult, that.statsDeriveResult)
-                && Objects.equals(getLogicalProperties(), that.getLogicalProperties());
+        // stats should don't need.
+        return Objects.equals(getLogicalProperties(), that.getLogicalProperties());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(statsDeriveResult, getLogicalProperties());
+        // stats should don't need.
+        return Objects.hash(getLogicalProperties());
     }
 
     @Override
