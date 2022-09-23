@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -62,6 +64,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+@SuppressWarnings("unused")
 public class ChildOutputPropertyDeriverTest {
 
     @Mocked
@@ -106,7 +109,7 @@ public class ChildOutputPropertyDeriverTest {
             }
         };
 
-        PhysicalHashJoin join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 Collections.emptyList(), Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
@@ -151,7 +154,7 @@ public class ChildOutputPropertyDeriverTest {
             }
         };
 
-        PhysicalHashJoin join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false, Collections.emptyList()))),
@@ -195,7 +198,7 @@ public class ChildOutputPropertyDeriverTest {
             }
         };
 
-        PhysicalHashJoin join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false, Collections.emptyList()))),
@@ -235,7 +238,7 @@ public class ChildOutputPropertyDeriverTest {
 
     @Test
     public void testNestedLoopJoin() {
-        PhysicalNestedLoopJoin join = new PhysicalNestedLoopJoin<>(JoinType.CROSS_JOIN,
+        PhysicalNestedLoopJoin<GroupPlan, GroupPlan> join = new PhysicalNestedLoopJoin<>(JoinType.CROSS_JOIN,
                 Collections.emptyList(), Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
@@ -265,7 +268,7 @@ public class ChildOutputPropertyDeriverTest {
     @Test
     public void testLocalPhaseAggregate() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        PhysicalAggregate aggregate = new PhysicalAggregate(
+        PhysicalAggregate<GroupPlan> aggregate = new PhysicalAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
@@ -289,7 +292,7 @@ public class ChildOutputPropertyDeriverTest {
     public void testGlobalPhaseAggregate() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         SlotReference partition = new SlotReference("col2", BigIntType.INSTANCE);
-        PhysicalAggregate aggregate = new PhysicalAggregate(
+        PhysicalAggregate<GroupPlan> aggregate = new PhysicalAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
                 Lists.newArrayList(partition),
@@ -315,10 +318,32 @@ public class ChildOutputPropertyDeriverTest {
     }
 
     @Test
+    public void testAggregateWithoutGroupBy() {
+        PhysicalAggregate<GroupPlan> aggregate = new PhysicalAggregate<>(
+                Lists.newArrayList(),
+                Lists.newArrayList(),
+                Lists.newArrayList(),
+                AggPhase.GLOBAL,
+                true,
+                true,
+                logicalProperties,
+                groupPlan
+        );
+
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
+                new OrderSpec(Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
+
+        ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
+        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        Assertions.assertEquals(PhysicalProperties.GATHER, result);
+    }
+
+    @Test
     public void testLocalQuickSort() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalLocalQuickSort sort = new PhysicalLocalQuickSort(orderKeys, logicalProperties, groupPlan);
+        PhysicalLocalQuickSort<GroupPlan> sort = new PhysicalLocalQuickSort(orderKeys, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
@@ -333,7 +358,7 @@ public class ChildOutputPropertyDeriverTest {
     public void testQuickSort() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalQuickSort sort = new PhysicalQuickSort<>(orderKeys, logicalProperties, groupPlan);
+        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
@@ -348,7 +373,7 @@ public class ChildOutputPropertyDeriverTest {
     public void testTopN() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalTopN sort = new PhysicalTopN<>(orderKeys, 10, 10, logicalProperties, groupPlan);
+        PhysicalTopN<GroupPlan> sort = new PhysicalTopN<>(orderKeys, 10, 10, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
@@ -363,7 +388,7 @@ public class ChildOutputPropertyDeriverTest {
     public void testLimit() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalLimit limit = new PhysicalLimit<>(10, 10, logicalProperties, groupPlan);
+        PhysicalLimit<GroupPlan> limit = new PhysicalLimit<>(10, 10, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(limit);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(orderKeys));
@@ -372,5 +397,19 @@ public class ChildOutputPropertyDeriverTest {
         PhysicalProperties result = deriver.getOutputProperties(groupExpression);
         Assertions.assertEquals(orderKeys, result.getOrderSpec().getOrderKeys());
         Assertions.assertEquals(DistributionSpecGather.INSTANCE, result.getDistributionSpec());
+    }
+
+    @Test
+    public void testAssertNumRows() {
+        PhysicalAssertNumRows<GroupPlan> assertNumRows = new PhysicalAssertNumRows<>(
+                new AssertNumRowsElement(1, "", AssertNumRowsElement.Assertion.EQ),
+                logicalProperties,
+                groupPlan
+        );
+        GroupExpression groupExpression = new GroupExpression(assertNumRows);
+        PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE, new OrderSpec());
+        ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
+        PhysicalProperties result = deriver.getOutputProperties(groupExpression);
+        Assertions.assertEquals(PhysicalProperties.GATHER, result);
     }
 }
