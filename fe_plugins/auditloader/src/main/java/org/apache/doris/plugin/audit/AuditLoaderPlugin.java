@@ -139,7 +139,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             // In order to ensure that the system can run normally, here we directly
             // discard the current audit_event. If this problem occurs frequently,
             // improvement can be considered.
-            LOG.error("encounter exception when putting current audit batch, discard current audit event", e);
+            LOG.warn("encounter exception when putting current audit batch, discard current audit event", e);
         }
     }
 
