@@ -518,8 +518,9 @@ private:
     uint16_t _base_loop(uint16_t* sel, uint16_t size, const uint8_t* __restrict null_map,
                         const TArray* __restrict data_array, const TValue& value) const {
         uint16_t new_size = 0;
-        for (uint16_t i = 0; i < size; ++i) {
-            uint16_t idx = sel[i];
+        uint16_t* end = sel + size;
+        for (uint16_t* cursor = sel; cursor < end; ++cursor) {
+            uint16_t idx = *cursor;
             if constexpr (is_nullable) {
                 if (_opposite ^ (!null_map[idx] && _operator(data_array[idx], value))) {
                     sel[new_size++] = idx;

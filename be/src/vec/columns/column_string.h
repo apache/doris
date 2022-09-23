@@ -186,26 +186,7 @@ public:
         }
     };
 
-    void insert_many_strings(const StringRef* strings, size_t num) override {
-        size_t new_size = 0;
-        for (size_t i = 0; i < num; i++) {
-            new_size += strings[i].size;
-        }
-
-        const size_t old_size = chars.size();
-        chars.resize(old_size + new_size);
-
-        Char* data = chars.data();
-        size_t offset = old_size;
-        for (size_t i = 0; i < num; i++) {
-            uint32_t len = strings[i].size;
-            if (len) {
-                memcpy(data + offset, strings[i].data, len);
-                offset += len;
-            }
-            offsets.push_back(offset);
-        }
-    }
+    void insert_many_strings(const StringRef* strings, size_t num) override;
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
