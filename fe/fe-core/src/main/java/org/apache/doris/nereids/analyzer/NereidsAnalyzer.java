@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.batch.AnalyzeCTEJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
 import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
@@ -59,7 +58,7 @@ public class NereidsAnalyzer {
      * nereids analyze sql.
      */
     public void analyze() {
-        new AnalyzeCTEJob(cascadesContext, cteContext).execute();
+        // new AnalyzeCTEJob(cascadesContext, cteContext).execute();
         new AnalyzeRulesJob(cascadesContext, cteContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();
         new TypeCoercionJob(cascadesContext).execute();

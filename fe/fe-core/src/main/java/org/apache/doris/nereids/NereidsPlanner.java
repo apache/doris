@@ -34,8 +34,12 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorder;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
@@ -64,8 +68,11 @@ public class NereidsPlanner extends Planner {
     private List<ScanNode> scanNodeList = null;
     private DescriptorTable descTable;
 
+    private CTEContext cteContext;
+
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
+        this.cteContext = new CTEContext();
     }
 
     @Override
@@ -146,6 +153,9 @@ public class NereidsPlanner extends Planner {
     }
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
+        if (PlanType.LOGICAL_CTE == logicalPlan.getType()) {
+            logicalPlan = registerCTE((LogicalCTE) logicalPlan);
+        }
         return new PlanPreprocessors(statementContext).process(logicalPlan);
     }
 
@@ -154,7 +164,7 @@ public class NereidsPlanner extends Planner {
     }
 
     private void analyze() {
-        cascadesContext.newAnalyzer().analyze();
+        cascadesContext.newAnalyzer(cteContext).analyze();
     }
 
     /**
@@ -198,6 +208,14 @@ public class NereidsPlanner extends Planner {
 
     public Group getRoot() {
         return cascadesContext.getMemo().getRoot();
+    }
+
+    private LogicalPlan registerCTE(LogicalCTE logicalCTE) {
+        List<WithClause> withClauses = logicalCTE.getWithClauses();
+        withClauses.stream().forEach(withClause -> {
+            cteContext.registerWithQuery(withClause, statementContext);
+        });
+        return (LogicalPlan) logicalCTE.child(0);
     }
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)

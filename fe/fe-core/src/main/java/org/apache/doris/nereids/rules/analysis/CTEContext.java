@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -56,9 +58,27 @@ public class CTEContext {
             throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
         }
 
-        // CascadesContext cascadesContext = new Memo(withClause.getQuery())
-        //        .newCascadesContext(parentContext.getStatementContext());
-        // cascadesContext.newAnalyzer(this).analyze();
+        CascadesContext cascadesContext = new Memo(withClause.getQuery())
+                .newCascadesContext(parentContext.getStatementContext());
+        cascadesContext.newAnalyzer(this).analyze();
+        // withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
+        withQueries.put(name, withClause.getQuery());
+    }
+
+    /**
+     * register with queries in CTEContext
+     * @param withClause includes with query
+     * @param statementContext global statementContext
+     */
+    public void registerWithQuery(WithClause withClause, StatementContext statementContext) {
+        String name = withClause.getName();
+        if (withQueries.containsKey(name)) {
+            throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
+        }
+
+        CascadesContext cascadesContext = new Memo(withClause.getQuery())
+                .newCascadesContext(statementContext);
+        cascadesContext.newAnalyzer(this).analyze();
         // withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
         withQueries.put(name, withClause.getQuery());
     }

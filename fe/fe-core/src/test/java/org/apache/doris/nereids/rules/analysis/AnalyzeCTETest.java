@@ -68,13 +68,12 @@ public class AnalyzeCTETest extends TestWithFeService {
     @Test
     public void tempTest() {
         PlanChecker.from(connectContext)
-            // .analyze("select id from T1");
-            .analyze("select v1.id, v2.id from T1 v1, T1 v2");
+                .analyze("select v1.id, v2.id from T1 v1, T1 v2");
     }
 
     @Test
     public void testAnalyzeCTE() {
         PlanChecker.from(connectContext)
-            .analyze(testSql.get(0));
+                .analyze(testSql.get(0));
     }
 }
