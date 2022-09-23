@@ -216,6 +216,8 @@ public class TimestampArithmeticExpr extends Expr {
         Type[] childrenTypes = collectChildReturnTypes();
         fn = getBuiltinFunction(funcOpName.toLowerCase(), childrenTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        fn = getBuiltinFunction(analyzer ,funcOpName.toLowerCase(), childrenTypes,
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         Preconditions.checkArgument(fn != null);
         Type[] argTypes = fn.getArgs();
         if (argTypes.length > 0) {
@@ -228,6 +230,7 @@ public class TimestampArithmeticExpr extends Expr {
                     uncheckedCastChild(argTypes[ix], i);
                 }
             }
+        }
         LOG.debug("fn is {} name is {}", fn, funcOpName);
     }
 
