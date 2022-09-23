@@ -279,9 +279,10 @@ public:
             data.resize(org_elem_num + num);
             uint32_t fragment_start_offset = start_offset_array[0];
             size_t fragment_len = 0;
-            for (size_t i = 0; i < num; i++) {
-                data[org_elem_num + i].ptr = destination + fragment_len;
-                data[org_elem_num + i].len = len_array[i];
+            StringValue* cursor = data.data() + org_elem_num;
+            for (size_t i = 0; i < num; i++, cursor++) {
+                cursor->ptr = destination + fragment_len;
+                cursor->len = len_array[i];
                 fragment_len += len_array[i];
                 // Compute the largest continuous memcpy block and copy them.
                 // If this is the last element in data array, then should copy the current memory block.

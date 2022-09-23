@@ -440,6 +440,55 @@ void ColumnString::reserve(size_t n) {
     chars.reserve(n);
 }
 
+void ColumnString::insert_many_strings(const StringRef* strings, size_t num) {
+    DCHECK_NE(num, 0);
+    offsets.reserve(offsets.size() + num);
+    std::vector<const char*> start_points(1);
+    auto& head = strings[0];
+    start_points[0] = head.data;
+    size_t new_size = head.size;
+    const char* cursor = head.data + new_size;
+    std::vector<const char*> end_points;
+
+    const size_t old_size = chars.size();
+    size_t offset = old_size;
+    offset += new_size;
+    offsets.push_back(offset);
+    if (num == 1) {
+        end_points.push_back(cursor);
+    } else {
+        for (size_t i = 1; i < num; i++) {
+            auto& str = strings[i];
+            if (cursor != str.data) {
+                end_points.push_back(cursor);
+                start_points.push_back(str.data);
+                cursor = str.data;
+            }
+            size_t sz = str.size;
+            offset += sz;
+            new_size += sz;
+            cursor += sz;
+            offsets.push_back_without_reserve(offset);
+        }
+        end_points.push_back(cursor);
+    }
+    DCHECK_EQ(end_points.size(), start_points.size());
+
+    chars.resize(old_size + new_size);
+
+    size_t num_range = start_points.size();
+    Char* data = chars.data();
+
+    offset = old_size;
+    for (size_t i = 0; i < num_range; i++) {
+        uint32_t len = end_points[i] - start_points[i];
+        if (len) {
+            memcpy(data + offset, start_points[i], len);
+            offset += len;
+        }
+    }
+}
+
 void ColumnString::resize(size_t n) {
     auto origin_size = size();
     if (origin_size > n) {
