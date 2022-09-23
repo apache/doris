@@ -23,44 +23,80 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * There are the statistics of all of tables.
+ * There are the statistics of all tables.
  * The @Statistics are mainly used to provide input for the Optimizer's cost model.
  *
  * @idToTableStats: <@Long tableId, @TableStats tableStats>
- * Each table will have corresponding @TableStats.
- * Those @TableStats are recorded in @idToTableStats form of MAP.
- * This facilitates the optimizer to quickly find the corresponding
+ *     - Each table will have corresponding @TableStats
+ *     - Those @TableStats are recorded in @idToTableStats form of MAP.
+ *     - This facilitates the optimizer to quickly find the corresponding
  * @TableStats based on the table id.
  */
 public class Statistics {
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     private final Map<Long, TableStats> idToTableStats = Maps.newConcurrentMap();
 
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
     public void updateTableStats(long tableId, Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        TableStats tableStats = getNotNullTableStats(tableId);
-        tableStats.updateTableStats(statsTypeToValue);
+        writeLock();
+        try {
+            TableStats tableStats = getNotNullTableStats(tableId);
+            tableStats.updateTableStats(statsTypeToValue);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void updatePartitionStats(long tableId, String partitionName, Map<StatsType, String> statsTypeToValue)
             throws AnalysisException {
-        TableStats tableStats = getNotNullTableStats(tableId);
-        tableStats.updatePartitionStats(partitionName, statsTypeToValue);
+        writeLock();
+        try {
+            TableStats tableStats = getNotNullTableStats(tableId);
+            tableStats.updatePartitionStats(partitionName, statsTypeToValue);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void updateColumnStats(long tableId, String columnName, Type columnType,
                                   Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        TableStats tableStats = getNotNullTableStats(tableId);
-        tableStats.updateColumnStats(columnName, columnType, statsTypeToValue);
+        writeLock();
+        try {
+            TableStats tableStats = getNotNullTableStats(tableId);
+            tableStats.updateColumnStats(columnName, columnType, statsTypeToValue);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void updateColumnStats(long tableId, String partitionName, String columnName, Type columnType,
                                   Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        TableStats tableStats = getNotNullTableStats(tableId);
-        Map<String, PartitionStats> nameToPartitionStats = tableStats.getNameToPartitionStats();
-        PartitionStats partitionStats = nameToPartitionStats.get(partitionName);
-        partitionStats.updateColumnStats(columnName, columnType, statsTypeToValue);
+        writeLock();
+        try {
+            PartitionStats partitionStats = getNotNullPartitionStats(tableId, partitionName);
+            partitionStats.updateColumnStats(columnName, columnType, statsTypeToValue);
+        } finally {
+            writeUnlock();
+        }
     }
 
     /**
@@ -91,6 +127,24 @@ public class Statistics {
             throw new AnalysisException("Table " + tableId + " has no statistics");
         }
         return tableStats;
+    }
+
+    /**
+     * if the partition stats is not exist, create a new one.
+     *
+     * @param tableId table id
+     * @param partitionName partition name
+     * @return @TableStats
+     */
+    public PartitionStats getNotNullPartitionStats(long tableId, String partitionName) {
+        TableStats tableStats = getNotNullTableStats(tableId);
+        Map<String, PartitionStats> nameToPartitionStats = tableStats.getNameToPartitionStats();
+        PartitionStats partitionStats = nameToPartitionStats.get(partitionName);
+        if (partitionStats == null) {
+            partitionStats = new PartitionStats();
+            nameToPartitionStats.put(partitionName, partitionStats);
+        }
+        return partitionStats;
     }
 
     /**
