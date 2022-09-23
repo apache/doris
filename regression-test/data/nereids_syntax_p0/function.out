@@ -16,6 +16,11 @@
 1
 1
 
+-- !distinct_count_group_by_distributed_key --
+1312	1
+1309	1
+1303	1
+
 -- !avg --
 5.0	2356811.0
 
