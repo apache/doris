@@ -44,7 +44,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private final ExpressionRuleExecutor rewriter;
 
     public ExpressionRewrite(ExpressionRewriteRule... rules) {
-        this.rewriter = new ExpressionRuleExecutor(ImmutableList.copyOf(rules), null);
+        this.rewriter = new ExpressionRuleExecutor(ImmutableList.copyOf(rules));
     }
 
     public ExpressionRewrite(ExpressionRuleExecutor rewriter) {

@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.LoadException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
@@ -74,10 +74,10 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
         Expression expression = FoldConstantRuleOnFE.INSTANCE.rewrite(expr, ctx);
-        return foldByBe(expression, ctx);
+        return foldByBE(expression, ctx);
     }
 
-    private Expression foldByBe(Expression root, ExpressionRewriteContext context) {
+    private Expression foldByBE(Expression root, ExpressionRewriteContext context) {
         Map<String, Expression> constMap = Maps.newHashMap();
         Map<String, TExpr> staleConstTExprMap = Maps.newHashMap();
         collectConst(root, constMap, staleConstTExprMap);
@@ -86,7 +86,7 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         }
         Map<String, Map<String, TExpr>> paramMap = new HashMap<>();
         paramMap.put("0", staleConstTExprMap);
-        Map<String, Expression> resultMap = evalOnBe(paramMap, constMap, context.connectContext);
+        Map<String, Expression> resultMap = evalOnBE(paramMap, constMap, context.connectContext);
         if (!resultMap.isEmpty()) {
             return replace(root, constMap, resultMap);
         }
@@ -113,14 +113,18 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
 
     private void collectConst(Expression expr, Map<String, Expression> constMap, Map<String, TExpr> tExprMap) {
         if (expr.isConstant()) {
+            // Do not constant fold cast(null as dataType) because we cannot preserve the
+            // cast-to-types and that can lead to query failures, e.g., CTAS
             if (expr instanceof Cast) {
                 if (((Cast) expr).child().isNullLiteral()) {
                     return;
                 }
             }
+            // skip literal expr
             if (expr.isLiteral()) {
                 return;
             }
+            // skip BetweenPredicate need to be rewrite to CompoundPredicate
             if (expr instanceof Between) {
                 return;
             }
@@ -136,14 +140,14 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
         }
     }
 
-    private Map<String, Expression> evalOnBe(Map<String, Map<String, TExpr>> paramMap,
+    private Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,
             Map<String, Expression> constMap, ConnectContext context) {
 
         Map<String, Expression> resultMap = new HashMap<>();
         try {
             List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
             if (backendIds.isEmpty()) {
-                throw new LoadException("No alive backends");
+                throw new UserException("No alive backends");
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));

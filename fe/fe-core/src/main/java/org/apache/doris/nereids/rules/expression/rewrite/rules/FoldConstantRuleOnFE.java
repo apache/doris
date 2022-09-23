@@ -168,7 +168,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if (children.size() == 1) {
             return children.get(0);
         }
-        if (ExpressionUtils.allNullLiteral(children)) {
+        if (ExpressionUtils.isAllNullLiteral(children)) {
             return Literal.of(null);
         }
         return and.withChildren(children);
@@ -192,7 +192,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if (children.size() == 1) {
             return children.get(0);
         }
-        if (ExpressionUtils.allNullLiteral(children)) {
+        if (ExpressionUtils.isAllNullLiteral(children)) {
             return Literal.of(null);
         }
         return or.withChildren(children);

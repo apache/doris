@@ -272,7 +272,7 @@ public class ExpressionUtils {
         return children.stream().anyMatch(c -> c instanceof NullLiteral);
     }
 
-    public static boolean allNullLiteral(List<Expression> children) {
+    public static boolean isAllNullLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof NullLiteral);
     }
 }

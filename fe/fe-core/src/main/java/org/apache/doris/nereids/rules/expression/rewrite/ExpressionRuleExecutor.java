@@ -37,6 +37,11 @@ public class ExpressionRuleExecutor {
         this.ctx = new ExpressionRewriteContext(context);
     }
 
+    public ExpressionRuleExecutor(List<ExpressionRewriteRule> rules) {
+        this.rules = rules;
+        this.ctx = new ExpressionRewriteContext(null);
+    }
+
     public List<Expression> rewrite(List<Expression> exprs) {
         return exprs.stream().map(this::rewrite).collect(Collectors.toList());
     }

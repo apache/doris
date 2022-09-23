@@ -15,25 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression.rewrite;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
-
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
 /**
- * optimize expression of plan rule set.
+ * exec function list
  */
-public class ExpressionOptimization extends ExpressionRewrite {
-    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
-            ExtractCommonFactorRule.INSTANCE,
-            DistinctPredicatesRule.INSTANCE);
-    private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
-
-    public ExpressionOptimization() {
-        super(EXECUTOR);
-    }
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface ExecFunctionList {
+    /**
+     * exec functions.
+     */
+    ExecFunction[] value();
 }

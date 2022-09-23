@@ -57,7 +57,7 @@ import java.util.List;
 public class TypeCoercionTest {
 
     private final NereidsParser parser = new NereidsParser();
-    private final ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE), null);
+    private final ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE));
 
     @Test
     public void testSubStringImplicitCast() {

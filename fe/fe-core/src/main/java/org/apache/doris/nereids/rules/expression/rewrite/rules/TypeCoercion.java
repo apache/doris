@@ -48,9 +48,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     // TODO:
     //  1. DecimalPrecision Process
-    //  2. Divide process
-    //  3. String promote with numeric in binary arithmetic
-    //  4. Date and DateTime process
+    //  2. String promote with numeric in binary arithmetic
+    //  3. Date and DateTime process
 
     public static final TypeCoercion INSTANCE = new TypeCoercion();
 
@@ -91,7 +90,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         Expression right = rewrite(divide.right(), context);
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
-        DataType commonType = TypeCoercionUtils.findCommonType(t1, t2);
+        DataType commonType = TypeCoercionUtils.findCommonNumericsType(t1, t2);
         if (divide.getLegacyOperator() == Operator.DIVIDE) {
             if (commonType.isBigIntType() || commonType.isLargeIntType()) {
                 commonType = DoubleType.INSTANCE;

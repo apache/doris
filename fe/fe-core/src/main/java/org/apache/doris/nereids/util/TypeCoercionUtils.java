@@ -228,7 +228,7 @@ public class TypeCoercionUtils {
     /**
      * The common type used by arithmetic operations.
      */
-    public static DataType findCommonType(DataType t1, DataType t2) {
+    public static DataType findCommonNumericsType(DataType t1, DataType t2) {
         if (t1.isDoubleType() || t2.isDoubleType()) {
             return DoubleType.INSTANCE;
         } else if (t1.isDecimalType() || t2.isDecimalType()) {

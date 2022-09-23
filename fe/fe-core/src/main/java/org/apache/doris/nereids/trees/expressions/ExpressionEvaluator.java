@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.rewrite.FEFunction;
-import org.apache.doris.rewrite.FEFunctionList;
 
 import com.google.common.collect.ImmutableMultimap;
 
@@ -96,22 +94,22 @@ public enum ExpressionEvaluator {
         if (functionInvokers == null) {
             return null;
         }
-        for (FunctionInvoker invoker : functionInvokers) {
-            DataType[] argTypes1 = invoker.getSignature().getArgTypes();
-            DataType[] argTypes2 = signature.getArgTypes();
+        for (FunctionInvoker candidate : functionInvokers) {
+            DataType[] candidateTypes = candidate.getSignature().getArgTypes();
+            DataType[] expectedTypes = signature.getArgTypes();
 
-            if (argTypes1.length != argTypes2.length) {
+            if (candidateTypes.length != expectedTypes.length) {
                 continue;
             }
             boolean match = true;
-            for (int i = 0; i < argTypes1.length; i++) {
-                if (!argTypes1[i].equals(argTypes2[i])) {
+            for (int i = 0; i < candidateTypes.length; i++) {
+                if (!candidateTypes[i].equals(expectedTypes[i])) {
                     match = false;
                     break;
                 }
             }
             if (match) {
-                return invoker;
+                return candidate;
             }
         }
         return null;
@@ -125,19 +123,19 @@ public enum ExpressionEvaluator {
                 new ImmutableMultimap.Builder<String, FunctionInvoker>();
         Class clazz = ExecutableFunctions.class;
         for (Method method : clazz.getDeclaredMethods()) {
-            FEFunctionList annotationList = method.getAnnotation(FEFunctionList.class);
+            ExecFunctionList annotationList = method.getAnnotation(ExecFunctionList.class);
             if (annotationList != null) {
-                for (FEFunction f : annotationList.value()) {
+                for (ExecFunction f : annotationList.value()) {
                     registerFEFunction(mapBuilder, method, f);
                 }
             }
-            registerFEFunction(mapBuilder, method, method.getAnnotation(FEFunction.class));
+            registerFEFunction(mapBuilder, method, method.getAnnotation(ExecFunction.class));
         }
         this.functions = mapBuilder.build();
     }
 
     private void registerFEFunction(ImmutableMultimap.Builder<String, FunctionInvoker> mapBuilder,
-            Method method, FEFunction annotation) {
+            Method method, ExecFunction annotation) {
         if (annotation != null) {
             String name = annotation.name();
             DataType returnType = DataType.convertFromString(annotation.returnType());

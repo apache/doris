@@ -386,7 +386,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitPredicated(PredicatedContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression e = getExpression(ctx.valueExpression());
-            // TODO: add predicate(is not null ...)
             return ctx.predicate() == null ? e : withPredicate(e, ctx.predicate());
         });
     }
