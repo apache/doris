@@ -75,9 +75,9 @@ public class SQLStatisticsTaskTest {
         List<PrimitiveType> types = Arrays.asList(PrimitiveType.STRING,
                 PrimitiveType.INT, PrimitiveType.FLOAT,
                 PrimitiveType.DOUBLE, PrimitiveType.BIGINT);
-        InternalQueryResult queryResult = new InternalQueryResult(columns, types);
+        InternalQueryResult queryResult = new InternalQueryResult();
         InternalQueryResult.ResultRow resultRow =
-                new InternalQueryResult.ResultRow(Collections.singletonList("1000"));
+                new InternalQueryResult.ResultRow(columns, types, Collections.singletonList("1000"));
         queryResult.getResultRows().add(resultRow);
 
         new MockUp<InternalQuery>(InternalQuery.class) {
