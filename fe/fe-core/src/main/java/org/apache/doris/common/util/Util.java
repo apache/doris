@@ -355,15 +355,15 @@ public class Util {
         return result;
     }
 
-    public static float getFloatPropertyOrDefault(String valStr, float defaultVal, Predicate<Float> pred,
+    public static double getDoublePropertyOrDefault(String valStr, double defaultVal, Predicate<Double> pred,
                                                 String hintMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
 
-        float result = defaultVal;
+        double result = defaultVal;
         try {
-            result = Float.valueOf(valStr);
+            result = Double.parseDouble(valStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }

@@ -15,24 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.common;
 
-import com.google.common.base.Preconditions;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-/**
- * Derive ExchangeNode statistics.
- */
-public class ExchangeStatsDerive extends BaseStatsDerive {
-    @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
+class CheckedMathTest {
 
-    @Override
-    protected long deriveRowCount() {
-        Preconditions.checkState(!childrenStatsResult.isEmpty());
-        rowCount = (long) childrenStatsResult.get(0).getRowCount();
-        capRowCountAtLimit();
-        return rowCount;
+    @Test
+    void checkedMultiply() {
+        double a = 12.91;
+        double b = 21.44;
+        double res = CheckedMath.checkedMultiply(a, b);
+        Assertions.assertEquals(a * b, res, 0.01);
+        a = Double.MAX_VALUE;
+        b = 5;
+        res = CheckedMath.checkedMultiply(a, b);
+        Assertions.assertEquals(Double.MAX_VALUE, res, 0.01);
     }
 }

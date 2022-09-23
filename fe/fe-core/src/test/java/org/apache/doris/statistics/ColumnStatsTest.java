@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -30,14 +28,13 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 public class ColumnStatsTest {
-    private ColumnStats columnStatsUnderTest;
+    private ColumnStat columnStatsUnderTest;
 
     @Before
     public void setUp() throws Exception {
-        columnStatsUnderTest = new ColumnStats();
+        columnStatsUnderTest = new ColumnStat();
     }
 
     @Test
@@ -53,14 +50,14 @@ public class ColumnStatsTest {
         columnStatsUnderTest.updateStats(columnType, statsTypeToValue);
 
         // Verify the results
-        long maxSize = columnStatsUnderTest.getMaxSize();
-        Assert.assertEquals(8, maxSize);
+        double maxSize = columnStatsUnderTest.getMaxSizeByte();
+        Assert.assertEquals(8, maxSize, 0.1);
 
-        long minValue = columnStatsUnderTest.getMinValue().getLongValue();
-        Assert.assertEquals(0, minValue);
+        double minValue = columnStatsUnderTest.getMinValue();
+        Assert.assertEquals(0, minValue, 0.1);
 
-        long maxValue = columnStatsUnderTest.getMaxValue().getLongValue();
-        Assert.assertEquals(100, maxValue);
+        double maxValue = columnStatsUnderTest.getMaxValue();
+        Assert.assertEquals(100, maxValue, 0.1);
     }
 
     @Test
@@ -88,7 +85,7 @@ public class ColumnStatsTest {
         statsTypeToValue.put(StatsType.MAX_VALUE, "1000");
 
         columnStatsUnderTest.updateStats(columnType, statsTypeToValue);
-        String[] expectedInfo = {"1", "8.0", "8", "2", "0", "1000"};
+        String[] expectedInfo = {"1.0", "8.0", "8.0", "2.0", "0.0", "1000.0"};
 
         // Run the test
         List<String> showInfo = columnStatsUnderTest.getShowInfo();
@@ -101,59 +98,57 @@ public class ColumnStatsTest {
     @Test
     public void testGetDefaultColumnStats() {
         // Run the test
-        ColumnStats defaultColumnStats = ColumnStats.getDefaultColumnStats();
+        ColumnStat defaultColumnStats = ColumnStat.getDefaultColumnStats();
 
         // Verify the results
-        long ndv = defaultColumnStats.getNdv();
-        Assert.assertEquals(-1L, ndv);
+        double ndv = defaultColumnStats.getNdv();
+        Assert.assertEquals(-1L, ndv, 0.1);
 
-        float avgSize = defaultColumnStats.getAvgSize();
+        double avgSize = defaultColumnStats.getAvgSizeByte();
         Assert.assertEquals(-1.0f, avgSize, 0.0001);
 
-        long maxSize = defaultColumnStats.getMaxSize();
-        Assert.assertEquals(-1L, maxSize);
+        double maxSize = defaultColumnStats.getMaxSizeByte();
+        Assert.assertEquals(-1L, maxSize, 0.1);
 
-        LiteralExpr maxValue = defaultColumnStats.getMaxValue();
-        Assert.assertEquals(new NullLiteral(), maxValue);
+        double maxValue = defaultColumnStats.getMaxValue();
+        Assert.assertEquals(Double.NaN, maxValue, 0.1);
 
-        LiteralExpr minValue = defaultColumnStats.getMinValue();
-        Assert.assertEquals(new NullLiteral(), minValue);
+        double minValue = defaultColumnStats.getMinValue();
+        Assert.assertEquals(Double.NaN, minValue, 0.1);
     }
 
     @Test
     public void testAggColumnStats() throws Exception {
         // Setup
-        ColumnStats columnStats = ColumnStats.getDefaultColumnStats();
-        Type minValueType = Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.STRING));
-        Type maxValueType = Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.STRING));
-        ColumnStats other = new ColumnStats(1L, 4.0f, 5L, 10L,
-                LiteralExpr.create("sMinValue", minValueType),
-                LiteralExpr.create("sMaxValue", maxValueType));
+        ColumnStat columnStats = ColumnStat.getDefaultColumnStats();
+        ColumnStat other = new ColumnStat(1L, 4.0f, 5L, 10L,
+                Double.NaN,
+                Double.NaN);
 
         // Run the test
-        ColumnStats aggColumnStats = ColumnStats.mergeColumnStats(columnStats, other);
+        ColumnStat aggColumnStats = ColumnStat.mergeColumnStats(columnStats, other);
 
         // Verify the results
-        long ndv = aggColumnStats.getNdv();
+        double ndv = aggColumnStats.getNdv();
         // 0(default) + 1
-        Assert.assertEquals(1L, ndv);
+        Assert.assertEquals(1L, ndv, 0.1);
 
-        float avgSize = aggColumnStats.getAvgSize();
+        double avgSize = aggColumnStats.getAvgSizeByte();
         // (0.0f + 4.0f) / 2
         Assert.assertEquals(4.0f, avgSize, 0.0001);
 
-        long maxSize = aggColumnStats.getMaxSize();
-        Assert.assertEquals(5L, maxSize);
+        double maxSize = aggColumnStats.getMaxSizeByte();
+        Assert.assertEquals(5L, maxSize, 0.1);
 
-        long numNulls = aggColumnStats.getNumNulls();
-        Assert.assertEquals(10L, numNulls);
+        double numNulls = aggColumnStats.getNumNulls();
+        Assert.assertEquals(10L, numNulls, 0.1);
 
-        String minValue = aggColumnStats.getMinValue().getStringValue();
+        double minValue = aggColumnStats.getMinValue();
         // null VS sMinValue
-        Assert.assertEquals("NULL", minValue);
+        Assert.assertEquals(Double.NaN, minValue, 0.1);
 
-        String maxValue = aggColumnStats.getMaxValue().getStringValue();
+        double maxValue = aggColumnStats.getMaxValue();
         // null VS sMaxValue
-        Assert.assertEquals("sMaxValue", maxValue);
+        Assert.assertEquals(Double.NaN, maxValue, 0.1);
     }
 }

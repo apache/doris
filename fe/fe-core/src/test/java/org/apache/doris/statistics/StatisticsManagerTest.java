@@ -92,8 +92,8 @@ public class StatisticsManagerTest {
         TableStats tableStats = statistics.getTableStats(0L);
 
         // Verify the results
-        long rowCount = tableStats.getRowCount();
-        Assert.assertEquals(1000L, rowCount);
+        double rowCount = tableStats.getRowCount();
+        Assert.assertEquals(1000L, rowCount, 0.1);
 
         long dataSize = tableStats.getDataSize();
         Assert.assertEquals(10240L, dataSize);
