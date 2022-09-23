@@ -1552,6 +1552,7 @@ public class RestoreJob extends AbstractJob {
         info.add(String.valueOf(replicaAlloc.getTotalReplicaNum()));
         info.add(replicaAlloc.toCreateStmt());
         info.add(String.valueOf(reserveReplica));
+        info.add(String.valueOf(reserveDynamicPartitionEnable));
         info.add(getRestoreObjs());
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(TimeUtils.longToTimeString(metaPreparedTime));
@@ -1566,7 +1567,6 @@ public class RestoreJob extends AbstractJob {
                 + "]").collect(Collectors.toList())));
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
-        info.add(String.valueOf(reserveDynamicPartitionEnable));
         return info;
     }
 
