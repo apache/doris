@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -66,36 +67,35 @@ import java.util.stream.Collectors;
  *     2. if instance count is 1, shouldn't disassemble the agg plan
  */
 public class AggregateDisassemble extends OneRewriteRuleFactory {
-    // used in secondDisassemble to transform local expressions into global
-    private final Map<Expression, Expression> globalOutputSubstitutionMap = Maps.newHashMap();
-    // used in secondDisassemble to transform local expressions into global
-    private final Map<Expression, Expression> globalGroupBySubstitutionMap = Maps.newHashMap();
-    // used to indicate the existence of a distinct function for the entire phase
-    private boolean hasDistinctAgg = false;
-
     @Override
     public Rule build() {
-        return logicalAggregate().when(agg -> !agg.isDisassembled()).thenApply(ctx -> {
-            LogicalAggregate<GroupPlan> aggregate = ctx.root;
-            LogicalAggregate firstAggregate = firstDisassemble(aggregate);
-            if (!hasDistinctAgg) {
-                return firstAggregate;
+        return logicalAggregate().when(agg -> !agg.isDisassembled()).then(aggregate -> {
+            // used in secondDisassemble to transform local expressions into global
+            final Map<Expression, Expression> globalOutputSMap = Maps.newHashMap();
+            // used in secondDisassemble to transform local expressions into global
+            final Map<Expression, Expression> globalGroupBySMap = Maps.newHashMap();
+            Pair<LogicalAggregate, Boolean> ret = firstDisassemble(aggregate, globalOutputSMap, globalGroupBySMap);
+            if (!ret.second) {
+                return ret.first;
             }
-            return secondDisassemble(firstAggregate);
+            return secondDisassemble(ret.first, globalOutputSMap, globalGroupBySMap);
         }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 
     // only support distinct function with group by
     // TODO: support distinct function without group by. (add second global phase)
-    private LogicalAggregate secondDisassemble(LogicalAggregate<LogicalAggregate> aggregate) {
+    private LogicalAggregate secondDisassemble(
+            LogicalAggregate<LogicalAggregate> aggregate,
+            Map<Expression, Expression> globalOutputSMap,
+            Map<Expression, Expression> globalGroupBySMap) {
         LogicalAggregate<GroupPlan> local = aggregate.child();
         // replace expression in globalOutputExprs and globalGroupByExprs
         List<NamedExpression> globalOutputExprs = local.getOutputExpressions().stream()
-                .map(e -> ExpressionUtils.replace(e, globalOutputSubstitutionMap))
+                .map(e -> ExpressionUtils.replace(e, globalOutputSMap))
                 .map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
         List<Expression> globalGroupByExprs = local.getGroupByExpressions().stream()
-                .map(e -> ExpressionUtils.replace(e, globalGroupBySubstitutionMap))
+                .map(e -> ExpressionUtils.replace(e, globalGroupBySMap))
                 .collect(Collectors.toList());
 
         // generate new plan
@@ -119,7 +119,11 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
         );
     }
 
-    private LogicalAggregate firstDisassemble(LogicalAggregate<GroupPlan> aggregate) {
+    private Pair<LogicalAggregate, Boolean> firstDisassemble(
+            LogicalAggregate<GroupPlan> aggregate,
+            Map<Expression, Expression> globalOutputSMap,
+            Map<Expression, Expression> globalGroupBySMap) {
+        Boolean hasDistinct = Boolean.FALSE;
         List<NamedExpression> originOutputExprs = aggregate.getOutputExpressions();
         List<Expression> originGroupByExprs = aggregate.getGroupByExpressions();
         Map<Expression, Expression> inputSubstitutionMap = Maps.newHashMap();
@@ -149,14 +153,14 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
             }
             if (originGroupByExpr instanceof SlotReference) {
                 inputSubstitutionMap.put(originGroupByExpr, originGroupByExpr);
-                globalOutputSubstitutionMap.put(originGroupByExpr, originGroupByExpr);
-                globalGroupBySubstitutionMap.put(originGroupByExpr, originGroupByExpr);
+                globalOutputSMap.put(originGroupByExpr, originGroupByExpr);
+                globalGroupBySMap.put(originGroupByExpr, originGroupByExpr);
                 localOutputExprs.add((SlotReference) originGroupByExpr);
             } else {
                 NamedExpression localOutputExpr = new Alias(originGroupByExpr, originGroupByExpr.toSql());
                 inputSubstitutionMap.put(originGroupByExpr, localOutputExpr.toSlot());
-                globalOutputSubstitutionMap.put(localOutputExpr, localOutputExpr.toSlot());
-                globalGroupBySubstitutionMap.put(originGroupByExpr, localOutputExpr.toSlot());
+                globalOutputSMap.put(localOutputExpr, localOutputExpr.toSlot());
+                globalGroupBySMap.put(originGroupByExpr, localOutputExpr.toSlot());
                 localOutputExprs.add(localOutputExpr);
             }
         }
@@ -170,22 +174,22 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     continue;
                 }
                 if (aggregateFunction.isDistinct()) {
-                    hasDistinctAgg = true;
+                    hasDistinct = Boolean.TRUE;
                     for (Expression expr : aggregateFunction.children()) {
                         if (expr instanceof SlotReference) {
                             distinctExprsForLocalOutput.add((SlotReference) expr);
                             if (!inputSubstitutionMap.containsKey(expr)) {
                                 inputSubstitutionMap.put(expr, expr);
-                                globalOutputSubstitutionMap.put(expr, expr);
-                                globalGroupBySubstitutionMap.put(expr, expr);
+                                globalOutputSMap.put(expr, expr);
+                                globalGroupBySMap.put(expr, expr);
                             }
                         } else {
                             NamedExpression globalOutputExpr = new Alias(expr, expr.toSql());
                             distinctExprsForLocalOutput.add(globalOutputExpr);
                             if (!inputSubstitutionMap.containsKey(expr)) {
                                 inputSubstitutionMap.put(expr, globalOutputExpr.toSlot());
-                                globalOutputSubstitutionMap.put(globalOutputExpr, globalOutputExpr.toSlot());
-                                globalGroupBySubstitutionMap.put(expr, globalOutputExpr.toSlot());
+                                globalOutputSMap.put(globalOutputExpr, globalOutputExpr.toSlot());
+                                globalGroupBySMap.put(expr, globalOutputExpr.toSlot());
                             }
                         }
                         distinctExprsForLocalGroupBy.add(expr);
@@ -196,7 +200,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 Expression substitutionValue = aggregateFunction.withChildren(
                         Lists.newArrayList(localOutputExpr.toSlot()));
                 inputSubstitutionMap.put(aggregateFunction, substitutionValue);
-                globalOutputSubstitutionMap.put(aggregateFunction, substitutionValue);
+                globalOutputSMap.put(aggregateFunction, substitutionValue);
                 localOutputExprs.add(localOutputExpr);
             }
         }
@@ -222,7 +226,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 AggPhase.LOCAL,
                 aggregate.child()
         );
-        return new LogicalAggregate<>(
+        return Pair.of(new LogicalAggregate<>(
                 globalGroupByExprs,
                 globalOutputExprs,
                 true,
@@ -230,6 +234,6 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 true,
                 AggPhase.GLOBAL,
                 localAggregate
-        );
+        ), hasDistinct);
     }
 }
