@@ -41,6 +41,7 @@ struct RowsetReaderContext {
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
+    TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
     const std::vector<ColumnPredicate*>* predicates = nullptr;
