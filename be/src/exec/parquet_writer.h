@@ -120,6 +120,9 @@ public:
     int64_t written_len();
 
 private:
+    template<typename T>
+    void write_int32_column(int index, T* item);
+
     std::shared_ptr<ParquetOutputStream> _outstream;
     std::shared_ptr<parquet::WriterProperties> _properties;
     std::shared_ptr<parquet::schema::GroupNode> _schema;
