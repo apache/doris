@@ -78,9 +78,9 @@ Status ParquetFileHdfsScanner::_get_next_reader() {
     for (int i = 0; i < _file_slot_descs.size(); i++) {
         column_names.push_back(_file_slot_descs[i]->col_name());
     }
-    _reader.reset(new ParquetReader(
-            file_reader.release(), column_names, _state->query_options().batch_size,
-            range.start_offset, range.size, const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+    _reader.reset(new ParquetReader(_profile, _params, range, column_names,
+                                    _state->query_options().batch_size,
+                                    const_cast<cctz::time_zone*>(&_state->timezone_obj())));
     Status status = _reader->init_reader(_conjunct_ctxs);
     if (!status.ok()) {
         if (status.is_end_of_file()) {
