@@ -20,7 +20,10 @@
 #include <memory>
 
 #include "common/status.h"
-#include "service/brpc.h"
+
+namespace brpc {
+class Server;
+}
 
 namespace doris {
 
