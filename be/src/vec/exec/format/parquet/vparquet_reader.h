@@ -70,13 +70,13 @@ private:
 
 class ParquetReader : public GenericReader {
 public:
-    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+    ParquetReader(RuntimeProfile* profile, FileReader* file_reader, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<std::string>& column_names,
                   size_t batch_size, cctz::time_zone* ctz);
 
     virtual ~ParquetReader();
     // for test
-    void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
+    void set_file_reader(FileReader* file_reader) { _file_reader = file_reader; }
 
     Status init_reader(std::vector<ExprContext*>& conjunct_ctxs);
 
@@ -87,6 +87,7 @@ public:
     int64_t size() const { return _file_reader->size(); }
 
     std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
+    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type, std::unordered_set<std::string>* missing_cols) override;
 
     ParquetStatistics& statistics() { return _statistics; }
 
@@ -120,10 +121,10 @@ private:
 
 private:
     RuntimeProfile* _profile;
+    // file reader is passed from file scanner, and owned by this parquet reader.
+    FileReader* _file_reader = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    std::unique_ptr<FileReader> _file_reader = nullptr;
-    FileReader* _group_file_reader = nullptr;
 
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
@@ -144,6 +145,7 @@ private:
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
     const std::vector<std::string> _column_names;
 
+    std::vector<std::string> _missing_cols;
     ParquetStatistics _statistics;
     bool _closed = false;
 

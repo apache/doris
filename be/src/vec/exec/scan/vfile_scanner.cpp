@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "common/utils.h"
+#include "exec/arrow/orc_reader.h"
 #include "exec/text_converter.hpp"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
@@ -64,11 +65,14 @@ Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
             _pre_conjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
             RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(
                     _state->obj_pool(), _params.pre_filter_exprs, _pre_conjunct_ctx_ptr.get()));
-
             RETURN_IF_ERROR((*_pre_conjunct_ctx_ptr)->prepare(_state, *_src_row_desc));
             RETURN_IF_ERROR((*_pre_conjunct_ctx_ptr)->open(_state));
         }
     }
+
+    _default_val_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
+                std::vector<TupleId>({_real_tuple_desc->id()}),
+                std::vector<bool>({false})));
 
     return Status::OK();
 }
@@ -79,6 +83,25 @@ Status VFileScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
+// For query:
+//                              [exist cols]  [non-exist cols]  [col from path]  input  ouput
+//                              A     B    C  D                 E                
+// _init_src_block              x     x    x  x                 x                -      x
+// get_next_block               x     x    x  -                 -                -      x
+// _cast_to_input_block         -     -    -  -                 -                -      -
+// _fill_columns_from_path      -     -    -  -                 x                -      x
+// _fill_missing_columns        -     -    -  x                 -                -      x
+// _convert_to_output_block     -     -    -  -                 -                -      -
+//
+// For load:
+//                              [exist cols]  [non-exist cols]  [col from path]  input  ouput
+//                              A     B    C  D                 E                
+// _init_src_block              x     x    x  x                 x                x      -   
+// get_next_block               x     x    x  -                 -                x      -
+// _cast_to_input_block         x     x    x  -                 -                x      -
+// _fill_columns_from_path      -     -    -  -                 x                x      -
+// _fill_missing_columns        -     -    -  x                 -                x      -
+// _convert_to_output_block     -     -    -  -                 -                -      x
 Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     do {
         if (_cur_reader == nullptr || _cur_reader_eof) {
@@ -94,13 +117,16 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         // For query job, simply set _src_block_ptr to block.
         RETURN_IF_ERROR(_init_src_block(block));
         // Read next block.
+        // Some of column in block may not be filled (column not exist in file)
         RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &_cur_reader_eof));
 
         if (_src_block_ptr->rows() > 0) {
-            // Convert the src block columns type to string in place.
+            // Convert the src block columns type to string in-place.
             RETURN_IF_ERROR(_cast_to_input_block(block));
             // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
             RETURN_IF_ERROR(_fill_columns_from_path());
+            // Fill columns not exist in file with null or default value
+            RETURN_IF_ERROR(_fill_missing_columns());
             // Apply _pre_conjunct_ctx_ptr to filter src block.
             RETURN_IF_ERROR(_pre_filter_src_block());
             // Convert src block to output block (dest block), string to dest data type and apply filters.
@@ -125,13 +151,29 @@ Status VFileScanner::_init_src_block(Block* block) {
         return Status::OK();
     }
 
-    _src_block.clear();
+    // if (_src_block_init) {
+    //     _src_block.clear_column_data();
+    //     _src_block_ptr = &_src_block;
+    //     return Status::OK();
+    // }
 
-    std::unordered_map<std::string, TypeDescriptor> name_to_type = _cur_reader->get_name_to_type();
+    _src_block.clear();
     size_t idx = 0;
+    // slots in _input_tuple_desc contains all slots describe in load statement, eg:
+    // -H "columns: k1, k2, tmp1, k3 = tmp1 + 1"
+    // _input_tuple_desc will contains: k1, k2, tmp1
+    // and some of them are from file, such as k1 and k2, and some of them may not exist in file, such as tmp1
+    // _input_tuple_desc also contains columns from path
     for (auto& slot : _input_tuple_desc->slots()) {
-        DataTypePtr data_type =
-                DataTypeFactory::instance().create_data_type(name_to_type[slot->col_name()], true);
+        DataTypePtr data_type;
+        auto it = _name_to_col_type.find(slot->col_name());
+        LOG(INFO) << "cmy _init_src_block _input_tuple_desc slot: " << slot->col_name() << ", slot id: " << slot->id() << ", exist in file: " << (it != _name_to_col_type.end()) << ", type is tuple: " << slot->type() << ", type in file: " << (it == _name_to_col_type.end() ? slot->type() : it->second);
+        if (it == _name_to_col_type.end()) {
+            // not exist in file, using type from _input_tuple_desc
+            data_type = DataTypeFactory::instance().create_data_type(slot->type(), true);
+        } else {
+            data_type = DataTypeFactory::instance().create_data_type(it->second, true);
+        }
         if (data_type == nullptr) {
             return Status::NotSupported(fmt::format("Not support arrow type:{}", slot->col_name()));
         }
@@ -141,18 +183,19 @@ Status VFileScanner::_init_src_block(Block* block) {
         _src_block_name_to_idx.emplace(slot->col_name(), idx++);
     }
     _src_block_ptr = &_src_block;
+    _src_block_init = true;
     return Status::OK();
 }
 
 Status VFileScanner::_cast_to_input_block(Block* block) {
-    if (_src_block_ptr == block) {
+    if (!_is_load) {
         return Status::OK();
     }
     // cast primitive type(PT0) to primitive type(PT1)
     size_t idx = 0;
-    for (size_t i = 0; i < _file_slot_descs.size(); ++i) {
-        SlotDescriptor* slot_desc = _file_slot_descs[i];
-        if (slot_desc == nullptr) {
+    for (auto& slot_desc : _input_tuple_desc->slots()) {
+        if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
+            // skip columns which does not exist in file
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
@@ -200,11 +243,58 @@ Status VFileScanner::_fill_columns_from_path() {
     return Status::OK();
 }
 
+Status VFileScanner::_fill_missing_columns() {
+    int rows = _src_block_ptr->rows();
+    LOG(INFO) << "cmy _fill_missing_columns src block rows: " << _src_block_ptr->rows() << ", slot num: " << _real_tuple_desc->slots().size();
+    for (auto slot_desc : _real_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        LOG(INFO) << "cmy _fill_missing_columns slot: " << slot_desc->col_name() << ", is missing col: " << (_missing_cols.find(slot_desc->col_name()) != _missing_cols.end()) << ", find in ctx: " << (_col_default_value_ctx.find(slot_desc->col_name()) != _col_default_value_ctx.end()) << ", ctx size: " << _col_default_value_ctx.size();
+        if (_missing_cols.find(slot_desc->col_name()) == _missing_cols.end()) {
+            continue;
+        }
+
+        auto it = _col_default_value_ctx.find(slot_desc->col_name());
+        if (it == _col_default_value_ctx.end()) {
+            return Status::InternalError("failed to find default value expr for slot: {}", slot_desc->col_name());
+        }
+        if (it->second == nullptr) {
+            // no default column, fill with null
+            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                    (*std::move(_src_block_ptr->get_by_name(slot_desc->col_name()).column)).mutate().get());
+            nullable_column->insert_many_defaults(rows);
+        } else {
+            // fill with default value
+            auto* ctx = it->second;
+            auto origin_column_num = _src_block_ptr->columns();
+            int result_column_id = -1;
+            // PT1 => dest primitive type
+            RETURN_IF_ERROR(ctx->execute(_src_block_ptr, &result_column_id));
+            LOG(INFO) << "cmy fill with default value: " << slot_desc->col_name() << ", origin_column_num: " << origin_column_num << ", result_column_id: " << result_column_id;
+            bool is_origin_column = result_column_id < origin_column_num;
+            if (!is_origin_column) {
+                // swap 2 columns and remove the newly-created one
+                auto origin_column_ptr = _src_block_ptr->get_by_name(slot_desc->col_name()).column;
+                auto result_column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
+                std::swap(origin_column_ptr, result_column_ptr); 
+                _src_block_ptr->erase(result_column_id);
+            }
+        }
+    }
+    return Status::OK();
+}
+
+
 Status VFileScanner::_convert_to_output_block(Block* block) {
-    if (_src_block_ptr == block) {
+    if (!_is_load) {
         return Status::OK();
     }
 
+    // The block is passed from scanner context's free blocks,
+    // which is initialized by src columns.
+    // But for load job, the block should be filled with dest columns.
+    // So need to clear it first.
     block->clear();
 
     int ctx_idx = 0;
@@ -217,9 +307,14 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-
         int dest_index = ctx_idx++;
 
+        // if (_missing_cols.find(slot_desc->col_name()) != _missing_cols.end()) {
+        //     // the missing columns will be filled later
+        //     continue;
+        // }
+
+        LOG(INFO) << "cmy _convert_to_output_block: slot: " << slot_desc->col_name();
         auto* ctx = _dest_vexpr_ctx[dest_index];
         int result_column_id = -1;
         // PT1 => dest primitive type
@@ -320,40 +415,56 @@ Status VFileScanner::_pre_filter_src_block() {
 }
 
 Status VFileScanner::_get_next_reader() {
-    if (_cur_reader != nullptr) {
-        delete _cur_reader;
-        _cur_reader = nullptr;
-    }
     while (true) {
+        _cur_reader.reset(nullptr);
+        _src_block_init = false;
         if (_next_range >= _ranges.size()) {
             _scanner_eof = true;
             return Status::OK();
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
-        std::vector<std::string> column_names;
+
+        // 1. create file reader
+        std::unique_ptr<FileReader> file_reader;
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
+                                                        range, file_reader));
+        RETURN_IF_ERROR(file_reader->open());
+        if (file_reader->size() == 0) {
+            file_reader->close();
+            continue;
+        }
+
+        // 2. create reader for specific format
+        // TODO: add csv, json, avro
+        Status init_status;
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            for (int i = 0; i < _file_slot_descs.size(); i++) {
-                column_names.push_back(_file_slot_descs[i]->col_name());
-            }
-            _cur_reader = new ParquetReader(_profile, _params, range, column_names,
+            _cur_reader.reset(new ParquetReader(_profile, file_reader.release(), _params, range, _file_col_names,
                                             _state->query_options().batch_size,
-                                            const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-            Status status = ((ParquetReader*)_cur_reader)->init_reader(_conjunct_ctxs);
-            if (status.ok()) {
-                _cur_reader_eof = false;
-                return status;
-            } else if (status.is_end_of_file()) {
-                continue;
-            } else {
-                return status;
-            }
+                                            const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+            init_status = ((ParquetReader*)(_cur_reader.get()))->init_reader(_conjunct_ctxs);
+            break;
+        }
+        case TFileFormatType::FORMAT_ORC: {
+            _cur_reader.reset(new ORCReaderWrap(_state, _file_slot_descs, file_reader.release(), _num_of_columns_from_file,
+                             range.start_offset, range.size, false));
+            init_status = ((ORCReaderWrap*)(_cur_reader.get()))->init_reader(_real_tuple_desc, _conjunct_ctxs, _state->timezone());
+            break;
         }
         default:
-            std::stringstream error_msg;
-            error_msg << "Not supported file format " << _params.format_type;
-            return Status::InternalError(error_msg.str());
+            return Status::InternalError("Not supported file format: {}", _params.format_type);
+
         }
+
+        if (init_status.is_end_of_file()) {
+            continue;
+        } else if (!init_status.ok()) {
+            return Status::InternalError("failed to init reader for file {}, err: {}", range.path, init_status.get_error_msg());
+        }
+
+        _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
+        _cur_reader_eof = false;
+        break;
     }
     return Status::OK();
 }
@@ -373,6 +484,7 @@ Status VFileScanner::_init_expr_ctxes() {
     for (const auto& slot_info : _params.required_slots) {
         auto slot_id = slot_info.slot_id;
         auto it = full_src_slot_map.find(slot_id);
+        LOG(INFO) << "cmy VFileScanner::_init_expr_ctxes _params.required_slots: " << it->second->col_name() << ", slot id: " << slot_id << ", is file slot: " << slot_info.is_file_slot;
         if (it == std::end(full_src_slot_map)) {
             std::stringstream ss;
             ss << "Unknown source slot descriptor, slot_id=" << slot_id;
@@ -382,6 +494,8 @@ Status VFileScanner::_init_expr_ctxes() {
             _file_slot_descs.emplace_back(it->second);
             auto iti = full_src_index_map.find(slot_id);
             _file_slot_index_map.emplace(slot_id, iti->second);
+            _file_slot_name_map.emplace(it->second->col_name(), iti->second);
+            _file_col_names.push_back(it->second->col_name());
         } else {
             _partition_slot_descs.emplace_back(it->second);
             auto iti = full_src_index_map.find(slot_id);
@@ -389,41 +503,90 @@ Status VFileScanner::_init_expr_ctxes() {
         }
     }
 
-    if (_is_load) {
-        bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
-        for (auto slot_desc : _output_tuple_desc->slots()) {
-            if (!slot_desc->is_materialized()) {
-                continue;
-            }
-            auto it = _params.expr_of_dest_slot.find(slot_desc->id());
-            if (it == std::end(_params.expr_of_dest_slot)) {
-                return Status::InternalError("No expr for dest slot, id={}, name={}",
-                                             slot_desc->id(), slot_desc->col_name());
-            }
+    bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
+    int idx = 0;
+    for (auto slot_desc : _output_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        LOG(INFO) << "cmy VFileScanner::_init_expr_ctxes _output_tuple_desc slot: " << slot_desc->col_name() << ", slot id: " << slot_desc->id();
+        auto it = _params.expr_of_dest_slot.find(slot_desc->id());
+        if (it == std::end(_params.expr_of_dest_slot)) {
+            return Status::InternalError("No expr for dest slot, id={}, name={}",
+                                         slot_desc->id(), slot_desc->col_name());
+        }
 
-            vectorized::VExprContext* ctx = nullptr;
+        vectorized::VExprContext* ctx = nullptr;
+        if (!it->second.nodes.empty()) {
             RETURN_IF_ERROR(
                     vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
             RETURN_IF_ERROR(ctx->prepare(_state, *_src_row_desc));
             RETURN_IF_ERROR(ctx->open(_state));
-            _dest_vexpr_ctx.emplace_back(ctx);
-            if (has_slot_id_map) {
-                auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-                if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
-                    _src_slot_descs_order_by_dest.emplace_back(nullptr);
-                } else {
-                    auto _src_slot_it = full_src_slot_map.find(it1->second);
-                    if (_src_slot_it == std::end(full_src_slot_map)) {
-                        return Status::InternalError("No src slot {} in src slot descs",
-                                                     it1->second);
-                    }
-                    _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
-                                                         full_src_index_map[_src_slot_it->first]);
-                    _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
+        }
+        _dest_vexpr_ctx.emplace_back(ctx);
+        _dest_slot_name_to_idx[slot_desc->col_name()] = idx++;
+
+        if (has_slot_id_map) {
+            auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
+                _src_slot_descs_order_by_dest.emplace_back(nullptr);
+            } else {
+                auto _src_slot_it = full_src_slot_map.find(it1->second);
+                if (_src_slot_it == std::end(full_src_slot_map)) {
+                    return Status::InternalError("No src slot {} in src slot descs",
+                                                 it1->second);
                 }
+                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
+                                                     full_src_index_map[_src_slot_it->first]);
+                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
     }
+
+    for (auto slot_desc : _real_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        auto it = _params.default_value_of_src_slot.find(slot_desc->id());
+        if (it == std::end(_params.default_value_of_src_slot)) {
+            return Status::InternalError("No defautl value expr for slot, id={}, name={}",
+                                         slot_desc->id(), slot_desc->col_name());
+        }
+
+        vectorized::VExprContext* ctx = nullptr;
+        if (!it->second.nodes.empty()) {
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
+            RETURN_IF_ERROR(ctx->open(_state));
+        }
+        _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
+    }
+    return Status::OK();
+}
+
+Status VFileScanner::close(RuntimeState* state) {
+    if (_is_closed) {
+        return Status::OK();
+    }
+
+    for (auto ctx :  _dest_vexpr_ctx) {
+        if (ctx != nullptr) {
+            ctx->close(state);
+        }
+    }
+
+    for (auto it : _col_default_value_ctx) {
+        if (it.second != nullptr) {
+            it.second->close(state);
+        }
+    }
+
+    if (_pre_conjunct_ctx_ptr) {
+        (*_pre_conjunct_ctx_ptr)->close(state);
+    }
+
+    RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
 

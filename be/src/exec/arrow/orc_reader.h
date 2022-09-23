@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "exec/arrow/arrow_reader.h"
+
 namespace doris {
 
 // Reader of ORC file
@@ -41,6 +42,8 @@ public:
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
 
+    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type, std::unordered_set<std::string>* missing_cols) override;
+
 private:
     Status _next_stripe_reader(bool* eof);
     Status _seek_start_stripe();
@@ -50,6 +53,7 @@ private:
 private:
     // orc file reader object
     std::unique_ptr<arrow::adapters::orc::ORCFileReader> _reader;
+    std::shared_ptr<arrow::Schema> _schema;
     bool _cur_file_eof; // is read over?
     int64_t _range_start_offset;
     int64_t _range_size;
