@@ -2706,7 +2706,12 @@ public class Env {
         // 1.1 view
         if (table.getType() == TableType.VIEW) {
             View view = (View) table;
-            sb.append("CREATE VIEW `").append(table.getName()).append("` AS ").append(view.getInlineViewDef());
+
+            sb.append("CREATE VIEW `").append(table.getName()).append("`");
+            if (StringUtils.isNotBlank(table.getComment())) {
+                sb.append(" COMMENT '").append(table.getComment()).append("'");
+            }
+            sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
         }
