@@ -28,7 +28,7 @@ under the License.
 
 Broker load is an asynchronous import method, and the supported data sources depend on the data sources supported by the [Broker](../../../advanced/broker.md) process.
 
-Because the data in the Doris table is ordered, Broker load uses the doris cluster resources to sort the data when importing data. To complete the migration of massive historical data for Spark load, the Doris cluster resource usage is relatively large. , this method is used when the user does not have Spark computing resources. If there are Spark computing resources, it is recommended to use [Spark load](./SPARK-LOAD.md).
+Because the data in the Doris table is ordered, Broker load uses the doris cluster resources to sort the data when importing data. To complete the migration of massive historical data for Spark load, the Doris cluster resource usage is relatively large. , this method is used when the user does not have Spark computing resources. If there are Spark computing resources, it is recommended to use [Spark load](../../../data-operate/import/import-way/spark-load-manual.md).
 
 Users need to create [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) import through MySQL protocol and import by viewing command to check the import result.
 
