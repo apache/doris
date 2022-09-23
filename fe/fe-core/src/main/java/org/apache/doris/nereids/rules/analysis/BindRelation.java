@@ -93,11 +93,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // if there exists the same name between a cte-alias and a table, we use cte first
             // todo: just deliver the parent cascadesCtx; maybe it's better or necessary to use scope after
             //  supporting columnNames;
-            CascadesContext withQueryContext = new Memo(ctePlan.get())
-                    .newCascadesContext(cascadesContext.getStatementContext());
-            withQueryContext.newAnalyzer(cteContext).analyze();
-            return new LogicalSubQueryAlias<>(nameParts, withQueryContext.getMemo().copyOut(false));
-            // return new LogicalSubQueryAlias<>(nameParts, ctePlan.get());
+            // CascadesContext withQueryContext = new Memo(ctePlan.get())
+            //        .newCascadesContext(cascadesContext.getStatementContext());
+            // withQueryContext.newAnalyzer(cteContext).analyze();
+            // return new LogicalSubQueryAlias<>(nameParts, withQueryContext.getMemo().copyOut(false));
+            return new LogicalSubQueryAlias<>(nameParts, ctePlan.get());
         }
 
         String dbName = cascadesContext.getConnectContext().getDatabase();

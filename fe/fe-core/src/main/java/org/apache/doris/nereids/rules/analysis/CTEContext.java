@@ -61,8 +61,8 @@ public class CTEContext {
         CascadesContext cascadesContext = new Memo(withClause.getQuery())
                 .newCascadesContext(parentContext.getStatementContext());
         cascadesContext.newAnalyzer(this).analyze();
-        // withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
-        withQueries.put(name, withClause.getQuery());
+        withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
+        // withQueries.put(name, withClause.getQuery());
     }
 
     /**
@@ -79,7 +79,7 @@ public class CTEContext {
         CascadesContext cascadesContext = new Memo(withClause.getQuery())
                 .newCascadesContext(statementContext);
         cascadesContext.newAnalyzer(this).analyze();
-        // withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
-        withQueries.put(name, withClause.getQuery());
+        withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
+        // withQueries.put(name, withClause.getQuery());
     }
 }
