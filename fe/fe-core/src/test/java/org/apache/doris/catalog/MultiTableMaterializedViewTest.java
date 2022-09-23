@@ -15,19 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MaterializedView;
-import org.apache.doris.catalog.OlapTableFactory;
-import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
+import org.apache.doris.analysis.DropMaterializedViewStmt;
+import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.MVRefreshInfo;
+import org.apache.doris.analysis.MVRefreshIntervalTriggerInfo;
+import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DataInputBuffer;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -39,7 +44,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 
-public class CreateMultiTableMaterializedViewStmtTest extends TestWithFeService {
+public class MultiTableMaterializedViewTest extends TestWithFeService {
 
     @BeforeEach
     protected void setUp() throws Exception {
@@ -53,15 +58,18 @@ public class CreateMultiTableMaterializedViewStmtTest extends TestWithFeService 
     }
 
     @Test
-    public void testSimple() throws Exception {
+    public void testCreate() throws Exception {
         createTable("create table test.t1 (pk int, v1 int sum) aggregate key (pk) "
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
         createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
-        StmtExecutor executor = new StmtExecutor(connectContext, "create materialized view mv "
-                + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk");
-        ExceptionChecker.expectThrowsNoException(executor::execute);
+
+        ExceptionChecker.expectThrowsNoException(() ->
+                connectContext.getEnv().createMultiTableMaterializedView(
+                    (CreateMultiTableMaterializedViewStmt) parseAndAnalyzeStmt("create materialized view mv "
+                        + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
+                        + "properties ('replication_num' = '1') "
+                        + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk")));
     }
 
     @Test
@@ -139,7 +147,49 @@ public class CreateMultiTableMaterializedViewStmtTest extends TestWithFeService 
                 Util.generateSchemaHash(),
                 Env.calcShortKeyColumnCount(stmt.getColumns(), stmt.getProperties()),
                 TStorageType.COLUMN,
-                stmt.keysDesc.getKeysType());
+                stmt.getKeysDesc().getKeysType());
         return mv;
+    }
+
+    @Test
+    void testShowCreateTables() throws Exception {
+        createTable("create table test.t1 (pk int, v1 int sum) aggregate key (pk) "
+                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
+        createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
+                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
+        StmtExecutor executor = new StmtExecutor(connectContext, "create materialized view mv "
+                + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
+                + "properties ('replication_num' = '1') "
+                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk");
+        ExceptionChecker.expectThrowsNoException(executor::execute);
+
+        ShowExecutor showExecutor = new ShowExecutor(connectContext,
+                (ShowStmt) parseAndAnalyzeStmt("show create table mv"));
+        ShowResultSet resultSet = showExecutor.execute();
+        String result = resultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(result.contains("CREATE MATERIALIZED VIEW `mv`\n"
+                + "BUILD IMMEDIATE REFRESH COMPLETE ON DEMAND\n"
+                + "KEY(`mv_pk`)\n"
+                + "DISTRIBUTED BY HASH(`mv_pk`) BUCKETS 10"));
+    }
+
+    @Test
+    void testDropMaterializedView() throws Exception {
+        createTable("create table test.t1 (pk int, v1 int sum) aggregate key (pk) "
+                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
+        createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
+                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
+        StmtExecutor executor = new StmtExecutor(connectContext, "create materialized view mv "
+                + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
+                + "properties ('replication_num' = '1') "
+                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk");
+        ExceptionChecker.expectThrowsNoException(executor::execute);
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "is not TABLE",
+                () -> Env.getCurrentInternalCatalog()
+                        .dropTable((DropTableStmt) parseAndAnalyzeStmt("drop table mv")));
+
+        ExceptionChecker.expectThrowsNoException(() -> connectContext.getEnv().dropMaterializedView(
+                (DropMaterializedViewStmt) parseAndAnalyzeStmt("drop materialized view mv")));
     }
 }
