@@ -25,9 +25,9 @@ TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _state(std::unique_ptr<MergeSorterState>(new MergeSorterState(row_desc, offset))) {}
 
-Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
+Status TopNSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
-    RETURN_IF_ERROR(_do_sort(block, mem_reuse));
+    RETURN_IF_ERROR(_do_sort(block));
     return Status::OK();
 }
 
@@ -51,9 +51,9 @@ Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     return Status::OK();
 }
 
-Status TopNSorter::_do_sort(Block* block, bool* mem_reuse) {
-    *mem_reuse = false;
-    RETURN_IF_ERROR(partial_sort(*block));
+Status TopNSorter::_do_sort(Block* block) {
+    Block sorted_block = block->clone_without_columns();
+    RETURN_IF_ERROR(partial_sort(*block, sorted_block));
     // dispose TOP-N logic
     if (_limit != -1) {
         // Here is a little opt to reduce the mem uasge, we build a max heap
@@ -61,30 +61,20 @@ Status TopNSorter::_do_sort(Block* block, bool* mem_reuse) {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows < _limit) {
-            Block sorted_block;
-            sorted_block.swap(*block);
             _state->sorted_blocks.emplace_back(std::move(sorted_block));
             _state->num_rows += sorted_block.rows();
             _block_priority_queue.emplace(_pool->add(
                     new MergeSortCursorImpl(_state->sorted_blocks.back(), _sort_description)));
         } else {
-            Block sorted_block;
-            sorted_block.swap(*block);
             MergeSortBlockCursor block_cursor(
                     _pool->add(new MergeSortCursorImpl(sorted_block, _sort_description)));
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
                 _state->sorted_blocks.emplace_back(std::move(sorted_block));
                 _block_priority_queue.push(block_cursor);
-            } else {
-                *mem_reuse = true;
-                block->clear_column_data();
             }
         }
     } else {
-        Block sorted_block;
-        sorted_block.swap(*block);
-        // dispose normal sort logic
-        _state->sorted_blocks.emplace_back(std::move(sorted_block));
+        return Status::InternalError("Should not reach TopN sorter for full sort query");
     }
     return Status::OK();
 }

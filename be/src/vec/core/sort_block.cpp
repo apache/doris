@@ -114,6 +114,61 @@ void sort_block(Block& block, const SortDescription& description, UInt64 limit) 
     }
 }
 
+void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
+                UInt64 limit) {
+    if (!src_block) {
+        return;
+    }
+
+    /// If only one column to sort by
+    if (description.size() == 1) {
+        bool reverse = description[0].direction == -1;
+
+        const IColumn* column =
+                !description[0].column_name.empty()
+                        ? src_block.get_by_name(description[0].column_name).column.get()
+                        : src_block.safe_get_by_position(description[0].column_number).column.get();
+
+        IColumn::Permutation perm;
+        column->get_permutation(reverse, limit, description[0].nulls_direction, perm);
+
+        size_t columns = src_block.columns();
+        for (size_t i = 0; i < columns; ++i) {
+            dest_block.replace_by_position(
+                    i, src_block.get_by_position(i).column->permute(perm, limit));
+        }
+    } else {
+        size_t size = src_block.rows();
+        IColumn::Permutation perm(size);
+        for (size_t i = 0; i < size; ++i) {
+            perm[i] = i;
+        }
+
+        if (limit >= size) {
+            limit = 0;
+        }
+
+        ColumnsWithSortDescriptions columns_with_sort_desc =
+                get_columns_with_sort_description(src_block, description);
+        {
+            EqualFlags flags(size, 1);
+            EqualRange range {0, size};
+
+            for (size_t i = 0; i < columns_with_sort_desc.size(); i++) {
+                ColumnSorter sorter(columns_with_sort_desc[i], limit);
+                sorter.operator()(flags, perm, range, i == columns_with_sort_desc.size() - 1);
+            }
+        }
+
+        size_t columns = src_block.columns();
+        for (size_t i = 0; i < columns; ++i) {
+            dest_block.replace_by_position(
+                    i, src_block.get_by_position(i).column->permute(perm, limit));
+        }
+    }
+    src_block.clear_column_data();
+}
+
 void stable_get_permutation(const Block& block, const SortDescription& description,
                             IColumn::Permutation& out_permutation) {
     if (!block) {

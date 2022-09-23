@@ -84,17 +84,13 @@ Status VSortNode::open(RuntimeState* state) {
     // The child has been opened and the sorter created. Sort the input.
     // The final merge is done on-demand as rows are requested in get_next().
     bool eos = false;
-    bool mem_reuse = false;
-    std::unique_ptr<Block> upstream_block;
+    Block upstream_block;
     do {
-        if (!mem_reuse) {
-            upstream_block.reset(new Block());
-        }
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(state, upstream_block.get(), &eos),
+                child(0)->get_next_after_projects(state, &upstream_block, &eos),
                 child(0)->get_next_span(), eos);
-        if (upstream_block->rows() != 0) {
-            RETURN_IF_ERROR(_sorter->append_block(upstream_block.get(), &mem_reuse));
+        if (upstream_block.rows() != 0) {
+            RETURN_IF_ERROR(_sorter->append_block(&upstream_block));
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
         }
