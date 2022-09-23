@@ -415,7 +415,7 @@ public:
 
         bool empty() { return _dict_data->empty(); }
 
-        size_t avg_str_len() { return _total_str_len / _dict_data->size(); }
+        size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
 
     private:
         StringValue _null_value = StringValue();
