@@ -251,6 +251,8 @@ set(VEC_FILES
   exec/scan/new_file_scanner.cpp
   exec/scan/new_file_text_scanner.cpp
   exec/scan/vfile_scanner.cpp
+  exec/scan/new_odbc_scanner.cpp
+  exec/scan/new_odbc_scan_node.cpp
   )
 
 add_library(Vec STATIC
