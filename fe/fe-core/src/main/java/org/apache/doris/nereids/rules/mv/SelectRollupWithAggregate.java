@@ -192,10 +192,9 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
             LogicalOlapScan scan,
             Set<Slot> requiredScanOutput,
             List<Expression> predicates,
-            // not used now, reserved for checking aggregate function type match.
             List<AggregateFunction> aggregateFunctions,
             List<Expression> groupingExprs) {
-        Preconditions.checkArgument(Sets.newHashSet(scan.getOutput()).containsAll(requiredScanOutput),
+        Preconditions.checkArgument(scan.getOutputSet().containsAll(requiredScanOutput),
                 String.format("Scan's output (%s) should contains all the input required scan output (%s).",
                         scan.getOutput(), requiredScanOutput));
 

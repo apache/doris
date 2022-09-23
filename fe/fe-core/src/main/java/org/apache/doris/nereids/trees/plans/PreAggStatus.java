@@ -27,7 +27,7 @@ public class PreAggStatus {
         ON, OFF
     }
 
-    private static PreAggStatus PRE_AGG_ON = new PreAggStatus(Status.ON, "");
+    private static final PreAggStatus PRE_AGG_ON = new PreAggStatus(Status.ON, "");
     private final Status status;
     private final String offReason;
 
