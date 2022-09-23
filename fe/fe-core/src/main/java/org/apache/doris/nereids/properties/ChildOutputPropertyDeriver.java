@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -82,6 +83,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         .map(SlotReference.class::cast)
                         .map(SlotReference::getExprId)
                         .collect(Collectors.toList());
+                if (columns.isEmpty()) {
+                    return PhysicalProperties.GATHER;
+                }
                 // TODO: change ENFORCED back to bucketed, when coordinator could process bucket on agg correctly.
                 return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.ENFORCED));
             case DISTINCT_GLOBAL:
@@ -189,5 +193,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         } else {
             return PhysicalProperties.ANY;
         }
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
+            PlanContext context) {
+        return PhysicalProperties.GATHER;
     }
 }

@@ -841,14 +841,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             PlanTranslatorContext context) {
-        PlanFragment inputFragment = assertNumRows.child(0).accept(this, context);
+        PlanFragment currentFragment = assertNumRows.child(0).accept(this, context);
         //create assertNode
         AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
-                inputFragment.getPlanRoot(),
+                currentFragment.getPlanRoot(),
                 ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
-        PlanFragment mergeFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
-        mergeFragment.addPlanRoot(assertNumRowsNode);
-        return mergeFragment;
+        if (currentFragment.getPlanRoot() instanceof ExchangeNode) {
+            currentFragment.setPlanRoot(currentFragment.getPlanRoot().getChild(0));
+            currentFragment = createParentFragment(currentFragment, DataPartition.UNPARTITIONED, context);
+        }
+        currentFragment.addPlanRoot(assertNumRowsNode);
+        return currentFragment;
     }
 
     private void extractExecSlot(Expr root, Set<Integer> slotRefList) {
