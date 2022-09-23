@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -36,6 +40,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -92,11 +97,11 @@ public class JoinEstimation {
                         if ((rightSlots.contains(eqRight)
                                 && eqRight.getColumn().isPresent()
                                 && eqRight.getColumn().get().isKey()
-                                && !eqRight.getColumn().get().isCompoundKey())
+                                && !compoundKey(eqRight))
                                 || (rightSlots.contains(eqLeft)
                                 && eqLeft.getColumn().isPresent()
                                 && eqLeft.getColumn().get().isKey()
-                                && !eqLeft.getColumn().get().isCompoundKey())) {
+                                && !compoundKey(eqLeft))) {
                             if (rightStats.isReduced) {
                                 isReducedByHashJoin = true;
                                 rowCount = leftStats.getRowCount() / 2;
@@ -104,7 +109,8 @@ public class JoinEstimation {
                                 rowCount = leftStats.getRowCount();
                             }
                         } else {
-                            rowCount = leftStats.getRowCount() * 4;
+                            rowCount = Math.max(leftStats.getRowCount() + rightStats.getRowCount(),
+                                    leftStats.getRowCount() * 4);
                         }
                     } else {
                         LOG.debug("HashJoin cost calculation: slot.column is null, star-schema support failed.");
@@ -133,6 +139,17 @@ public class JoinEstimation {
         statsDeriveResult.setRowCount(rowCount);
         statsDeriveResult.isReduced = isReducedByHashJoin || leftStats.isReduced;
         return statsDeriveResult;
+    }
+
+    private static boolean compoundKey(SlotReference slotReference) {
+        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(slotReference.getQualifier().get(0));
+        if (db.isPresent()) {
+            Optional<Table> table = db.get().getTable(slotReference.getQualifier().get(1));
+            if (table.isPresent()) {
+                return table.get().isHasCompoundKey();
+            }
+        }
+        return false;
     }
 
     private static Expression removeCast(Expression parent) {

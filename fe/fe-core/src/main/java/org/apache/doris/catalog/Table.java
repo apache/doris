@@ -59,6 +59,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public volatile boolean isDropped = false;
 
+    private boolean hasCompoundKey = false;
     protected long id;
     protected volatile String name;
     protected volatile String qualifiedDbName;
@@ -405,6 +406,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         }
         if (keys.size() > 1) {
             keys.forEach(key -> key.setCompoundKey(true));
+            hasCompoundKey = true;
         }
         comment = Text.readString(in);
 
@@ -486,5 +488,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         }
 
         return true;
+    }
+
+    public boolean isHasCompoundKey() {
+        return hasCompoundKey;
     }
 }

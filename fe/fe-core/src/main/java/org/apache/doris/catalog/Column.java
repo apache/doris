@@ -169,6 +169,7 @@ public class Column implements Writable {
         this.aggregationType = column.getAggregationType();
         this.isAggregationTypeImplicit = column.isAggregationTypeImplicit();
         this.isKey = column.isKey();
+        this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
         this.defaultValue = column.getDefaultValue();
         this.defaultValueExprDef = column.defaultValueExprDef;
