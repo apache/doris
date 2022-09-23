@@ -62,7 +62,8 @@ suite("test_case_when") {
             where dt = '2019-01-01'
             and merchant_id in (45010002, 45010003)
             and channel_id = '00'
-            group by hour_time, station_type; 
+            group by hour_time, station_type
+            order by date_hour;
     """
 
     qt_select_agg """
