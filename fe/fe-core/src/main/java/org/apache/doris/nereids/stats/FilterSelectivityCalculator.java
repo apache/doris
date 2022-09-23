@@ -37,7 +37,7 @@ import java.util.Map;
  */
 public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void> {
 
-    private static final double DEFAULT_SELECTIVITY = 0.1;
+    private static final double DEFAULT_SELECTIVITY = 0.3;
 
     private final Map<Slot, ColumnStats> slotRefToStats;
 
