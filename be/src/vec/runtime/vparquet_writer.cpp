@@ -21,6 +21,7 @@
 #include <arrow/status.h>
 #include <time.h>
 
+#include "exec/parquet_writer.h"
 #include "io/file_writer.h"
 #include "util/mysql_global.h"
 #include "util/types.h"
@@ -37,205 +38,49 @@ namespace doris::vectorized {
 
 VParquetWriterWrapper::VParquetWriterWrapper(doris::FileWriter* file_writer,
                                              const std::vector<VExprContext*>& output_vexpr_ctxs,
-                                             const std::map<std::string, std::string>& properties,
-                                             const std::vector<std::vector<std::string>>& schema,
+                                             const std::vector<TParquetSchema>& parquet_schemas,
+                                             const TParquetCompressionType::type& compression_type,
+                                             const bool& parquet_disable_dictionary,
+                                             const TParquetVersion::type& parquet_version,
                                              bool output_object_data)
         : _output_vexpr_ctxs(output_vexpr_ctxs),
-          _str_schema(schema),
           _cur_written_rows(0),
           _rg_writer(nullptr),
           _output_object_data(output_object_data) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
-    parse_properties(properties);
+    parse_properties(compression_type, parquet_disable_dictionary, parquet_version);
+    parse_schema(parquet_schemas);
 }
 
-void VParquetWriterWrapper::parse_properties(
-        const std::map<std::string, std::string>& propertie_map) {
+void VParquetWriterWrapper::parse_properties(const TParquetCompressionType::type& compression_type,
+                                             const bool& parquet_disable_dictionary,
+                                             const TParquetVersion::type& parquet_version) {
     parquet::WriterProperties::Builder builder;
-    for (auto it = propertie_map.begin(); it != propertie_map.end(); it++) {
-        std::string property_name = it->first;
-        std::string property_value = it->second;
-        if (property_name == "compression") {
-            // UNCOMPRESSED, SNAPPY, GZIP, BROTLI, ZSTD, LZ4, LZO, BZ2
-            if (property_value == "snappy") {
-                builder.compression(parquet::Compression::SNAPPY);
-            } else if (property_value == "gzip") {
-                builder.compression(parquet::Compression::GZIP);
-            } else if (property_value == "brotli") {
-                builder.compression(parquet::Compression::BROTLI);
-            } else if (property_value == "zstd") {
-                builder.compression(parquet::Compression::ZSTD);
-            } else if (property_value == "lz4") {
-                builder.compression(parquet::Compression::LZ4);
-            } else if (property_value == "lzo") {
-                builder.compression(parquet::Compression::LZO);
-            } else if (property_value == "bz2") {
-                builder.compression(parquet::Compression::BZ2);
-            } else {
-                builder.compression(parquet::Compression::UNCOMPRESSED);
-            }
-        } else if (property_name == "disable_dictionary") {
-            if (property_value == "true") {
-                builder.enable_dictionary();
-            } else {
-                builder.disable_dictionary();
-            }
-        } else if (property_name == "version") {
-            if (property_value == "v1") {
-                builder.version(parquet::ParquetVersion::PARQUET_1_0);
-            } else {
-                builder.version(parquet::ParquetVersion::PARQUET_2_LATEST);
-            }
-        }
+    ParquetBuildHelper::build_compression_type(builder, compression_type);
+    ParquetBuildHelper::build_version(builder, parquet_version);
+    if (parquet_disable_dictionary) {
+        builder.disable_dictionary();
+    } else {
+        builder.enable_dictionary();
     }
     _properties = builder.build();
 }
 
-Status VParquetWriterWrapper::parse_schema(const std::vector<std::vector<std::string>>& schema) {
+void VParquetWriterWrapper::parse_schema(const std::vector<TParquetSchema>& parquet_schemas) {
     parquet::schema::NodeVector fields;
-    for (auto column = schema.begin(); column != schema.end(); column++) {
-        std::string repetition_type = (*column)[0];
-        parquet::Repetition::type parquet_repetition_type = parquet::Repetition::REQUIRED;
-        if (repetition_type.find("required") != std::string::npos) {
-            parquet_repetition_type = parquet::Repetition::REQUIRED;
-        } else if (repetition_type.find("repeated") != std::string::npos) {
-            parquet_repetition_type = parquet::Repetition::REPEATED;
-        } else if (repetition_type.find("optional") != std::string::npos) {
-            parquet_repetition_type = parquet::Repetition::OPTIONAL;
-        } else {
-            parquet_repetition_type = parquet::Repetition::UNDEFINED;
-        }
-
-        std::string data_type = (*column)[1];
-        parquet::Type::type parquet_data_type = parquet::Type::BYTE_ARRAY;
-        if (data_type == "boolean") {
-            parquet_data_type = parquet::Type::BOOLEAN;
-        } else if (data_type.find("int32") != std::string::npos) {
-            parquet_data_type = parquet::Type::INT32;
-        } else if (data_type.find("int64") != std::string::npos) {
-            parquet_data_type = parquet::Type::INT64;
-        } else if (data_type.find("int96") != std::string::npos) {
-            parquet_data_type = parquet::Type::INT96;
-        } else if (data_type.find("float") != std::string::npos) {
-            parquet_data_type = parquet::Type::FLOAT;
-        } else if (data_type.find("double") != std::string::npos) {
-            parquet_data_type = parquet::Type::DOUBLE;
-        } else if (data_type.find("byte_array") != std::string::npos) {
-            parquet_data_type = parquet::Type::BYTE_ARRAY;
-        } else if (data_type.find("fixed_len_byte_array") != std::string::npos) {
-            parquet_data_type = parquet::Type::FIXED_LEN_BYTE_ARRAY;
-        } else {
-            parquet_data_type = parquet::Type::UNDEFINED;
-        }
-
-        std::string column_name = (*column)[2];
-        fields.push_back(parquet::schema::PrimitiveNode::Make(column_name, parquet_repetition_type,
-                                                              parquet::LogicalType::None(),
-                                                              parquet_data_type));
+    parquet::Repetition::type parquet_repetition_type;
+    parquet::Type::type parquet_data_type;
+    for (int idx = 0; idx < parquet_schemas.size(); ++idx) {
+        ParquetBuildHelper::build_schema_repetition_type(
+                parquet_repetition_type, parquet_schemas[idx].schema_repetition_type);
+        ParquetBuildHelper::build_schema_data_type(parquet_data_type,
+                                                   parquet_schemas[idx].schema_data_type);
+        fields.push_back(parquet::schema::PrimitiveNode::Make(
+                parquet_schemas[idx].schema_column_name, parquet_repetition_type,
+                parquet::LogicalType::None(), parquet_data_type));
         _schema = std::static_pointer_cast<parquet::schema::GroupNode>(
                 parquet::schema::GroupNode::Make("schema", parquet::Repetition::REQUIRED, fields));
     }
-    return Status::OK();
-}
-
-Status VParquetWriterWrapper::init() {
-    RETURN_IF_ERROR(parse_schema(_str_schema));
-    RETURN_IF_ERROR(init_parquet_writer());
-    RETURN_IF_ERROR(validate_schema());
-    return Status::OK();
-}
-
-Status VParquetWriterWrapper::validate_schema() {
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        switch (_output_vexpr_ctxs[i]->root()->type().type) {
-        case TYPE_BOOLEAN: {
-            if (_str_schema[i][1] != "boolean") {
-                return Status::InvalidArgument(
-                        "project field type is boolean, "
-                        "but the definition type of column {} is {}",
-                        _str_schema[i][2], _str_schema[i][1]);
-            }
-            break;
-        }
-        case TYPE_TINYINT:
-        case TYPE_SMALLINT:
-        case TYPE_INT: {
-            if (_str_schema[i][1] != "int32") {
-                return Status::InvalidArgument(
-                        "project field type is {}, should use int32,"
-                        " but the definition type of column {} is {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
-                        _str_schema[i][1]);
-            }
-            break;
-        }
-        case TYPE_LARGEINT: {
-            return Status::InvalidArgument("do not support large int type.");
-        }
-        case TYPE_FLOAT: {
-            if (_str_schema[i][1] != "float") {
-                return Status::InvalidArgument(
-                        "project field type is float, "
-                        "but the definition type of column {} is {}",
-                        _str_schema[i][2], _str_schema[i][1]);
-            }
-            break;
-        }
-        case TYPE_DOUBLE: {
-            if (_str_schema[i][1] != "double") {
-                return Status::InvalidArgument(
-                        "project field type is double, "
-                        "but the definition type of column {} is {}",
-                        _str_schema[i][2], _str_schema[i][1]);
-            }
-            break;
-        }
-        case TYPE_BIGINT:
-        case TYPE_DATETIME:
-        case TYPE_DATE:
-        case TYPE_DATEV2:
-        case TYPE_DATETIMEV2: {
-            if (_str_schema[i][1] != "int64") {
-                return Status::InvalidArgument(
-                        "project field type is {}, should use int64, "
-                        "but the definition type of column {} is {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
-                        _str_schema[i][1]);
-            }
-            break;
-        }
-        case TYPE_HLL:
-        case TYPE_OBJECT: {
-            if (!_output_object_data) {
-                return Status::InvalidArgument(
-                        "Invalid expression type: {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string());
-            }
-            [[fallthrough]];
-        }
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING:
-        case TYPE_DECIMALV2:
-        case TYPE_DECIMAL32:
-        case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128: {
-            if (_str_schema[i][1] != "byte_array") {
-                return Status::InvalidArgument(
-                        "project field type is {}, should use byte_array, "
-                        "but the definition type of column {} is {}",
-                        _output_vexpr_ctxs[i]->root()->type().debug_string(), _str_schema[i][2],
-                        _str_schema[i][1]);
-            }
-            break;
-        }
-        default: {
-            return Status::InvalidArgument("Invalid expression type: {}",
-                                           _output_vexpr_ctxs[i]->root()->type().debug_string());
-        }
-        }
-    }
-    return Status::OK();
 }
 
 #define RETURN_WRONG_TYPE \
@@ -530,11 +375,19 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 break;
             }
             case TYPE_OBJECT: {
-                DISPATCH_PARQUET_COMPLEX_WRITER(ColumnBitmap)
+                if (_output_object_data) {
+                    DISPATCH_PARQUET_COMPLEX_WRITER(ColumnBitmap)
+                } else {
+                    RETURN_WRONG_TYPE
+                }
                 break;
             }
             case TYPE_HLL: {
-                DISPATCH_PARQUET_COMPLEX_WRITER(ColumnHLL)
+                if (_output_object_data) {
+                    DISPATCH_PARQUET_COMPLEX_WRITER(ColumnHLL)
+                } else {
+                    RETURN_WRONG_TYPE
+                }
                 break;
             }
             case TYPE_CHAR:
@@ -648,7 +501,5 @@ void VParquetWriterWrapper::close() {
         LOG(WARNING) << "Parquet writer close error: " << e.what();
     }
 }
-
-VParquetWriterWrapper::~VParquetWriterWrapper() {}
 
 } // namespace doris::vectorized
