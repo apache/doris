@@ -878,7 +878,9 @@ public class ShowExecutor {
                                                         showStmt.getTable(), "VIEW");
                 }
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
-                resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+                resultSet = table.getType() != TableType.MATERIALIZED_VIEW
+                        ? new ShowResultSet(showStmt.getMetaData(), rows)
+                        : new ShowResultSet(ShowCreateTableStmt.getMaterializedViewMetaData(), rows);
             }
         } catch (MetaNotFoundException e) {
             throw new AnalysisException(e.getMessage());

@@ -33,6 +33,7 @@ public class DropTableStmt extends DdlStmt {
     private final TableName tableName;
     private final boolean isView;
     private boolean forceDrop;
+    private boolean isMaterializedView;
 
     public DropTableStmt(boolean ifExists, TableName tableName, boolean forceDrop) {
         this.ifExists = ifExists;
@@ -66,6 +67,14 @@ public class DropTableStmt extends DdlStmt {
 
     public boolean isForceDrop() {
         return this.forceDrop;
+    }
+
+    public void setMaterializedView(boolean value) {
+        isMaterializedView = value;
+    }
+
+    public boolean isMaterializedView() {
+        return isMaterializedView;
     }
 
     @Override
