@@ -69,7 +69,7 @@ public:
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
-        std::shared_lock l(_lock);
+        std::shared_lock rl(_lock);
         *segment_num_rows = _segment_num_rows;
         return Status::OK();
     }
@@ -106,7 +106,7 @@ private:
     bool _already_built = false;
 
     // protect following vectors.
-    std::mutex _lock;
+    std::shared_mutex _lock;
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
     // record rows number of every segment
