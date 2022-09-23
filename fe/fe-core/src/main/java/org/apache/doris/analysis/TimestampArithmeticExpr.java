@@ -214,7 +214,7 @@ public class TimestampArithmeticExpr extends Expr {
         }
 
         Type[] childrenTypes = collectChildReturnTypes();
-        fn = getBuiltinFunction(funcOpName.toLowerCase(), childrenTypes,
+        fn = getBuiltinFunction(analyzer, funcOpName.toLowerCase(), childrenTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         Preconditions.checkArgument(fn != null);
         Type[] argTypes = fn.getArgs();
@@ -223,11 +223,12 @@ public class TimestampArithmeticExpr extends Expr {
             for (int i = 0; i < childrenTypes.length; ++i) {
                 // For varargs, we must compare with the last type in callArgs.argTypes.
                 int ix = Math.min(argTypes.length - 1, i);
-                if (!childrenTypes[i].matchesType(argTypes[ix]) && !(
-                        childrenTypes[i].isDateType() && argTypes[ix].isDateType())) {
+                if (!childrenTypes[i].matchesType(argTypes[ix]) &&
+                        !(childrenTypes[i].isDateType() && argTypes[ix].isDateType())) {
                     uncheckedCastChild(argTypes[ix], i);
                 }
             }
+        }
         LOG.debug("fn is {} name is {}", fn, funcOpName);
     }
 
