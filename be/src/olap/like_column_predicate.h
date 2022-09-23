@@ -98,7 +98,7 @@ private:
                             continue;
                         }
 
-                        StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
+                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                         if constexpr (is_and) {
                             unsigned char flag = 0;
                             (_state->function)(
@@ -126,7 +126,7 @@ private:
                             StringValue values[size];
                             unsigned char temp_flags[size];
                             for (uint16_t i = 0; i != size; i++) {
-                                values[i] = nested_col_ptr->get_value(data_array[i]);
+                                values[i] = nested_col_ptr->get_shrink_value(data_array[i]);
                             }
                             (_state->function_vec_dict)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state), pattern,
