@@ -69,7 +69,7 @@ public:
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
-        std::shared_lock rl(_lock);
+        std::lock_guard<SpinLock> l(_lock);
         *segment_num_rows = _segment_num_rows;
         return Status::OK();
     }
@@ -94,7 +94,13 @@ private:
     /// Because we want to flush memtables in parallel.
     /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
+
+    mutable SpinLock _lock; // protect following vectors.
     std::vector<io::FileWriterPtr> _file_writers;
+    // for unique key table with merge-on-write
+    std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
+    // record rows number of every segment
+    std::vector<uint32_t> _segment_num_rows;
 
     // counters and statistics maintained during data write
     std::atomic<int64_t> _num_rows_written;
@@ -104,13 +110,6 @@ private:
 
     bool _is_pending = false;
     bool _already_built = false;
-
-    // protect following vectors.
-    std::shared_mutex _lock;
-    // for unique key table with merge-on-write
-    std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
-    // record rows number of every segment
-    std::vector<uint32_t> _segment_num_rows;
 };
 
 } // namespace doris
