@@ -109,7 +109,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
-        ctx->on_data(result, _packet_num);
+        ctx->on_data(result, _packet_num, result->eos);
         _packet_num++;
     }
     return Status::OK();
@@ -171,7 +171,7 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         _buffer_rows -= result->result_batch.rows.size();
         _data_removal.notify_one();
 
-        ctx->on_data(result, _packet_num);
+        ctx->on_data(result, _packet_num, result->eos);
         _packet_num++;
         return;
     }

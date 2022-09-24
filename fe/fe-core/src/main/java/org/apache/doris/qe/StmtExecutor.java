@@ -1078,7 +1078,7 @@ public class StmtExecutor implements ProfileWriter {
         Span queryScheduleSpan =
                 context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();
         try (Scope scope = queryScheduleSpan.makeCurrent()) {
-            coord.exec();
+            coord.execAsync();
         } catch (Exception e) {
             queryScheduleSpan.recordException(e);
             throw e;

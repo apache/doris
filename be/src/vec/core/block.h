@@ -69,6 +69,8 @@ private:
 
     mutable int64_t _compress_time_ns = 0;
 
+    bool _is_last_block = false;
+
 public:
     // When we have some breaking change for serialize/deserialize, we should update data_version.
     constexpr static int max_data_version = 0;
@@ -352,6 +354,9 @@ public:
     int64_t get_decompress_time() const { return _decompress_time_ns; }
     int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
     int64_t get_compress_time() const { return _compress_time_ns; }
+
+    void mark_last_block() { _is_last_block = true; }
+    bool is_last_block() const { return _is_last_block; }
 
 private:
     void erase_impl(size_t position);

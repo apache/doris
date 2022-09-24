@@ -59,7 +59,7 @@ Status ResultBufferMgr::init() {
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
                                       std::shared_ptr<BufferControlBlock>* sender) {
-    *sender = find_control_block(query_id);
+    *sender = find_control_block_no_wait(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
         return Status::OK();
@@ -70,12 +70,14 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
     {
         std::lock_guard<std::mutex> l(_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
+        _buffer_cv.notify_all();
     }
     *sender = control_block;
     return Status::OK();
 }
 
-std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TUniqueId& query_id) {
+std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block_no_wait(
+        const TUniqueId& query_id) {
     // TODO(zhaochun): this lock can be bottleneck?
     std::lock_guard<std::mutex> l(_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
@@ -85,6 +87,19 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     }
 
     return std::shared_ptr<BufferControlBlock>();
+}
+
+std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TUniqueId& query_id) {
+    // TODO(zhaochun): this lock can be bottleneck?
+    std::unique_lock<std::mutex> l(_lock);
+    bool wait_successful = _buffer_cv.wait_for(l, std::chrono::milliseconds(5000), [&] {
+        return _buffer_map.find(query_id) != _buffer_map.end();
+    });
+    if (wait_successful) {
+        return _buffer_map.find(query_id)->second;
+    } else {
+        return std::shared_ptr<BufferControlBlock>();
+    }
 }
 
 Status ResultBufferMgr::fetch_data(const TUniqueId& query_id, TFetchDataResult* result) {

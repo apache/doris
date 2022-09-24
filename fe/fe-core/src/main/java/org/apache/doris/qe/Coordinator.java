@@ -478,6 +478,16 @@ public class Coordinator {
     // be for a query like 'SELECT 1').
     // A call to Exec() must precede all other member function calls.
     public void exec() throws Exception {
+        execInternal();
+        sendFragment(true);
+    }
+
+    public void execAsync() throws Exception {
+        execInternal();
+        sendFragment(false);
+    }
+
+    private void execInternal() throws Exception {
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
@@ -507,7 +517,7 @@ public class Coordinator {
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,
-                    addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
+                addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
                         topParams.instanceExecParams.get(0).host);
@@ -539,8 +549,6 @@ public class Coordinator {
         for (TUniqueId instanceId : instanceIds) {
             profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
         }
-
-        sendFragment();
     }
 
     /**
@@ -568,7 +576,7 @@ public class Coordinator {
      * @throws RpcException
      * @throws UserException
      */
-    private void sendFragment() throws TException, RpcException, UserException {
+    private void sendFragment(boolean bWaitRpc) throws TException, RpcException, UserException {
         lock();
         try {
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
@@ -621,7 +629,7 @@ public class Coordinator {
                 for (TExecPlanFragmentParams tParam : tParams) {
                     BackendExecState execState =
                             new BackendExecState(fragment.getFragmentId(), instanceId++,
-                                    profileFragmentId, tParam, this.addressToBackendID);
+                            profileFragmentId, tParam, this.addressToBackendID);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
@@ -640,7 +648,7 @@ public class Coordinator {
                     BackendExecStates states = beToExecStates.get(execState.backend.getId());
                     if (states == null) {
                         states = new BackendExecStates(execState.backend.getId(), execState.brpcAddress,
-                                twoPhaseExecution);
+                            twoPhaseExecution);
                         beToExecStates.putIfAbsent(execState.backend.getId(), states);
                     }
                     states.addState(execState);
@@ -657,13 +665,15 @@ public class Coordinator {
                 Span span = Telemetry.getNoopSpan();
                 if (ConnectContext.get() != null) {
                     span = ConnectContext.get().getTracer().spanBuilder("execRemoteFragmentsAsync")
-                            .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
+                        .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
                 }
                 states.scopedSpan = new ScopedSpan(span);
                 states.unsetFields();
                 futures.add(Pair.of(states, states.execRemoteFragmentsAsync()));
             }
-            waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
+            if (bWaitRpc || twoPhaseExecution) {
+                waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
+            }
 
             if (twoPhaseExecution) {
                 // 5. send and wait execution start rpc
@@ -672,12 +682,14 @@ public class Coordinator {
                     Span span = Telemetry.getNoopSpan();
                     if (ConnectContext.get() != null) {
                         span = ConnectContext.get().getTracer().spanBuilder("execPlanFragmentStartAsync")
-                                .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
+                            .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
                     }
                     states.scopedSpan = new ScopedSpan(span);
                     futures.add(Pair.of(states, states.execPlanFragmentStartAsync()));
                 }
-                waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
+                if (bWaitRpc) {
+                    waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
+                }
             }
 
             attachInstanceProfileToFragmentProfile();

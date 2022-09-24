@@ -65,6 +65,8 @@ private:
 
     std::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 
+    std::shared_ptr<BufferControlBlock> find_control_block_no_wait(const TUniqueId& query_id);
+
     // used to erase the buffer that fe not clears
     // when fe crush, this thread clear the buffer avoid memory leak in this backend
     void cancel_thread();
@@ -73,6 +75,7 @@ private:
     std::mutex _lock;
     // buffer block map
     BufferMap _buffer_map;
+    std::condition_variable _buffer_cv;
 
     // lock for timeout map
     std::mutex _timeout_lock;
