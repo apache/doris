@@ -82,6 +82,8 @@ private:
 
     TypeDescriptor convert_to_doris_type(tparquet::ConvertedType::type convertedType);
 
+    TypeDescriptor get_doris_type(const tparquet::SchemaElement& physical_schema);
+
 public:
     FieldDescriptor() = default;
     ~FieldDescriptor() = default;

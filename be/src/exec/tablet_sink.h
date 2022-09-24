@@ -96,6 +96,8 @@ public:
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        cntl.Reset();
     }
 
     static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
@@ -122,6 +124,7 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
         cntl.Reset();
         cid = cntl.call_id();
     }
