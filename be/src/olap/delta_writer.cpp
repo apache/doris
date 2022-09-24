@@ -352,7 +352,7 @@ int64_t DeltaWriter::memtable_consumption() const {
     if (_mem_table == nullptr) {
         return 0;
     }
-    return _mem_table->mem_tracker_hook()->consumption();
+    return _mem_table->memory_usage();
 }
 
 int64_t DeltaWriter::partition_id() const {
