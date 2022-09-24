@@ -42,6 +42,7 @@ public class StatsDeriveResult {
     private Map<Slot, ColumnStats> slotToColumnStats;
 
     public boolean isReduced = false;
+    public int level = 1;
 
     public StatsDeriveResult(long rowCount, Map<Slot, ColumnStats> slotToColumnStats) {
         this.rowCount = rowCount;
@@ -63,6 +64,7 @@ public class StatsDeriveResult {
             slotToColumnStats.put(entry.getKey(), entry.getValue().copy());
         }
         this.isReduced = another.isReduced;
+        this.level = another.level;
     }
 
     public float computeSize() {

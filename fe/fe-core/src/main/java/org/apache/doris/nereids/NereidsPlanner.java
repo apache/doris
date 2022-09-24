@@ -70,7 +70,7 @@ public class NereidsPlanner extends Planner {
 
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
-
+        System.out.println(physicalPlan.treeString());
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
