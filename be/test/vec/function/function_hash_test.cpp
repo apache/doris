@@ -61,7 +61,8 @@ TEST(HashFunctionTest, murmur_hash_3_64_test) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{Null()}, Null()}, {{std::string("hello")}, (int64_t)-3215607508166160593}};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{std::string("hello")}, (int64_t)-3215607508166160593}};
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     };
@@ -69,8 +70,9 @@ TEST(HashFunctionTest, murmur_hash_3_64_test) {
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
-        DataSet data_set = {{{std::string("hello"), std::string("world")}, (int64_t)3583109472027628045},
-                            {{std::string("hello"), Null()}, Null()}};
+        DataSet data_set = {
+                {{std::string("hello"), std::string("world")}, (int64_t)3583109472027628045},
+                {{std::string("hello"), Null()}, Null()}};
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     };

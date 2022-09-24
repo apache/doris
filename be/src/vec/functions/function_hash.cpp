@@ -154,21 +154,20 @@ struct MurmurHash2Impl64 {
 };
 using FunctionMurmurHash2_64 = FunctionVariadicArgumentsBase<DataTypeUInt64, MurmurHash2Impl64>;
 
-template<typename ReturnType>
-struct MurmurHash3ImplName {
-};
+template <typename ReturnType>
+struct MurmurHash3ImplName {};
 
-template<>
+template <>
 struct MurmurHash3ImplName<Int32> {
     static constexpr auto name = "murmur_hash3_32";
 };
 
-template<>
+template <>
 struct MurmurHash3ImplName<Int64> {
     static constexpr auto name = "murmur_hash3_64";
 };
 
-template<typename ReturnType>
+template <typename ReturnType>
 struct MurmurHash3Impl {
     static constexpr auto name = MurmurHash3ImplName<ReturnType>::name;
 
@@ -204,19 +203,20 @@ struct MurmurHash3Impl {
                         UInt32 val = HashUtil::murmur_hash3_32(
                                 reinterpret_cast<const char*>(&data[current_offset]),
                                 offsets[i] - current_offset, HashUtil::MURMUR3_32_SEED);
-                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
+                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)),
+                                           0);
                     } else {
                         UInt64 val = 0;
                         murmur_hash3_x64_64(reinterpret_cast<const char*>(&data[current_offset]),
                                             offsets[i] - current_offset, 0, &val);
-                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
+                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)),
+                                           0);
                     }
                 } else {
                     if constexpr (std::is_same_v<ReturnType, Int32>) {
-                        col_to_data[i] =
-                                HashUtil::murmur_hash3_32(
-                                        reinterpret_cast<const char*>(&data[current_offset]),
-                                        offsets[i] - current_offset, ext::bit_cast<UInt32>(col_to[i]));
+                        col_to_data[i] = HashUtil::murmur_hash3_32(
+                                reinterpret_cast<const char*>(&data[current_offset]),
+                                offsets[i] - current_offset, ext::bit_cast<UInt32>(col_to[i]));
                     } else {
                         murmur_hash3_x64_64(reinterpret_cast<const char*>(&data[current_offset]),
                                             offsets[i] - current_offset,
@@ -233,17 +233,18 @@ struct MurmurHash3Impl {
                     if constexpr (std::is_same_v<ReturnType, Int32>) {
                         UInt32 val = HashUtil::murmur_hash3_32(value.data(), value.size(),
                                                                HashUtil::MURMUR3_32_SEED);
-                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
+                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)),
+                                           0);
                     } else {
                         UInt64 val = 0;
                         murmur_hash3_x64_64(value.data(), value.size(), 0, &val);
-                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
+                        col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)),
+                                           0);
                     }
                 } else {
                     if constexpr (std::is_same_v<ReturnType, Int32>) {
-                        col_to_data[i] =
-                                HashUtil::murmur_hash3_32(value.data(), value.size(),
-                                                          ext::bit_cast<UInt32>(col_to[i]));
+                        col_to_data[i] = HashUtil::murmur_hash3_32(
+                                value.data(), value.size(), ext::bit_cast<UInt32>(col_to[i]));
                     } else {
                         murmur_hash3_x64_64(value.data(), value.size(),
                                             ext::bit_cast<UInt64>(col_to[i]), col_to_data + i);

@@ -20,10 +20,10 @@
 #include <iostream>
 #include <string>
 
+#include "exprs/anyval_util.h"
 #include "exprs/hash_functions.h"
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
-#include "exprs/anyval_util.h"
 
 namespace doris {
 
