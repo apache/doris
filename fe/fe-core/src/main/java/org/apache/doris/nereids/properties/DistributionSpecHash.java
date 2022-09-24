@@ -84,16 +84,12 @@ public class DistributionSpecHash extends DistributionSpec {
         this.tableId = tableId;
         this.partitionIds = Objects.requireNonNull(partitionIds);
 
-        List<Set<ExprId>> s1 = Lists.newArrayListWithCapacity(orderedShuffledColumns.size());
-        Map<ExprId, Integer> m1 = Maps.newHashMap();
-        for (ExprId id : orderedShuffledColumns) {
-            s1.add(Sets.newHashSet(id));
-        }
+        equivalenceExprIds = Lists.newArrayListWithCapacity(orderedShuffledColumns.size());
+        exprIdToEquivalenceSet = Maps.newHashMap();
         for (int i = 0; i < orderedShuffledColumns.size(); i++) {
-            m1.put(orderedShuffledColumns.get(i), i);
+            exprIdToEquivalenceSet.put(orderedShuffledColumns.get(i), i);
+            equivalenceExprIds.get(i).add(orderedShuffledColumns.get(i));
         }
-        exprIdToEquivalenceSet = m1;
-        equivalenceExprIds = s1;
     }
 
     /**
