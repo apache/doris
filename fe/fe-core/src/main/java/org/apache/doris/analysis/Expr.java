@@ -51,6 +51,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -2006,5 +2007,29 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         for (Expr child : children) {
             child.materializeSrcExpr();
         }
+    }
+
+    private boolean islinearRelationshipHelper(SlotId slotId) {
+        if (!((this instanceof ArithmeticExpr) || (this instanceof SlotRef) || (this instanceof LiteralExpr))) {
+            return false;
+        }
+        for (Expr child : children) {
+            if (!child.islinearRelationshipHelper(slotId)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean islinearRelationship(SlotId slotId) {
+        List<SlotRef> slotRefs = Lists.newArrayList();
+        Expr.collectList(Collections.singletonList(this), SlotRef.class, slotRefs);
+        if (slotRefs.size() > 1) {
+            return false;
+        }
+        if (slotRefs.isEmpty() || (slotRefs.size() == 1 && slotRefs.get(0).getSlotId() != slotId)) {
+            return false;
+        }
+        return islinearRelationshipHelper(slotId);
     }
 }
