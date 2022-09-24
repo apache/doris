@@ -83,7 +83,7 @@ public:
 
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
 
-    virtual bool reuse_mem() { return !_materialize_sort_exprs; }
+    virtual bool reuse_mem() = 0;
 
 protected:
     Status partial_sort(Block& src_block, Block& dest_block);
@@ -116,6 +116,8 @@ public:
     Status prepare_for_read() override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+
+    bool reuse_mem() override { return true; }
 
 private:
     bool _reach_limit() {
