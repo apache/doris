@@ -68,6 +68,7 @@ private:
     // If yes, it will pick a load channel to try to reduce memory consumption.
     template <typename TabletWriterAddResult>
     Status _handle_mem_exceed_limit(TabletWriterAddResult* response);
+    void _try_to_wait_flushing();
 
     Status _start_bg_worker();
 
@@ -76,10 +77,17 @@ protected:
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
+    std::shared_ptr<LoadChannel> _reduce_memory_channel = nullptr;
     Cache* _last_success_channel = nullptr;
 
     // check the total load channel mem consumption of this Backend
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    int64_t _load_process_soft_mem_limit = -1;
+
+    // If hard limit reached, one thread will trigger load channel flush,
+    // other threads should wait on the condition variable.
+    bool _should_wait_flush = false;
+    std::condition_variable _wait_flush_cond;
 
     CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels
@@ -143,36 +151,75 @@ Status LoadChannelMgr::add_batch(const TabletWriterAddRequest& request,
 
 template <typename TabletWriterAddResult>
 Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response) {
-    // lock so that only one thread can check mem limit
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_mem_tracker->limit_exceeded()) {
+    _try_to_wait_flushing();
+    // Check the soft limit.
+    DCHECK(_load_process_soft_mem_limit > 0);
+    if (_mem_tracker->consumption() < _load_process_soft_mem_limit) {
         return Status::OK();
     }
-
-    int64_t max_consume = 0;
+    // Pick load channel to reduce memory.
     std::shared_ptr<LoadChannel> channel;
-    for (auto& kv : _load_channels) {
-        if (kv.second->is_high_priority()) {
-            // do not select high priority channel to reduce memory
-            // to avoid blocking them.
-            continue;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        // Some other thread is flushing data, and not reached hard limit now,
+        // we don't need to handle mem limit in current thread.
+        if (_reduce_memory_channel != nullptr && !_mem_tracker->limit_exceeded()) {
+            return Status::OK();
         }
-        if (kv.second->mem_consumption() > max_consume) {
-            max_consume = kv.second->mem_consumption();
-            channel = kv.second;
-        }
-    }
-    if (max_consume == 0) {
-        // should not happen, add log to observe
-        LOG(WARNING) << "failed to find suitable load channel when total load mem limit exceed";
-        return Status::OK();
-    }
-    DCHECK(channel.get() != nullptr);
 
-    // force reduce mem limit of the selected channel
-    LOG(INFO) << "reducing memory of " << *channel << " because total load mem consumption "
-              << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
-    return channel->handle_mem_exceed_limit(true, response);
+        // We need to pick a LoadChannel to reduce memory usage.
+        // If `_reduce_memory_channel` is not null, it means the hard limit is
+        // exceed now, we still need to pick a load channel again. Because
+        // `_reduce_memory_channel` might not be the largest consumer now.
+        int64_t max_consume = 0;
+        for (auto& kv : _load_channels) {
+            if (kv.second->is_high_priority()) {
+                // do not select high priority channel to reduce memory
+                // to avoid blocking them.
+                continue;
+            }
+            if (kv.second->mem_consumption() > max_consume) {
+                max_consume = kv.second->mem_consumption();
+                channel = kv.second;
+            }
+        }
+        if (max_consume == 0) {
+            // should not happen, add log to observe
+            LOG(WARNING) << "failed to find suitable load channel when total load mem limit exceed";
+            return Status::OK();
+        }
+        DCHECK(channel.get() != nullptr);
+        _reduce_memory_channel = channel;
+
+        std::ostringstream oss;
+        oss << "reducing memory of " << *channel << " because total load mem consumption "
+            << _mem_tracker->consumption() << " has exceeded";
+        if (_mem_tracker->limit_exceeded()) {
+            _should_wait_flush = true;
+            oss << " hard limit: " << _mem_tracker->limit();
+        } else {
+            oss << " soft limit: " << _load_process_soft_mem_limit;
+        }
+        LOG(INFO) << oss.str();
+    }
+
+    // No matter soft limit or hard limit reached, only 1 thread will wait here,
+    // if hard limit reached, other threads will pend at the beginning of this
+    // method.
+    Status st = channel->handle_mem_exceed_limit(response);
+    LOG(INFO) << "reduce memory of " << *channel << " finished";
+
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (_should_wait_flush) {
+            _should_wait_flush = false;
+            _wait_flush_cond.notify_all();
+        }
+        if (_reduce_memory_channel == channel) {
+            _reduce_memory_channel = nullptr;
+        }
+    }
+    return st;
 }
 
 } // namespace doris
