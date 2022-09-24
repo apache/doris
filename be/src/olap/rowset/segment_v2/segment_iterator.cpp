@@ -1150,11 +1150,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         }
 
         if (!_lazy_materialization_read) {
-            Status ret = Status::OK();
-            if (selected_size > 0) {
-                ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                selected_size);
-            }
+            Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
+                                                   selected_size);
             if (!ret.ok()) {
                 return ret;
             }
@@ -1179,10 +1176,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // when lazy materialization enables, _first_read_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
         // see _vec_init_lazy_materialization
         // todo(wb) need to tell input columnids from output columnids
-        if (selected_size > 0) {
-            RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                      selected_size));
-        }
+        RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
+                                                  selected_size));
     }
 
     // shrink char_type suffix zero data
