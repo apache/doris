@@ -88,7 +88,7 @@ public class DistributionSpecHash extends DistributionSpec {
         exprIdToEquivalenceSet = Maps.newHashMap();
         for (int i = 0; i < orderedShuffledColumns.size(); i++) {
             exprIdToEquivalenceSet.put(orderedShuffledColumns.get(i), i);
-            equivalenceExprIds.get(i).add(orderedShuffledColumns.get(i));
+            equivalenceExprIds.add(Sets.newHashSet(orderedShuffledColumns.get(i)));
         }
     }
 
