@@ -91,8 +91,6 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             channel = it->second;
         } else {
             // create a new load channel
-            int64_t mem_limit_in_req = params.has_load_mem_limit() ? params.load_mem_limit() : -1;
-
             int64_t timeout_in_req_s =
                     params.has_load_channel_timeout_s() ? params.load_channel_timeout_s() : -1;
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
