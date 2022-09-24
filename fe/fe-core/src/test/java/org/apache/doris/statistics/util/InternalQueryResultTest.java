@@ -39,20 +39,9 @@ public class InternalQueryResultTest {
         List<PrimitiveType> types = Arrays.asList(PrimitiveType.STRING,
                 PrimitiveType.INT, PrimitiveType.FLOAT,
                 PrimitiveType.DOUBLE, PrimitiveType.BIGINT);
-        queryResult = new InternalQueryResult(columns, types);
-        resultRow = new ResultRow(Arrays.asList("s1", "1000", "0.1", "0.0001", "1000000"));
-    }
-
-    @Test
-    public void testGetMateOfColumns() throws Exception {
-        Assert.assertEquals(Arrays.asList("c1", "c2", "c3", "c4", "c5"),
-                InternalQueryResult.getMateOfColumns());
-    }
-
-    @Test
-    public void testGetMateOfTypes() throws Exception {
-        Assert.assertEquals(Arrays.asList(PrimitiveType.STRING, PrimitiveType.INT, PrimitiveType.FLOAT,
-                PrimitiveType.DOUBLE, PrimitiveType.BIGINT), InternalQueryResult.getMateOfTypes());
+        queryResult = new InternalQueryResult();
+        List<String> values = Arrays.asList("s1", "1000", "0.1", "0.0001", "1000000");
+        resultRow = new ResultRow(columns, types, values);
     }
 
     @Test

@@ -52,8 +52,6 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
-    void _init_profiles(RuntimeProfile* profile);
-
     Status _fill_columns_from_path();
 
     Status _get_next_reader();
@@ -87,8 +85,6 @@ protected:
 
     // Profile
     RuntimeProfile* _profile;
-    RuntimeProfile::Counter* _rows_read_counter;
-    RuntimeProfile::Counter* _read_timer;
     ScannerCounter _counter;
 
     bool _scanner_eof = false;

@@ -520,6 +520,13 @@ CONF_mInt64(memtable_max_buffer_size, "419430400");
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
 CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 
+// If the memory consumption of load jobs exceed load_process_max_memory_limit,
+// all load jobs will hang there to wait for memtable flush. We should have a
+// soft limit which can trigger the memtable flush for the load channel who
+// consumes lagest memory size before we reach the hard limit. The soft limit
+// might avoid all load jobs hang at the same time.
+CONF_Int32(load_process_soft_mem_limit_percent, "50");
+
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
 

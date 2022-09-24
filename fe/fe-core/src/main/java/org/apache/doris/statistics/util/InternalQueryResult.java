@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -31,66 +32,51 @@ import java.util.Map;
  * providing some read operations.
  */
 public class InternalQueryResult {
-    private static List<String> mateOfColumns;
-    private static List<PrimitiveType> mateOfTypes;
-
     private final List<ResultRow> resultRows = Lists.newArrayList();
 
-    public InternalQueryResult(List<String> columns, List<PrimitiveType> types) {
-        mateOfColumns = columns;
-        mateOfTypes = types;
+    public InternalQueryResult() {
     }
 
     public List<ResultRow> getResultRows() {
         return resultRows;
     }
 
-    public static List<String> getMateOfColumns() throws DdlException {
-        if (mateOfColumns == null) {
-            throw new DdlException("Failed to get the column names.");
-        }
-        return mateOfColumns;
-    }
-
-    public static List<PrimitiveType> getMateOfTypes() throws DdlException {
-        if (mateOfTypes == null) {
-            throw new DdlException("Failed to get the column types.");
-        }
-        return mateOfTypes;
-    }
-
     public static class ResultRow {
+        private final List<String> columns;
+        private final List<PrimitiveType> types;
         private final List<String> values;
 
         private final Map<String, Integer> columnNameMap = Maps.newHashMap();
         private final Map<Integer, String> columnIndexMap = Maps.newHashMap();
 
-        public ResultRow(List<String> values) throws DdlException {
+        public ResultRow(List<String> columns, List<PrimitiveType> types, List<String> values) {
+            this.columns = columns;
+            this.types = types;
             this.values = values;
             buildColumnNameMap();
             buildColumnIndexMap();
         }
 
-        public List<String> getColumns() throws DdlException {
-            return getMateOfColumns();
+        public List<String> getColumns() {
+            return columns != null ? columns : Collections.emptyList();
         }
 
-        public List<PrimitiveType> getTypes() throws DdlException {
-            return getMateOfTypes();
+        public List<PrimitiveType> getTypes() {
+            return types != null ? types : Collections.emptyList();
         }
 
         public List<String> getValues() {
-            return values != null ? values : Lists.newArrayList();
+            return values != null ? values : Collections.emptyList();
         }
 
-        private void buildColumnNameMap() throws DdlException {
+        private void buildColumnNameMap() {
             List<String> columns = getColumns();
             for (int i = 0; i < columns.size(); i++) {
                 columnNameMap.put(columns.get(i), i);
             }
         }
 
-        private void buildColumnIndexMap() throws DdlException {
+        private void buildColumnIndexMap() {
             List<String> columns = getColumns();
             for (int i = 0; i < columns.size(); i++) {
                 columnIndexMap.put(i, columns.get(i));
@@ -218,24 +204,19 @@ public class InternalQueryResult {
 
         @Override
         public String toString() {
-            try {
-                StringBuilder sb = new StringBuilder();
-                sb.append("ResultRow{ ");
-                if (values != null && values.size() > 0) {
-                    List<String> columns = getColumns();
-                    for (int i = 0; i < values.size(); i++) {
-                        sb.append(columns.get(i));
-                        sb.append(":");
-                        sb.append(values.get(i));
-                        sb.append(" ");
-                    }
+            StringBuilder sb = new StringBuilder();
+            sb.append("ResultRow{ ");
+            if (values != null && values.size() > 0) {
+                List<String> columns = getColumns();
+                for (int i = 0; i < values.size(); i++) {
+                    sb.append(columns.get(i));
+                    sb.append(":");
+                    sb.append(values.get(i));
+                    sb.append(" ");
                 }
-                sb.append("}");
-                return sb.toString();
-            } catch (DdlException ignored) {
-                return "ResultRow{" + "values=" + values + ", columnNameMap="
-                        + columnNameMap + ", columnIndexMap=" + columnIndexMap + '}';
             }
+            sb.append("}");
+            return sb.toString();
         }
     }
 

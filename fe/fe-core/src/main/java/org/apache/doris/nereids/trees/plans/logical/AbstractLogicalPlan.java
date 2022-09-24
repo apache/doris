@@ -43,7 +43,7 @@ public abstract class AbstractLogicalPlan extends AbstractPlan implements Logica
 
     public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
                                Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, groupExpression, logicalProperties, children);
+        super(type, groupExpression, logicalProperties, null, children);
     }
 
     @Override

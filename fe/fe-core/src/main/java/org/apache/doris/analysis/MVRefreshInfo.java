@@ -85,7 +85,7 @@ public class MVRefreshInfo {
         DEMAND, COMMIT, INTERVAL
     }
 
-    enum BuildMode {
+    public enum BuildMode {
         IMMEDIATE, DEFERRED
     }
 }
