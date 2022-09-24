@@ -1013,7 +1013,7 @@ public:
                 int32_t num = 0;
                 while (num < part_number) {
                     pre_offset = offset;
-                    size_t n = str.size - offset;
+                    size_t n = str.size - offset - 1;
                     const char* pos = reinterpret_cast<const char*>(
                             memchr(str.data + offset + 1, delimiter_str[0], n));
                     if (pos != nullptr) {
