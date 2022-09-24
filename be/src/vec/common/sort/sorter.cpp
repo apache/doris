@@ -93,9 +93,11 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
     for (int i = 0; i < _sort_description.size(); i++) {
         const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
         if (materialized) {
-            RETURN_IF_ERROR(ordering_expr->execute(&src_block, &_sort_description[i].column_number));
+            RETURN_IF_ERROR(
+                    ordering_expr->execute(&src_block, &_sort_description[i].column_number));
         } else {
-            RETURN_IF_ERROR(ordering_expr->execute(&dest_block, &_sort_description[i].column_number));
+            RETURN_IF_ERROR(
+                    ordering_expr->execute(&dest_block, &_sort_description[i].column_number));
         }
 
         _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
