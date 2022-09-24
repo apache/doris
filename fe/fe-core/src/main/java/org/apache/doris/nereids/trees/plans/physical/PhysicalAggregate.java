@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -99,8 +100,9 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
     public PhysicalAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             List<Expression> partitionExpressions, AggPhase aggPhase, boolean usingStream, boolean isFinalPhase,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, physicalProperties, child);
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
+                child);
         this.groupByExpressions = groupByExpressions;
         this.outputExpressions = outputExpressions;
         this.aggPhase = aggPhase;
@@ -199,8 +201,10 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
     }
 
     @Override
-    public PhysicalAggregate<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
+    public PhysicalAggregate<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult) {
         return new PhysicalAggregate<>(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-                usingStream, isFinalPhase, Optional.empty(), getLogicalProperties(), physicalProperties, child());
+                usingStream, isFinalPhase, Optional.empty(), getLogicalProperties(), physicalProperties,
+                statsDeriveResult, child());
     }
 }

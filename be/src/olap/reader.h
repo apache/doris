@@ -91,6 +91,7 @@ public:
         // use only in vec exec engine
         std::vector<uint32_t>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
+        TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
         // used for comapction to record row ids
         bool record_rowids = false;
