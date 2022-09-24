@@ -1048,7 +1048,7 @@ public class SelectStmt extends QueryStmt {
         // ii) Other DISTINCT aggregates are present.
         ExprSubstitutionMap countAllMap = createCountAllMap(aggExprs, analyzer);
         final ExprSubstitutionMap multiCountOrSumDistinctMap =
-                createSumOrCountMultiDistinctSMap(aggExprs, analyzer);
+                createSumOrCountMultiDistinctSMap(aggExprs, groupByClause != null, analyzer);
         countAllMap = ExprSubstitutionMap.compose(multiCountOrSumDistinctMap, countAllMap, analyzer);
         List<Expr> substitutedAggs =
                 Expr.substituteList(aggExprs, countAllMap, analyzer, false);
@@ -1175,7 +1175,7 @@ public class SelectStmt extends QueryStmt {
      * assumes that select list and having clause have been analyzed.
      */
     private ExprSubstitutionMap createSumOrCountMultiDistinctSMap(
-            ArrayList<FunctionCallExpr> aggExprs, Analyzer analyzer) throws AnalysisException {
+            ArrayList<FunctionCallExpr> aggExprs, boolean haveGrouping, Analyzer analyzer) throws AnalysisException {
         final List<FunctionCallExpr> distinctExprs = Lists.newArrayList();
         for (FunctionCallExpr aggExpr : aggExprs) {
             if (aggExpr.isDistinct()) {
@@ -1183,7 +1183,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         final ExprSubstitutionMap result = new ExprSubstitutionMap();
-        final boolean isUsingSetForDistinct = AggregateInfo.estimateIfUsingSetForDistinct(distinctExprs);
+        final boolean isUsingSetForDistinct = AggregateInfo.estimateIfUsingSetForDistinct(distinctExprs, haveGrouping);
         if (!isUsingSetForDistinct) {
             return result;
         }

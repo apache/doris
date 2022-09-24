@@ -203,7 +203,8 @@ public final class AggregateInfo extends AggregateInfoBase {
         // 1: if aggExprs don't have distinct or have multi distinct , create aggregate info for
         // one stage aggregation.
         // 2: if aggExprs have one distinct , create aggregate info for two stage aggregation
-        boolean isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs);
+        boolean isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs,
+                !groupingExprs.isEmpty());
         if (distinctAggExprs.isEmpty() || isUsingSetForDistinct) {
             // It is used to map new aggr expr to old expr to help create an external
             // reference to the aggregation node tuple
@@ -249,22 +250,25 @@ public final class AggregateInfo extends AggregateInfoBase {
 
 
     // note(wb): in some cases, using hashset for distinct is better
-    public static boolean isSetUsingSetForDistinct(List<FunctionCallExpr> distinctAggExprs) {
+    public static boolean isSetUsingSetForDistinct(List<FunctionCallExpr> distinctAggExprs,
+                                                   boolean haveGrouping) {
         boolean isSetUsingSetForDistinct = false;
         // for vectorized execution, we force it to using hash set to execution
         if (distinctAggExprs.size() == 1
                 && distinctAggExprs.get(0).getFnParams().isDistinct()
                 && VectorizedUtil.isVectorized()
+                && haveGrouping
                 && ConnectContext.get().getSessionVariable().enableSingleDistinctColumnOpt()) {
             isSetUsingSetForDistinct = true;
         }
         return isSetUsingSetForDistinct;
     }
 
-    public static boolean estimateIfUsingSetForDistinct(List<FunctionCallExpr> distinctAggExprs)
+    public static boolean estimateIfUsingSetForDistinct(List<FunctionCallExpr> distinctAggExprs,
+                                                        boolean haveGrouping)
             throws AnalysisException {
         return estimateIfContainsMultiDistinct(distinctAggExprs)
-                || isSetUsingSetForDistinct(distinctAggExprs);
+                || isSetUsingSetForDistinct(distinctAggExprs, haveGrouping);
     }
 
     /**
@@ -367,7 +371,7 @@ public final class AggregateInfo extends AggregateInfoBase {
             }
         }
 
-        this.isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs);
+        this.isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs, !groupingExprs.isEmpty());
 
         // add DISTINCT parameters to grouping exprs
         if (!isUsingSetForDistinct) {
