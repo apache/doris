@@ -29,6 +29,7 @@ NewOdbcScanner::NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int
                                MemTracker* mem_tracker, const TOdbcScanNode& odbc_scan_node)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, mem_tracker),
           _is_init(false),
+          _odbc_eof(false),
           _table_name(odbc_scan_node.table_name),
           _connect_string(odbc_scan_node.connect_string),
           _query_string(odbc_scan_node.query_string),
@@ -58,9 +59,9 @@ Status NewOdbcScanner::prepare(RuntimeState* state) {
     _odbc_param.query_string = std::move(_query_string);
     _odbc_param.tuple_desc = _tuple_desc;
 
-    _odbc_scanner.reset(new (std::nothrow) ODBCConnector(_odbc_param));
+    _odbc_connector.reset(new (std::nothrow) ODBCConnector(_odbc_param));
 
-    if (_odbc_scanner == nullptr) {
+    if (_odbc_connector == nullptr) {
         return Status::InternalError("new a odbc scanner failed.");
     }
 
@@ -89,8 +90,8 @@ Status NewOdbcScanner::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    RETURN_IF_ERROR(_odbc_scanner->open());
-    RETURN_IF_ERROR(_odbc_scanner->query());
+    RETURN_IF_ERROR(_odbc_connector->open());
+    RETURN_IF_ERROR(_odbc_connector->query());
     // check materialize slot num
 
     return Status::OK();
@@ -108,15 +109,17 @@ Status NewOdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     }
     RETURN_IF_CANCELLED(state);
 
+    if (_odbc_eof == true) {
+        *eof = true;
+        return Status::OK();
+    }
+
     auto column_size = _tuple_desc->slots().size();
     std::vector<MutableColumnPtr> columns(column_size);
 
     bool mem_reuse = block->mem_reuse();
     // only empty block should be here
     DCHECK(block->rows() == 0);
-
-    // Indicates whether there are more rows to process. Set in _odbc_scanner.next().
-    bool odbc_eof = false;
 
     do {
         RETURN_IF_CANCELLED(state);
@@ -136,10 +139,12 @@ Status NewOdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
                 break;
             }
 
-            RETURN_IF_ERROR(_odbc_scanner->get_next_row(&odbc_eof));
+            RETURN_IF_ERROR(_odbc_connector->get_next_row(&_odbc_eof));
 
-            if (odbc_eof) {
-                *eof = true;
+            if (_odbc_eof == true) {
+                if (block->rows() == 0) {
+                    *eof = true;
+                }
                 break;
             }
 
@@ -151,7 +156,8 @@ Status NewOdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
                 if (!slot_desc->is_materialized()) {
                     continue;
                 }
-                const auto& column_data = _odbc_scanner->get_column_data(materialized_column_index);
+                const auto& column_data =
+                        _odbc_connector->get_column_data(materialized_column_index);
 
                 char* value_data = static_cast<char*>(column_data.target_value_ptr);
                 int value_len = column_data.strlen_or_ind;
@@ -182,7 +188,7 @@ Status NewOdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
             }
         }
 
-        // Before really use the Block, muse clear other ptr of column in block
+        // Before really use the Block, must clear other ptr of column in block
         // So here need do std::move and clear in `columns`
         if (!mem_reuse) {
             int column_index = 0;

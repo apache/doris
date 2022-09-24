@@ -42,6 +42,9 @@ protected:
 private:
     bool _is_init;
 
+    // Indicates whether there are more rows to process. Set in _odbc_connector.next().
+    bool _odbc_eof;
+
     std::string _table_name;
 
     std::string _connect_string;
@@ -54,7 +57,7 @@ private:
     const TupleDescriptor* _tuple_desc;
 
     // Scanner of ODBC.
-    std::unique_ptr<ODBCConnector> _odbc_scanner;
+    std::unique_ptr<ODBCConnector> _odbc_connector;
     ODBCConnectorParam _odbc_param;
     // Helper class for converting text to other types;
     std::unique_ptr<TextConverter> _text_converter;
