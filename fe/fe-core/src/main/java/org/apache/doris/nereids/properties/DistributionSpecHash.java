@@ -28,6 +28,7 @@ import com.google.common.collect.Sets;
 
 import java.util.BitSet;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,7 +48,7 @@ public class DistributionSpecHash extends DistributionSpec {
     // below two attributes use for colocate join
     private final long tableId;
 
-    private final Set<Long> partitionIds;
+    private final List<Long> partitionIds;
 
     // use for satisfied judge
     private final List<Set<ExprId>> equivalenceExprIds;
@@ -58,19 +59,21 @@ public class DistributionSpecHash extends DistributionSpec {
      * Use for no need set table related attributes.
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType) {
-        this(orderedShuffledColumns, shuffleType, -1L, Collections.emptySet());
+        this(orderedShuffledColumns, shuffleType, -1L, Collections.emptyList());
     }
 
     /**
      * Use for merge two shuffle columns.
      */
     public DistributionSpecHash(List<ExprId> leftColumns, List<ExprId> rightColumns, ShuffleType shuffleType) {
-        this(leftColumns, shuffleType, -1L, Collections.emptySet());
+        this(leftColumns, shuffleType, -1L, Collections.emptyList());
         Objects.requireNonNull(rightColumns);
         Preconditions.checkArgument(leftColumns.size() == rightColumns.size());
-        for (int i = 0; i < rightColumns.size(); i++) {
-            exprIdToEquivalenceSet.put(rightColumns.get(i), i);
-            equivalenceExprIds.get(i).add(rightColumns.get(i));
+        int i = 0;
+        Iterator<Set<ExprId>> iter = equivalenceExprIds.iterator();
+        for (ExprId id : rightColumns) {
+            exprIdToEquivalenceSet.put(id, i++);
+            iter.next().add(id);
         }
     }
 
@@ -78,17 +81,17 @@ public class DistributionSpecHash extends DistributionSpec {
      * Normal constructor.
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
-            long tableId, Set<Long> partitionIds) {
+            long tableId, List<Long> partitionIds) {
         this.orderedShuffledColumns = Objects.requireNonNull(orderedShuffledColumns);
         this.shuffleType = Objects.requireNonNull(shuffleType);
-        this.tableId = tableId;
         this.partitionIds = Objects.requireNonNull(partitionIds);
-
+        this.tableId = tableId;
         equivalenceExprIds = Lists.newArrayListWithCapacity(orderedShuffledColumns.size());
-        exprIdToEquivalenceSet = Maps.newHashMap();
-        for (int i = 0; i < orderedShuffledColumns.size(); i++) {
-            exprIdToEquivalenceSet.put(orderedShuffledColumns.get(i), i);
-            equivalenceExprIds.add(Sets.newHashSet(orderedShuffledColumns.get(i)));
+        exprIdToEquivalenceSet = Maps.newHashMapWithExpectedSize(orderedShuffledColumns.size());
+        int i = 0;
+        for (ExprId id : orderedShuffledColumns) {
+            exprIdToEquivalenceSet.put(id, i++);
+            equivalenceExprIds.add(Sets.newHashSet(id));
         }
     }
 
@@ -96,7 +99,8 @@ public class DistributionSpecHash extends DistributionSpec {
      * Used in merge outside and put result into it.
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
-            Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds, Map<ExprId, Integer> exprIdToEquivalenceSet) {
+            List<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
+            Map<ExprId, Integer> exprIdToEquivalenceSet) {
         this.orderedShuffledColumns = Objects.requireNonNull(orderedShuffledColumns);
         this.shuffleType = Objects.requireNonNull(shuffleType);
         this.tableId = tableId;
@@ -114,7 +118,8 @@ public class DistributionSpecHash extends DistributionSpec {
             equivalenceExprId.addAll(right.getEquivalenceExprIds().get(i));
             equivalenceExprIds.add(equivalenceExprId);
         }
-        Map<ExprId, Integer> exprIdToEquivalenceSet = Maps.newHashMap();
+        Map<ExprId, Integer> exprIdToEquivalenceSet = Maps.newHashMapWithExpectedSize(
+                left.getExprIdToEquivalenceSet().size() + right.getExprIdToEquivalenceSet().size());
         exprIdToEquivalenceSet.putAll(left.getExprIdToEquivalenceSet());
         exprIdToEquivalenceSet.putAll(right.getExprIdToEquivalenceSet());
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType,
@@ -137,7 +142,7 @@ public class DistributionSpecHash extends DistributionSpec {
         return tableId;
     }
 
-    public Set<Long> getPartitionIds() {
+    public List<Long> getPartitionIds() {
         return partitionIds;
     }
 
@@ -246,6 +251,5 @@ public class DistributionSpecHash extends DistributionSpec {
         BUCKETED,
         // output, all distribute enforce
         ENFORCED,
-        ;
     }
 }
