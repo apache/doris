@@ -110,6 +110,16 @@ public:
         }
     }
 
+    void deserialize_and_merge_with_keys_from_column(AggregateDataPtr* places, const size_t offset,
+                                                     const IColumn& column, Arena* arena,
+                                                     size_t num_rows) const override {
+        auto data = assert_cast<const ColVecResult&>(column).get_data().data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            auto* dst_data = reinterpret_cast<Data*>(places[i] + offset);
+            dst_data->sum += data[i];
+        }
+    }
+
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         auto& col = assert_cast<ColVecResult&>(*dst);

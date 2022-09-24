@@ -151,6 +151,19 @@ public:
         memcpy(places, data, sizeof(Data) * num_rows);
     }
 
+    void deserialize_and_merge_with_keys_from_column(AggregateDataPtr* places, const size_t offset,
+                                                     const IColumn& column, Arena* arena,
+                                                     size_t num_rows) const override {
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
+        auto* src_data = reinterpret_cast<const Data*>(col.get_data().data());
+        for (size_t i = 0; i != num_rows; ++i) {
+            auto& data = this->data(places[i] + offset);
+            data.sum += src_data[i].sum;
+            data.count += src_data[i].count;
+        }
+    }
+
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);

@@ -21,6 +21,7 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
+#include <parallel_hashmap/phmap_dump.h>
 
 #include <type_traits>
 
@@ -38,6 +39,46 @@ namespace doris::vectorized {
 
 // Here is an empirical value.
 static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
+
+template <typename WritableBuffer>
+class BinaryOutputInMemory {
+public:
+    BinaryOutputInMemory(WritableBuffer& buffer) : _buffer(buffer) {}
+
+    bool dump(const char* p, size_t sz) {
+        _buffer.write(p, sz);
+        return true;
+    }
+
+    template <typename V>
+    bool dump(const V& v) {
+        write_pod_binary(v, _buffer);
+        return true;
+    }
+
+private:
+    WritableBuffer& _buffer;
+};
+
+template <typename ReadableBuffer>
+class BinaryInputInMemory {
+public:
+    BinaryInputInMemory(ReadableBuffer& buffer) : _buffer(buffer) {}
+
+    bool load(char* p, size_t sz) {
+        _buffer.read(p, sz);
+        return true;
+    }
+
+    template <typename V>
+    bool load(V* v) {
+        read_pod_binary(v, _buffer);
+        return true;
+    }
+
+private:
+    ReadableBuffer& _buffer;
+};
 
 /// uniqExact
 
@@ -168,24 +209,30 @@ public:
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& set = this->data(place).set;
-        write_var_uint(set.size(), buf);
-        for (const auto& elem : set) {
-            write_pod_binary(elem, buf);
-        }
+        BinaryOutputInMemory output(buf);
+        set.dump(output);
     }
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
                                Arena* arena) const override {
         auto& set = this->data(place).set;
-        size_t size;
-        read_var_uint(size, buf);
+        BinaryInputInMemory input(buf);
+        if (set.size() == 0) {
+            set.load(input);
+        } else {
+            Data src;
+            src.set.load(input);
+            set.merge(src.set);
+        }
+    }
 
-        set.rehash(size + set.size());
-
-        for (size_t i = 0; i < size; ++i) {
-            KeyType ref;
-            read_pod_binary(ref, buf);
-            set.insert(ref);
+    void deserialize_and_merge_with_keys_from_column(AggregateDataPtr* places, const size_t offset,
+                                                     const IColumn& column, Arena* arena,
+                                                     size_t num_rows) const override {
+        const auto& col = static_cast<const ColumnString&>(column);
+        for (size_t i = 0; i != num_rows; ++i) {
+            VectorBufferReader buffer_reader(col.get_data_at(i));
+            deserialize_and_merge(places[i] + offset, buffer_reader, arena);
         }
     }
 
