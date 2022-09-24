@@ -1076,20 +1076,17 @@ public class SelectStmt extends QueryStmt {
                         otherExprs.add(expr);
                     }
                 }
-                groupingExprs.clear();
-                groupingExprs.addAll(slotExprs);
+
+                ArrayList<Expr> removeExprs = new ArrayList<>();
                 for (Expr otherExpr : otherExprs) {
-                    boolean bKeep = true;
                     for (Expr slotExpr : slotExprs) {
                         if (otherExpr.islinearRelationship(((SlotRef) slotExpr).getSlotId())) {
-                            bKeep = false;
+                            removeExprs.add(otherExpr);
                             break;
                         }
                     }
-                    if (bKeep) {
-                        groupingExprs.add(otherExpr);
-                    }
                 }
+                groupingExprs.removeAll(removeExprs);
             }
 
             if (groupingInfo != null) {
