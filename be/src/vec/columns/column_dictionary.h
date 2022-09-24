@@ -375,6 +375,7 @@ public:
 
         void clear() {
             _dict_data->clear();
+            _code_convert_table.clear();
             _hash_values.clear();
         }
 
@@ -383,6 +384,7 @@ public:
         void sort() {
             size_t dict_size = _dict_data->size();
 
+            _code_convert_table.reserve(dict_size);
             _perm.resize(dict_size);
             for (size_t i = 0; i < dict_size; ++i) {
                 _perm[i] = i;
@@ -413,7 +415,7 @@ public:
 
         bool empty() { return _dict_data->empty(); }
 
-        size_t avg_str_len() { return _total_str_len / _dict_data->size(); }
+        size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
 
     private:
         StringValue _null_value = StringValue();
