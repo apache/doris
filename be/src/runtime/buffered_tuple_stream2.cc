@@ -208,6 +208,7 @@ Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_blo
     DCHECK(!_closed);
     *got_block = false;
     if (min_size > _block_mgr->max_block_size()) {
+        DCHECK(false);
         std::stringstream error_msg;
         error_msg << "Cannot process row that is bigger than the IO size (row_size="
                   << PrettyPrinter::print(min_size, TUnit::BYTES)
