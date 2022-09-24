@@ -122,9 +122,9 @@ TEST(GenericIteratorsTest, MergeAgg) {
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
-
+    uint64_t merged_rows = 0;
     auto iter = new_merge_iterator(
-            std::move(inputs), MemTracker::CreateTracker(-1, "MergeIterator", nullptr, false), -1, false);
+            std::move(inputs), MemTracker::CreateTracker(-1, "MergeIterator", nullptr, false), -1, false, &merged_rows);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());
@@ -166,7 +166,9 @@ TEST(GenericIteratorsTest, MergeUnique) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_merge_iterator(std::move(inputs), -1, true);
+    uint64_t merged_rows = 0;
+    auto iter = new_merge_iterator(
+    std::move(inputs), MemTracker::CreateTracker(-1, "MergeIterator", nullptr, false), -1, true, &merged_rows);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());

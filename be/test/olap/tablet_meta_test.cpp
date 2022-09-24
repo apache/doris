@@ -25,11 +25,12 @@ namespace doris {
 
 TEST(TabletMetaTest, SaveAndParse) {
     std::string meta_path = "./be/test/olap/test_data/tablet_meta_test.hdr";
-
-    TabletMeta old_tablet_meta(1, 2, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+    TTabletSchema tablet_schema;
+    tablet_schema.keys_type = ::doris::TKeysType::DUP_KEYS;
+    TabletMeta old_tablet_meta(1, 2, 3, 4, 5, tablet_schema, 6, {{7, 8}}, UniqueId(9, 10),
                                TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD,
                                TCompressionType::LZ4F);
-    EXPECT_EQ(Status::OK(), old_tablet_meta.save(meta_path));
+    EXPECT_EQ(OLAPStatus::OLAP_SUCCESS, old_tablet_meta.save(meta_path));
 
     {
         // Just to make stack space dirty

@@ -236,9 +236,11 @@ Status FragmentExecState::execute() {
             return cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "wait fragment start timeout");
         }
     }
+#ifndef BE_TEST
     if (_executor.runtime_state()->is_cancelled()) {
         return Status::Cancelled("cancelled before execution");
     }
+#endif // BE_TEST
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);

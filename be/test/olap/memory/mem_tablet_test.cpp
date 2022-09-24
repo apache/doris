@@ -70,7 +70,7 @@ TEST(MemTablet, writescan) {
     TabletMetaSharedPtr tablet_meta(
             new TabletMeta(1, 1, 1, 1, 1, tschema, static_cast<uint32_t>(sc->cid_size()),
                            col_idx_to_unique_id, TabletUid(1, 1), TTabletType::TABLET_TYPE_MEMORY,
-                           TStorageMedium::HDD));
+                           TStorageMedium::HDD,  TCompressionType::LZ4));
     std::shared_ptr<MemTablet> tablet = MemTablet::create_tablet_from_meta(tablet_meta, nullptr);
     ASSERT_TRUE(tablet->init().ok());
 

@@ -25,6 +25,7 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -53,6 +54,8 @@ public:
         _env->_thread_mgr = new ThreadResourceMgr();
         _env->_master_info = new TMasterInfo();
         _env->_load_stream_mgr = new LoadStreamMgr();
+        _env->_mem_tracker = std::make_shared<doris::MemTracker>(-1, "OldProcess");
+        _env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         ThreadPoolBuilder("SendBatchThreadPool")

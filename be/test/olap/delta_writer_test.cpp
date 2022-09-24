@@ -377,7 +377,7 @@ TEST_F(TestDeltaWriter, open) {
     SAFE_DELETE(delta_writer);
 
     // test vec delta writer
-    DeltaWriter::open(&write_req, &delta_writer, true);
+    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(OLAP_SUCCESS, res);

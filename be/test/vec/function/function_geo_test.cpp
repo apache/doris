@@ -175,7 +175,7 @@ TEST(function_geo_test, function_geo_st_contains) {
                 {{buf1, Null()}, Null()},
                 {{Null(), buf3}, Null()}};
 
-        check_function<DataTypeUInt8 , true>(func_name, input_types, data_set);
+       check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
 }
 

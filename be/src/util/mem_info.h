@@ -68,7 +68,13 @@ public:
     }
 
     static inline int64_t mem_limit() {
+#ifndef BE_TEST
         DCHECK(_s_initialized);
+#else
+        if(!_s_initialized) {
+            init();
+        }
+#endif // BE_TEST
         return _s_mem_limit;
     }
     static inline std::string mem_limit_str() {
