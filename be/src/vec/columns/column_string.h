@@ -153,17 +153,6 @@ public:
         offsets.push_back(new_size);
     }
 
-    void insert_data_without_reserve(const char* pos, size_t length) {
-        const size_t old_size = chars.size();
-        const size_t new_size = old_size + length;
-
-        if (length) {
-            chars.resize(new_size);
-            memcpy(chars.data() + old_size, pos, length);
-        }
-        offsets.push_back_without_reserve(new_size);
-    }
-
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         size_t new_size = 0;

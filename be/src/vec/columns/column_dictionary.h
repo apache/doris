@@ -192,13 +192,11 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
-        res_col->get_offsets().reserve(sel_size);
-        res_col->get_chars().reserve(_dict.avg_str_len() * sel_size);
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             auto& code = reinterpret_cast<T&>(_codes[n]);
             auto value = _dict.get_value(code);
-            res_col->insert_data_without_reserve(value.ptr, value.len);
+            res_col->insert_data(value.ptr, value.len);
         }
         return Status::OK();
     }
@@ -283,36 +281,42 @@ public:
 
     class Dictionary {
     public:
-        Dictionary() : _dict_data(new DictContainer()), _total_str_len(0) {};
+        Dictionary() = default;
 
-        void reserve(size_t n) { _dict_data->reserve(n); }
+        void reserve(size_t n) {
+            _dict_data.reserve(n);
+            _inverted_index.reserve(n);
+        }
 
         void insert_value(StringValue& value) {
-            _dict_data->push_back_without_reserve(value);
-            _total_str_len += value.len;
+            _dict_data.push_back_without_reserve(value);
+            _inverted_index[value] = _inverted_index.size();
         }
 
         int32_t find_code(const StringValue& value) const {
-            for (size_t i = 0; i < _dict_data->size(); i++) {
-                if ((*_dict_data)[i] == value) {
-                    return i;
-                }
+            auto it = _inverted_index.find(value);
+            if (it != _inverted_index.end()) {
+                return it->second;
             }
             return -2; // -1 is null code
         }
 
         T get_null_code() const { return -1; }
 
-        inline StringValue& get_value(T code) { return (*_dict_data)[code]; }
+        inline StringValue& get_value(T code) {
+            return code >= _dict_data.size() ? _null_value : _dict_data[code];
+        }
 
-        inline const StringValue& get_value(T code) const { return (*_dict_data)[code]; }
+        inline const StringValue& get_value(T code) const {
+            return code >= _dict_data.size() ? _null_value : _dict_data[code];
+        }
 
         // The function is only used in the runtime filter feature
         inline void generate_hash_values_for_runtime_filter(FieldType type) {
             if (_hash_values.empty()) {
-                _hash_values.resize(_dict_data->size());
-                for (size_t i = 0; i < _dict_data->size(); i++) {
-                    auto& sv = (*_dict_data)[i];
+                _hash_values.resize(_dict_data.size());
+                for (size_t i = 0; i < _dict_data.size(); i++) {
+                    auto& sv = _dict_data[i];
                     // The char data is stored in the disk with the schema length,
                     // and zeros are filled if the length is insufficient
 
@@ -356,50 +360,40 @@ public:
             if (code >= 0) {
                 return code;
             }
-            auto bound = std::upper_bound(_dict_data->begin(), _dict_data->end(), value) -
-                         _dict_data->begin();
+            auto bound = std::upper_bound(_dict_data.begin(), _dict_data.end(), value) -
+                         _dict_data.begin();
             return greater ? bound - greater + eq : bound - eq;
         }
 
         void find_codes(const phmap::flat_hash_set<StringValue>& values,
                         std::vector<vectorized::UInt8>& selected) const {
-            size_t dict_word_num = _dict_data->size();
+            size_t dict_word_num = _dict_data.size();
             selected.resize(dict_word_num);
             selected.assign(dict_word_num, false);
-            for (size_t i = 0; i < _dict_data->size(); i++) {
-                if (values.find((*_dict_data)[i]) != values.end()) {
-                    selected[i] = true;
+            for (const auto& value : values) {
+                if (auto it = _inverted_index.find(value); it != _inverted_index.end()) {
+                    selected[it->second] = true;
                 }
             }
         }
 
         void clear() {
-            _dict_data->clear();
+            _dict_data.clear();
+            _inverted_index.clear();
+            _code_convert_table.clear();
             _hash_values.clear();
         }
 
         void clear_hash_values() { _hash_values.clear(); }
 
         void sort() {
-            size_t dict_size = _dict_data->size();
-
-            _perm.resize(dict_size);
+            size_t dict_size = _dict_data.size();
+            _code_convert_table.reserve(dict_size);
+            std::sort(_dict_data.begin(), _dict_data.end(), _comparator);
             for (size_t i = 0; i < dict_size; ++i) {
-                _perm[i] = i;
+                _code_convert_table[_inverted_index.find(_dict_data[i])->second] = (T)i;
+                _inverted_index[_dict_data[i]] = (T)i;
             }
-
-            std::sort(_perm.begin(), _perm.end(),
-                      [&dict_data = *_dict_data, &comparator = _comparator](const size_t a,
-                                                                            const size_t b) {
-                          return comparator(dict_data[a], dict_data[b]);
-                      });
-
-            auto new_dict_data = new DictContainer(dict_size);
-            for (size_t i = 0; i < dict_size; ++i) {
-                _code_convert_table[_perm[i]] = (T)i;
-                (*new_dict_data)[i] = (*_dict_data)[_perm[i]];
-            }
-            _dict_data.reset(new_dict_data);
         }
 
         T convert_code(const T& code) const {
@@ -409,17 +403,18 @@ public:
             return _code_convert_table[code];
         }
 
-        size_t byte_size() { return _dict_data->size() * sizeof((*_dict_data)[0]); }
+        size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 
-        bool empty() { return _dict_data->empty(); }
-
-        size_t avg_str_len() { return _total_str_len / _dict_data->size(); }
+        bool empty() { return _dict_data.empty(); }
 
     private:
         StringValue _null_value = StringValue();
         StringValue::Comparator _comparator;
         // dict code -> dict value
-        std::unique_ptr<DictContainer> _dict_data;
+        DictContainer _dict_data;
+        // dict value -> dict code
+        phmap::flat_hash_map<StringValue, T, StringValue::HashOfStringValue> _inverted_index;
+        // only used for range comparison predicate. _code_convert_table[i] = j, where i is dataPageCode, and j is sortedDictCode
         std::vector<T> _code_convert_table;
         // hash value of origin string , used for bloom filter
         // It's a trade-off of space for performance
@@ -427,8 +422,6 @@ public:
         // This may because the magnitude of the data is not large enough(in q60, only about 80k rows data is filtered for largest table)
         // So we may need more test here.
         HashValueContainer _hash_values;
-        IColumn::Permutation _perm;
-        size_t _total_str_len;
     };
 
 private:
