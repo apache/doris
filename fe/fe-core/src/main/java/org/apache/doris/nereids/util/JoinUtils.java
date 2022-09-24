@@ -156,8 +156,11 @@ public class JoinUtils {
     public static Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
                 AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
 
-        ImmutableList.Builder<ExprId> builder1 = new ImmutableList.Builder<>();
-        ImmutableList.Builder<ExprId> builder2 = new ImmutableList.Builder<>();
+        List<ExprId> exprIds1 = Lists.newArrayList();
+        List<ExprId> exprIds2 = Lists.newArrayList();
+
+        // ImmutableList.Builder<ExprId> builder1 = new ImmutableList.Builder<>();
+        // ImmutableList.Builder<ExprId> builder2 = new ImmutableList.Builder<>();
 
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(
                 join.left().getOutputExprIdSet(),
@@ -171,17 +174,17 @@ public class JoinUtils {
 
             if (checker.isCoveredByLeftSlots(leftExprId)
                     && checker.isCoveredByRightSlots(rightExprId)) {
-                builder1.add(leftExprId);
-                builder2.add(rightExprId);
+                exprIds1.add(leftExprId);
+                exprIds2.add(rightExprId);
             } else if (checker.isCoveredByLeftSlots(rightExprId)
                     && checker.isCoveredByRightSlots(leftExprId)) {
-                builder1.add(rightExprId);
-                builder2.add(leftExprId);
+                exprIds1.add(rightExprId);
+                exprIds2.add(leftExprId);
             } else {
                 throw new RuntimeException("Could not generate valid equal on clause slot pairs for join: " + join);
             }
         }
-        return Pair.of(builder1.build(), builder2.build());
+        return Pair.of(exprIds1, exprIds2);
     }
 
     public static boolean shouldNestedLoopJoin(Join join) {
