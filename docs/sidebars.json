@@ -360,7 +360,7 @@
                                 "sql-manual/sql-functions/string-functions/null_or_empty",
                                 "sql-manual/sql-functions/string-functions/hex",
                                 "sql-manual/sql-functions/string-functions/unhex",
-                                "sql-manual/sql-functions/string-functions/etl",
+                                "sql-manual/sql-functions/string-functions/elt",
                                 "sql-manual/sql-functions/string-functions/instr",
                                 "sql-manual/sql-functions/string-functions/locate",
                                 "sql-manual/sql-functions/string-functions/find_in_set",
