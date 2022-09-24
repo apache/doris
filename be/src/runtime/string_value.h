@@ -137,7 +137,12 @@ struct StringValue {
         return string_compare(this->ptr, this->len, other.ptr, other.len, this->len) == 0;
     }
 
-    bool operator==(const StringValue& other) const { return eq(other); }
+    bool operator==(const StringValue& other) const {
+        if (this->len == 0 && other.len == 0) {
+            return true;
+        }
+        return eq(other);
+    }
     // !=
     bool ne(const StringValue& other) const { return !eq(other); }
     // <=
@@ -149,7 +154,12 @@ struct StringValue {
     // >
     bool gt(const StringValue& other) const { return compare(other) > 0; }
 
-    bool operator!=(const StringValue& other) const { return ne(other); }
+    bool operator!=(const StringValue& other) const {
+        if (this->len == 0 && other.len == 0) {
+            return false;
+        }
+        return ne(other);
+    }
 
     bool operator<=(const StringValue& other) const { return le(other); }
 
