@@ -28,6 +28,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "util/bitmap.h"
+#include "util/countdown_latch.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
 
@@ -81,13 +82,15 @@ public:
     // eg. flush the largest memtable immediately.
     // return Status::OK if mem is reduced.
     // no-op when this channel has been closed or cancelled
-    Status reduce_mem_usage(int64_t mem_limit);
+    Status reduce_mem_usage();
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
 private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
+
+    void _try_to_wait_flushing();
 
     // deal with DeltaWriter close_wait(), add tablet to list for return.
     void _close_wait(DeltaWriter* writer,
@@ -129,6 +132,12 @@ private:
     // If a tablet write fails, it's id will be added to this set.
     // So that following batch will not handle this tablet anymore.
     std::unordered_set<int64_t> _broken_tablets;
+
+    bool _reducing_mem_usage = false;
+    // only one thread can reduce memory for one TabletsChannel.
+    // if some other thread call `reduce_memory_usage` at the same time,
+    // it will wait on this condition variable.
+    std::condition_variable _reduce_memory_cond;
 
     std::unordered_set<int64_t> _partition_ids;
 

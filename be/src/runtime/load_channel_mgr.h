@@ -60,6 +60,7 @@ private:
     // check if the total load mem consumption exceeds limit.
     // If yes, it will pick a load channel to try to reduce memory consumption.
     Status _handle_mem_exceed_limit();
+    void _try_to_wait_flushing();
 
     Status _start_bg_worker();
 
@@ -68,10 +69,17 @@ private:
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
+    std::shared_ptr<LoadChannel> _reduce_memory_channel = nullptr;
     Cache* _last_success_channel = nullptr;
 
     // check the total load mem consumption of this Backend
     std::shared_ptr<MemTracker> _mem_tracker;
+    int64_t _load_process_soft_mem_limit = -1;
+
+    // If hard limit reached, one thread will trigger load channel flush,
+    // other threads should wait on the condition variable.
+    bool _should_wait_flush = false;
+    std::condition_variable _wait_flush_cond;
 
     CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels

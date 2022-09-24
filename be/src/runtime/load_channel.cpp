@@ -85,15 +85,12 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         channel = it->second;
     }
 
-    // 2. check if mem consumption exceed limit
-    RETURN_IF_ERROR(handle_mem_exceed_limit(false));
-
-    // 3. add batch to tablets channel
+    // 2. add batch to tablets channel
     if (request.has_row_batch()) {
         RETURN_IF_ERROR(channel->add_batch(request, response));
     }
 
-    // 4. handle eos
+    // 3. handle eos
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
@@ -110,22 +107,21 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
     _last_updated_time.store(time(nullptr));
     return st;
 }
-
-Status LoadChannel::handle_mem_exceed_limit(bool force) {
-    // lock so that only one thread can check mem limit
-    std::lock_guard<std::mutex> l(_lock);
-    if (!(force || _mem_tracker->limit_exceeded())) {
-        return Status::OK();
-    }
-
-    if (!force) {
-        LOG(INFO) << "reducing memory of " << *this << " because its mem consumption "
-                  << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
-    }
-
+Status LoadChannel::handle_mem_exceed_limit() {
+    bool found = false;
     std::shared_ptr<TabletsChannel> channel;
-    if (_find_largest_consumption_channel(&channel)) {
-        return channel->reduce_mem_usage(_mem_tracker->limit());
+    {
+        // lock so that only one thread can check mem limit
+        std::lock_guard<std::mutex> l(_lock);
+
+        LOG(INFO) << "reducing memory of " << *this
+                  << " ,mem consumption: " << _mem_tracker->consumption();
+        found = _find_largest_consumption_channel(&channel);
+    }
+    // Release lock so that other threads can still call add_batch concurrently.
+    if (found) {
+        DCHECK(channel != nullptr);
+        return channel->reduce_mem_usage();
     } else {
         // should not happen, add log to observe
         LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
