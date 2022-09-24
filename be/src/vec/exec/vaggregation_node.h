@@ -978,28 +978,34 @@ private:
                         column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
                     }
 
-                    size_t buffer_size =
-                            _aggregate_evaluators[i]->function()->size_of_data() * rows;
-                    if (_deserialize_buffer.size() < buffer_size) {
-                        _deserialize_buffer.resize(buffer_size);
-                    }
-
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
-                        _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
+                        // _aggregate_evaluators[i]->function()->deserialize_from_column(
+                        //         _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
+
+                        _aggregate_evaluators[i]
+                                ->function()
+                                ->deserialize_and_merge_with_keys_from_column(
+                                        _places.data(), _offsets_of_aggregate_states[i], *column,
+                                        &_agg_arena_pool, rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
+
+                        size_t buffer_size =
+                                _aggregate_evaluators[i]->function()->size_of_data() * rows;
+                        if (_deserialize_buffer.size() < buffer_size) {
+                            _deserialize_buffer.resize(buffer_size);
+                        }
                         _aggregate_evaluators[i]->function()->deserialize_vec(
                                 _deserialize_buffer.data(), (ColumnString*)(column.get()),
                                 &_agg_arena_pool, rows);
-                    }
-                    _aggregate_evaluators[i]->function()->merge_vec(
-                            _places.data(), _offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
+                        _aggregate_evaluators[i]->function()->merge_vec(
+                                _places.data(), _offsets_of_aggregate_states[i],
+                                _deserialize_buffer.data(), &_agg_arena_pool, rows);
 
-                    _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
-                                                                      rows);
+                        _aggregate_evaluators[i]->function()->destroy_vec(
+                                _deserialize_buffer.data(), rows);
+                    }
 
                 } else {
                     _aggregate_evaluators[i]->execute_batch_add(block,

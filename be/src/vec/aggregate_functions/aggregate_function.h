@@ -144,6 +144,11 @@ public:
     virtual void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
                                                    const IColumn& column, Arena* arena) const = 0;
 
+    virtual void deserialize_and_merge_with_keys_from_column(AggregateDataPtr* places,
+                                                             const size_t offset,
+                                                             const IColumn& column, Arena* arena,
+                                                             size_t num_rows) const = 0;
+
     /// Returns true if a function requires Arena to handle own states (see add(), merge(), deserialize()).
     virtual bool allocates_memory_in_arena() const { return false; }
 
@@ -345,6 +350,21 @@ public:
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
                                  size_t num_rows) const override {
         deserialize_vec(places, assert_cast<const ColumnString*>(&column), arena, num_rows);
+    }
+
+    void deserialize_and_merge_with_keys_from_column(AggregateDataPtr* places, const size_t offset,
+                                                     const IColumn& column, Arena* arena,
+                                                     size_t num_rows) const override {
+        const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
+        char tmp[size_of_data];
+        for (size_t i = 0; i != num_rows; ++i) {
+            VectorBufferReader buffer_reader(
+                    assert_cast<const ColumnString&>(column).get_data_at(i));
+            static_cast<const Derived*>(this)->create(tmp);
+            static_cast<const Derived*>(this)->deserialize(tmp, buffer_reader, arena);
+            static_cast<const Derived*>(this)->merge(places[i] + offset, tmp, arena);
+            static_cast<const Derived*>(this)->destroy(tmp);
+        }
     }
 
     void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,

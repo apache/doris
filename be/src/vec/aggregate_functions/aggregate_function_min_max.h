@@ -487,6 +487,21 @@ public:
         }
     }
 
+    void deserialize_and_merge_with_keys_from_column(AggregateDataPtr* places, const size_t offset,
+                                                     const IColumn& column, Arena* arena,
+                                                     size_t num_rows) const override {
+        if constexpr (Data::IsFixedLength) {
+            const auto& col = static_cast<const ColumnFixedLengthObject&>(column);
+            auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
+            for (size_t i = 0; i != num_rows; ++i) {
+                *reinterpret_cast<Data*>(places[i] + offset) = column_data[i];
+            }
+        } else {
+            Base::deserialize_and_merge_with_keys_from_column(places, offset, column, arena,
+                                                              num_rows);
+        }
+    }
+
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
