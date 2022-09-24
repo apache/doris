@@ -361,6 +361,7 @@
                                 "sql-manual/sql-functions/string-functions/hex",
                                 "sql-manual/sql-functions/string-functions/unhex",
                                 "sql-manual/sql-functions/string-functions/instr",
+                                "sql-manual/sql-functions/string-functions/etl",
                                 "sql-manual/sql-functions/string-functions/locate",
                                 "sql-manual/sql-functions/string-functions/find_in_set",
                                 "sql-manual/sql-functions/string-functions/replace",
