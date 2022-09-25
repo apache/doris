@@ -18,6 +18,8 @@
 #pragma once
 
 #include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -163,6 +165,21 @@ private:
 
     private:
         bool _check_length;
+        PaddedPODArray<Slice> _slice;
+    };
+
+    class OlapColumnDataConvertorJsonb : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorJsonb() = default;
+        ~OlapColumnDataConvertorJsonb() override = default;
+
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override;
+        Status convert_to_olap() override;
+
+    private:
         PaddedPODArray<Slice> _slice;
     };
 
