@@ -29,7 +29,10 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/mem_pool.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_utils.h"
 #include "util/mem_util.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
@@ -548,6 +551,10 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
 };
 template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_STRING> {
+    using CppType = Slice;
+};
+template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_JSONB> {
     using CppType = Slice;
 };
 template <>
@@ -1554,6 +1561,65 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
     }
 
     static void set_to_min(void* buf) {
+        auto slice = reinterpret_cast<Slice*>(buf);
+        slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
+    static int cmp(const void* left, const void* right) {
+        LOG(WARNING) << "can not compare JSONB values";
+        return -1; // always update ?
+    }
+
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        JsonBinaryValue binary_val(scan_key.c_str(), scan_key.size());
+        auto jdoc = JsonbDocument::createDocument(binary_val.value(), binary_val.size());
+        size_t value_len = jdoc->numPackedBytes();
+        if (value_len > config::jsonb_type_length_soft_limit_bytes) {
+            LOG(WARNING) << "the len of value json is too long, len=" << value_len
+                         << ", max_len=" << config::jsonb_type_length_soft_limit_bytes;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        }
+
+        auto slice = reinterpret_cast<Slice*>(buf);
+        memory_copy(slice->data, reinterpret_cast<const char*>(jdoc->getValue()), value_len);
+        slice->size = value_len;
+        return Status::OK();
+    }
+
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
+                               MemPool* mem_pool, size_t variable_len = 0) {
+        JsonbToJson toStr;
+        switch (src_type->type()) {
+        // TODO(wzy): JSONB should support all numerics
+        case OLAP_FIELD_TYPE_CHAR:
+        case OLAP_FIELD_TYPE_VARCHAR:
+        case OLAP_FIELD_TYPE_STRING: {
+            auto s = src_type->to_string(src);
+            JsonBinaryValue binary_val(s.c_str(), s.size());
+            std::string result = toStr.jsonb_to_string(
+                    JsonbDocument::createDocument(binary_val.value(), binary_val.size())
+                            ->getValue());
+            auto slice = reinterpret_cast<Slice*>(dest);
+            slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
+            memcpy(slice->data, result.c_str(), result.size());
+            slice->size = result.size();
+            return Status::OK();
+        }
+        default:
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
+        }
+    }
+
+    static void set_to_min(void* buf) {
+        auto slice = reinterpret_cast<Slice*>(buf);
+        slice->size = 0;
+    }
+
+    static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
     }
