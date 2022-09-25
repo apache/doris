@@ -21,6 +21,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_jsonb.h"
 
 namespace doris::vectorized {
 
@@ -102,6 +103,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_VARCHAR:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
+    case TYPE_JSONB:
+        nested = std::make_shared<vectorized::DataTypeJsonb>();
+        break;
     case TYPE_HLL:
         nested = std::make_shared<vectorized::DataTypeHLL>();
         break;
@@ -182,6 +186,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<vectorized::DataTypeString>();
         break;
+    case OLAP_FIELD_TYPE_JSONB:
+        result = std::make_shared<vectorized::DataTypeJsonb>();
+        break;
     case OLAP_FIELD_TYPE_HLL:
         result = std::make_shared<vectorized::DataTypeHLL>();
         break;
@@ -245,6 +252,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::STRING:
         nested = std::make_shared<DataTypeString>();
+        break;
+    case PGenericType::JSONB:
+        nested = std::make_shared<DataTypeJsonb>();
         break;
     case PGenericType::DATE:
         nested = std::make_shared<DataTypeDate>();

@@ -100,7 +100,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         init_column_meta(opts.meta, &column_id, column, _tablet_schema);
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
-        // and not support zone map for array type.
+        // and not support zone map for array type and jsonb type.
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
         opts.need_bloom_filter = column.is_bf_column();
         opts.need_bitmap_index = column.has_bitmap_index();
@@ -111,6 +111,15 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
             }
             if (opts.need_bitmap_index) {
                 return Status::NotSupported("Do not support bitmap index for array type");
+            }
+        }
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_JSONB) {
+            opts.need_zone_map = false;
+            if (opts.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for jsonb type");
+            }
+            if (opts.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for jsonb type");
             }
         }
 
