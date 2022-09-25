@@ -23,7 +23,7 @@
 
 namespace doris::vectorized {
 
-static constexpr size_t initPageHeaderSize = 128;
+static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
 PageReader::PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length)
         : _reader(reader), _start_offset(offset), _end_offset(offset + length) {}
@@ -41,19 +41,19 @@ Status PageReader::next_page_header() {
 
     const uint8_t* page_header_buf = nullptr;
     size_t max_size = _end_offset - _offset;
-    size_t header_size = std::min(initPageHeaderSize, max_size);
+    size_t header_size = std::min(INIT_PAGE_HEADER_SIZE, max_size);
+    const size_t MAX_PAGE_HEADER_SIZE = config::parquet_header_max_size_mb << 20;
     uint32_t real_header_size = 0;
     while (true) {
         header_size = std::min(header_size, max_size);
-        RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, &header_size));
+        RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size));
         real_header_size = header_size;
         auto st =
                 deserialize_thrift_msg(page_header_buf, &real_header_size, true, &_cur_page_header);
         if (st.ok()) {
             break;
         }
-        if (_offset + header_size >= _end_offset ||
-            real_header_size > config::parquet_header_max_size) {
+        if (_offset + header_size >= _end_offset || real_header_size > MAX_PAGE_HEADER_SIZE) {
             return Status::IOError("Failed to deserialize parquet page header");
         }
         header_size <<= 2;
@@ -80,7 +80,6 @@ Status PageReader::get_page_data(Slice& slice) {
     }
     slice.size = _cur_page_header.compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset));
-    DCHECK_EQ(slice.size, _cur_page_header.compressed_page_size);
     _offset += slice.size;
     _state = INITIALIZED;
     return Status::OK();

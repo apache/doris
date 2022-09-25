@@ -153,7 +153,7 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_size = chunk_meta.total_compressed_size;
-    BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size);
+    BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
