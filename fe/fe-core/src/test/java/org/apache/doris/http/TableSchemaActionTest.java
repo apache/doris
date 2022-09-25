@@ -44,7 +44,7 @@ public class TableSchemaActionTest extends DorisHttpTestCase {
         assertTrue(response.isSuccessful());
         String respStr = response.body().string();
         Assert.assertNotNull(respStr);
-        JSONObject object = (JSONObject) JSONValue.parse(respStr);
+        JSONObject object = (JSONObject) ((JSONObject) JSONValue.parse(respStr)).get("data");
         Assert.assertEquals(200, (long) object.get("status"));
         JSONArray propArray = (JSONArray) object.get("properties");
         // k1, k2

@@ -76,7 +76,7 @@ public class TableFunctionPlanTest {
     public void normalTableFunction() throws Exception {
         String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
@@ -91,7 +91,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`k1`"));
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
@@ -107,10 +107,10 @@ public class TableFunctionPlanTest {
                 + "group by k1, e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         // group by node with k1, e1
-        Assert.assertTrue(explainString.contains("2:AGGREGATE (update finalize)"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 2, "AGGREGATE (update finalize)"));
         Assert.assertTrue(explainString.contains("group by: `k1`, `e1`"));
         // table function node
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
@@ -127,7 +127,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp as e1 "
                 + "where e1='1'; ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("PREDICATES: `e1` = '1'"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
@@ -143,12 +143,12 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp as e1 "
                 + "where k1=1; ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
-        Assert.assertTrue(explainString.contains("0:OlapScanNode"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
         Assert.assertTrue(explainString.contains("PREDICATES: `k1` = 1"));
     }
 
@@ -161,7 +161,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1, e1, e2 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
                 + " lateral view explode_split(k2, \",\") tmp2 as e2;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',') explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1 2"));
         // lateral view 2 tuple
@@ -211,7 +211,7 @@ public class TableFunctionPlanTest {
     public void nonProjectSourceColumn() throws Exception {
         String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
         Assert.assertTrue(explainString.contains("output slot id: 1 2"));
@@ -228,7 +228,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1, sum(cast(e1 as int)) from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
                 + " group by k1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
         Assert.assertTrue(explainString.contains("output slot id: 1 2"));
@@ -245,7 +245,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
                 + " where k2=1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
         Assert.assertTrue(explainString.contains("output slot id: 1 2"));
@@ -262,7 +262,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select a.k1, tmp1.e1 from db1.tbl1 a lateral view explode_split(k2, \",\") tmp1 as e1"
                 + " right join db1.tbl1 b on a.k1=b.k1 where a.k2=1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE");
         Assert.assertTrue(explainString.contains("table function: explode_split(`a`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
         Assert.assertTrue(explainString.contains("output slot id: 0 1 2"));
@@ -280,7 +280,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select a.k1 from db1.tbl1 a lateral view explode_split(k2, \",\") tmp1 as e1"
                 + " left join db1.tbl1 b on a.k1=b.k1 where a.k2=1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`a`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
         Assert.assertTrue(explainString.contains("output slot id: 2"));
@@ -335,7 +335,7 @@ public class TableFunctionPlanTest {
     public void scalarFunctionInLateralView() throws Exception {
         String sql = "desc verbose select a.k1 from db1.tbl1 a lateral view explode_split(concat(k2, ',' , k3), \",\") tmp1 as e1 ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(concat(`a`.`k2`, ',', `a`.`k3`), ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
         Assert.assertTrue(explainString.contains("output slot id: 3"));
@@ -352,7 +352,7 @@ public class TableFunctionPlanTest {
     public void lateralViewColumnOfReduceTuple() throws Exception {
         String sql = "desc verbose select e1 from (select k2 as c1 from db1.tbl1) a lateral view explode_split(c1, \",\") tmp1 as e1 ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 2"));
         Assert.assertTrue(explainString.contains("output slot id: 2"));
@@ -368,7 +368,7 @@ public class TableFunctionPlanTest {
     public void aggInlineView() throws Exception {
         String sql = "desc verbose select e1 from (select k2 as c1 from db1.tbl1 group by c1) a lateral view explode_split(c1, \",\") tmp1 as e1 ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 2, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split( `k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 3"));
@@ -385,7 +385,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select c1, e1 from (select k1 as c1, min(k2) as c2 from db1.tbl1 group by c1) a "
                 + "lateral view explode_split(c2, \",\") tmp1 as e1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 2, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(<slot 3> min(`k2`), ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 2 6"));
@@ -422,7 +422,6 @@ public class TableFunctionPlanTest {
     public void testExplodeBitmap() throws Exception {
         String sql = "desc select k1, e1 from db1.tbl2 lateral view explode_bitmap(v1) tmp1 as e1 ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("table function: explode_bitmap(`default_cluster:db1`.`tbl2`.`v1`)"));
         Assert.assertTrue(explainString.contains("output slot id: 1 2"));
     }
@@ -431,19 +430,16 @@ public class TableFunctionPlanTest {
     public void testExplodeJsonArray() throws Exception {
         String sql = "desc select k1, e1 from db1.tbl2 lateral view explode_json_array_int('[1,2,3]') tmp1 as e1 ";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("table function: explode_json_array_int('[1,2,3]')"));
         Assert.assertTrue(explainString.contains("output slot id: 0 1"));
 
         sql = "desc select k1, e1 from db1.tbl2 lateral view explode_json_array_string('[\"a\",\"b\",\"c\"]') tmp1 as e1 ";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("table function: explode_json_array_string('[\"a\",\"b\",\"c\"]')"));
         Assert.assertTrue(explainString.contains("output slot id: 0 1"));
 
         sql = "desc select k1, e1 from db1.tbl2 lateral view explode_json_array_double('[1.1, 2.2, 3.3]') tmp1 as e1 ";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("table function: explode_json_array_double('[1.1, 2.2, 3.3]')"));
         Assert.assertTrue(explainString.contains("output slot id: 0 1"));
     }
@@ -471,7 +467,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select min(c1) from (select c1 from (select k1 as c1, min(k2) as c2 from db1.tbl1 group by c1) a "
                 + "lateral view explode_split(c2, \",\") tmp1 as e1) tmp2";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 2, "TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(<slot 3> min(`k2`), ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 2"));

@@ -67,6 +67,6 @@ public class SetVariableTest {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, setStr);
         stmtExecutor.execute();
-        Assert.assertEquals(21474836480L, connectContext.getSessionVariable().getMaxExecMemByte());
+        Assert.assertEquals(42949672960L, connectContext.getSessionVariable().getMaxExecMemByte());
     }
 }

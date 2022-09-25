@@ -556,7 +556,7 @@ public class MaterializedViewFunctionTest {
                 "(select deptno, sum(salary) from " + EMPS_TABLE_NAME + " where deptno >200 group by deptno) B "
                 + "using (deptno);";
         dorisAssert.withMaterializedView(createEmpsMVSQL01).withMaterializedView(createEmpsMVSQL02).query(query)
-                .explainContains("rollup: emp_mv_01", "rollup: emp_mv_02");
+                .explainContains("(emp_mv_01)", "(emp_mv_02)");
     }
 
     @Test

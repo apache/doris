@@ -286,5 +286,11 @@ public class UtFrameUtils {
             return null;
         }
     }
+
+    public static boolean checkPlanResultContainsNode(String planResult, int idx, String nodeName) {
+        String realNodeName = idx + ":" + nodeName;
+        String realVNodeName = idx + ":V" + nodeName;
+        return planResult.contains(realNodeName) || planResult.contains(realVNodeName);
+    }
 }
 
