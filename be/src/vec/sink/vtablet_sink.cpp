@@ -80,6 +80,7 @@ Status VNodeChannel::open_wait() {
     // add block closure
     _add_block_closure = ReusableClosure<PTabletWriterAddBlockResult>::create();
     _add_block_closure->addFailedHandler([this](bool is_last_rpc) {
+        SCOPED_ATTACH_TASK(_state);
         std::lock_guard<std::mutex> l(this->_closed_lock);
         if (this->_is_closed) {
             // if the node channel is closed, no need to call `mark_as_failed`,
@@ -101,6 +102,7 @@ Status VNodeChannel::open_wait() {
 
     _add_block_closure->addSuccessHandler([this](const PTabletWriterAddBlockResult& result,
                                                  bool is_last_rpc) {
+        SCOPED_ATTACH_TASK(_state);
         std::lock_guard<std::mutex> l(this->_closed_lock);
         if (this->_is_closed) {
             // if the node channel is closed, no need to call the following logic,
@@ -349,12 +351,20 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
         _add_block_closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
         _add_block_closure->cntl.http_request().set_content_type("application/json");
-        _brpc_http_stub->tablet_writer_add_block_by_http(
-                &_add_block_closure->cntl, NULL, &_add_block_closure->result, _add_block_closure);
+
+        {
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, NULL,
+                                                             &_add_block_closure->result,
+                                                             _add_block_closure);
+        }
     } else {
         _add_block_closure->cntl.http_request().Clear();
-        _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
-                                       &_add_block_closure->result, _add_block_closure);
+        {
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
+                                           &_add_block_closure->result, _add_block_closure);
+        }
     }
 
     _next_packet_seq++;

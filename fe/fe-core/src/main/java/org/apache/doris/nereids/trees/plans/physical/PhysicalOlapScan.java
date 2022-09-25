@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import java.util.List;
 import java.util.Objects;
@@ -61,8 +62,9 @@ public class PhysicalOlapScan extends PhysicalRelation {
     public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletId, List<Long> selectedPartitionId, DistributionSpec distributionSpec,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties) {
-        super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties);
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+        super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties,
+                statsDeriveResult);
 
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
@@ -138,8 +140,9 @@ public class PhysicalOlapScan extends PhysicalRelation {
     }
 
     @Override
-    public PhysicalOlapScan withPhysicalProperties(PhysicalProperties physicalProperties) {
-        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, Optional.empty(), getLogicalProperties(), physicalProperties);
+    public PhysicalOlapScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult) {
+        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds,
+                distributionSpec, Optional.empty(), getLogicalProperties(), physicalProperties, statsDeriveResult);
     }
 }

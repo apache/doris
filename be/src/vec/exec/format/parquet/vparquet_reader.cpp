@@ -17,36 +17,77 @@
 
 #include "vparquet_reader.h"
 
+#include <algorithm>
+
+#include "io/file_factory.h"
 #include "parquet_thrift_util.h"
 
 namespace doris::vectorized {
-ParquetReader::ParquetReader(FileReader* file_reader, const std::vector<std::string>& column_names,
-                             size_t batch_size, int64_t range_start_offset, int64_t range_size,
+ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                             const TFileRangeDesc& range,
+                             const std::vector<std::string>& column_names, size_t batch_size,
                              cctz::time_zone* ctz)
-        : _file_reader(file_reader),
+        : _profile(profile),
+          _scan_params(params),
+          _scan_range(range),
           _batch_size(batch_size),
-          _range_start_offset(range_start_offset),
-          _range_size(range_size),
+          _range_start_offset(range.start_offset),
+          _range_size(range.size),
           _ctz(ctz),
           _column_names(column_names) {
-    //        _statistics = std::make_shared<Statistics>();
+    if (profile != nullptr) {
+        _filtered_row_groups = ADD_COUNTER(profile, "ParquetFilteredGroups", TUnit::UNIT);
+        _to_read_row_groups = ADD_COUNTER(profile, "ParquetReadGroups", TUnit::UNIT);
+        _filtered_group_rows = ADD_COUNTER(profile, "ParquetFilteredRowsByGroup", TUnit::UNIT);
+        _filtered_page_rows = ADD_COUNTER(profile, "ParquetFilteredRowsByPage", TUnit::UNIT);
+        _filtered_bytes = ADD_COUNTER(profile, "ParquetFilteredBytes", TUnit::BYTES);
+        _to_read_bytes = ADD_COUNTER(profile, "ParquetReadBytes", TUnit::BYTES);
+    }
 }
 
 ParquetReader::~ParquetReader() {
     close();
+    if (_group_file_reader != _file_reader.get()) {
+        delete _group_file_reader;
+        _group_file_reader = nullptr;
+    }
 }
 
 void ParquetReader::close() {
-    for (auto& conjuncts : _slot_conjuncts) {
-        conjuncts.second.clear();
+    if (!_closed) {
+        if (_profile != nullptr) {
+            COUNTER_UPDATE(_filtered_row_groups, _statistics.filtered_row_groups);
+            COUNTER_UPDATE(_to_read_row_groups, _statistics.read_row_groups);
+            COUNTER_UPDATE(_filtered_group_rows, _statistics.filtered_group_rows);
+            COUNTER_UPDATE(_filtered_page_rows, _statistics.filtered_page_rows);
+            COUNTER_UPDATE(_filtered_bytes, _statistics.filtered_bytes);
+            COUNTER_UPDATE(_to_read_bytes, _statistics.read_bytes);
+        }
+        _closed = true;
     }
-    _file_reader->close();
-    delete _file_reader;
 }
 
 Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
-    _file_reader->open();
-    RETURN_IF_ERROR(parse_thrift_footer(_file_reader, _file_metadata));
+    if (_file_reader == nullptr) {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
+                                                        _file_reader, 2048));
+        // RowGroupReader has its own underlying buffer, so we should return file reader directly
+        // If RowGroupReaders use the same file reader with ParquetReader, the file position will change
+        // when ParquetReader try to read ColumnIndex meta, which causes performance cost
+        std::unique_ptr<FileReader> group_file_reader;
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
+                                                        group_file_reader, 0));
+        _group_file_reader = group_file_reader.release();
+        RETURN_IF_ERROR(_group_file_reader->open());
+    } else {
+        // test only
+        _group_file_reader = _file_reader.get();
+    }
+    RETURN_IF_ERROR(_file_reader->open());
+    if (_file_reader->size() == 0) {
+        return Status::EndOfFile("Empty Parquet File");
+    }
+    RETURN_IF_ERROR(parse_thrift_footer(_file_reader.get(), _file_metadata));
     _t_metadata = &_file_metadata->to_thrift();
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
@@ -54,7 +95,6 @@ Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
     }
     auto schema_desc = _file_metadata->schema();
     for (int i = 0; i < schema_desc.size(); ++i) {
-        VLOG_DEBUG << schema_desc.debug_string();
         // Get the Column Reader for the boolean column
         _map_column.emplace(schema_desc.get_column(i)->name, i);
     }
@@ -66,15 +106,17 @@ Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
 Status ParquetReader::_init_read_columns() {
     _include_column_ids.clear();
     for (auto& file_col_name : _column_names) {
-        // Get the Column Reader for the boolean column
         auto iter = _map_column.find(file_col_name);
-        auto parquet_col_id = iter->second;
         if (iter != _map_column.end()) {
-            _include_column_ids.emplace_back(parquet_col_id);
-            _read_columns.emplace_back(parquet_col_id, file_col_name);
-        } else {
-            continue;
+            _include_column_ids.emplace_back(iter->second);
         }
+    }
+    // The same order as physical columns
+    std::sort(_include_column_ids.begin(), _include_column_ids.end());
+    _read_columns.clear();
+    for (int& parquet_col_id : _include_column_ids) {
+        _read_columns.emplace_back(parquet_col_id,
+                                   _file_metadata->schema().get_column(parquet_col_id)->name);
     }
     return Status::OK();
 }
@@ -124,10 +166,13 @@ Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& c
     for (auto row_group_id : _read_row_groups) {
         auto& row_group = _t_metadata->row_groups[row_group_id];
         std::shared_ptr<RowGroupReader> row_group_reader;
-        row_group_reader.reset(
-                new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group, _ctz));
+        row_group_reader.reset(new RowGroupReader(_group_file_reader, _read_columns, row_group_id,
+                                                  row_group, _ctz));
         std::vector<RowRange> candidate_row_ranges;
         RETURN_IF_ERROR(_process_page_index(row_group, candidate_row_ranges));
+        if (candidate_row_ranges.empty()) {
+            _statistics.read_rows += row_group.num_rows;
+        }
         RETURN_IF_ERROR(row_group_reader->init(_file_metadata->schema(), candidate_row_ranges,
                                                _col_offsets));
         _row_group_readers.emplace_back(row_group_reader);
@@ -182,8 +227,20 @@ Status ParquetReader::_filter_row_groups() {
         }
         bool filter_group = false;
         RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
+        int64_t group_size = 0; // only calculate the needed columns
+        for (auto& parquet_col_id : _include_column_ids) {
+            if (row_group.columns[parquet_col_id].__isset.meta_data) {
+                group_size += row_group.columns[parquet_col_id].meta_data.total_compressed_size;
+            }
+        }
         if (!filter_group) {
             _read_row_groups.emplace_back(row_group_idx);
+            _statistics.read_row_groups++;
+            _statistics.read_bytes += group_size;
+        } else {
+            _statistics.filtered_row_groups++;
+            _statistics.filtered_bytes += group_size;
+            _statistics.filtered_group_rows += row_group.num_rows;
         }
     }
     return Status::OK();
@@ -260,6 +317,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
                          std::tie(rhs.first_row, rhs.last_row);
               });
     int skip_end = 0;
+    int64_t read_rows = 0;
     for (auto& skip_range : skipped_row_ranges) {
         if (skip_end >= skip_range.first_row) {
             if (skip_end < skip_range.last_row) {
@@ -267,13 +325,18 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             }
         } else {
             // read row with candidate ranges rather than skipped ranges
-            candidate_row_ranges.push_back({skip_end, skip_range.first_row});
+            candidate_row_ranges.emplace_back(skip_end, skip_range.first_row);
+            read_rows += skip_range.first_row - skip_end;
             skip_end = skip_range.last_row;
         }
     }
+    DCHECK_LE(skip_end, row_group.num_rows);
     if (skip_end != row_group.num_rows) {
-        candidate_row_ranges.push_back({skip_end, row_group.num_rows});
+        candidate_row_ranges.emplace_back(skip_end, row_group.num_rows);
+        read_rows += row_group.num_rows - skip_end;
     }
+    _statistics.read_rows += read_rows;
+    _statistics.filtered_page_rows += row_group.num_rows - read_rows;
     return Status::OK();
 }
 

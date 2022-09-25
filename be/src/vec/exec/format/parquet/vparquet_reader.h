@@ -35,14 +35,16 @@
 
 namespace doris::vectorized {
 
-//    struct Statistics {
-//        int32_t filtered_row_groups = 0;
-//        int32_t total_groups = 0;
-//        int64_t filtered_rows = 0;
-//        int64_t total_rows = 0;
-//        int64_t filtered_total_bytes = 0;
-//        int64_t total_bytes = 0;
-//    };
+struct ParquetStatistics {
+    int32_t filtered_row_groups = 0;
+    int32_t read_row_groups = 0;
+    int64_t filtered_group_rows = 0;
+    int64_t filtered_page_rows = 0;
+    int64_t read_rows = 0;
+    int64_t filtered_bytes = 0;
+    int64_t read_bytes = 0;
+};
+
 class RowGroupReader;
 class PageIndex;
 
@@ -68,22 +70,25 @@ private:
 
 class ParquetReader : public GenericReader {
 public:
-    ParquetReader(FileReader* file_reader, const std::vector<std::string>& column_names,
-                  size_t batch_size, int64_t range_start_offset, int64_t range_size,
-                  cctz::time_zone* ctz);
+    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, const std::vector<std::string>& column_names,
+                  size_t batch_size, cctz::time_zone* ctz);
 
     virtual ~ParquetReader();
+    // for test
+    void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
     Status init_reader(std::vector<ExprContext*>& conjunct_ctxs);
 
     Status get_next_block(Block* block, bool* eof) override;
 
-    // std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
 
     int64_t size() const { return _file_reader->size(); }
 
     std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
+
+    ParquetStatistics& statistics() { return _statistics; }
 
 private:
     bool _next_row_group_reader();
@@ -114,13 +119,17 @@ private:
                             bool& need_filter);
 
 private:
-    FileReader* _file_reader;
+    RuntimeProfile* _profile;
+    const TFileScanRangeParams& _scan_params;
+    const TFileRangeDesc& _scan_range;
+    std::unique_ptr<FileReader> _file_reader = nullptr;
+    FileReader* _group_file_reader = nullptr;
+
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
     std::list<std::shared_ptr<RowGroupReader>> _row_group_readers;
     std::shared_ptr<RowGroupReader> _current_group_reader;
-    int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
-    //        std::shared_ptr<Statistics> _statistics;
+    int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::unordered_map<int, std::vector<ExprContext*>> _slot_conjuncts;
     std::vector<int> _include_column_ids; // columns that need to get from file
@@ -134,5 +143,16 @@ private:
 
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
     const std::vector<std::string> _column_names;
+
+    ParquetStatistics _statistics;
+    bool _closed = false;
+
+    // parquet profile
+    RuntimeProfile::Counter* _filtered_row_groups;
+    RuntimeProfile::Counter* _to_read_row_groups;
+    RuntimeProfile::Counter* _filtered_group_rows;
+    RuntimeProfile::Counter* _filtered_page_rows;
+    RuntimeProfile::Counter* _filtered_bytes;
+    RuntimeProfile::Counter* _to_read_bytes;
 };
 } // namespace doris::vectorized

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -34,29 +35,19 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
 
     protected final PhysicalProperties physicalProperties;
 
-    /**
-     * create physical plan by op, logicalProperties and children.
-     */
     public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties, Plan... children) {
         this(type, Optional.empty(), logicalProperties, children);
     }
 
-    /**
-     * create physical plan by groupExpression, logicalProperties and children.
-     *
-     * @param type node type
-     * @param groupExpression group expression contains plan
-     * @param logicalProperties logical properties of this plan
-     * @param children children of this plan
-     */
     public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-                                LogicalProperties logicalProperties, Plan... children) {
-        this(type, groupExpression, logicalProperties, PhysicalProperties.ANY, children);
+            LogicalProperties logicalProperties, Plan... children) {
+        this(type, groupExpression, logicalProperties, PhysicalProperties.ANY, null, children);
     }
 
     public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties, Plan... children) {
-        super(type, groupExpression, Optional.of(logicalProperties), children);
+            LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult, Plan... children) {
+        super(type, groupExpression, Optional.of(logicalProperties), statsDeriveResult, children);
         this.physicalProperties = physicalProperties == null ? PhysicalProperties.ANY : physicalProperties;
     }
 
