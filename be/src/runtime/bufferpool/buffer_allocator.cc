@@ -724,7 +724,7 @@ int64_t BufferPool::FreeBufferArena::GetNumCleanPages() {
 }
 
 std::string BufferPool::FreeBufferArena::DebugString() {
-    std::lock_guard<SpinLock> al(lock_);
+    // std::lock_guard<SpinLock> al(lock_);
     std::stringstream ss;
     ss << "<FreeBufferArena> " << this << "\n";
     for (int i = 0; i < NumBufferSizes(); ++i) {
@@ -734,8 +734,8 @@ std::string BufferPool::FreeBufferArena::DebugString() {
            << " free buffers: " << lists.num_free_buffers.load(std::memory_order_acquire)
            << " low water mark: " << lists.low_water_mark
            << " clean pages: " << lists.num_clean_pages.load(std::memory_order_acquire) << " ";
-        lists.clean_pages.iterate(
-                std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
+        // lists.clean_pages.iterate(
+        //         std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
         ss << "\n";
     }
     return ss.str();
