@@ -46,6 +46,7 @@ bool is_olap_string_type(FieldType field_type) {
     case OLAP_FIELD_TYPE_HLL:
     case OLAP_FIELD_TYPE_OBJECT:
     case OLAP_FIELD_TYPE_STRING:
+    case OLAP_FIELD_TYPE_JSONB:
         return true;
     default:
         return false;
@@ -89,6 +90,7 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
             get_scalar_type_info<OLAP_FIELD_TYPE_DECIMAL32>(),
             get_scalar_type_info<OLAP_FIELD_TYPE_DECIMAL64>(),
             get_scalar_type_info<OLAP_FIELD_TYPE_DECIMAL128>(),
+            get_scalar_type_info<OLAP_FIELD_TYPE_JSONB>(),
     };
     return field_type_array[field_type];
 }
@@ -159,6 +161,7 @@ const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
             INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_DECIMAL32),
             INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_DECIMAL64),
             INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_DECIMAL128),
+            INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_JSONB),
     };
     return array_type_Info_arr[leaf_type][iterations];
 }
