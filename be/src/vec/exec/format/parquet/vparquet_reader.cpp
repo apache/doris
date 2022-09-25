@@ -17,6 +17,8 @@
 
 #include "vparquet_reader.h"
 
+#include <algorithm>
+
 #include "io/file_factory.h"
 #include "parquet_thrift_util.h"
 
@@ -45,6 +47,10 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
 
 ParquetReader::~ParquetReader() {
     close();
+    if (_group_file_reader != _file_reader.get()) {
+        delete _group_file_reader;
+        _group_file_reader = nullptr;
+    }
 }
 
 void ParquetReader::close() {
@@ -63,9 +69,19 @@ void ParquetReader::close() {
 
 Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
     if (_file_reader == nullptr) {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _scan_params, _scan_range, _file_reader,
-                config::remote_storage_read_buffer_mb * 1024 * 1024));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
+                                                        _file_reader, 2048));
+        // RowGroupReader has its own underlying buffer, so we should return file reader directly
+        // If RowGroupReaders use the same file reader with ParquetReader, the file position will change
+        // when ParquetReader try to read ColumnIndex meta, which causes performance cost
+        std::unique_ptr<FileReader> group_file_reader;
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
+                                                        group_file_reader, 0));
+        _group_file_reader = group_file_reader.release();
+        RETURN_IF_ERROR(_group_file_reader->open());
+    } else {
+        // test only
+        _group_file_reader = _file_reader.get();
     }
     RETURN_IF_ERROR(_file_reader->open());
     if (_file_reader->size() == 0) {
@@ -90,15 +106,17 @@ Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
 Status ParquetReader::_init_read_columns() {
     _include_column_ids.clear();
     for (auto& file_col_name : _column_names) {
-        // Get the Column Reader for the boolean column
         auto iter = _map_column.find(file_col_name);
-        auto parquet_col_id = iter->second;
         if (iter != _map_column.end()) {
-            _include_column_ids.emplace_back(parquet_col_id);
-            _read_columns.emplace_back(parquet_col_id, file_col_name);
-        } else {
-            continue;
+            _include_column_ids.emplace_back(iter->second);
         }
+    }
+    // The same order as physical columns
+    std::sort(_include_column_ids.begin(), _include_column_ids.end());
+    _read_columns.clear();
+    for (int& parquet_col_id : _include_column_ids) {
+        _read_columns.emplace_back(parquet_col_id,
+                                   _file_metadata->schema().get_column(parquet_col_id)->name);
     }
     return Status::OK();
 }
@@ -148,7 +166,7 @@ Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& c
     for (auto row_group_id : _read_row_groups) {
         auto& row_group = _t_metadata->row_groups[row_group_id];
         std::shared_ptr<RowGroupReader> row_group_reader;
-        row_group_reader.reset(new RowGroupReader(_file_reader.get(), _read_columns, row_group_id,
+        row_group_reader.reset(new RowGroupReader(_group_file_reader, _read_columns, row_group_id,
                                                   row_group, _ctz));
         std::vector<RowRange> candidate_row_ranges;
         RETURN_IF_ERROR(_process_page_index(row_group, candidate_row_ranges));

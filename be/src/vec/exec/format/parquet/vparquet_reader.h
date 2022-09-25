@@ -123,6 +123,7 @@ private:
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
     std::unique_ptr<FileReader> _file_reader = nullptr;
+    FileReader* _group_file_reader = nullptr;
 
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
