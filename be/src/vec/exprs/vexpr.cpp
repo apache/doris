@@ -110,6 +110,7 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::DATE_LITERAL:
     case TExprNodeType::STRING_LITERAL:
+    case TExprNodeType::JSON_LITERAL:
     case TExprNodeType::NULL_LITERAL: {
         *expr = pool->add(new VLiteral(texpr_node));
         return Status::OK();
