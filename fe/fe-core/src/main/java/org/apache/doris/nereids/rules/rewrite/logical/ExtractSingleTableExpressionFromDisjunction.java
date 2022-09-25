@@ -97,7 +97,7 @@ public class ExtractSingleTableExpressionFromDisjunction extends OneRewriteRuleF
                 //only check table in first disjunct.
                 //In our example, qualifiers = { n1, n2 }
                 Set<String> qualifiers = slots.stream()
-                        .map(slot -> getSlotQualifierAsString(slot))
+                        .map(this::getSlotQualifierAsString)
                         .collect(Collectors.toSet());
                 //try to extract
                 for (String qualifier : qualifiers) {
