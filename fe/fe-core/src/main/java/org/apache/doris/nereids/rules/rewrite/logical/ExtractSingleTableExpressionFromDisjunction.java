@@ -89,32 +89,30 @@ public class ExtractSingleTableExpressionFromDisjunction extends OneRewriteRuleF
                 if (disjuncts.size() == 1) {
                     continue;
                 }
-                Expression first = disjuncts.get(0);
-                Set<SlotReference> slots = first.getInputSlots()
-                        .stream()
-                        .map(SlotReference.class::cast)
-                        .collect(Collectors.toSet());
                 //only check table in first disjunct.
                 //In our example, qualifiers = { n1, n2 }
-                Set<String> qualifiers = slots.stream()
+                Expression first = disjuncts.get(0);
+                Set<String> qualifiers = first.getInputSlots()
+                        .stream()
+                        .map(SlotReference.class::cast)
                         .map(this::getSlotQualifierAsString)
                         .collect(Collectors.toSet());
                 //try to extract
                 for (String qualifier : qualifiers) {
-                    List<Expression> extract4all = Lists.newArrayList();
+                    List<Expression> extractForAll = Lists.newArrayList();
                     boolean success = true;
                     for (Expression expr : ExpressionUtils.extractDisjunction(conjunct)) {
                         Optional<Expression> extracted = extractSingleTableExpression(expr, qualifier);
-                        if (! extracted.isPresent()) {
+                        if (!extracted.isPresent()) {
                             //extract failed
                             success = false;
                             break;
                         } else {
-                            extract4all.add(extracted.get());
+                            extractForAll.add(extracted.get());
                         }
                     }
                     if (success) {
-                        redundants.add(ExpressionUtils.or(extract4all));
+                        redundants.add(ExpressionUtils.or(extractForAll));
                     }
                 }
 
