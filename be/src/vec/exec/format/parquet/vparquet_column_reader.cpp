@@ -31,7 +31,8 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
                                    const ParquetReadColumn& column,
                                    const tparquet::RowGroup& row_group,
                                    std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                                   std::unique_ptr<ParquetColumnReader>& reader) {
+                                   std::unique_ptr<ParquetColumnReader>& reader,
+                                   size_t max_buf_size) {
     if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
         return Status::Corruption("not supported type");
     }
@@ -39,13 +40,13 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
         tparquet::ColumnChunk chunk = row_group.columns[field->children[0].physical_column_index];
         ArrayColumnReader* array_reader = new ArrayColumnReader(ctz);
         array_reader->init_column_metadata(chunk);
-        RETURN_IF_ERROR(array_reader->init(file, field, &chunk, row_ranges));
+        RETURN_IF_ERROR(array_reader->init(file, field, &chunk, row_ranges, max_buf_size));
         reader.reset(array_reader);
     } else {
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
         ScalarColumnReader* scalar_reader = new ScalarColumnReader(ctz);
         scalar_reader->init_column_metadata(chunk);
-        RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, row_ranges));
+        RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, row_ranges, max_buf_size));
         reader.reset(scalar_reader);
     }
     return Status::OK();
@@ -84,9 +85,10 @@ void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end
 }
 
 Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                                std::vector<RowRange>& row_ranges) {
+                                std::vector<RowRange>& row_ranges, size_t max_buf_size) {
     _stream_reader =
-            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
+            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size(),
+                                         std::min((size_t)_metadata->size(), max_buf_size));
     _row_ranges = row_ranges;
     _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, field, _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());
@@ -210,9 +212,10 @@ void ArrayColumnReader::_reserve_def_levels_buf(size_t size) {
 }
 
 Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                               std::vector<RowRange>& row_ranges) {
+                               std::vector<RowRange>& row_ranges, size_t max_buf_size) {
     _stream_reader =
-            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
+            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size(),
+                                         std::min((size_t)_metadata->size(), max_buf_size));
     _row_ranges = row_ranges;
     _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, &field->children[0], _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());

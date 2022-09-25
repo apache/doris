@@ -46,11 +46,14 @@ Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>
 Status RowGroupReader::_init_column_readers(
         const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
+    const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
+    const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
+    size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
     for (auto& read_col : _read_columns) {
         auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
-                                                    row_ranges, _ctz, reader));
+                                                    row_ranges, _ctz, reader, max_buf_size));
         auto col_iter = col_offsets.find(read_col._parquet_col_id);
         if (col_iter != col_offsets.end()) {
             tparquet::OffsetIndex oi = col_iter->second;
