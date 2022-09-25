@@ -72,7 +72,7 @@ import java.util.stream.Collectors;
 public class ExtractSingleTableExpressionFromDisjunction extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter().when(filter -> !filter.isSingleTableExpressionExtracted()).then(filter -> {
+        return logicalFilter().whenNot(LogicalFilter::isSingleTableExpressionExtracted).then(filter -> {
             //filter = [(n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY')
             //             or (n1.n_name = 'GERMANY' and n2.n_name = 'FRANCE')]
             //         and ...
