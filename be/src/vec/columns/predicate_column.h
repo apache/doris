@@ -133,13 +133,9 @@ private:
         }
     }
 
-    // note(wb): Write data one by one has a slight performance improvement than memcpy directly
     void insert_many_default_type(const char* data_ptr, size_t num) {
-        T* input_val_ptr = (T*)data_ptr;
         T* res_val_ptr = (T*)data.get_end_ptr();
-        for (int i = 0; i < num; i++) {
-            res_val_ptr[i] = input_val_ptr[i];
-        }
+        memcpy(res_val_ptr, data_ptr, num * sizeof(T));
         res_val_ptr += num;
         data.set_end_ptr(res_val_ptr);
     }
