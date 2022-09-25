@@ -302,7 +302,8 @@ public class CreateTableStmt extends DdlStmt {
                 if (hasAggregate) {
                     for (ColumnDef columnDef : columnDefs) {
                         if (columnDef.getAggregateType() == null
-                                && !columnDef.getType().isScalarType(PrimitiveType.STRING)) {
+                                && !columnDef.getType().isScalarType(PrimitiveType.STRING)
+                                && !columnDef.getType().isScalarType(PrimitiveType.JSONB)) {
                             keysColumnNames.add(columnDef.getName());
                         }
                     }
@@ -322,6 +323,9 @@ public class CreateTableStmt extends DdlStmt {
                             break;
                         }
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                            break;
+                        }
+                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
                             break;
                         }
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {

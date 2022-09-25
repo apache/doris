@@ -78,6 +78,7 @@ enum class TypeIndex {
     DateTimeV2,
     TimeV2,
     FixedLengthObject,
+    JSONB,
 };
 
 struct Consted {
@@ -451,6 +452,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return TypeName<HyperLogLog>::get();
     case TypeIndex::FixedLengthObject:
         return "FixedLengthObject";
+    case TypeIndex::JSONB:
+        return "JSONB";
     }
 
     __builtin_unreachable();
