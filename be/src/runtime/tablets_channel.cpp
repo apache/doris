@@ -275,7 +275,8 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         Status st = writer->wait_flush();
         if (!st.ok()) {
             return Status::InternalError(
-                    "failed to reduce mem consumption by flushing memtable. err: {}", st);
+                    "failed to reduce mem consumption by flushing memtable. err: {}",
+                    st.to_string());
         }
     }
 
