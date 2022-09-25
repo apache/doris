@@ -230,6 +230,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
         DCHECK(false);
         _new_query_mem_tracker = ExecEnv::GetInstance()->query_pool_mem_tracker();
     }
+    _new_query_mem_tracker->enable_reset_zero();
 
     _new_instance_mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, "RuntimeState:instance:" + print_id(_fragment_instance_id),

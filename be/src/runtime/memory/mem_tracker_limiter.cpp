@@ -82,12 +82,13 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     // the first layer: process;
     // the second layer: a tracker that will not be destructed globally (query/load pool, load channel mgr, etc.);
     // the third layer: a query/load/compaction task generates a tracker (query tracker, load channel tracker, etc.).
-    if (_parent->parent()->label() == "Process") {
+    if ((_parent && _parent->label() == "Process") ||
+        (_parent->parent() && _parent->parent()->label() == "Process")) {
         ExecEnv::GetInstance()->orphan_mem_tracker_raw()->cache_consume_local(
                 _consumption->current_value());
     }
 #endif
-
+    if (_reset_zero) cache_consume_local(-_consumption->current_value());
     if (_parent) {
         std::lock_guard<std::mutex> l(_parent->_child_tracker_limiter_lock);
         if (_child_tracker_it != _parent->_child_tracker_limiters.end()) {
