@@ -21,6 +21,7 @@
 
 #include "gen_cpp/Types_types.h"
 #include "runtime/collection_value.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/string_value.h"
 
 namespace doris {
@@ -77,6 +78,8 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
         return PrimitiveType::TYPE_DATETIMEV2;
     case FunctionContext::Type::TYPE_TIMEV2:
         return PrimitiveType::TYPE_TIMEV2;
+    case FunctionContext::Type::TYPE_JSONB:
+        return PrimitiveType::TYPE_JSONB;
     default:
         DCHECK(false);
     }
@@ -277,6 +280,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::STRING:
         return TYPE_STRING;
 
+    case TPrimitiveType::JSONB:
+        return TYPE_JSONB;
+
     case TPrimitiveType::BINARY:
         return TYPE_BINARY;
 
@@ -368,6 +374,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_STRING:
         return TPrimitiveType::STRING;
 
+    case TYPE_JSONB:
+        return TPrimitiveType::JSONB;
+
     case TYPE_BINARY:
         return TPrimitiveType::BINARY;
 
@@ -458,6 +467,9 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_STRING:
         return "STRING";
+
+    case TYPE_JSONB:
+        return "JSONB";
 
     case TYPE_BINARY:
         return "BINARY";
@@ -551,6 +563,9 @@ std::string type_to_odbc_string(PrimitiveType t) {
     case TYPE_STRING:
         return "string";
 
+    case TYPE_JSONB:
+        return "jsonb";
+
     case TYPE_BINARY:
         return "binary";
 
@@ -621,6 +636,8 @@ int get_slot_size(PrimitiveType type) {
     case TYPE_HLL:
     case TYPE_QUANTILE_STATE:
         return sizeof(StringValue);
+    case TYPE_JSONB:
+        return sizeof(JsonBinaryValue);
     case TYPE_ARRAY:
         return sizeof(CollectionValue);
 
