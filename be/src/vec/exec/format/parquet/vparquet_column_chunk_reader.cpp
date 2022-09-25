@@ -40,8 +40,9 @@ Status ColumnChunkReader::init() {
     if (_metadata.__isset.dictionary_page_offset) {
         // seek to the directory page
         _page_reader->seek_to_page(_metadata.dictionary_page_offset);
-        RETURN_IF_ERROR(_page_reader->next_page_header());
-        RETURN_IF_ERROR(_decode_dict_page());
+        // Parse dictionary data when reading
+        // RETURN_IF_ERROR(_page_reader->next_page_header());
+        // RETURN_IF_ERROR(_decode_dict_page());
     } else {
         // seek to the first data page
         _page_reader->seek_to_page(_metadata.data_page_offset);
