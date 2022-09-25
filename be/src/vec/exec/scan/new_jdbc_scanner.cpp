@@ -24,6 +24,7 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
                                MemTracker* mem_tracker, TupleId tuple_id, std::string query_string)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, mem_tracker),
           _is_init(false),
+          _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
           _tuple_desc(nullptr) {}
@@ -97,13 +98,18 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     if (!_is_init) {
         return Status::InternalError("used before initialize of VJdbcScanNode::get_next.");
     }
+
+    if (_jdbc_eos == true) {
+        *eof = true;
+        return Status::OK();
+    }
+
     auto column_size = _tuple_desc->slots().size();
     std::vector<MutableColumnPtr> columns(column_size);
     bool mem_reuse = block->mem_reuse();
     // only empty block should be here
     DCHECK(block->rows() == 0);
 
-    bool jdbc_eos = false;
     do {
         RETURN_IF_CANCELLED(state);
 
@@ -116,10 +122,12 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
             }
         }
 
-        RETURN_IF_ERROR(_jdbc_connector->get_next(&jdbc_eos, columns, state->batch_size()));
+        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, state->batch_size()));
 
-        if (jdbc_eos) {
-            *eof = true;
+        if (_jdbc_eos == true) {
+            if (block->rows() == 0) {
+                *eof = true;
+            }
             break;
         }
 
