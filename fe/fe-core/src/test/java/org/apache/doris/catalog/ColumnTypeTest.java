@@ -28,9 +28,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class ColumnTypeTest {
     private FakeEnv fakeEnv;
@@ -222,9 +222,8 @@ public class ColumnTypeTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./columnType");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./columnType"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ScalarType type1 = Type.NULL;
         ColumnType.write(dos, type1);
@@ -239,7 +238,7 @@ public class ColumnTypeTest {
         ColumnType.write(dos, type4);
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         Type rType1 = ColumnType.read(dis);
         Assert.assertTrue(rType1.equals(type1));
 
@@ -255,6 +254,6 @@ public class ColumnTypeTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }
