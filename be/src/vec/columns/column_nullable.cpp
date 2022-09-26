@@ -44,8 +44,8 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 }
 
-MutableColumnPtr ColumnNullable::get_shinked_column() {
-    return ColumnNullable::create(get_nested_column_ptr()->get_shinked_column(),
+MutableColumnPtr ColumnNullable::get_shrinked_column() {
+    return ColumnNullable::create(get_nested_column_ptr()->get_shrinked_column(),
                                   get_null_map_column_ptr());
 }
 
