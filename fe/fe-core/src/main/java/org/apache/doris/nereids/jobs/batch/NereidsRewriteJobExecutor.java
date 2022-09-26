@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
+import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
@@ -59,6 +60,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
+                .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_JOIN_CONDITION_RULES, false))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
