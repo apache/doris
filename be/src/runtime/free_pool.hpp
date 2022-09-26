@@ -26,9 +26,9 @@
 #include <string>
 
 #include "common/logging.h"
+#include "common/compiler_util.h"
 #include "runtime/mem_pool.h"
 #include "util/bit_util.h"
-#include "util/likely_util.h"
 
 namespace doris {
 
@@ -129,7 +129,7 @@ public:
 #ifndef NDEBUG
         check_valid_allocation(list);
 #endif
-        if (unlikely(nullptr == list)) {
+        if (UNLIKELY(nullptr == list)) {
             // free memory directly if the pointer to free list is null
             LOG(ERROR) << "The free list was released, and this may cause memory leak.";
             free(ptr);
