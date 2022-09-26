@@ -82,4 +82,4 @@ mysql> select concat_ws("or", ["d", NULL,"is"]);
 +-----------------------------------------+
 ```
 ### keywords
-CONCAT_WS,CONCAT,WS,ARRAY
+    CONCAT_WS,CONCAT,WS,ARRAY
