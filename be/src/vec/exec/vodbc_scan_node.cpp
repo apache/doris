@@ -146,7 +146,7 @@ Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             }
         }
 
-        for (int row_index = 0; true; row_index++) {
+        while (true) {
             // block is full, break
             if (state->batch_size() <= columns[0]->size()) {
                 break;
