@@ -183,7 +183,7 @@ Status NewAggFnEvaluator::Open(RuntimeState* state) {
         ExprContext* eval = input_evals_[i];
         RETURN_IF_ERROR(eval->get_const_value(state, *(agg_fn_.get_child(i)), &constant_args[i]));
     }
-    agg_fn_ctx_->impl()->set_constant_args(move(constant_args));
+    agg_fn_ctx_->impl()->set_constant_args(std::move(constant_args));
     return Status::OK();
 }
 
