@@ -60,7 +60,7 @@ public class JoinUtils {
         return !(join.getJoinType().isReturnUnmatchedRightJoin());
     }
 
-    private static class JoinSlotCoverageChecker {
+    private static final class JoinSlotCoverageChecker {
         Set<ExprId> leftExprIds;
         Set<ExprId> rightExprIds;
 
@@ -156,11 +156,8 @@ public class JoinUtils {
     public static Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
                 AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
 
-        List<ExprId> exprIds1 = Lists.newArrayList();
-        List<ExprId> exprIds2 = Lists.newArrayList();
-
-        // ImmutableList.Builder<ExprId> builder1 = new ImmutableList.Builder<>();
-        // ImmutableList.Builder<ExprId> builder2 = new ImmutableList.Builder<>();
+        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
+        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
 
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(
                 join.left().getOutputExprIdSet(),
