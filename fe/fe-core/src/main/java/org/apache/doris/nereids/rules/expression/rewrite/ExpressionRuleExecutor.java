@@ -38,8 +38,7 @@ public class ExpressionRuleExecutor {
     }
 
     public ExpressionRuleExecutor(List<ExpressionRewriteRule> rules) {
-        this.rules = rules;
-        this.ctx = new ExpressionRewriteContext(null);
+        this(rules, null);
     }
 
     public List<Expression> rewrite(List<Expression> exprs) {
