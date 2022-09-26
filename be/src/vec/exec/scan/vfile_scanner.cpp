@@ -336,12 +336,13 @@ Status VFileScanner::_get_next_reader() {
             for (int i = 0; i < _file_slot_descs.size(); i++) {
                 column_names.push_back(_file_slot_descs[i]->col_name());
             }
-            _cur_reader = new ParquetReader(_profile, _params, range, column_names,
-                                            _state->query_options().batch_size,
-                                            const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-            Status status = ((ParquetReader*)_cur_reader)->init_reader(_conjunct_ctxs);
+            std::unique_ptr<ParquetReader> parquet_reader(new ParquetReader(
+                    _profile, _params, range, column_names, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+            Status status = ((ParquetReader*)parquet_reader.get())->init_reader(_conjunct_ctxs);
             if (status.ok()) {
                 _cur_reader_eof = false;
+                _cur_reader = parquet_reader.release();
                 return status;
             } else if (status.is_end_of_file()) {
                 continue;
