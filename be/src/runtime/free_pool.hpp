@@ -25,8 +25,8 @@
 
 #include <string>
 
-#include "common/logging.h"
 #include "common/compiler_util.h"
+#include "common/logging.h"
 #include "runtime/mem_pool.h"
 #include "util/bit_util.h"
 
