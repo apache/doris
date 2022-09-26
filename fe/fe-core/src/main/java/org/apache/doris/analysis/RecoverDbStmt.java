@@ -33,13 +33,25 @@ import com.google.common.base.Strings;
 
 public class RecoverDbStmt extends DdlStmt {
     private String dbName;
+    private long dbId = -1;
+    private String newDbName;
 
-    public RecoverDbStmt(String dbName) {
+    public RecoverDbStmt(String dbName, long dbId, String newDbName) {
         this.dbName = dbName;
+        this.dbId = dbId;
+        this.newDbName = newDbName;
     }
 
     public String getDbName() {
         return dbName;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public String getNewDbName() {
+        return newDbName;
     }
 
     @Override
@@ -49,6 +61,10 @@ public class RecoverDbStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+
+        if (!Strings.isNullOrEmpty(newDbName)) {
+            newDbName = ClusterNamespace.getFullName(getClusterName(), newDbName);
+        }
 
         if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName,
                 PrivPredicate.of(PrivBitSet.of(
@@ -60,6 +76,18 @@ public class RecoverDbStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return "RECOVER DATABASE " + dbName;
+        StringBuilder sb = new StringBuilder();
+        sb.append("RECOVER");
+        sb.append(" DATABASE ");
+        sb.append(this.dbName);
+        if (this.dbId != -1) {
+            sb.append(" ");
+            sb.append(this.dbId);
+        }
+        if (!Strings.isNullOrEmpty(newDbName)) {
+            sb.append(" AS ");
+            sb.append(this.newDbName);
+        }
+        return sb.toString();
     }
 }

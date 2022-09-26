@@ -47,6 +47,7 @@ import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
+import org.apache.doris.analysis.ShowDroppedStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
@@ -371,6 +372,8 @@ public class ShowExecutor {
             handleShowAnalyze();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
+        } else if (stmt instanceof ShowDroppedStmt) {
+            handleShowDropped();
         } else {
             handleEmtpy();
         }
@@ -2377,5 +2380,13 @@ public class ShowExecutor {
         } finally {
             AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
         }
+    }
+
+    private void handleShowDropped() throws AnalysisException {
+        ShowDroppedStmt showStmt = (ShowDroppedStmt) stmt;
+
+        List<List<String>> infos = Env.getCurrentRecycleBin().getInfo();
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 }

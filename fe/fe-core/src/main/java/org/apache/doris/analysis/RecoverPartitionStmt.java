@@ -34,10 +34,14 @@ import com.google.common.base.Strings;
 public class RecoverPartitionStmt extends DdlStmt {
     private TableName dbTblName;
     private String partitionName;
+    private long partitionId = -1;
+    private String newPartitionName;
 
-    public RecoverPartitionStmt(TableName dbTblName, String partitionName) {
+    public RecoverPartitionStmt(TableName dbTblName, String partitionName, long partitionId, String newPartitionName) {
         this.dbTblName = dbTblName;
         this.partitionName = partitionName;
+        this.partitionId = partitionId;
+        this.newPartitionName = newPartitionName;
     }
 
     public String getDbName() {
@@ -50,6 +54,14 @@ public class RecoverPartitionStmt extends DdlStmt {
 
     public String getPartitionName() {
         return partitionName;
+    }
+
+    public long getPartitionId() {
+        return partitionId;
+    }
+
+    public String getNewPartitionName() {
+        return newPartitionName;
     }
 
     @Override
@@ -70,7 +82,16 @@ public class RecoverPartitionStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("RECOVER PARTITION ").append(partitionName).append(" FROM ");
+        sb.append("RECOVER PARTITION ").append(partitionName);
+        if (this.partitionId != -1) {
+            sb.append(" ");
+            sb.append(this.partitionId);
+        }
+        if (!Strings.isNullOrEmpty(newPartitionName)) {
+            sb.append(" AS ");
+            sb.append(this.newPartitionName);
+        }
+        sb.append(" FROM ");
         if (!Strings.isNullOrEmpty(getDbName())) {
             sb.append(getDbName()).append(".");
         }
