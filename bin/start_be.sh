@@ -204,6 +204,11 @@ fi
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1
 export UBSAN_OPTIONS=print_stacktrace=1
 
+## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
+TOTAL_MEM=$(free -m | grep Mem | awk '{print $2}')
+MEM_LIMIT_PERCENT=$(grep ^mem_limit ${DORIS_HOME}/conf/be.conf | awk -F '=' '{print $2}' | awk -F '%' '{print $1}')
+export TCMALLOC_HEAP_LIMIT_MB=$(( $TOTAL_MEM * $MEM_LIMIT_PERCENT / 100 ))
+
 ## set hdfs conf
 export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 
