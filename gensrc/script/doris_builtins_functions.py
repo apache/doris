@@ -2376,6 +2376,12 @@ visible_functions = [
     [['murmur_hash3_32'], 'INT', ['STRING', '...'],
         '_ZN5doris13HashFunctions15murmur_hash3_32EPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
         '', '', 'vec', ''],
+    [['murmur_hash3_64'], 'BIGINT', ['VARCHAR', '...'],
+        '_ZN5doris13HashFunctions15murmur_hash3_64EPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+        '', '', 'vec', ''],
+    [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'],
+        '_ZN5doris13HashFunctions15murmur_hash3_64EPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+        '', '', 'vec', ''],
 
     # aes and base64 function
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],

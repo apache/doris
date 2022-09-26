@@ -31,11 +31,11 @@
 
 #define FORCE_INLINE inline __attribute__((always_inline))
 
-inline uint32_t rotl32(uint32_t x, int8_t r) {
+FORCE_INLINE uint32_t rotl32(uint32_t x, int8_t r) {
     return (x << r) | (x >> (32 - r));
 }
 
-inline uint64_t rotl64(uint64_t x, int8_t r) {
+FORCE_INLINE uint64_t rotl64(uint64_t x, int8_t r) {
     return (x << r) | (x >> (64 - r));
 }
 
