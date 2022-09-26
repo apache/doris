@@ -19,6 +19,7 @@
 #define ORC_SCANNER_H
 
 #include <orc/OrcFile.hh>
+#include <orc/Type.hh>
 
 #include "exec/base_scanner.h"
 
@@ -47,6 +48,11 @@ public:
 private:
     // Read next buffer from reader
     Status open_next_reader();
+    // Generate column path
+    std::string dot_column_path(const std::vector<std::string>& columns);
+    // Build map from column name to type id
+    void build_name_id_map();
+    void build_name_id_map_impl(std::vector<std::string>& columns, const orc::Type* type);
 
 private:
     const std::vector<TBrokerRangeDesc>& _ranges;
@@ -62,6 +68,7 @@ private:
     std::shared_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader;
     std::unique_ptr<orc::RowReader> _row_reader;
+    std::map<std::string, int> _map_column_to_id;
     // The batch after reading from orc data is arranged in the original order,
     // so we need to record the index in the original order to correspond the column names to the order
     std::vector<int> _position_in_orc_original;
