@@ -121,11 +121,14 @@ Status EnginePublishVersionTask::finish() {
             if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
                 tablet->enable_unique_key_merge_on_write()) {
                 Version max_version;
+                TabletState tablet_state;
                 {
                     std::shared_lock rdlock(tablet->get_header_lock());
                     max_version = tablet->max_version();
+                    tablet_state = tablet->tablet_state();
                 }
-                if (version.first != max_version.second + 1) {
+                if (tablet_state == TabletState::TABLET_RUNNING &&
+                    version.first != max_version.second + 1) {
                     VLOG_NOTICE << "uniq key with merge-on-write version not continuous, current "
                                    "max "
                                    "version="

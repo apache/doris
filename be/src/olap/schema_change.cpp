@@ -1765,6 +1765,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     }
 
     std::vector<Version> versions_to_be_changed;
+    int64_t end_version = -1;
     // reader_context is stack variables, it's lifetime should keep the same
     // with rs_readers
     RowsetReaderContext reader_context;
@@ -1855,7 +1856,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // init one delete handler
-            int64_t end_version = -1;
             for (auto& version : versions_to_be_changed) {
                 end_version = std::max(end_version, version.second);
             }
@@ -1894,6 +1894,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.is_vec = config::enable_vectorized_alter_table;
             reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
+            reader_context.version = Version(0, end_version);
             for (auto& rs_reader : rs_readers) {
                 res = rs_reader->init(&reader_context);
                 if (!res) {
@@ -1958,20 +1959,86 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             _tablet_ids_in_converting.insert(new_tablet->tablet_id());
         }
         res = _convert_historical_rowsets(sc_params);
-        {
-            std::lock_guard<std::shared_mutex> wrlock(_mutex);
-            _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+        if (new_tablet->keys_type() != UNIQUE_KEYS ||
+            !new_tablet->enable_unique_key_merge_on_write() || !res) {
+            {
+                std::lock_guard<std::shared_mutex> wrlock(_mutex);
+                _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+            }
         }
         if (!res) {
             break;
         }
-        // set state to ready
-        std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
-        res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
-        if (!res) {
-            break;
+
+        // For unique with merge-on-write table, should process delete bitmap here.
+        // 1. During double write, the newly imported rowsets does not calculate
+        // delete bitmap and publish successfully.
+        // 2. After conversion, calculate delete bitmap for the rowsets imported
+        // during double write. During this period, new data can still be imported
+        // witout calculating delete bitmap and publish successfully.
+        // 3. Block the new publish, calculate the delete bitmap of the
+        // incremental rowsets.
+        // 4. Switch the tablet status to TABLET_RUNNING. The newly imported
+        // data will calculate delete bitmap.
+        if (new_tablet->keys_type() == UNIQUE_KEYS &&
+            new_tablet->enable_unique_key_merge_on_write()) {
+            std::lock_guard<std::mutex> cumulative_compaction_lock(
+                    new_tablet->get_cumulative_compaction_lock());
+            int64_t max_version = new_tablet->max_version().second;
+            std::vector<RowsetSharedPtr> rowsets;
+            if (end_version < max_version) {
+                LOG(INFO)
+                        << "alter table for unique with merge-on-write, calculate delete bitmap of "
+                        << "double write rowsets for version: " << end_version + 1 << "-"
+                        << max_version;
+                RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets(
+                        {end_version + 1, max_version}, &rowsets));
+            }
+            for (auto rowset_ptr : rowsets) {
+                if (rowset_ptr->version().second <= end_version) {
+                    continue;
+                }
+                std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
+                std::shared_lock<std::shared_mutex> wrlock(new_tablet->get_header_lock());
+                RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+            }
+
+            std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
+            std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            int64_t new_max_version = new_tablet->max_version().second;
+            rowsets.clear();
+            if (max_version < new_max_version) {
+                LOG(INFO)
+                        << "alter table for unique with merge-on-write, calculate delete bitmap of "
+                        << "incremental rowsets for version: " << max_version + 1 << "-"
+                        << new_max_version;
+                RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets(
+                        {max_version + 1, new_max_version}, &rowsets));
+            }
+            for (auto rowset_ptr : rowsets) {
+                if (rowset_ptr->version().second <= max_version) {
+                    continue;
+                }
+                RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+            }
+            {
+                std::lock_guard<std::shared_mutex> wrlock(_mutex);
+                _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+            }
+            res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
+            if (!res) {
+                break;
+            }
+            new_tablet->save_meta();
+        } else {
+            // set state to ready
+            std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
+            if (!res) {
+                break;
+            }
+            new_tablet->save_meta();
         }
-        new_tablet->save_meta();
     } while (false);
 
     if (res) {

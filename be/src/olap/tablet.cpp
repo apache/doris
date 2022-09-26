@@ -2115,6 +2115,13 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
 
     std::lock_guard<std::mutex> rwlock(_rowset_update_lock);
     std::shared_lock meta_rlock(_meta_lock);
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (tablet_state() == TABLET_NOTREADY &&
+        SchemaChangeHandler::tablet_in_converting(tablet_id())) {
+        LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
+                  << tablet_id();
+        return Status::OK();
+    }
     cur_rowset_ids = all_rs_id();
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
     if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
