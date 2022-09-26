@@ -82,4 +82,4 @@ mysql> select hex(-1);
 +------------------+
 ```
 ### keywords
-HEX
+    HEX
