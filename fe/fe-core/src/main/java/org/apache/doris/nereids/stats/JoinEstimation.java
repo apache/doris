@@ -65,7 +65,7 @@ public class JoinEstimation {
             //right deep tree is not good for parallel building hash table,
             //penalty too right deep
             result.forbiddenReducePropagation = true;
-            result.rowCount = 10 * rightStats.level * (leftStats.getRowCount() + 2 * rightStats.getRowCount());
+            result.rowCount = 2 * rightStats.level * (leftStats.getRowCount() + 2 * rightStats.getRowCount());
         } else if (eqLeft.getColumn().isPresent() || eqRight.getColumn().isPresent()) {
             Set<Slot> rightSlots = ((PhysicalHashJoin<?, ?>) join).child(1).getOutputSet();
             if ((rightSlots.contains(eqRight)
