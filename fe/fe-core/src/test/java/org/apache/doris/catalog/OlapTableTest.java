@@ -70,6 +70,7 @@ public class OlapTableTest {
             DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
             Table copiedTbl = OlapTable.read(in);
             System.out.println("copied table id: " + copiedTbl.getId());
+            in.close();
         }
 
     }
