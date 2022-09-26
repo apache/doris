@@ -70,9 +70,10 @@ private:
 
 class ParquetReader : public GenericReader {
 public:
-    ParquetReader(RuntimeProfile* profile, FileReader* file_reader, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-                  size_t batch_size, cctz::time_zone* ctz);
+    ParquetReader(RuntimeProfile* profile, FileReader* file_reader,
+                  const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  const std::vector<std::string>& column_names, size_t batch_size,
+                  cctz::time_zone* ctz);
 
     virtual ~ParquetReader();
     // for test
@@ -87,7 +88,8 @@ public:
     int64_t size() const { return _file_reader->size(); }
 
     std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type, std::unordered_set<std::string>* missing_cols) override;
+    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override;
 
     ParquetStatistics& statistics() { return _statistics; }
 

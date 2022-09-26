@@ -42,7 +42,8 @@ public:
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type, std::unordered_set<std::string>* missing_cols) override;
+    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override;
 
 private:
     Status _next_stripe_reader(bool* eof);

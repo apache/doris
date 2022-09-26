@@ -23,8 +23,8 @@
 #include "parquet_thrift_util.h"
 
 namespace doris::vectorized {
-ParquetReader::ParquetReader(RuntimeProfile* profile, FileReader* file_reader, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range,
+ParquetReader::ParquetReader(RuntimeProfile* profile, FileReader* file_reader,
+                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<std::string>& column_names, size_t batch_size,
                              cctz::time_zone* ctz)
         : _profile(profile),
@@ -91,7 +91,8 @@ Status ParquetReader::_init_read_columns() {
     _include_column_ids.clear();
     for (auto& file_col_name : _column_names) {
         auto iter = _map_column.find(file_col_name);
-        LOG(INFO) << "cmy ParquetReader::_init_read_columns: " << file_col_name << ", is missing: " << (iter == _map_column.end());
+        LOG(INFO) << "cmy ParquetReader::_init_read_columns: " << file_col_name
+                  << ", is missing: " << (iter == _map_column.end());
         if (iter != _map_column.end()) {
             _include_column_ids.emplace_back(iter->second);
         } else {
@@ -120,7 +121,8 @@ std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type(
     return map;
 }
 
-Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type, std::unordered_set<std::string>* missing_cols) {
+Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                                  std::unordered_set<std::string>* missing_cols) {
     auto schema_desc = _file_metadata->schema();
     std::unordered_set<std::string> column_names;
     schema_desc.get_column_names(&column_names);
@@ -167,8 +169,8 @@ Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& c
     for (auto row_group_id : _read_row_groups) {
         auto& row_group = _t_metadata->row_groups[row_group_id];
         std::shared_ptr<RowGroupReader> row_group_reader;
-        row_group_reader.reset(new RowGroupReader(_file_reader, _read_columns, row_group_id,
-                                                  row_group, _ctz));
+        row_group_reader.reset(
+                new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group, _ctz));
         std::vector<RowRange> candidate_row_ranges;
         RETURN_IF_ERROR(_process_page_index(row_group, candidate_row_ranges));
         if (candidate_row_ranges.empty()) {

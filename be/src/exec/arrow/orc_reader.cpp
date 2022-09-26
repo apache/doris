@@ -82,11 +82,14 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
     return Status::OK();
 }
 
-Status ORCReaderWrap::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type, std::unordered_set<std::string>* missing_cols) {
+Status ORCReaderWrap::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                                  std::unordered_set<std::string>* missing_cols) {
     for (size_t i = 0; i < _schema->num_fields(); ++i) {
-        std::string schema_name = _case_sensitive ? _schema->field(i)->name() : to_lower(_schema->field(i)->name());
+        std::string schema_name =
+                _case_sensitive ? _schema->field(i)->name() : to_lower(_schema->field(i)->name());
         TypeDescriptor type;
-        RETURN_IF_ERROR(vectorized::arrow_type_to_doris_type(_schema->field(i)->type()->id(), &type));
+        RETURN_IF_ERROR(
+                vectorized::arrow_type_to_doris_type(_schema->field(i)->type()->id(), &type));
         name_to_type->emplace(schema_name, type);
     }
 

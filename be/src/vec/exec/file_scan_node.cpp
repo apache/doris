@@ -459,7 +459,7 @@ std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& 
     switch (scan_range.params.format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
-                scan_range.ranges, _pre_filter_texprs, counter);
+                                       scan_range.ranges, _pre_filter_texprs, counter);
         break;
     case TFileFormatType::FORMAT_ORC:
         scan = new VFileORCScanner(_runtime_state, runtime_profile(), scan_range.params,

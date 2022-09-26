@@ -33,7 +33,8 @@ public:
         std::unordered_map<std::string, TypeDescriptor> map;
         return map;
     }
-    virtual Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type, std::unordered_set<std::string>* missing_cols) {
+    virtual Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                               std::unordered_set<std::string>* missing_cols) {
         return Status::NotSupported("get_columns is not implemented");
     }
     virtual ~GenericReader() {}
