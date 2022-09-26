@@ -51,4 +51,4 @@ mysql> select bit_length("中国");
 +----------------------+
 ```
 ### keywords
-BIT_LENGTH
+    BIT_LENGTH
