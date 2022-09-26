@@ -823,8 +823,8 @@ OLAPStatus TabletReader::_init_delete_condition(const ReaderParams& read_params)
     if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
         return OLAP_SUCCESS;
     }
-    OLAPStatus ret;
-    {
+    OLAPStatus ret = OLAP_SUCCESS;
+    if (read_params.runtime_state && !read_params.runtime_state->skip_delete_predicate()) {
         ReadLock rdlock(_tablet->get_header_lock());
         ret = _delete_handler.init(_tablet->tablet_schema(), _tablet->delete_predicates(),
                                               read_params.version.second, this);
