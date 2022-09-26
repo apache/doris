@@ -23,7 +23,6 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * There are the statistics of all tables.
@@ -36,17 +35,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * @TableStats based on the table id.
  */
 public class Statistics {
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
     private final Map<Long, TableStats> idToTableStats = Maps.newConcurrentMap();
-
-    public void readLock() {
-        lock.readLock().lock();
-    }
-
-    public void readUnlock() {
-        lock.readLock().unlock();
-    }
 
     /**
      * Get the table stats for the given table id.
@@ -174,12 +163,8 @@ public class Statistics {
     public void mockTableStatsWithRowCount(long tableId, long rowCount) {
         TableStats tableStats = idToTableStats.get(tableId);
         if (tableStats == null) {
-            tableStats = new TableStats();
+            tableStats = new TableStats(rowCount, 1);
             idToTableStats.put(tableId, tableStats);
-        }
-
-        if (tableStats.getRowCount() != rowCount) {
-            // tableStats.setRowCount(rowCount);
         }
     }
 

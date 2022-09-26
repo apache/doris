@@ -170,10 +170,10 @@ public class ColumnStats {
         this.avgSize = other.avgSize;
         this.maxSize = other.maxSize;
         this.numNulls = other.numNulls;
-        if (other.minValue != null) {
+        if (other.minValue != null && !(other.minValue instanceof NullLiteral)) {
             this.minValue = (LiteralExpr) other.minValue.clone();
         }
-        if (other.maxValue != null) {
+        if (other.maxValue != null && !(other.minValue instanceof NullLiteral)) {
             this.maxValue = (LiteralExpr) other.maxValue.clone();
         }
     }
