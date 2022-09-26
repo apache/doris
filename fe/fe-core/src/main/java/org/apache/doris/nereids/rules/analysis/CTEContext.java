@@ -21,9 +21,12 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,6 +34,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Context used for CTE analysis and register
@@ -92,9 +97,24 @@ public class CTEContext {
         LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
         if (withClause.getColumnAliases().isPresent()) {
             checkColumnAlias(withClause, analyzedPlan.getOutput());
+            analyzedPlan = withColumnAliases(analyzedPlan, withClause);
         }
         withQueries.put(name, analyzedPlan);
         // withQueries.put(name, withClause.getQuery());
+    }
+
+    private LogicalPlan withColumnAliases(LogicalPlan queryPlan, WithClause withClause) {
+        List<Slot> outputSlots = queryPlan.getOutput();
+        List<String> columnAliases = withClause.getColumnAliases().get();
+        for (int i = 0; i < outputSlots.size(); i++) {
+
+        }
+
+        List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
+                .mapToObj(i -> new Alias(outputSlots.get(i), columnAliases.get(i)))
+                .collect(Collectors.toList());
+        return new LogicalProject<>(projects, queryPlan.getGroupExpression(),
+                Optional.ofNullable(queryPlan.getLogicalProperties()), queryPlan);
     }
 
     // todo: move these validate operation to related job.
@@ -115,7 +135,7 @@ public class CTEContext {
         columnAlias.stream().forEach(alias -> {
             if (names.contains(alias.toLowerCase())) {
                 throw new AnalysisException("Duplicated CTE column alias: '" + alias.toLowerCase()
-                    + " in CTE " + withClause.getName());
+                    + "' in CTE " + withClause.getName());
             }
             names.add(alias);
         });
