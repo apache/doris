@@ -17,8 +17,9 @@
 
 #pragma once
 #include <common/status.h>
-#include "parquet_pred_cmp.h"
 #include <gen_cpp/parquet_types.h>
+
+#include "parquet_pred_cmp.h"
 #include "vparquet_reader.h"
 
 namespace doris::vectorized {

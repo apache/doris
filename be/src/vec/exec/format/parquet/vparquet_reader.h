@@ -24,11 +24,11 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exec/olap_common.h"
 #include "gen_cpp/parquet_types.h"
 #include "io/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
-#include "exec/olap_common.h"
 #include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
 #include "vparquet_page_index.h"
@@ -78,7 +78,8 @@ public:
     // for test
     void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
-    Status init_reader(std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader(
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     Status get_next_block(Block* block, bool* eof) override;
 

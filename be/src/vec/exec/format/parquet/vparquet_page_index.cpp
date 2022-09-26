@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vparquet_page_index.h"
+
 #include "util/thrift_util.h"
 
 namespace doris::vectorized {
@@ -45,8 +46,8 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
     const int num_of_pages = column_index->null_pages.size();
     for (int page_id = 0; page_id < num_of_pages; page_id++) {
         if (determine_filter_min_max(col_val_range, encoded_min_vals[page_id],
-                                        encoded_max_vals[page_id])) {
-                skipped_ranges.emplace_back(page_id);
+                                     encoded_max_vals[page_id])) {
+            skipped_ranges.emplace_back(page_id);
         }
     }
     VLOG_DEBUG << "skipped_ranges.size()=" << skipped_ranges.size();

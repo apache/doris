@@ -46,8 +46,9 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _profile(profile),
           _strict_mode(false) {}
 
-Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr,
-                             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+Status VFileScanner::prepare(
+        VExprContext** vconjunct_ctx_ptr,
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     _colname_to_value_range = colname_to_value_range;
     if (vconjunct_ctx_ptr != nullptr) {

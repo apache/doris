@@ -379,13 +379,13 @@ struct ScanPredicate {
     TExprOpcode::type _op;
     std::vector<void*> _values;
     bool _null_op = false;
-    bool _is_null= false;
+    bool _is_null = false;
     int _scale;
 };
 
-
 template <PrimitiveType primitive_type>
-void to_filter(const ColumnValueRange<primitive_type>& col_val_range, std::vector<ScanPredicate>& filters) {
+void to_filter(const ColumnValueRange<primitive_type>& col_val_range,
+               std::vector<ScanPredicate>& filters) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     const auto& high_value = col_val_range.get_range_max_value();
     const auto& low_value = col_val_range.get_range_min_value();
@@ -410,7 +410,8 @@ void to_filter(const ColumnValueRange<primitive_type>& col_val_range, std::vecto
         // 2. convert to min max filter condition
         ScanPredicate null_pred;
         if (col_val_range.is_high_value_maximum() && high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL &&
-                col_val_range.is_low_value_mininum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL && !col_val_range.contain_null()) {
+            col_val_range.is_low_value_mininum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL &&
+            !col_val_range.contain_null()) {
             null_pred._col_name = col_val_range.column_name();
             null_pred._null_op = true;
             null_pred._is_null = false;
@@ -418,18 +419,22 @@ void to_filter(const ColumnValueRange<primitive_type>& col_val_range, std::vecto
             return;
         }
         ScanPredicate low;
-        if (!col_val_range.is_low_value_mininum() || SQLFilterOp::FILTER_LARGER_OR_EQUAL != low_op) {
+        if (!col_val_range.is_low_value_mininum() ||
+            SQLFilterOp::FILTER_LARGER_OR_EQUAL != low_op) {
             low._col_name = col_val_range.column_name();
-            low._op = (low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL ? TExprOpcode::GE : TExprOpcode::GT);
+            low._op = (low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL ? TExprOpcode::GE
+                                                                     : TExprOpcode::GT);
             low._values.push_back(const_cast<CppType*>(&low_value));
             low._scale = col_val_range.scale();
             filters.push_back(low);
         }
 
         ScanPredicate high;
-        if (!col_val_range.is_high_value_maximum() || SQLFilterOp::FILTER_LESS_OR_EQUAL != high_op) {
+        if (!col_val_range.is_high_value_maximum() ||
+            SQLFilterOp::FILTER_LESS_OR_EQUAL != high_op) {
             high._col_name = col_val_range.column_name();
-            high._op = (high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL ? TExprOpcode::LE : TExprOpcode::LT);
+            high._op = (high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL ? TExprOpcode::LE
+                                                                     : TExprOpcode::LT);
             high._values.push_back(const_cast<CppType*>(&high_value));
             high._scale = col_val_range.scale();
             filters.push_back(high);
@@ -437,8 +442,8 @@ void to_filter(const ColumnValueRange<primitive_type>& col_val_range, std::vecto
     } else {
         // 3. convert to is null and is not null filter condition
         ScanPredicate null_pred;
-        if (col_val_range.is_low_value_maximum()
-                && col_val_range.is_high_value_mininum() && col_val_range.contain_null()) {
+        if (col_val_range.is_low_value_maximum() && col_val_range.is_high_value_mininum() &&
+            col_val_range.contain_null()) {
             null_pred._col_name = col_val_range.column_name();
             null_pred._null_op = true;
             null_pred._is_null = true;
@@ -447,8 +452,8 @@ void to_filter(const ColumnValueRange<primitive_type>& col_val_range, std::vecto
     }
 }
 
-void _eval_predicate(ScanPredicate filter, PrimitiveType col_type,
-                     const char* min_bytes, const char* max_bytes, bool& need_filter) {
+void _eval_predicate(ScanPredicate filter, PrimitiveType col_type, const char* min_bytes,
+                     const char* max_bytes, bool& need_filter) {
     if (filter._values.empty()) {
         return;
     }
@@ -459,37 +464,41 @@ void _eval_predicate(ScanPredicate filter, PrimitiveType col_type,
     // preserve TExprOpcode::FILTER_NEW_NOT_IN
     auto& value = filter._values[0];
     switch (filter._op) {
-        case TExprOpcode::EQ:
-            need_filter = _eval_eq(col_type, value, min_bytes, max_bytes);
-            break;
-        case TExprOpcode::NE:
-            break;
-        case TExprOpcode::GT:
-            need_filter = _eval_gt(col_type, value, max_bytes);
-            break;
-        case TExprOpcode::GE:
-            need_filter = _eval_ge(col_type, value, max_bytes);
-            break;
-        case TExprOpcode::LT:
-            need_filter = _eval_lt(col_type, value, min_bytes);
-            break;
-        case TExprOpcode::LE:
-            need_filter = _eval_le(col_type, value, min_bytes);
-            break;
-        default:
-            break;
+    case TExprOpcode::EQ:
+        need_filter = _eval_eq(col_type, value, min_bytes, max_bytes);
+        break;
+    case TExprOpcode::NE:
+        break;
+    case TExprOpcode::GT:
+        need_filter = _eval_gt(col_type, value, max_bytes);
+        break;
+    case TExprOpcode::GE:
+        need_filter = _eval_ge(col_type, value, max_bytes);
+        break;
+    case TExprOpcode::LT:
+        need_filter = _eval_lt(col_type, value, min_bytes);
+        break;
+    case TExprOpcode::LE:
+        need_filter = _eval_le(col_type, value, min_bytes);
+        break;
+    default:
+        break;
     }
 }
 
-bool determine_filter_min_max(ColumnValueRangeType& col_val_range,
-                               const std::string& encoded_min,
-                               const std::string& encoded_max) {
+bool determine_filter_min_max(ColumnValueRangeType& col_val_range, const std::string& encoded_min,
+                              const std::string& encoded_max) {
     const char* min_bytes = encoded_min.data();
     const char* max_bytes = encoded_max.data();
     bool need_filter = false;
     std::vector<ScanPredicate> filters;
     PrimitiveType col_type;
-    std::visit([&](auto&& range) {col_type = range.type(); to_filter(range, filters); }, col_val_range);
+    std::visit(
+            [&](auto&& range) {
+                col_type = range.type();
+                to_filter(range, filters);
+            },
+            col_val_range);
 
     for (int i = 0; i < filters.size(); i++) {
         ScanPredicate filter = filters[i];
@@ -500,7 +509,5 @@ bool determine_filter_min_max(ColumnValueRangeType& col_val_range,
     }
     return need_filter;
 }
-
-
 
 } // namespace doris::vectorized
