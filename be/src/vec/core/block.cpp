@@ -405,6 +405,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
         for (size_t i = 0; i < columns(); ++i) {
             std::string s = "";
             if (data[i].column) {
+                LOG(INFO) << "cmy column i: " << i << ", rows: " << data[i].column->size();
                 s = data[i].to_string(row_num);
             }
             if (s.length() > headers_size[i]) {

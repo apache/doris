@@ -325,5 +325,6 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
+ColumnPtr remove_nullable2(const ColumnPtr& column);
 
 } // namespace doris::vectorized

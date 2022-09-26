@@ -138,7 +138,6 @@ Status ArrowReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, b
         if (_batch_eof) {
             _include_column_ids.clear();
             *eof = true;
-            // _batch_eof = false;
             return Status::OK();
         }
         _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));

@@ -67,6 +67,7 @@ String ColumnWithTypeAndName::dump_structure() const {
 }
 
 std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
+    LOG(INFO) << "cmy ColumnWithTypeAndName::to_string: " << column->is_nullable() << ", class: " << demangle(typeid(*column).name()) << ", type class: " << demangle(typeid(*type).name());
     return type->to_string(*column->convert_to_full_column_if_const().get(), row_num);
 }
 

@@ -42,6 +42,7 @@ bool DataTypeNullable::only_null() const {
 }
 
 std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) const {
+    LOG(INFO) << "cmy DataTypeNullable::to_string";
     auto ptr = column.convert_to_full_column_if_const();
     const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
 

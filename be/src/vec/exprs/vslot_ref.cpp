@@ -60,6 +60,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
+    LOG(INFO) << "cmy debug  VSlotRef::execute: " << expr_name();   
     *result_column_id = _column_id;
     return Status::OK();
 }

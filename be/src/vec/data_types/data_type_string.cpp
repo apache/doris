@@ -51,6 +51,7 @@ static inline void read(IColumn& column, Reader&& reader) {
 
 std::string DataTypeString::to_string(const IColumn& column, size_t row_num) const {
     auto ptr = column.convert_to_full_column_if_const();
+    LOG(INFO) << "cmy DataTypeString::to_string: " << demangle(typeid(*ptr).name());
     const StringRef& s = assert_cast<const ColumnString&>(*ptr.get()).get_data_at(row_num);
     return s.to_string();
 }

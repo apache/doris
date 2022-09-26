@@ -187,6 +187,8 @@ void VLiteral::init(const TExprNode& node) {
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
     // Literal expr should return least one row.
+    LOG(INFO) << "cmy VLiteral::execute: rows: " << block->rows() << ", debug:" << debug_string() << ", column class: " << demangle(typeid(*_column_ptr).name())
+            << ", data type class: " << demangle(typeid(*_data_type).name());
     size_t row_size = std::max(block->rows(), size_t(1));
     *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
     return Status::OK();
@@ -194,7 +196,8 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
 
 std::string VLiteral::debug_string() const {
     std::stringstream out;
-    out << "VLiteral (type = " << _data_type->get_name();
+    out << "VLiteral (name = " << _expr_name;
+    out << ", type = " << _data_type->get_name();
     out << ", value = ";
     if (_column_ptr.get()->size() > 0) {
         StringRef ref = _column_ptr.get()->get_data_at(0);
