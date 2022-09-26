@@ -417,7 +417,7 @@ public class CastExpr extends Expr {
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
             // for example, "select cast('20221213' as char(2))" should return "20"
-            if (type.getLength() >= 0 && type.getLength() < value.getStringValue().length()) {
+            if (type.getLength() >= 0 && value.getStringValue() != null && type.getLength() < value.getStringValue().length()) {
                 String subStringValue = value.getStringValue().substring(0, type.getLength());
                 return new StringLiteral(subStringValue);
             }
