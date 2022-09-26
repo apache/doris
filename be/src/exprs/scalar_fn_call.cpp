@@ -220,40 +220,33 @@ RETURN_TYPE ScalarFnCall::interpret_eval(ExprContext* context, TupleRow* row) {
     if (_vararg_start_idx == -1) {
         switch (_children.size()) {
         case 0:
-            std::cout << "case 0" << std::endl;
             typedef RETURN_TYPE (*ScalarFn0)(FunctionContext*);
             return reinterpret_cast<ScalarFn0>(_scalar_fn)(fn_ctx);
         case 1:
-            std::cout << "case 1" << std::endl;
             typedef RETURN_TYPE (*ScalarFn1)(FunctionContext*, const AnyVal& a1);
             return reinterpret_cast<ScalarFn1>(_scalar_fn)(fn_ctx, *(*input_vals)[0]);
         case 2:
-            std::cout << "case 2" << std::endl;
             typedef RETURN_TYPE (*ScalarFn2)(FunctionContext*, const AnyVal& a1, const AnyVal& a2);
             return reinterpret_cast<ScalarFn2>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
                                                            *(*input_vals)[1]);
         case 3:
-            std::cout << "case 3" << std::endl;
             typedef RETURN_TYPE (*ScalarFn3)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
                                              const AnyVal& a3);
             return reinterpret_cast<ScalarFn3>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
                                                            *(*input_vals)[1], *(*input_vals)[2]);
         case 4:
-            std::cout << "case 4" << std::endl;
             typedef RETURN_TYPE (*ScalarFn4)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
                                              const AnyVal& a3, const AnyVal& a4);
             return reinterpret_cast<ScalarFn4>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
                                                            *(*input_vals)[1], *(*input_vals)[2],
                                                            *(*input_vals)[3]);
         case 5:
-            std::cout << "case 5" << std::endl;
             typedef RETURN_TYPE (*ScalarFn5)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
                                              const AnyVal& a3, const AnyVal& a4, const AnyVal& a5);
             return reinterpret_cast<ScalarFn5>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
                                                            *(*input_vals)[1], *(*input_vals)[2],
                                                            *(*input_vals)[3], *(*input_vals)[4]);
         case 6:
-            std::cout << "case 6" << std::endl;
             typedef RETURN_TYPE (*ScalarFn6)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
                                              const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
                                              const AnyVal& a6);
@@ -261,7 +254,6 @@ RETURN_TYPE ScalarFnCall::interpret_eval(ExprContext* context, TupleRow* row) {
                     fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
                     *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5]);
         case 7:
-            std::cout << "case 7" << std::endl;
             typedef RETURN_TYPE (*ScalarFn7)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
                                              const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
                                              const AnyVal& a6, const AnyVal& a7);
@@ -269,7 +261,6 @@ RETURN_TYPE ScalarFnCall::interpret_eval(ExprContext* context, TupleRow* row) {
                     fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
                     *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5], *(*input_vals)[6]);
         case 8:
-            std::cout << "case 8" << std::endl;
             typedef RETURN_TYPE (*ScalarFn8)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
                                              const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
                                              const AnyVal& a6, const AnyVal& a7, const AnyVal& a8);
@@ -278,7 +269,6 @@ RETURN_TYPE ScalarFnCall::interpret_eval(ExprContext* context, TupleRow* row) {
                     *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5], *(*input_vals)[6],
                     *(*input_vals)[7]);
         default:
-            std::cout << "default" << std::endl;
             DCHECK(false) << "Interpreted path not implemented. We should have "
                           << "codegen'd the wrapper";
         }
