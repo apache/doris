@@ -38,7 +38,7 @@ import java.util.List;
  */
 public class PlanContext {
     // array of children's derived stats
-    private final List<StatsDeriveResult> childrenStats = Lists.newArrayList();
+    private final List<StatsDeriveResult> childrenStats;
     // attached group expression
     private final GroupExpression groupExpression;
 
@@ -47,6 +47,7 @@ public class PlanContext {
      */
     public PlanContext(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
+        childrenStats = Lists.newArrayListWithCapacity(groupExpression.children().size());
 
         for (Group group : groupExpression.children()) {
             childrenStats.add(group.getStatistics());

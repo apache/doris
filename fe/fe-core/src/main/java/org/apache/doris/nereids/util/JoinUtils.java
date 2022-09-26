@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -165,7 +164,9 @@ public class JoinUtils {
 
         for (Expression expr : join.getHashJoinConjuncts()) {
             EqualTo equalTo = (EqualTo) expr;
-            Preconditions.checkArgument(equalTo.left() instanceof Slot && equalTo.right() instanceof Slot);
+            if (!(equalTo.left() instanceof Slot) || !(equalTo.right() instanceof Slot)) {
+                continue;
+            }
             ExprId leftExprId = ((Slot) equalTo.left()).getExprId();
             ExprId rightExprId = ((Slot) equalTo.right()).getExprId();
 
