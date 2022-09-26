@@ -37,7 +37,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import com.google.common.collect.ImmutableList;
 
 /**
- * Apply rules to normalize expressions.
+ * Apply rules to optimize logical plan.
  */
 public class NereidsRewriteJobExecutor extends BatchRulesJob {
 
@@ -58,7 +58,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                  */
                 .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
-                .add(topDownBatch(ImmutableList.of(new ExpressionNormalization())))
+                .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
                 .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
                 .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
