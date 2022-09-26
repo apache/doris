@@ -84,6 +84,7 @@ public enum RuleType {
     // Pushdown filter
     PUSHDOWN_FILTER_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSHDOWN_FILTER_THROUGH_LEFT_SEMI_JOIN(RuleTypeClass.REWRITE),
+    PUSH_FILTER_INSIDE_JOIN(RuleTypeClass.REWRITE),
     PUSHDOWN_FILTER_THROUGH_PROJET(RuleTypeClass.REWRITE),
     PUSHDOWN_PROJECT_THROUGHT_LIMIT(RuleTypeClass.REWRITE),
     // column prune rules,
