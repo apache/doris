@@ -22,18 +22,17 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class ColumnStatsTest {
 
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./columnStats");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./columnStats"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ColumnStats stats1 = new ColumnStats();
         stats1.write(dos);
@@ -59,7 +58,7 @@ public class ColumnStatsTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         ColumnStats rStats1 = new ColumnStats();
         rStats1.readFields(dis);
         Assert.assertTrue(rStats1.equals(stats1));
@@ -81,7 +80,7 @@ public class ColumnStatsTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
 }
