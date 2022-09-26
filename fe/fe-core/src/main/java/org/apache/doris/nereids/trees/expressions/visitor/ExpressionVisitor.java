@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -275,6 +276,10 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitInPredicate(InPredicate inPredicate, C context) {
         return visit(inPredicate, context);
+    }
+
+    public R visitIsNull(IsNull isNull, C context) {
+        return visit(isNull, context);
     }
 
     public R visitInSubquery(InSubquery in, C context) {
