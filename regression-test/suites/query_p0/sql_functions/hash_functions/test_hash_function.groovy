@@ -21,4 +21,8 @@ suite("test_hash_function") {
     qt_sql "SELECT murmur_hash3_32(null);"
     qt_sql "SELECT murmur_hash3_32(\"hello\");"
     qt_sql "SELECT murmur_hash3_32(\"hello\", \"world\");"
+
+    qt_sql "SELECT murmur_hash3_64(null);"
+    qt_sql "SELECT murmur_hash3_64(\"hello\");"
+    qt_sql "SELECT murmur_hash3_64(\"hello\", \"world\");"
 }
