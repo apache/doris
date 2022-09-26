@@ -26,8 +26,6 @@ under the License.
 
 ## DATE
 ### Description
-DATE function
-
 #### Syntax
 datev2
 DateV2 type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'YYYYY-MM-DD'.
