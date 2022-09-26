@@ -82,4 +82,4 @@ mysql> select substring('abc1def', 2, 2);
 ```
 
 ### keywords
-SUBSTRING, STRING
+    SUBSTRING, STRING
