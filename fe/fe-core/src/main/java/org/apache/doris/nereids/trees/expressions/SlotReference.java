@@ -79,6 +79,10 @@ public class SlotReference extends Slot {
         this.column = column;
     }
 
+    public static SlotReference of(String name, DataType type) {
+        return new SlotReference(name, type);
+    }
+
     public static SlotReference fromColumn(Column column, List<String> qualifier) {
         DataType dataType = DataType.convertFromCatalogDataType(column.getType());
         return new SlotReference(NamedExpressionUtil.newExprId(), column.getName(), dataType,
