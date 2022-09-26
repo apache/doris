@@ -1,7 +1,7 @@
 ---
 {
-"title": "bitmap_count",
-"language": "zh-CN"
+    "title": "bitmap_count",
+    "language": "zh-CN"
 }
 ---
 
