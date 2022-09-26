@@ -47,4 +47,4 @@ mysql> select year('1987-01-01');
 +-----------------------------+
 ```
 ### keywords
-YEAR
+    YEAR
