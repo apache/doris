@@ -205,9 +205,33 @@ export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow
 export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
-TOTAL_MEM=$(free -m | grep Mem | awk '{print $2}')
-MEM_LIMIT_PERCENT=$(grep ^mem_limit ${DORIS_HOME}/conf/be.conf | awk -F '=' '{print $2}' | awk -F '%' '{print $1}')
-export TCMALLOC_HEAP_LIMIT_MB=$(( $TOTAL_MEM * $MEM_LIMIT_PERCENT / 100 ))
+set_tcmalloc_heap_limit() {
+    total_mem_mb=$(free -m | grep Mem | awk '{print $2}')
+    mem_limit_str=$(grep ^mem_limit ${DORIS_HOME}/conf/be.conf)
+    digits_unit=${mem_limit_str##*=}
+    digits_unit="${digits_unit#"${digits_unit%%[![:space:]]*}"}"
+    digits_unit="${digits_unit%"${digits_unit##*[![:space:]]}"}"   
+    digits=${digits_unit%%[^[:digit:]]*}
+    unit=${digits_unit##*[[:digit:] ]}
+    mem_limit_mb=0 
+    echo $digits_unit $digits $unit
+    case $unit in
+        t|T) mem_limit_mb=$((digits * 1024 * 1024)) ;;
+        g|G) mem_limit_mb=$((digits * 1024)) ;;
+        m|M) mem_limit_mb=$((digits)) ;;
+        k|K) mem_limit_mb=$((digits / 1024)) ;;
+          %) mem_limit_mb=$((total_mem_mb * digits / 100)) ;;
+          *) mem_limit_mb=$((digits / 1024 / 1024 / 1024)) ;;
+    esac
+    if [[ "$mem_limit_mb" -gt "$total_mem_mb" ]]; then
+        echo "mem_limit is larger than whole memory of the server. $mem_limit_mb > $total_mem_mb."
+        return 1
+    fi
+    echo $total_mem_mb $mem_limit_str $mem_limit_mb
+    export TCMALLOC_HEAP_LIMIT_MB=$mem_limit_mb
+}
+
+set_tcmalloc_heap_limit || exit 1
 
 ## set hdfs conf
 export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
