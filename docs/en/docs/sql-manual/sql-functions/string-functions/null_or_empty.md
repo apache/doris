@@ -57,4 +57,4 @@ MySQL [(none)]> select null_or_empty("a");
 +--------------------+
 ```
 ### keywords
-NULL_OR_EMPTY
+    NULL_OR_EMPTY

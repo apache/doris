@@ -120,19 +120,19 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
                                    config::doris_remote_scanner_thread_pool_queue_size);
 
     ThreadPoolBuilder("LimitedScanThreadPool")
-            .set_min_threads(1)
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
             .build(&_limited_scan_thread_pool);
 
     ThreadPoolBuilder("SendBatchThreadPool")
-            .set_min_threads(1)
+            .set_min_threads(config::send_batch_thread_pool_thread_num)
             .set_max_threads(config::send_batch_thread_pool_thread_num)
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
 
     ThreadPoolBuilder("DownloadCacheThreadPool")
-            .set_min_threads(1)
+            .set_min_threads(config::download_cache_thread_pool_thread_num)
             .set_max_threads(config::download_cache_thread_pool_thread_num)
             .set_max_queue_size(config::download_cache_thread_pool_queue_size)
             .build(&_download_cache_thread_pool);
@@ -216,7 +216,6 @@ Status ExecEnv::_init_mem_tracker() {
         init_hook();
     }
 #endif
-
     _allocator_cache_mem_tracker = std::make_shared<MemTracker>("Tc/JemallocAllocatorCache");
     _query_pool_mem_tracker =
             std::make_shared<MemTrackerLimiter>(-1, "QueryPool", _process_mem_tracker);

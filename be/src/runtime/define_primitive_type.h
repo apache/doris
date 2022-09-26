@@ -53,6 +53,7 @@ enum PrimitiveType {
     TYPE_DECIMAL32,      /* 28 */
     TYPE_DECIMAL64,      /* 29 */
     TYPE_DECIMAL128,     /* 30 */
+    TYPE_JSONB,          /* 31 */
 };
 
 }

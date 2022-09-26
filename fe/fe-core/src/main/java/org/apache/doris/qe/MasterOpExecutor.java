@@ -165,6 +165,16 @@ public class MasterOpExecutor {
         }
     }
 
+    public String getProxyStatus() {
+        if (result == null) {
+            return QueryState.MysqlStateType.UNKNOWN.name();
+        }
+        if (!result.isSetStatus()) {
+            return QueryState.MysqlStateType.UNKNOWN.name();
+        } else {
+            return result.getStatus();
+        }
+    }
 
     public ShowResultSet getProxyResultSet() {
         if (result == null) {

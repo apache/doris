@@ -34,4 +34,4 @@ under the License.
 Consistent with `lower`.
 
 ### keywords
-LCASE
+    LCASE

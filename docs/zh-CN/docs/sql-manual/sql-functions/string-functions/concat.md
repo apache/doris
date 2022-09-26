@@ -58,4 +58,4 @@ mysql> select concat("a", null, "c");
 +------------------------+
 ```
 ### keywords
-CONCAT
+    CONCAT
