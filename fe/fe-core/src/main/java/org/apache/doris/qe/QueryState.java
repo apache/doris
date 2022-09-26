@@ -29,7 +29,8 @@ public class QueryState {
         NOOP,   // send nothing to remote
         OK,     // send OK packet to remote
         EOF,    // send EOF packet to remote
-        ERR     // send ERROR packet to remote
+        ERR,     // send ERROR packet to remote
+        UNKNOWN  // send UNKNOWN packet to remote
     }
 
     public enum ErrType {
