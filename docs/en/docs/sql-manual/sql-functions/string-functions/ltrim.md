@@ -44,4 +44,4 @@ mysql> SELECT ltrim('   ab d');
 +------------------+
 ```
 ### keywords
-LTRIM
+    LTRIM
