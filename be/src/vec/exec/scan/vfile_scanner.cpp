@@ -341,8 +341,7 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader = new ParquetReader(_profile, _params, range, column_names,
                                             _state->query_options().batch_size,
                                             const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-            RETURN_IF_ERROR(((ParquetReader*)_cur_reader)->init_reader(_colname_to_value_range));
-            break;
+            Status status = ((ParquetReader*)_cur_reader)->init_reader(_colname_to_value_range);
             if (status.ok()) {
                 _cur_reader_eof = false;
                 return status;

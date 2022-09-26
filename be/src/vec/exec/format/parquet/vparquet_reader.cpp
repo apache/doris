@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "io/file_factory.h"
+#include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 
 namespace doris::vectorized {
@@ -67,7 +68,8 @@ void ParquetReader::close() {
     }
 }
 
-Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
+Status ParquetReader::init_reader(
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     if (_file_reader == nullptr) {
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
                                                         _file_reader, 2048));
@@ -105,16 +107,17 @@ Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
 }
 
 Status ParquetReader::_init_read_columns() {
+    std::vector<int> include_column_ids;
     for (auto& file_col_name : _column_names) {
         auto iter = _map_column.find(file_col_name);
         if (iter != _map_column.end()) {
-            _include_column_ids.emplace_back(iter->second);
+            include_column_ids.emplace_back(iter->second);
         }
     }
     // The same order as physical columns
-    std::sort(_include_column_ids.begin(), _include_column_ids.end());
+    std::sort(include_column_ids.begin(), include_column_ids.end());
     _read_columns.clear();
-    for (int& parquet_col_id : _include_column_ids) {
+    for (int& parquet_col_id : include_column_ids) {
         _read_columns.emplace_back(parquet_col_id,
                                    _file_metadata->schema().get_column(parquet_col_id)->name);
     }
@@ -194,7 +197,8 @@ Status ParquetReader::_filter_row_groups() {
         bool filter_group = false;
         RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
         int64_t group_size = 0; // only calculate the needed columns
-        for (auto& parquet_col_id : _include_column_ids) {
+        for (auto& read_col : _read_columns) {
+            auto& parquet_col_id = read_col._parquet_col_id;
             if (row_group.columns[parquet_col_id].__isset.meta_data) {
                 group_size += row_group.columns[parquet_col_id].meta_data.total_compressed_size;
             }

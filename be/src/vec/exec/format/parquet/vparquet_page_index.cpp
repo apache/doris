@@ -17,6 +17,7 @@
 
 #include "vparquet_page_index.h"
 
+#include "parquet_pred_cmp.h"
 #include "util/thrift_util.h"
 
 namespace doris::vectorized {

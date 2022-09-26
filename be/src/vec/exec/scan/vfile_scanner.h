@@ -17,18 +17,20 @@
 
 #pragma once
 
+#include "exec/olap_common.h"
 #include "exec/text_converter.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
 #include "runtime/tuple.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/vscanner.h"
-#include "exec/olap_common.h"
 
 namespace doris::vectorized {
 
 class NewFileScanNode;
+class ParquetReader;
 
 // The counter will be passed to each scanner.
 // Note that this struct is not thread safe.

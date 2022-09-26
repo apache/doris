@@ -76,8 +76,8 @@ namespace doris::vectorized {
         return true;                                                       \
     }
 
-bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
-                  const char* min_bytes, const char* max_bytes) {
+static bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
+                         const char* min_bytes, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _FILTER_GROUP_BY_IN(int8_t, in_pred_values, min_bytes, max_bytes)
@@ -122,8 +122,8 @@ bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values
     return false;
 }
 
-bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
-              const char* max_bytes) {
+static bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
+                     const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE(int16_t, value, min_bytes, max_bytes, conjunct_value, min, max)
@@ -172,7 +172,7 @@ bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
     return false;
 }
 
-bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
+static bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, max_bytes, conjunct_value, max)
@@ -222,7 +222,7 @@ bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     return false;
 }
 
-bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
+static bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, max_bytes, conjunct_value, max)
@@ -272,7 +272,7 @@ bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     return false;
 }
 
-bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
+static bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, min_bytes, conjunct_value, min)
@@ -322,7 +322,7 @@ bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     return false;
 }
 
-bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
+static bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, min_bytes, conjunct_value, min)
@@ -384,8 +384,8 @@ struct ScanPredicate {
 };
 
 template <PrimitiveType primitive_type>
-void to_filter(const ColumnValueRange<primitive_type>& col_val_range,
-               std::vector<ScanPredicate>& filters) {
+static void to_filter(const ColumnValueRange<primitive_type>& col_val_range,
+                      std::vector<ScanPredicate>& filters) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     const auto& high_value = col_val_range.get_range_max_value();
     const auto& low_value = col_val_range.get_range_min_value();
@@ -452,8 +452,8 @@ void to_filter(const ColumnValueRange<primitive_type>& col_val_range,
     }
 }
 
-void _eval_predicate(ScanPredicate filter, PrimitiveType col_type, const char* min_bytes,
-                     const char* max_bytes, bool& need_filter) {
+static void _eval_predicate(ScanPredicate filter, PrimitiveType col_type, const char* min_bytes,
+                            const char* max_bytes, bool& need_filter) {
     if (filter._values.empty()) {
         return;
     }
@@ -486,8 +486,9 @@ void _eval_predicate(ScanPredicate filter, PrimitiveType col_type, const char* m
     }
 }
 
-bool determine_filter_min_max(ColumnValueRangeType& col_val_range, const std::string& encoded_min,
-                              const std::string& encoded_max) {
+static bool determine_filter_min_max(ColumnValueRangeType& col_val_range,
+                                     const std::string& encoded_min,
+                                     const std::string& encoded_max) {
     const char* min_bytes = encoded_min.data();
     const char* max_bytes = encoded_max.data();
     bool need_filter = false;

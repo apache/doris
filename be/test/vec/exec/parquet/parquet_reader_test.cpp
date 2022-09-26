@@ -22,7 +22,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 
 namespace doris {
@@ -188,7 +188,7 @@ TEST_F(ParquetReaderTest, scanner) {
     std::vector<TScanRangeParams> scan_ranges;
     {
         TScanRangeParams scan_range_params;
-        TFileScanRange TFileScanRange;
+        TFileScanRange file_scan_range;
         TFileScanRangeParams params;
         {
             params.__set_src_tuple_id(0);
@@ -214,7 +214,7 @@ TEST_F(ParquetReaderTest, scanner) {
             range.__set_columns_from_path(columns_from_path);
         }
         file_scan_range.ranges.push_back(range);
-        scan_range_params.scan_range.ext_scan_range.__set_file_scan_range(TFileScanRange);
+        scan_range_params.scan_range.ext_scan_range.__set_file_scan_range(file_scan_range);
         scan_ranges.push_back(scan_range_params);
     }
 
@@ -226,6 +226,9 @@ TEST_F(ParquetReaderTest, scanner) {
     ObjectPool obj_pool;
     DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
     runtime_state.set_desc_tbl(desc_tbl);
+    QueryFragmentsCtx query_ctx(1, ExecEnv::GetInstance());
+    query_ctx.set_thread_token(5, false);
+    runtime_state.set_query_fragments_ctx(&query_ctx);
 
     TPlanNode tnode;
     tnode.node_id = 0;
@@ -237,25 +240,25 @@ TEST_F(ParquetReaderTest, scanner) {
     tnode.file_scan_node.tuple_id = 0;
     tnode.__isset.file_scan_node = true;
 
-    NewFileScanNode scan_node(&_obj_pool, tnode, *_desc_tbl);
+    NewFileScanNode scan_node(&obj_pool, tnode, *desc_tbl);
     scan_node.init(tnode, &runtime_state);
     auto status = scan_node.prepare(&runtime_state);
 
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(status.ok());
     //
     scan_node.set_scan_ranges(scan_ranges);
-    status = scan_node.open(&_runtime_state);
+    status = scan_node.open(&runtime_state);
     ASSERT_TRUE(status.ok());
 
     doris::vectorized::Block block;
     bool eos = false;
-    status = scan_node.get_next(&_runtime_state, &block, &eos);
+    status = scan_node.get_next(&runtime_state, &block, &eos);
 //    for (auto& col : block->get_columns_with_type_and_name()) {
 //        ASSERT_EQ(col.column->size(), 10);
 //    }
     ASSERT_TRUE(eos);
 
-    scan_node.close(&_runtime_state);
+    scan_node.close(&runtime_state);
     {
         std::stringstream ss;
         scan_node.runtime_profile()->pretty_print(&ss);
