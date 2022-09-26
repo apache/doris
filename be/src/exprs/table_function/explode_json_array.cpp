@@ -62,7 +62,6 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
         _backup_string.clear();
         _string_nulls.clear();
         int32_t wbytes = 0;
-        int i = 0;
         for (auto& v : document.GetArray()) {
             switch (v.GetType()) {
             case rapidjson::Type::kStringType:
@@ -107,7 +106,6 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 _string_nulls.push_back(true);
                 break;
             }
-            ++i;
         }
         // Must set _data_string at the end, so that we can
         // save the real addr of string in `_backup_string` to `_data_string`.
