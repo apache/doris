@@ -21,12 +21,16 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Context used for CTE analysis and register
@@ -76,10 +80,35 @@ public class CTEContext {
             throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
         }
 
+        if (withClause.getColumnAliases().isPresent()) {
+            checkColumnAlias(withClause);
+        }
+
         CascadesContext cascadesContext = new Memo(withClause.getQuery())
                 .newCascadesContext(statementContext);
         cascadesContext.newAnalyzer(this).analyze();
         withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
         // withQueries.put(name, withClause.getQuery());
+    }
+
+    // todo: move these validate operation to related job.
+    private void checkColumnAlias(WithClause withClause) {
+        List<String> columnAlias = withClause.getColumnAliases().get();
+        List<Slot> outputSlots = withClause.getQuery().getOutput();
+        if (columnAlias.size() != outputSlots.size()) {
+            throw new AnalysisException("WITH-clause '" + withClause.getName() + "' returns " + columnAlias.size()
+                + " columns, but " + outputSlots.size() + " labels were specified. The number of column labels must "
+                + "be smaller or equal to the number of returned columns.");
+        }
+
+        Set<String> names = new HashSet<>();
+        columnAlias.stream().forEach(alias -> {
+            if (names.contains(alias.toLowerCase())) {
+                throw new AnalysisException("Duplicated CTE column alias: '" + alias.toLowerCase()
+                    + " in CTE " + withClause.getName());
+            }
+            names.add(alias);
+        });
+
     }
 }

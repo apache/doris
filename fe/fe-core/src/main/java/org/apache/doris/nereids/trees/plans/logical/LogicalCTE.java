@@ -54,9 +54,14 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
         return withClauses;
     }
 
+    /**
+     * In fact, the action of LogicalCTE is to store and register with clauses, and this logical node will be
+     * eliminated immediately after finishing the process of with-clause registry; This process is executed before
+     * all the other analyze and optimize rules, so this function will not be called.
+     */
     @Override
     public List<Slot> computeOutput() {
-        return null;
+        return child().getOutput();
     }
 
     @Override

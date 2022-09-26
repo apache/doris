@@ -26,18 +26,19 @@ import java.util.Optional;
 
 /**
  * One withClause of CTE
+ * Example: name (columnNames) AS (query)
  */
 public class WithClause extends Expression {
 
     private final String name;
     private final LogicalPlan query;
 
-    private final Optional<List<String>> columnNames;
+    private final Optional<List<String>> columnAliases;
 
-    public WithClause(String name, LogicalPlan query, Optional<List<String>> columnNames) {
+    public WithClause(String name, LogicalPlan query, Optional<List<String>> columnAliases) {
         this.name = name;
         this.query = query;
-        this.columnNames = columnNames;
+        this.columnAliases = columnAliases;
     }
 
     public String getName() {
@@ -48,8 +49,8 @@ public class WithClause extends Expression {
         return query;
     }
 
-    public Optional<List<String>> getColumnNames() {
-        return columnNames;
+    public Optional<List<String>> getColumnAliases() {
+        return columnAliases;
     }
 
     @Override
