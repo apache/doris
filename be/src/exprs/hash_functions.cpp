@@ -40,4 +40,18 @@ IntVal HashFunctions::murmur_hash3_32(FunctionContext* ctx, int num_children,
     return seed;
 }
 
+BigIntVal HashFunctions::murmur_hash3_64(FunctionContext* ctx, int num_children,
+                                         const StringVal* inputs) {
+    uint64_t seed = 0;
+    uint64_t hash = 0;
+    for (int i = 0; i < num_children; ++i) {
+        if (inputs[i].is_null) {
+            return BigIntVal::null();
+        }
+        murmur_hash3_x64_64(inputs[i].ptr, inputs[i].len, seed, &hash);
+        seed = hash;
+    }
+    return hash;
+}
+
 } // namespace doris
