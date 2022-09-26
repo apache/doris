@@ -193,9 +193,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // 3. generate output tuple
         List<Slot> slotList = Lists.newArrayList();
         TupleDescriptor outputTupleDesc;
-        if (aggregate.getAggPhase() == AggPhase.LOCAL) {
-            outputTupleDesc = generateTupleDesc(aggregate.getOutput(), null, context);
-        } else if ((aggregate.getAggPhase() == AggPhase.GLOBAL && aggregate.isFinalPhase())
+        if (aggregate.getAggPhase() == AggPhase.LOCAL
+                || (aggregate.getAggPhase() == AggPhase.GLOBAL && aggregate.isFinalPhase())
                 || aggregate.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
             slotList.addAll(groupSlotList);
             slotList.addAll(aggFunctionOutput);

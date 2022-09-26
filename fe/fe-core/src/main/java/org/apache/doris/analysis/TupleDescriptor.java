@@ -412,9 +412,7 @@ public class TupleDescriptor {
                 .toString());
         builder.append("\n");
         for (SlotDescriptor slot : slots) {
-            if (slot.isMaterialized()) {
-                builder.append(slot.getExplainString(prefix)).append("\n");
-            }
+            builder.append(slot.getExplainString(prefix)).append("\n");
         }
         return builder.toString();
     }
