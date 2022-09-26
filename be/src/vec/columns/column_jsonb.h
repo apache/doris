@@ -320,6 +320,6 @@ public:
         chars.emplace_back(0);
     }
 
-    MutableColumnPtr get_shinked_column() override;
+    MutableColumnPtr get_shrinked_column() override;
 };
 }; // namespace doris::vectorized
