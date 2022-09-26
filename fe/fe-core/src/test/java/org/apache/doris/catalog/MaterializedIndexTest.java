@@ -27,9 +27,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -67,9 +67,8 @@ public class MaterializedIndexTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./index");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./index"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         index.write(dos);
 
@@ -77,12 +76,12 @@ public class MaterializedIndexTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         MaterializedIndex rIndex = MaterializedIndex.read(dis);
         Assert.assertTrue(index.equals(rIndex));
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

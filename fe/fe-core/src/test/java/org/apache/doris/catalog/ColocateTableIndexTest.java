@@ -27,9 +27,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -60,9 +60,9 @@ public class ColocateTableIndexTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./GroupIdTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Paths.get("./GroupIdTest");
+        Files.createFile(path);
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ColocateTableIndex.GroupId groupId = new ColocateTableIndex.GroupId(1, 2);
         groupId.write(dos);
@@ -70,13 +70,13 @@ public class ColocateTableIndexTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         ColocateTableIndex.GroupId rGroupId = ColocateTableIndex.GroupId.read(dis);
         Assert.assertTrue(groupId.equals(rGroupId));
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }
