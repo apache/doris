@@ -133,7 +133,7 @@ Status NewOdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
             }
         }
 
-        for (int row_index = 0; true; row_index++) {
+        while (true) {
             // block is full, break
             if (state->batch_size() <= columns[0]->size()) {
                 break;
