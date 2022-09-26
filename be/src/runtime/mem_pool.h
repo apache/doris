@@ -162,7 +162,6 @@ public:
 
     int64_t total_allocated_bytes() const { return total_allocated_bytes_; }
     int64_t total_reserved_bytes() const { return total_reserved_bytes_; }
-    int64_t peak_allocated_bytes() const { return peak_allocated_bytes_; }
 
     MemTracker* mem_tracker() { return _mem_tracker; }
 
@@ -211,14 +210,6 @@ private:
     /// data. Otherwise the current chunk can be either empty or full.
     bool check_integrity(bool check_current_chunk_empty);
 
-    void reset_peak() {
-        if (total_allocated_bytes_ - peak_allocated_bytes_ > 65536) {
-            THREAD_MEM_TRACKER_TRANSFER_FROM(total_allocated_bytes_ - peak_allocated_bytes_,
-                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
-            peak_allocated_bytes_ = total_allocated_bytes_;
-        }
-    }
-
     /// Return offset to unoccupied space in current chunk.
     int64_t get_free_offset() const {
         if (current_chunk_idx_ == -1) return 0;
@@ -250,7 +241,6 @@ private:
             DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
             info.allocated_bytes += padding + size;
             total_allocated_bytes_ += padding + size;
-            reset_peak();
             DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
             return result;
         }
@@ -307,9 +297,6 @@ private:
 
     /// sum of all bytes allocated in chunks_
     int64_t total_reserved_bytes_;
-
-    /// Maximum number of bytes allocated from this pool at one time.
-    int64_t peak_allocated_bytes_;
 
     std::vector<ChunkInfo> chunks_;
 
