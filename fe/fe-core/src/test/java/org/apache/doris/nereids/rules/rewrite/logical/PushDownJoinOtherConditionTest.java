@@ -43,7 +43,7 @@ import org.junit.jupiter.api.TestInstance;
 import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class PushdownJoinOtherConditionTest {
+public class PushDownJoinOtherConditionTest {
 
     private Plan rStudent;
     private Plan rScore;
@@ -191,6 +191,6 @@ public class PushdownJoinOtherConditionTest {
     }
 
     private Memo rewrite(Plan plan) {
-        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushdownJoinOtherCondition());
+        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushDownJoinOtherCondition());
     }
 }

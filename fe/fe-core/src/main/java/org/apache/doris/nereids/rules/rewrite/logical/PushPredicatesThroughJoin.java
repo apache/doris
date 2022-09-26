@@ -41,7 +41,7 @@ import java.util.Set;
 /**
  * Push the predicate in the LogicalFilter to the join children.
  */
-public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
+public class PushPredicatesThroughJoin extends OneRewriteRuleFactory {
 
     private static final ImmutableList<JoinType> COULD_PUSH_THROUGH_LEFT = ImmutableList.of(
             JoinType.INNER_JOIN,
@@ -135,7 +135,7 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
 
             return PlanUtils.filterOrSelf(filterConditions,
                     pushDownPredicate(join, joinConditions, leftPredicates, rightPredicates));
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_JOIN);
+        }).toRule(RuleType.PUSH_DOWN_PREDICATE_THROUGH_JOIN);
     }
 
     private Plan pushDownPredicate(LogicalJoin<GroupPlan, GroupPlan> join,

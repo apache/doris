@@ -37,7 +37,7 @@ import java.util.Set;
 /**
  * Push the other join conditions in LogicalJoin to children.
  */
-public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
+public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
     private static final ImmutableList<JoinType> PUSH_DOWN_LEFT_VALID_TYPE = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_SEMI_JOIN,
@@ -90,7 +90,7 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
             return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
                     ExpressionUtils.optionalAnd(otherConjuncts), left, right);
 
-        }).toRule(RuleType.PUSHDOWN_JOIN_OTHER_CONDITION);
+        }).toRule(RuleType.PUSH_DOWN_JOIN_OTHER_CONDITION);
     }
 
     private boolean allCoveredBy(Expression predicate, Set<Slot> inputSlotSet) {

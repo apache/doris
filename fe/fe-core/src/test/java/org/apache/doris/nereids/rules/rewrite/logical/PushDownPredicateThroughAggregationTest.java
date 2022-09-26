@@ -187,6 +187,6 @@ public class PushDownPredicateThroughAggregationTest {
     }
 
     private Memo rewrite(Plan plan) {
-        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushdownFilterThroughAggregation());
+        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushPredicateThroughAggregation());
     }
 }
