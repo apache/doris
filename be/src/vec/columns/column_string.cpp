@@ -56,7 +56,7 @@ MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
     return res;
 }
 
-MutableColumnPtr ColumnString::get_shinked_column() {
+MutableColumnPtr ColumnString::get_shrinked_column() {
     auto shrinked_column = ColumnString::create();
     shrinked_column->get_offsets().reserve(offsets.size());
     shrinked_column->get_chars().reserve(chars.size());

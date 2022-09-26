@@ -84,7 +84,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
-    MutableColumnPtr get_shinked_column() override;
+    MutableColumnPtr get_shrinked_column() override;
 
     Field operator[](size_t n) const override {
         assert(n < size());

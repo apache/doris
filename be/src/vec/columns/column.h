@@ -124,7 +124,7 @@ public:
     }
 
     // shrink the end zeros for CHAR type or ARRAY<CHAR> type
-    virtual MutablePtr get_shinked_column() {
+    virtual MutablePtr get_shrinked_column() {
         LOG(FATAL) << "Cannot clone_resized() column " << get_name();
         return nullptr;
     }
