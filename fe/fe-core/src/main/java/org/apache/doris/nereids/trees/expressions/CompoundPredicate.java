@@ -71,5 +71,6 @@ public abstract class CompoundPredicate extends BinaryOperator {
     public abstract CompoundPredicate flip(Expression left, Expression right);
 
     public abstract Class<? extends CompoundPredicate> flipType();
+
 }
 

@@ -15,17 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression.rewrite;
+package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+
+import com.google.common.collect.ImmutableList;
 
 /**
- * expression rewrite context.
+ * type coercion job.
  */
-public class ExpressionRewriteContext {
-    public final ConnectContext connectContext;
-
-    public ExpressionRewriteContext(ConnectContext connectContext) {
-        this.connectContext = connectContext;
+public class TypeCoercionJob extends BatchRulesJob {
+    /**
+     * constructor.
+     */
+    public TypeCoercionJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
+        rulesJob.addAll(ImmutableList.of(
+                topDownBatch(ImmutableList.of(
+                        new ExpressionNormalization(cascadesContext.getConnectContext(),
+                                ImmutableList.of(TypeCoercion.INSTANCE)))
+                )));
     }
 }

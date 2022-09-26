@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.base.Preconditions;
@@ -257,5 +259,21 @@ public class ExpressionUtils {
             }
         }
         return builder.build();
+    }
+
+    public static boolean isAllLiteral(Expression... children) {
+        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean isAllLiteral(List<Expression> children) {
+        return children.stream().allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean hasNullLiteral(List<Expression> children) {
+        return children.stream().anyMatch(c -> c instanceof NullLiteral);
+    }
+
+    public static boolean isAllNullLiteral(List<Expression> children) {
+        return children.stream().allMatch(c -> c instanceof NullLiteral);
     }
 }

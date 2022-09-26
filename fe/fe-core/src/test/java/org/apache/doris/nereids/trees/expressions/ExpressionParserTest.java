@@ -272,4 +272,13 @@ public class ExpressionParserTest extends ParserTestBase {
         String cast2 = "SELECT CAST(A AS INT) AS I FROM TEST;";
         assertSql(cast2);
     }
+
+    @Test
+    public void testIsNull() {
+        String e1 = "a is null";
+        assertExpr(e1);
+
+        String e2 = "a is not null";
+        assertExpr(e2);
+    }
 }

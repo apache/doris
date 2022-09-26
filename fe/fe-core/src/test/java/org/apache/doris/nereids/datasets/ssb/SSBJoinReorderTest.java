@@ -47,7 +47,9 @@ public class SSBJoinReorderTest extends SSBTestBase {
                         "(lo_suppkey = s_suppkey)",
                         "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("(((c_region = 'AMERICA') AND (s_region = 'AMERICA')) AND ((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2')))")
+                ImmutableList.of("(((CAST(c_region AS STRING) = CAST('AMERICA' AS STRING)) AND (CAST(s_region AS STRING) "
+                        + "= CAST('AMERICA' AS STRING))) AND ((CAST(p_mfgr AS STRING) = CAST('MFGR#1' AS STRING)) "
+                        + "OR (CAST(p_mfgr AS STRING) = CAST('MFGR#2' AS STRING))))")
         );
     }
 
@@ -62,7 +64,10 @@ public class SSBJoinReorderTest extends SSBTestBase {
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "((((c_region = 'AMERICA') AND (s_region = 'AMERICA')) AND ((d_year = 1997) OR (d_year = 1998))) AND ((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2')))")
+                        "((((CAST(c_region AS STRING) = CAST('AMERICA' AS STRING)) AND (CAST(s_region AS STRING) "
+                                + "= CAST('AMERICA' AS STRING))) AND ((d_year = 1997) OR (d_year = 1998))) "
+                                + "AND ((CAST(p_mfgr AS STRING) = CAST('MFGR#1' AS STRING)) OR (CAST(p_mfgr AS STRING) "
+                                + "= CAST('MFGR#2' AS STRING))))")
         );
     }
 
@@ -76,7 +81,8 @@ public class SSBJoinReorderTest extends SSBTestBase {
                         "(lo_suppkey = s_suppkey)",
                         "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("(((s_nation = 'UNITED STATES') AND ((d_year = 1997) OR (d_year = 1998))) AND (p_category = 'MFGR#14'))")
+                ImmutableList.of("(((CAST(s_nation AS STRING) = CAST('UNITED STATES' AS STRING)) AND ((d_year = 1997) "
+                        + "OR (d_year = 1998))) AND (CAST(p_category AS STRING) = CAST('MFGR#14' AS STRING)))")
         );
     }
 
