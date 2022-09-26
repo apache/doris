@@ -344,6 +344,13 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
+    public String getProxyStatus() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.name();
+        }
+        return masterOpExecutor.getProxyStatus();
+    }
+
     public boolean isQueryStmt() {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
