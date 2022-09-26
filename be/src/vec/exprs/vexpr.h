@@ -47,9 +47,7 @@ public:
     static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
         // usualy elem.column always is const column, so we just clone it.
         elem.column = elem.column->clone_resized(size);
-        LOG(INFO) << "cmy debug elem.column size: " << elem.column->size() << ", colums: " << block->columns();
         block->insert(std::move(elem));
-        LOG(INFO) << "cmu debugi after: " << block->columns();
         return block->columns() - 1;
     }
 

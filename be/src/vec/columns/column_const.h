@@ -44,10 +44,7 @@ private:
 public:
     ColumnPtr convert_to_full_column() const;
 
-    ColumnPtr convert_to_full_column_if_const() const override {
-        LOG(INFO) << "cmy ColumnPtr convert_to_full_column_if_const()";
-        return convert_to_full_column();
-    }
+    ColumnPtr convert_to_full_column_if_const() const override { return convert_to_full_column(); }
 
     ColumnPtr remove_low_cardinality() const;
 

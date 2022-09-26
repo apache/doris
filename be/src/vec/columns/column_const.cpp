@@ -41,7 +41,6 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
 }
 
 ColumnPtr ColumnConst::convert_to_full_column() const {
-    LOG(INFO) << "cmy ColumnConst::convert_to_full_column(), data: " << demangle(typeid(*data).name());
     return data->replicate(Offsets(1, s));
 }
 

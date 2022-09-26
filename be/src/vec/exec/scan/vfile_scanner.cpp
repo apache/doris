@@ -18,6 +18,7 @@
 #include "vec/exec/scan/vfile_scanner.h"
 
 #include <fmt/format.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <vec/data_types/data_type_factory.hpp>
 
@@ -31,8 +32,6 @@
 #include "runtime/runtime_state.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/functions/simple_function_factory.h"
-
-#include <thrift/protocol/TDebugProtocol.h>
 
 namespace doris::vectorized {
 
@@ -169,14 +168,10 @@ Status VFileScanner::_init_src_block(Block* block) {
     for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
-        LOG(INFO) << "cmy _init_src_block _input_tuple_desc slot: " << slot->col_name()
-                  << ", slot id: " << slot->id()
-                  << ", exist in file: " << (it != _name_to_col_type.end())
-                  << ", type is tuple: " << slot->type() << ", type in file: "
-                  << (it == _name_to_col_type.end() ? slot->type() : it->second) << ", is nullable: " << (it == _name_to_col_type.end() ? slot->is_nullable() : true);
         if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
-            data_type = DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
+            data_type =
+                    DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
         } else {
             data_type = DataTypeFactory::instance().create_data_type(it->second, true);
         }
@@ -251,19 +246,10 @@ Status VFileScanner::_fill_columns_from_path() {
 
 Status VFileScanner::_fill_missing_columns() {
     int rows = _src_block_ptr->rows();
-    LOG(INFO) << "cmy _fill_missing_columns src block rows: " << _src_block_ptr->rows()
-              << ", slot num: " << _real_tuple_desc->slots().size();
     for (auto slot_desc : _real_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        LOG(INFO) << "cmy _fill_missing_columns slot: " << slot_desc->col_name()
-                  << ", is missing col: "
-                  << (_missing_cols.find(slot_desc->col_name()) != _missing_cols.end())
-                  << ", find in ctx: "
-                  << (_col_default_value_ctx.find(slot_desc->col_name()) !=
-                      _col_default_value_ctx.end())
-                  << ", ctx size: " << _col_default_value_ctx.size();
         if (_missing_cols.find(slot_desc->col_name()) == _missing_cols.end()) {
             continue;
         }
@@ -281,30 +267,21 @@ Status VFileScanner::_fill_missing_columns() {
                             .get());
             nullable_column->insert_many_defaults(rows);
         } else {
-            // LOG(INFO) << "cmy before fill: " << _src_block_ptr->dump_data(0, 3);
             // fill with default value
             auto* ctx = it->second;
             auto origin_column_num = _src_block_ptr->columns();
             int result_column_id = -1;
             // PT1 => dest primitive type
             RETURN_IF_ERROR(ctx->execute(_src_block_ptr, &result_column_id));
-            LOG(INFO) << "cmy fill with default value: " << slot_desc->col_name()
-                      << ", origin_column_num: " << origin_column_num
-                      << ", result_column_id: " << result_column_id
-                      << ", orgin id: " << _src_block_ptr->get_position_by_name(slot_desc->col_name());
             bool is_origin_column = result_column_id < origin_column_num;
             if (!is_origin_column) {
-                // swap 2 columns and remove the newly-created one
-                // auto origin_column_ptr = _src_block_ptr->get_by_name(slot_desc->col_name()).column;
                 auto result_column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
                 auto origin_column_type = _src_block_ptr->get_by_name(slot_desc->col_name()).type;
                 bool is_nullable = origin_column_type->is_nullable();
-                LOG(INFO) << "cmy isnullable: " << is_nullable << ", result column class: " << demangle(typeid(*result_column_ptr).name()) << ", inner: "
-                    << demangle(typeid(*assert_cast<const ColumnConst&>(*result_column_ptr).get_data_column_ptr()).name());
-                _src_block_ptr->replace_by_position(_src_block_ptr->get_position_by_name(slot_desc->col_name()), is_nullable ? make_nullable(result_column_ptr->convert_to_full_column_if_const()) : result_column_ptr);
-                // std::swap(origin_column_ptr, result_column_ptr);
+                _src_block_ptr->replace_by_position(
+                        _src_block_ptr->get_position_by_name(slot_desc->col_name()),
+                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 _src_block_ptr->erase(result_column_id);
-                LOG(INFO) << "cmy after swap: " << _src_block_ptr->dump_data(0, 3);
             }
         }
     }
@@ -334,12 +311,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         }
         int dest_index = ctx_idx++;
 
-        // if (_missing_cols.find(slot_desc->col_name()) != _missing_cols.end()) {
-        //     // the missing columns will be filled later
-        //     continue;
-        // }
-
-        LOG(INFO) << "cmy _convert_to_output_block: slot: " << slot_desc->col_name() << ", is nullable: " << slot_desc->is_nullable();
         auto* ctx = _dest_vexpr_ctx[dest_index];
         int result_column_id = -1;
         // PT1 => dest primitive type
@@ -349,20 +320,14 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                 is_origin_column && _src_block_mem_reuse
                         ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
                         : _src_block.get_by_position(result_column_id).column;
-        LOG(INFO) << "cmy after convert output is_origin_column: " << is_origin_column << ", is nullable: " << column_ptr->is_nullable() << ", class: " <<demangle(typeid(*column_ptr).name());
 
         DCHECK(column_ptr != nullptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
         if (LIKELY(column_ptr->is_nullable())) {
-            const ColumnNullable* nullable_column;
-            if (is_column_const(*column_ptr)) {
-                LOG(INFO) << "cmy debug: " << demangle(typeid(*(assert_cast<const ColumnConst&>(*column_ptr).get_data_column_ptr())).name());
-                nullable_column = reinterpret_cast<const vectorized::ColumnNullable*>((assert_cast<const ColumnConst&>(*column_ptr).get_data_column_ptr()).get());
-            } else {
-                nullable_column = reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
-            }
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
                     if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
@@ -406,18 +371,15 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                 }
             }
             if (!slot_desc->is_nullable()) {
-                LOG(INFO) << "remove nullable2: " << slot_desc->col_name();
-                column_ptr = vectorized::remove_nullable2(column_ptr);
+                column_ptr = remove_nullable(column_ptr);
             }
         } else if (slot_desc->is_nullable()) {
-            column_ptr = vectorized::make_nullable(column_ptr);
+            column_ptr = make_nullable(column_ptr);
         }
-        LOG(INFO) << "cmy output block insert: " << slot_desc->col_name() << ", column nullable: " << column_ptr->is_nullable() << ", type nullable: " << slot_desc->get_data_type_ptr()->is_nullable();
         block->insert(dest_index, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
                                                                     slot_desc->get_data_type_ptr(),
                                                                     slot_desc->col_name()));
     }
-    LOG(INFO) << "cmy output block: " << block->dump_data(0, 1);
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     if (_src_block_mem_reuse) {
@@ -432,7 +394,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                     std::make_shared<vectorized::DataTypeUInt8>(),
                                                     "filter column"));
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
-    LOG(INFO) << "cmy output block2: " << block->dump_data(0, 1);
     _counter.num_rows_filtered += rows - block->rows();
 
     return Status::OK();
@@ -523,9 +484,6 @@ Status VFileScanner::_init_expr_ctxes() {
     for (const auto& slot_info : _params.required_slots) {
         auto slot_id = slot_info.slot_id;
         auto it = full_src_slot_map.find(slot_id);
-        LOG(INFO) << "cmy VFileScanner::_init_expr_ctxes _params.required_slots: "
-                  << it->second->col_name() << ", slot id: " << slot_id
-                  << ", is file slot: " << slot_info.is_file_slot;
         if (it == std::end(full_src_slot_map)) {
             std::stringstream ss;
             ss << "Unknown source slot descriptor, slot_id=" << slot_id;
@@ -550,8 +508,6 @@ Status VFileScanner::_init_expr_ctxes() {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        LOG(INFO) << "cmy VFileScanner::_init_expr_ctxes _output_tuple_desc slot: "
-                  << slot_desc->col_name() << ", slot id: " << slot_desc->id();
         auto it = _params.expr_of_dest_slot.find(slot_desc->id());
         if (it == std::end(_params.expr_of_dest_slot)) {
             return Status::InternalError("No expr for dest slot, id={}, name={}", slot_desc->id(),
@@ -600,7 +556,6 @@ Status VFileScanner::_init_expr_ctxes() {
                     vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
             RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
             RETURN_IF_ERROR(ctx->open(_state));
-            LOG(INFO) << "cmy create default value expr: " << slot_desc->col_name() << ", texpr: " << apache::thrift::ThriftDebugString(it->second) << ", ctx: " << ctx->root()->debug_string();
         }
         _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
     }

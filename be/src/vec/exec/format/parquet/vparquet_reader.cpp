@@ -91,8 +91,6 @@ Status ParquetReader::_init_read_columns() {
     _include_column_ids.clear();
     for (auto& file_col_name : _column_names) {
         auto iter = _map_column.find(file_col_name);
-        LOG(INFO) << "cmy ParquetReader::_init_read_columns: " << file_col_name
-                  << ", is missing: " << (iter == _map_column.end());
         if (iter != _map_column.end()) {
             _include_column_ids.emplace_back(iter->second);
         } else {
