@@ -98,7 +98,7 @@ public class NereidsParserTest extends ParserTestBase {
         logicalPlan = nereidsParser.parseSingle(cteSql3);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().size(), 1);
-        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().get(0).getColumnNames().get().size(), 2);
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().get(0).getColumnAliases().get().size(), 2);
     }
 
     @Test

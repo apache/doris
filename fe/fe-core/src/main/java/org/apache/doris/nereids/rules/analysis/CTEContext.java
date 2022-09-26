@@ -65,7 +65,12 @@ public class CTEContext {
         CascadesContext cascadesContext = new Memo(withClause.getQuery())
                 .newCascadesContext(parentContext.getStatementContext());
         cascadesContext.newAnalyzer(this).analyze();
-        withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
+
+        LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
+        if (withClause.getColumnAliases().isPresent()) {
+            checkColumnAlias(withClause, analyzedPlan.getOutput());
+        }
+        withQueries.put(name, analyzedPlan);
         // withQueries.put(name, withClause.getQuery());
     }
 
@@ -80,21 +85,26 @@ public class CTEContext {
             throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
         }
 
-        if (withClause.getColumnAliases().isPresent()) {
-            checkColumnAlias(withClause);
-        }
-
         CascadesContext cascadesContext = new Memo(withClause.getQuery())
                 .newCascadesContext(statementContext);
         cascadesContext.newAnalyzer(this).analyze();
-        withQueries.put(name, (LogicalPlan) cascadesContext.getMemo().copyOut(false));
+
+        LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
+        if (withClause.getColumnAliases().isPresent()) {
+            checkColumnAlias(withClause, analyzedPlan.getOutput());
+        }
+        withQueries.put(name, analyzedPlan);
         // withQueries.put(name, withClause.getQuery());
     }
 
     // todo: move these validate operation to related job.
     private void checkColumnAlias(WithClause withClause) {
-        List<String> columnAlias = withClause.getColumnAliases().get();
         List<Slot> outputSlots = withClause.getQuery().getOutput();
+        this.checkColumnAlias(withClause, outputSlots);
+    }
+
+    private void checkColumnAlias(WithClause withClause, List<Slot> outputSlots) {
+        List<String> columnAlias = withClause.getColumnAliases().get();
         if (columnAlias.size() != outputSlots.size()) {
             throw new AnalysisException("WITH-clause '" + withClause.getName() + "' returns " + columnAlias.size()
                 + " columns, but " + outputSlots.size() + " labels were specified. The number of column labels must "
@@ -109,6 +119,5 @@ public class CTEContext {
             }
             names.add(alias);
         });
-
     }
 }
