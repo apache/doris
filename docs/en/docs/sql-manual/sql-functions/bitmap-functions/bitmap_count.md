@@ -1,7 +1,7 @@
 ---
 {
 "title": "bitmap_count",
-"language": "zh-CN"
+"language": "en"
 }
 ---
 
@@ -30,7 +30,7 @@ under the License.
 
 `BITMAP BITMAP_COUNT(BITMAP lhs)`
 
-返回输入bitmap的个数。
+Returns the number of input bitmaps。
 
 ### example
 
