@@ -48,14 +48,6 @@ public class Statistics {
         lock.readLock().unlock();
     }
 
-    private void writeLock() {
-        lock.writeLock().lock();
-    }
-
-    private void writeUnlock() {
-        lock.writeLock().unlock();
-    }
-
     /**
      * Get the table stats for the given table id.
      *
@@ -148,45 +140,33 @@ public class Statistics {
     }
 
     public void updateTableStats(long tableId, Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        writeLock();
-        try {
+        synchronized (this) {
             TableStats tableStats = getNotNullTableStats(tableId);
             tableStats.updateTableStats(statsTypeToValue);
-        } finally {
-            writeUnlock();
         }
     }
 
     public void updatePartitionStats(long tableId, String partitionName, Map<StatsType, String> statsTypeToValue)
             throws AnalysisException {
-        writeLock();
-        try {
+        synchronized (this) {
             TableStats tableStats = getNotNullTableStats(tableId);
             tableStats.updatePartitionStats(partitionName, statsTypeToValue);
-        } finally {
-            writeUnlock();
         }
     }
 
     public void updateColumnStats(long tableId, String columnName, Type columnType,
                                   Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        writeLock();
-        try {
+        synchronized (this) {
             TableStats tableStats = getNotNullTableStats(tableId);
             tableStats.updateColumnStats(columnName, columnType, statsTypeToValue);
-        } finally {
-            writeUnlock();
         }
     }
 
     public void updateColumnStats(long tableId, String partitionName, String columnName, Type columnType,
                                   Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        writeLock();
-        try {
+        synchronized (this) {
             PartitionStats partitionStats = getNotNullPartitionStats(tableId, partitionName);
             partitionStats.updateColumnStats(columnName, columnType, statsTypeToValue);
-        } finally {
-            writeUnlock();
         }
     }
 

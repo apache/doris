@@ -185,7 +185,7 @@ public class TableStats {
                     aggColumnStats.put(colName, columnStats);
                 } else {
                     ColumnStats oldColumnStats = aggColumnStats.get(colName);
-                    ColumnStats newColumnStats = ColumnStats.aggColumnStats(columnStats, oldColumnStats);
+                    ColumnStats newColumnStats = ColumnStats.mergeColumnStats(columnStats, oldColumnStats);
                     aggColumnStats.put(colName, newColumnStats);
                 }
             });

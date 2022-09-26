@@ -131,7 +131,7 @@ public class ColumnStatsTest {
                 LiteralExpr.create("sMaxValue", maxValueType));
 
         // Run the test
-        ColumnStats aggColumnStats = ColumnStats.aggColumnStats(columnStats, other);
+        ColumnStats aggColumnStats = ColumnStats.mergeColumnStats(columnStats, other);
 
         // Verify the results
         long ndv = aggColumnStats.getNdv();

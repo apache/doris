@@ -92,7 +92,7 @@ public class ColumnStats {
      * @param left statistics to be merged
      * @param right statistics to be merged
      */
-    public static ColumnStats aggColumnStats(ColumnStats left, ColumnStats right) {
+    public static ColumnStats mergeColumnStats(ColumnStats left, ColumnStats right) {
         // merge ndv
         long leftNdv = left.getNdv();
         long rightNdv = right.getNdv();
@@ -118,7 +118,7 @@ public class ColumnStats {
         if (leftMaxSize == -1) {
             leftMaxSize = rightMaxSize;
         } else {
-            leftMaxSize = rightMaxSize != -1 ? (Math.max(leftMaxSize, rightMaxSize)) : leftMaxSize;
+            leftMaxSize = Math.max(leftMaxSize, rightMaxSize);
         }
 
         // merge num_nulls

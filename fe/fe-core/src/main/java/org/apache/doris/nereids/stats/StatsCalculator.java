@@ -345,7 +345,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             ColumnStats value = null;
             Set<Slot> slots = projection.getInputSlots();
             if (slots.isEmpty()) {
-                value = ColumnStats.getDefaultColumnStats();
+                value = new ColumnStats(1, 1, 1, 0,
+                        new NullLiteral(), new NullLiteral());
             } else {
                 // TODO: just a trick here, need to do real project on column stats
                 for (Slot slot : slots) {
@@ -355,7 +356,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                     }
                 }
                 if (value == null) {
-                    value = ColumnStats.getDefaultColumnStats();
+                    value = new ColumnStats(1, 1, 1, 0,
+                            new NullLiteral(), new NullLiteral());
                 }
             }
             return new SimpleEntry<>(projection.toSlot(), value);
