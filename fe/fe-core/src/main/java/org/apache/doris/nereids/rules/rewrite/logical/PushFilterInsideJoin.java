@@ -44,8 +44,9 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalJoin())
-                // TODO: current just handle cross join.
-                .when(filter -> filter.child().getJoinType().isCrossJoin())
+                // TODO: current just handle cross/inner join.
+                .when(filter -> filter.child().getJoinType().isCrossJoin() || filter.child().getJoinType()
+                        .isInnerJoin())
                 .then(filter -> {
                     LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
                     List<Expression> predicates = ExpressionUtils.extractConjunction(filter.getPredicates());
