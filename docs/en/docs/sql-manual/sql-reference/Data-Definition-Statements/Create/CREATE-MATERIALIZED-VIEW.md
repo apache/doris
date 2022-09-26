@@ -113,7 +113,7 @@ duplicate key (k1,k2,k3,k4)
 distributed BY hash(k4) buckets 3
 properties("replication_num" = "1");
 ```
-attention：The partition and distributed columns  must be key column in mv
+attention：If the materialized view contains partitioned and distributed columns of the Base table, these columns must be used as key columns in the materialized view
 
 1. Create a materialized view that contains only the columns of the original table (k1, k2)
 
