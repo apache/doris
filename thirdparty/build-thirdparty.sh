@@ -735,7 +735,7 @@ build_brpc() {
 
     # Currently, BRPC can't be built for static libraries only (without .so). Therefore, we should add `-fPIC`
     # to the dependencies which are required by BRPC. Dependencies: zlib, glog, protobuf, leveldb
-    LDFLAGS="${ldflags}" \
+    CXXFLAGS="-fPIC" LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=1 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
@@ -1407,6 +1407,8 @@ build_xxhash() {
     cp -r ./*.h "${TP_INSTALL_DIR}/include/"
     cp libxxhash.a "${TP_INSTALL_DIR}/lib64"
 }
+env
+which strip
 
 build_libunixodbc
 build_openssl

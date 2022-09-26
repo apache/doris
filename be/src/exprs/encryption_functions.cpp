@@ -181,7 +181,7 @@ StringVal EncryptionFunctions::md5sum(FunctionContext* ctx, int num_args, const 
     for (int i = 0; i < num_args; ++i) {
         const StringVal& arg = args[i];
         if (arg.is_null) {
-            continue;
+            return StringVal::null();
         }
         digest.update(arg.ptr, arg.len);
     }
