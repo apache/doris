@@ -78,7 +78,7 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shinked_column() override;
+    MutableColumnPtr get_shrinked_column() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnVector<Offset64>;
