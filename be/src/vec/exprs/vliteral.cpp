@@ -182,7 +182,10 @@ void VLiteral::init(const TExprNode& node) {
         }
         }
     }
-    _column_ptr = _data_type->create_column_const(1, field);
+    // Here we avoid to be a ColumnConst column
+    // ColumnConst has many calling methods that behave inconsistently and is prone to errors.
+    // TODO: rethink about how to use ColumnConst correctly.
+    _column_ptr = _data_type->create_column_const(1, field)->convert_to_full_column_if_const();
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
