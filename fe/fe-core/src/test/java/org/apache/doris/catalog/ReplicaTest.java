@@ -26,9 +26,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -81,9 +81,8 @@ public class ReplicaTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./olapReplicaTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./olapReplicaTest"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         List<Replica> list1 = new ArrayList<Replica>();
         List<Replica> list2 = new ArrayList<Replica>();
@@ -101,7 +100,7 @@ public class ReplicaTest {
         dos.close();
 
         // 2. Read a object from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         for (int count = 0; count < 10; ++count) {
             Replica olapReplica = new Replica();
             olapReplica.readFields(dis);
@@ -126,7 +125,7 @@ public class ReplicaTest {
         Assert.assertFalse(list1.get(1).equals(list1));
 
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     @Test

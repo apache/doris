@@ -37,9 +37,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -154,9 +154,8 @@ public class S3ResourceTest {
         metaContext.setThreadLocalInfo();
 
         // 1. write
-        File s3File = new File("./s3Resource");
-        s3File.createNewFile();
-        DataOutputStream s3Dos = new DataOutputStream(new FileOutputStream(s3File));
+        Path path = Files.createFile(Paths.get("./s3Resource"));
+        DataOutputStream s3Dos = new DataOutputStream(Files.newOutputStream(path));
 
         S3Resource s3Resource1 = new S3Resource("s3_1");
         s3Resource1.write(s3Dos);
@@ -176,7 +175,7 @@ public class S3ResourceTest {
         s3Dos.close();
 
         // 2. read
-        DataInputStream s3Dis = new DataInputStream(new FileInputStream(s3File));
+        DataInputStream s3Dis = new DataInputStream(Files.newInputStream(path));
         S3Resource rS3Resource1 = (S3Resource) S3Resource.read(s3Dis);
         S3Resource rS3Resource2 = (S3Resource) S3Resource.read(s3Dis);
 
@@ -194,6 +193,6 @@ public class S3ResourceTest {
 
         // 3. delete
         s3Dis.close();
-        s3File.delete();
+        Files.deleteIfExists(path);
     }
 }
