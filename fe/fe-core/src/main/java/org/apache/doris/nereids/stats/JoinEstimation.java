@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -63,9 +64,9 @@ public class JoinEstimation {
         SlotReference eqRight = (SlotReference) equalto.child(1);
         if ((rightStats.level >= 2 && !rightStats.isReduced) || rightStats.level > 3) {
             //right deep tree is not good for parallel building hash table,
-            //penalty too right deep
+            //penalty too right deep tree by multiply level
             result.forbiddenReducePropagation = true;
-            result.rowCount = 2 * rightStats.level * (leftStats.getRowCount() + 2 * rightStats.getRowCount());
+            result.rowCount = rightStats.level * (leftStats.getRowCount() + 2 * rightStats.getRowCount());
         } else if (eqLeft.getColumn().isPresent() || eqRight.getColumn().isPresent()) {
             Set<Slot> rightSlots = ((PhysicalHashJoin<?, ?>) join).child(1).getOutputSet();
             if ((rightSlots.contains(eqRight)
@@ -76,7 +77,7 @@ public class JoinEstimation {
                     && eqLeft.getColumn().isPresent()
                     && eqLeft.getColumn().get().isKey()
                     && !compoundKey(eqLeft))) {
-                //join-key is pk of right table => right table is dimension table
+                //fact table JOIN dimension table
                 if (rightStats.isReduced) {
                     //dimension table is reduced
                     result.isReducedByHashJoin = true;
@@ -87,6 +88,7 @@ public class JoinEstimation {
                     result.rowCount = leftStats.getRowCount();
                 }
             } else {
+                //dimension table JOIN fact table
                 result.rowCount = leftStats.getRowCount() + 2 * rightStats.getRowCount();
             }
         } else {
@@ -116,7 +118,8 @@ public class JoinEstimation {
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
             rowCount = rightStats.getRowCount();
         } else if (joinType == JoinType.INNER_JOIN) {
-            if (!join.getHashJoinConjuncts().isEmpty() && join instanceof PhysicalHashJoin) {
+            if (!join.getHashJoinConjuncts().isEmpty() && join instanceof PhysicalHashJoin
+                    && ConnectContext.get().getSessionVariable().isNereidsStarSchemaSupport()) {
                 /*
                  * Doris does not support primary key and foreign key. But the data may satisfy pk and fk constraints.
                  * This fact is indicated by session variable `support_star_schema_nereids`.

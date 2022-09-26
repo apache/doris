@@ -69,7 +69,7 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
 
     @Override
     public Double visit(Expression expr, Void context) {
-        return DEFAULT_EQUAL_SELECTIVITY;
+        return DEFAULT_RANGE_SELECTIVITY;
     }
 
     @Override

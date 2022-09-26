@@ -199,6 +199,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
+    public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
 
@@ -519,6 +520,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
     private boolean enableNereidsPlanner = false;
 
+    @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
+    private boolean nereidsStarSchemaSupport = true;
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
     private boolean enableNereidsRuntimeFilter = true;
 
@@ -1092,6 +1095,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
         this.enableNereidsPlanner = enableNereidsPlanner;
+    }
+
+    public boolean isNereidsStarSchemaSupport() {
+        return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
     }
 
     public boolean isEnableNereidsRuntimeFilter() {
