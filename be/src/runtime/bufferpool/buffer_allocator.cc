@@ -365,7 +365,7 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(bool slow_but_sure, int cur
     if (slow_but_sure && bytes_found < target_bytes) {
         bytes_found +=
                 DecreaseBytesRemaining(target_bytes - bytes_found, true, &system_bytes_remaining_);
-        DCHECK_EQ(bytes_found, target_bytes) << DebugString();
+        // DCHECK_EQ(bytes_found, target_bytes) << DebugString();
     }
     return bytes_found;
 }
