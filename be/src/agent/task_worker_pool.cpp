@@ -722,14 +722,12 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                     .error(status);
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            int submit_tablets = 0;
             if (config::enable_quick_compaction && config::quick_compaction_batch_size > 0) {
                 for (int i = 0; i < succ_tablet_ids.size(); i++) {
                     TabletSharedPtr tablet =
                             StorageEngine::instance()->tablet_manager()->get_tablet(
                                     succ_tablet_ids[i]);
                     if (tablet != nullptr) {
-                        submit_tablets++;
                         tablet->publised_count++;
                         if (tablet->publised_count % config::quick_compaction_batch_size == 0) {
                             StorageEngine::instance()->submit_quick_compaction_task(tablet);
