@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DATE",
+    "title": "DATETIMEV2",
     "language": "en"
 }
 ---
@@ -24,27 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DATE
+## DATETIME
 ### Description
-DATE function
-
-#### Syntax
-Date
-Convert input type to DATE type
-date
-Date type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'YYYYY-MM-DD'.
+DATETIME
+Date and time type, value range is ['0000-01-01 00:00:00','9999-12-31 23:59:59'].
+The form of printing is 'YYYY-MM-DD HH:MM:SS'
 
 ### note
-If you use version 1.2 and above, it is strongly recommended that you use the DATEV2 type instead of the DATE type as DATEV2 is more efficient than DATE type。
 
-### example
-```
-SELECT DATE('2003-12-31 01:02:03');
-+-----------------------------+
-| date('2003-12-31 01:02:03') |
-+-----------------------------+
-| 2003-12-31                  |
-+-----------------------------+
-```
+Compared with the DATETIME type, DATETIMEV2 is more efficient and supports a time precision of up to microseconds.
+
 ### keywords
-DATE
+DATETIMEV2
