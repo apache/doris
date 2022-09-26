@@ -1647,6 +1647,13 @@ public class Config extends ConfigBase {
     public static int cbo_default_sample_percentage = 10;
 
     /**
+     * The current statistics are only used for CBO test,
+     * and are not available to users. (work in progress)
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_cbo_statistics = false;
+
+    /**
      * If this configuration is enabled, you should also specify the trace_export_url.
      */
     @ConfField(mutable = false, masterOnly = false)

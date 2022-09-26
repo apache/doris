@@ -80,16 +80,24 @@ public class StatisticsJobManager {
     }
 
     public void createStatisticsJob(AnalyzeStmt analyzeStmt) throws UserException {
-        // step1: init statistics job by analyzeStmt
-        StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
-        writeLock();
-        try {
-            // step2: check restrict
-            checkRestrict(analyzeStmt.getDbId(), statisticsJob.getTblIds());
-            // step3: create it
-            createStatisticsJob(statisticsJob);
-        } finally {
-            writeUnlock();
+        // The current statistics are only used for CBO test,
+        // and are not available to users. (work in progress)
+        // TODO(wzt): Further tests are needed
+        if (Config.enable_cbo_statistics) {
+            // step1: init statistics job by analyzeStmt
+            StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
+            writeLock();
+            try {
+                // step2: check restrict
+                checkRestrict(analyzeStmt.getDbId(), statisticsJob.getTblIds());
+                // step3: create it
+                createStatisticsJob(statisticsJob);
+            } finally {
+                writeUnlock();
+            }
+        } else {
+            throw new UserException("Statistics are not yet stable, if you want to enable statistics,"
+                    + " modify the configuration 'enable_cbo_statistics=true' to enable");
         }
     }
 
