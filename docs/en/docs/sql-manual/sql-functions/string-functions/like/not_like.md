@@ -82,4 +82,4 @@ mysql> select k1 from test where k1 not like 'a';
 ```
 
 ### keywords
-LIKE, NOT, NOT LIKE
+    LIKE, NOT, NOT LIKE

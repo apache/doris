@@ -50,4 +50,4 @@ MySQL [(none)]> select starts_with("hello world","world");
 +-------------------------------------+
 ```
 ### keywords
-STARTS_WITH
+    STARTS_WITH

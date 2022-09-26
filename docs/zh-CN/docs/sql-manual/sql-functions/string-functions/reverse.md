@@ -1,6 +1,6 @@
 ---
 {
-    "title": "REVERSE",
+    "title": "reverse",
     "language": "zh-CN"
 }
 ---
@@ -83,4 +83,4 @@ mysql> select k1, k2, reverse(k2) from array_test01 order by k1;
 +------+-----------------------------------+-----------------------------------+
 ```
 ### keywords
-REVERSE, ARRAY
+    REVERSE, ARRAY
