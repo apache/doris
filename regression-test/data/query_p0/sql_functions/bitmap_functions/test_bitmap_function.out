@@ -47,13 +47,22 @@ true
 -- !sql --
 false
 
--- !sql --
+-- !sql_bitmap_hash1  --
 1
 
--- !sql --
+-- !sql_bitmap_hash2  --
 1
 
--- !sql --
+-- !sql_bitmap_hash3  --
+0
+
+-- !sql_bitmap_hash64_1  --
+1
+
+-- !sql_bitmap_hash64_2  --
+1
+
+-- !sql_bitmap_hash64_3  --
 0
 
 -- !sql --
