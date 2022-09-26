@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -66,20 +65,6 @@ public class VarcharLiteral extends Literal {
     @Override
     public String toString() {
         return "'" + value + "'";
-    }
-
-    // Temporary way to process type coercion in TimestampArithmetic, should be replaced by TypeCoercion rule.
-    @Override
-    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
-        if (getDataType().equals(targetType)) {
-            return this;
-        }
-        if (targetType.isDateType()) {
-            return convertToDate(targetType);
-        } else if (targetType.isIntType()) {
-            return new IntegerLiteral(Integer.parseInt(value));
-        }
-        return this;
     }
 
     private DateLiteral convertToDate(DataType targetType) throws AnalysisException {

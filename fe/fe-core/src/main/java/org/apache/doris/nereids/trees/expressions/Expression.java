@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
@@ -137,6 +138,14 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      */
     public final Set<Slot> getInputSlots() {
         return collect(Slot.class::isInstance);
+    }
+
+    public boolean isLiteral() {
+        return this instanceof Literal;
+    }
+
+    public boolean isNullLiteral() {
+        return this instanceof NullLiteral;
     }
 
     @Override

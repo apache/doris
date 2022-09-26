@@ -15,17 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression.rewrite;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.qe.ConnectContext;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
 /**
- * expression rewrite context.
+ * exec function list
  */
-public class ExpressionRewriteContext {
-    public final ConnectContext connectContext;
-
-    public ExpressionRewriteContext(ConnectContext connectContext) {
-        this.connectContext = connectContext;
-    }
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface ExecFunctionList {
+    /**
+     * exec functions.
+     */
+    ExecFunction[] value();
 }

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
 import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
 import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
+import org.apache.doris.nereids.jobs.batch.TypeCoercionJob;
 import org.apache.doris.nereids.rules.analysis.Scope;
 
 import java.util.Objects;
@@ -44,9 +45,13 @@ public class NereidsAnalyzer {
         this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
     }
 
+    /**
+     * nereids analyze sql.
+     */
     public void analyze() {
         new AnalyzeRulesJob(cascadesContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();
+        new TypeCoercionJob(cascadesContext).execute();
         new FinalizeAnalyzeJob(cascadesContext).execute();
         // check whether analyze result is meaningful
         new CheckAnalysisJob(cascadesContext).execute();
