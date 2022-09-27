@@ -82,7 +82,8 @@ protected:
 
     // check the total load channel mem consumption of this Backend
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-    int64_t _load_process_soft_mem_limit = -1;
+    int64_t _load_soft_mem_limit = -1;
+    int64_t _process_soft_mem_limit = -1;
 
     // If hard limit reached, one thread will trigger load channel flush,
     // other threads should wait on the condition variable.
@@ -153,8 +154,10 @@ template <typename TabletWriterAddResult>
 Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response) {
     _try_to_wait_flushing();
     // Check the soft limit.
-    DCHECK(_load_process_soft_mem_limit > 0);
-    if (_mem_tracker->consumption() < _load_process_soft_mem_limit) {
+    DCHECK(_load_soft_mem_limit > 0);
+    DCHECK(_process_soft_mem_limit > 0);
+    if (_mem_tracker->consumption() < _load_soft_mem_limit &&
+        MemInfo::proc_mem_no_allocator_cache() < _process_soft_mem_limit) {
         return Status::OK();
     }
     // Pick load channel to reduce memory.
@@ -163,7 +166,8 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         std::lock_guard<std::mutex> l(_lock);
         // Some other thread is flushing data, and not reached hard limit now,
         // we don't need to handle mem limit in current thread.
-        if (_reduce_memory_channel != nullptr && !_mem_tracker->limit_exceeded()) {
+        if (_reduce_memory_channel != nullptr && !_mem_tracker->limit_exceeded() &&
+            MemInfo::proc_mem_no_allocator_cache() < _process_soft_mem_limit) {
             return Status::OK();
         }
 
@@ -192,13 +196,22 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         _reduce_memory_channel = channel;
 
         std::ostringstream oss;
-        oss << "reducing memory of " << *channel << " because total load mem consumption "
-            << _mem_tracker->consumption() << " has exceeded";
-        if (_mem_tracker->limit_exceeded()) {
-            _should_wait_flush = true;
-            oss << " hard limit: " << _mem_tracker->limit();
+        if (MemInfo::proc_mem_no_allocator_cache() < _process_soft_mem_limit) {
+            oss << "reducing memory of " << *channel << " because total load mem consumption "
+                << PrettyPrinter::print(_mem_tracker->consumption(), TUnit::BYTES)
+                << " has exceeded";
+            if (_mem_tracker->limit_exceeded()) {
+                _should_wait_flush = true;
+                oss << " hard limit: " << PrettyPrinter::print(_mem_tracker->limit(), TUnit::BYTES);
+            } else {
+                oss << " soft limit: " << PrettyPrinter::print(_load_soft_mem_limit, TUnit::BYTES);
+            }
         } else {
-            oss << " soft limit: " << _load_process_soft_mem_limit;
+            _should_wait_flush = true;
+            oss << "reducing memory of " << *channel << " because process memory used "
+                << PerfCounters::get_vm_rss_str() << " has exceeded limit "
+                << PrettyPrinter::print(_process_soft_mem_limit, TUnit::BYTES)
+                << " , tc/jemalloc allocator cache " << MemInfo::allocator_cache_mem_str();
         }
         LOG(INFO) << oss.str();
     }
