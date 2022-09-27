@@ -28,8 +28,6 @@
 namespace doris::vectorized {
 
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
-void sort_block(Block& block, const SortDescription& description, UInt64 limit = 0);
-
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
                 UInt64 limit = 0);
 

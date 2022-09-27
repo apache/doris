@@ -102,7 +102,7 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
     {
         SCOPED_TIMER(_partial_sort_timer);
         if (_materialize_sort_exprs) {
-            sort_block(dest_block, _sort_description, _offset + _limit);
+            sort_block(dest_block, dest_block, _sort_description, _offset + _limit);
         } else {
             sort_block(src_block, dest_block, _sort_description, _offset + _limit);
         }
