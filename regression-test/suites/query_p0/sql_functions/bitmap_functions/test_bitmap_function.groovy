@@ -48,9 +48,14 @@ suite("test_bitmap_function") {
     qt_sql """ select bitmap_has_all(bitmap_empty(), bitmap_from_string("1, 2")) cnt """
 
     // BITMAP_HASH
-    qt_sql """ select bitmap_count(bitmap_hash('hello')) """
-    qt_sql """ select bitmap_count(bitmap_hash('')) """
-    qt_sql """ select bitmap_count(bitmap_hash(null)) """
+    qt_sql_bitmap_hash1 """ select bitmap_count(bitmap_hash('hello')) """
+    qt_sql_bitmap_hash2  """ select bitmap_count(bitmap_hash('')) """
+    qt_sql_bitmap_hash3  """ select bitmap_count(bitmap_hash(null)) """
+
+    // BITMAP_HASH64
+    qt_sql_bitmap_hash64_1 """ select bitmap_count(bitmap_hash64('hello')) """
+    qt_sql_bitmap_hash64_2  """ select bitmap_count(bitmap_hash64('')) """
+    qt_sql_bitmap_hash64_3  """ select bitmap_count(bitmap_hash64(null)) """
 
     // BITMAP_OR
     qt_sql """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(2))) cnt """
