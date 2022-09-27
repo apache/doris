@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_join2", "query,p0") {
-    def DBname = "test_join2"
+    def DBname = "regression_test_join2"
     def TBname1 = "J1_TBL"
     def TBname2 = "J2_TBL"
 
