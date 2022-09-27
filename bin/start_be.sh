@@ -210,18 +210,20 @@ set_tcmalloc_heap_limit() {
     mem_limit_str=$(grep ^mem_limit ${DORIS_HOME}/conf/be.conf)
     digits_unit=${mem_limit_str##*=}
     digits_unit="${digits_unit#"${digits_unit%%[![:space:]]*}"}"
-    digits_unit="${digits_unit%"${digits_unit##*[![:space:]]}"}"   
+    digits_unit="${digits_unit%"${digits_unit##*[![:space:]]}"}"
     digits=${digits_unit%%[^[:digit:]]*}
     unit=${digits_unit##*[[:digit:] ]}
-    mem_limit_mb=0 
+
+    mem_limit_mb=0
     case $unit in
-        t|T) mem_limit_mb=$((digits * 1024 * 1024)) ;;
-        g|G) mem_limit_mb=$((digits * 1024)) ;;
-        m|M) mem_limit_mb=$((digits)) ;;
-        k|K) mem_limit_mb=$((digits / 1024)) ;;
-          %) mem_limit_mb=$((total_mem_mb * digits / 100)) ;;
-          *) mem_limit_mb=$((digits / 1024 / 1024 / 1024)) ;;
+    t | T) mem_limit_mb=$((digits * 1024 * 1024)) ;;
+    g | G) mem_limit_mb=$((digits * 1024)) ;;
+    m | M) mem_limit_mb=$((digits)) ;;
+    k | K) mem_limit_mb=$((digits / 1024)) ;;
+    %) mem_limit_mb=$((total_mem_mb * digits / 100)) ;;
+    *) mem_limit_mb=$((digits / 1024 / 1024 / 1024)) ;;
     esac
+
     if [[ "$mem_limit_mb" -gt "$total_mem_mb" ]]; then
         echo "mem_limit is larger than whole memory of the server. $mem_limit_mb > $total_mem_mb."
         return 1
