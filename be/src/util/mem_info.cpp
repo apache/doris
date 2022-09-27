@@ -48,6 +48,7 @@ size_t MemInfo::_s_tcmalloc_thread_bytes = 0;
 size_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
 size_t MemInfo::_s_virtual_memory_used = 0;
+int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
 
 void MemInfo::init() {
     // Read from /proc/meminfo
@@ -96,7 +97,7 @@ void MemInfo::init() {
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
-    _s_hard_mem_limit = _s_physical_mem - std::min(209715200L, _s_physical_mem / 10); // 200M
+    _s_hard_mem_limit = _s_physical_mem - std::max(209715200L, _s_physical_mem / 10); // 200M
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;

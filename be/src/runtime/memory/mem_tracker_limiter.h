@@ -76,9 +76,7 @@ public:
         // but it may not actually alloc physical memory, which is not expected in mem hook fail.
         //
         // TODO: In order to ensure no OOM, currently reserve 200M, and then use the free mem in /proc/meminfo to ensure no OOM.
-        if (PerfCounters::get_vm_rss() - static_cast<int64_t>(MemInfo::allocator_cache_mem()) +
-                            bytes >=
-                    MemInfo::mem_limit() ||
+        if (MemInfo::proc_mem_no_allocator_cache() + bytes >= MemInfo::mem_limit() ||
             PerfCounters::get_vm_rss() + bytes >= MemInfo::hard_mem_limit()) {
             return true;
         }

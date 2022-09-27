@@ -85,6 +85,8 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mem_limit = calc_process_max_load_memory(process_mem_limit);
+    _process_soft_mem_limit =
+            ExecEnv::GetInstance()->new_process_mem_tracker()->limit() * config::soft_mem_limit_frac;
     _mem_tracker = MemTracker::CreateTracker(load_mem_limit, "LoadChannelMgr", nullptr, true, false, MemTrackerLevel::OVERVIEW);
     REGISTER_HOOK_METRIC(load_mem_consumption, [this]() {
         return _mem_tracker->consumption();
@@ -178,7 +180,8 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
 Status LoadChannelMgr::_handle_mem_exceed_limit() {
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
-    if (!_mem_tracker->limit_exceeded()) {
+    DCHECK(_process_soft_mem_limit > 0);
+    if (!_mem_tracker->limit_exceeded() && MemInfo::proc_mem_no_allocator_cache() < _process_soft_mem_limit) {
         return Status::OK();
     }
 
@@ -203,8 +206,13 @@ Status LoadChannelMgr::_handle_mem_exceed_limit() {
     DCHECK(channel.get() != nullptr);
 
     // force reduce mem limit of the selected channel
-    LOG(INFO) << "reducing memory of " << *channel << " because total load mem consumption "
+    if (MemInfo::proc_mem_no_allocator_cache() < _process_soft_mem_limit) {
+        LOG(INFO) << "reducing memory of " << *channel << " because total load mem consumption "
               << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
+    } else {
+        LOG(INFO) << "reducing memory of " << *channel << " because process memory used "
+              << PerfCounters::get_vm_rss_str() << " has exceeded limit " << PrettyPrinter::print(_process_soft_mem_limit, TUnit::BYTES);
+    }
     return channel->handle_mem_exceed_limit(true);
 }
 

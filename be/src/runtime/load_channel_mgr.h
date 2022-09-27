@@ -72,6 +72,7 @@ private:
 
     // check the total load mem consumption of this Backend
     std::shared_ptr<MemTracker> _mem_tracker;
+    int64_t _process_soft_mem_limit = -1;
 
     CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels
