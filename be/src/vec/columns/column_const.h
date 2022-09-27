@@ -184,7 +184,7 @@ public:
         return false;
     }
 
-    bool is_nullable() const override { return is_column_nullable(*data); }
+    // bool is_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
     bool is_numeric() const override { return data->is_numeric(); }
     bool is_fixed_and_contiguous() const override { return data->is_fixed_and_contiguous(); }
