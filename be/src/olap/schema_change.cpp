@@ -1984,6 +1984,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             new_tablet->enable_unique_key_merge_on_write()) {
             std::lock_guard<std::mutex> cumulative_compaction_lock(
                     new_tablet->get_cumulative_compaction_lock());
+
+            // step 2
             int64_t max_version = new_tablet->max_version().second;
             std::vector<RowsetSharedPtr> rowsets;
             if (end_version < max_version) {
@@ -2003,6 +2005,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
             }
 
+            // step 3
             std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
             int64_t new_max_version = new_tablet->max_version().second;
@@ -2021,6 +2024,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 }
                 RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
             }
+
+            // step 4
             {
                 std::lock_guard<std::shared_mutex> wrlock(_mutex);
                 _tablet_ids_in_converting.erase(new_tablet->tablet_id());
