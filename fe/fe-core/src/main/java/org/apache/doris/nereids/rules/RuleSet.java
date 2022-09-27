@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhys
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuter;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
@@ -74,6 +75,7 @@ public class RuleSet {
             new PushDownExpressionsInHashCondition(),
             new PushdownProjectThroughLimit(),
             new PushdownFilterThroughProject(),
+            EliminateOuter.INSTANCE,
             new MergeConsecutiveProjects(),
             new MergeConsecutiveFilters(),
             new MergeConsecutiveLimits());
