@@ -56,17 +56,34 @@ public class JoinEstimation {
         public long rowCount = 0;
     }
 
-    private static JoinEstimationResult computeInner(PhysicalHashJoin join, EqualTo equalto,
+    /**
+     * the basic idea of star-schema is:
+     * 1. fact_table JOIN dimension_table, if dimension table are filtered, the result can be regarded as
+     * applying a filter on fact table.
+     * 2. fact_table JOIN dimension_table, if the dimension table is not filtered, the number of join result tuple
+     * equals to the number of fact tuples.
+     * 3. dimension table JOIN fact table, the number of join result tuple is that of fact table or 2 times
+     * of dimension table.
+     */
+    private static JoinEstimationResult estimateInnerJoin(PhysicalHashJoin join, EqualTo equalto,
             StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
         JoinEstimationResult result = new JoinEstimationResult();
-
+        //LIMIT_RIGHT_WIDTH: the larger RIGHT_WIDTH means right child contains more join node. Although sometimes,
+        // right deep tree could reduce the input tuple number, it is bad for building hash table in parallel. That why
+        // we add penalty if the right child is too wide.
+        final int LIMIT_RIGHT_WIDTH = 2;
+        //AVG_DIM_FACT_RATIO: by average, the number of fact tuples of one dimension. for example, in tpch, in
+        //lineitem, there are 1-7 tuples of the same orderkey, the average is 4.
+        final int AVG_DIM_FACT_RATIO = 2;
         SlotReference eqLeft = (SlotReference) equalto.child(0);
         SlotReference eqRight = (SlotReference) equalto.child(1);
-        if ((rightStats.level >= 2 && !rightStats.isReduced) || rightStats.level > 3) {
-            //right deep tree is not good for parallel building hash table,
-            //penalty too right deep tree by multiply level
+        if ((rightStats.level >= LIMIT_RIGHT_WIDTH && !rightStats.isReduced)
+                || rightStats.level > LIMIT_RIGHT_WIDTH + 1) {
+            //if the right side is too wide, ignore the filter effect.
             result.forbiddenReducePropagation = true;
-            result.rowCount = rightStats.level * (leftStats.getRowCount() + 2 * rightStats.getRowCount());
+            //penalty too right deep tree by multiply level
+            result.rowCount = rightStats.level * (leftStats.getRowCount()
+                    + LIMIT_RIGHT_WIDTH * rightStats.getRowCount());
         } else if (eqLeft.getColumn().isPresent() || eqRight.getColumn().isPresent()) {
             Set<Slot> rightSlots = ((PhysicalHashJoin<?, ?>) join).child(1).getOutputSet();
             if ((rightSlots.contains(eqRight)
@@ -81,6 +98,8 @@ public class JoinEstimation {
                 if (rightStats.isReduced) {
                     //dimension table is reduced
                     result.isReducedByHashJoin = true;
+                    //TODO current we regard selectivity as 0.5. After we have more accurate estimated selectivity,
+                    // replace it.
                     result.rowCount = leftStats.getRowCount() / 2;
                 } else {
                     //dimension table is not reduced, the join result tuple number equals to
@@ -89,12 +108,12 @@ public class JoinEstimation {
                 }
             } else {
                 //dimension table JOIN fact table
-                result.rowCount = leftStats.getRowCount() + 2 * rightStats.getRowCount();
+                result.rowCount = Math.max(leftStats.getRowCount(), AVG_DIM_FACT_RATIO * rightStats.getRowCount());
             }
         } else {
             LOG.debug("HashJoin cost calculation: slot.column is null, star-schema support failed.");
             result.rowCount = Math.max(leftStats.getRowCount() + rightStats.getRowCount(),
-                    leftStats.getRowCount() * 2);
+                    leftStats.getRowCount() * AVG_DIM_FACT_RATIO);
         }
         return result;
     }
@@ -130,22 +149,17 @@ public class JoinEstimation {
                  * If `support_star_schema_nereids` is true, we have the following implications:
                  * 1. the duplicate key, the unique key and the aggregate key are primary key.
                  * 2. the inner join is between fact table and dimension table
-                 * 3. if the dimension table is not filtered, after join, the output tuple number is the tuple
-                 * number of fact table.
-                 * 4. if we choose fact table as right table (building hash table), the output tuple number is 4 times
-                 * of the tuple number in dimension table. The magic number `4` is from tpch, in which every
-                 * o_orderkey is corresponding to 1-7 l_orderkey.
-                  */
+                 */
                 //TODO:
                 // 1.currently, we only consider single primary key table. The idea could be expanded to table
-                //   with compond keys, like tpch lineitem/partsupp.
+                //   with compound keys, like tpch lineitem/partsupp.
                 // 2.after aggregation, group key is unique. we could use it as primary key.
                 // 3.isReduced should be replaced by selectivity. and we need to refine the propagation of selectivity.
                 JoinEstimationResult better = new JoinEstimationResult();
                 better.rowCount = Long.MAX_VALUE;
 
                 for (Expression equalto : join.getHashJoinConjuncts()) {
-                    JoinEstimationResult result = computeInner((PhysicalHashJoin) join,
+                    JoinEstimationResult result = estimateInnerJoin((PhysicalHashJoin) join,
                             (EqualTo) equalto, leftStats, rightStats);
                     if (result.rowCount < better.rowCount) {
                         better = result;
