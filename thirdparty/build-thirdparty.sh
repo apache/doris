@@ -343,15 +343,17 @@ build_thrift() {
     cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cppflags="-I${TP_INCLUDE_DIR}"
+        cflags="-I${TP_INCLUDE_DIR}"
+        cxxflags="-I${TP_INCLUDE_DIR} -Wno-unused-but-set-variable"
         ldflags="-L${TP_LIB_DIR} --static"
     else
-        cppflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
+        cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
+        cxxflags="-I${TP_INCLUDE_DIR} -Wno-unused-but-set-variable"
         ldflags="-L${TP_LIB_DIR}"
     fi
 
     # NOTE(amos): libtool discard -static. --static works.
-    ./configure CPPFLAGS="${cppflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
+    ./configure CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
         --prefix="${TP_INSTALL_DIR}" --docdir="${TP_INSTALL_DIR}/doc" --enable-static --disable-shared --disable-tests \
         --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-nodets --without-swift \
         --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-cl \
@@ -838,12 +840,12 @@ build_libunixodbc() {
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cppflags="-I${TP_INCLUDE_DIR}"
+        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion"
     else
-        cppflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
+        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration"
     fi
 
-    CPPFLAGS="${cppflags}" \
+    CFLAGS="${cflags}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -867,9 +869,11 @@ build_flatbuffers() {
         ldflags=''
     fi
 
-    CXXFLAGS="${warning_class_memaccess}" \
-        LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DFLATBUFFERS_BUILD_TESTS=OFF ..
+    LDFLAGS="${ldflags}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DFLATBUFFERS_CXX_FLAGS="${warning_class_memaccess} -Wno-unused-but-set-variable" \
+        -DFLATBUFFERS_BUILD_TESTS=OFF \
+        ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
