@@ -94,12 +94,12 @@ void VParquetWriterWrapper::parse_schema(const std::vector<TParquetSchema>& parq
         for (size_t row_id = 0; row_id < sz; row_id++) {                                          \
             def_level[row_id] = null_data[row_id] == 0;                                           \
         }                                                                                         \
-        col_writer->WriteBatch(sz, def_level, nullptr,                                            \
+        col_writer->WriteBatch(sz, def_level.data(), nullptr,                                     \
                                reinterpret_cast<const NATIVE_TYPE*>(                              \
                                        assert_cast<const COLUMN_TYPE&>(*col).get_data().data())); \
     } else if (const auto* not_nullable_column = check_and_get_column<const COLUMN_TYPE>(col)) {  \
         col_writer->WriteBatch(                                                                   \
-                sz, nullable ? def_level : nullptr, nullptr,                                      \
+                sz, nullable ? def_level.data() : nullptr, nullptr,                               \
                 reinterpret_cast<const NATIVE_TYPE*>(not_nullable_column->get_data().data()));    \
     } else {                                                                                      \
         RETURN_WRONG_TYPE                                                                         \
@@ -132,7 +132,7 @@ void VParquetWriterWrapper::parse_schema(const std::vector<TParquetSchema>& parq
             auto s = decimal_type->to_string(*col, row_id);                                      \
             value.ptr = reinterpret_cast<const uint8_t*>(s.data());                              \
             value.len = s.size();                                                                \
-            col_writer->WriteBatch(1, nullable ? def_level : nullptr, nullptr, &value);          \
+            col_writer->WriteBatch(1, nullable ? def_level.data() : nullptr, nullptr, &value);   \
         }                                                                                        \
     }
 
@@ -252,14 +252,14 @@ Status VParquetWriterWrapper::write(const Block& block) {
                                    check_and_get_column<const ColumnVector<Int16>>(col)) {
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         const int32_t tmp = int16_column->get_data()[row_id];
-                        col_writer->WriteBatch(1, nullable ? def_level : nullptr, nullptr,
+                        col_writer->WriteBatch(1, nullable ? def_level.data() : nullptr, nullptr,
                                                reinterpret_cast<const int32_t*>(&tmp));
                     }
                 } else if (const auto& int8_column =
                                    check_and_get_column<const ColumnVector<Int8>>(col)) {
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         const int32_t tmp = int8_column->get_data()[row_id];
-                        col_writer->WriteBatch(1, nullable ? def_level : nullptr, nullptr,
+                        col_writer->WriteBatch(1, nullable ? def_level.data() : nullptr, nullptr,
                                                reinterpret_cast<const int32_t*>(&tmp));
                     }
                 } else {
@@ -293,7 +293,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                                                        .to_olap_datetime();
                         }
                     }
-                    col_writer->WriteBatch(sz, def_level, nullptr,
+                    col_writer->WriteBatch(sz, def_level.data(), nullptr,
                                            reinterpret_cast<const int64_t*>(tmp_data));
                 } else if (const auto* not_nullable_column =
                                    check_and_get_column<const ColumnVector<Int64>>(col)) {
@@ -303,7 +303,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                                               not_nullable_column->get_data()[row_id])
                                               .to_olap_datetime();
                     }
-                    col_writer->WriteBatch(sz, nullable ? def_level : nullptr, nullptr,
+                    col_writer->WriteBatch(sz, nullable ? def_level.data() : nullptr, nullptr,
                                            reinterpret_cast<const int64_t*>(res.data()));
                 } else {
                     RETURN_WRONG_TYPE
