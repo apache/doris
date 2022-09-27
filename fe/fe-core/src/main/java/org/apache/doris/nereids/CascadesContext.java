@@ -18,7 +18,6 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
@@ -36,9 +35,7 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
-import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -60,9 +57,6 @@ public class CascadesContext {
     private JobContext currentJobContext;
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
-    private CTEContext cteContext;
-    private Map<String, LogicalPlan> withQueries;
-
     private RuntimeFilterContext runtimeFilterContext;
 
     /**
@@ -80,7 +74,6 @@ public class CascadesContext {
         this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
-        this.withQueries = new HashMap<>();
     }
 
     public static CascadesContext newContext(StatementContext statementContext, Plan initPlan) {
@@ -162,22 +155,6 @@ public class CascadesContext {
             return false;
         }
         return subqueryExprIsAnalyzed.get(subqueryExpr);
-    }
-
-    public Map<String, LogicalPlan> getWithQueries() {
-        return withQueries;
-    }
-
-    public void registerWithQuery(WithClause withClause) {
-        String name = withClause.getName();
-        if (withQueries.containsKey(name)) {
-            throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
-        }
-        withQueries.put(name, withClause.getQuery());
-    }
-
-    public void copyWithQuery(CascadesContext parentCtx) {
-        this.withQueries = parentCtx.getWithQueries();
     }
 
     public CascadesContext bottomUpRewrite(RuleFactory... rules) {

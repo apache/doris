@@ -15,116 +15,79 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.processor.pre;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WithClause;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
- * Context used for CTE analysis and register
+ * Register CTE, includes checking columnAliases, checking CTE name, analyzing each CTE and store the
+ * analyzed logicalPlan of CTE's query in CTEContext
  */
-public class CTEContext {
+public class RegisterWithQueries extends PlanPreprocessor {
 
-    private Map<String, LogicalPlan> withQueries;
+    private final CTEContext cteContext;
 
-    public CTEContext() {
-        this.withQueries = new HashMap<>();
+    public RegisterWithQueries(CTEContext cteContext) {
+        this.cteContext = Objects.requireNonNull(cteContext, "cteContext can not be null");
     }
 
-    public boolean containsCTE(String cteName) {
-        return withQueries.containsKey(cteName);
+    @Override
+    public LogicalPlan visitLogicalCTE(
+            LogicalCTE<? extends Plan> logicalCTE,
+            StatementContext statementContext) {
+        List<WithClause> withClauses = logicalCTE.getWithClauses();
+        withClauses.stream().forEach(withClause -> {
+            registerWithQuery(withClause, cteContext, statementContext);
+        });
+        return (LogicalPlan) logicalCTE.child(0);
     }
 
-    public void addCTE(String cteName, LogicalPlan ctePlan) {
-        withQueries.put(cteName, ctePlan);
-    }
-
-    public Optional<LogicalPlan> findCTE(String name) {
-        return Optional.ofNullable(withQueries.get(name));
-    }
-
-    /**
-     * register with queries in CTEContext
-     * @param withClause includes with query
-     * @param parentContext parent CascadesContext
-     */
-    public void registerWithQuery(WithClause withClause, CascadesContext parentContext) {
+    private void registerWithQuery(WithClause withClause, CTEContext cteContext, StatementContext statementContext) {
         String name = withClause.getName();
-        if (withQueries.containsKey(name)) {
+        if (cteContext.containsCTE(name)) {
             throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
         }
 
-        CascadesContext cascadesContext = new Memo(withClause.getQuery())
-                .newCascadesContext(parentContext.getStatementContext());
-        cascadesContext.newAnalyzer(this).analyze();
-
-        LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
-        if (withClause.getColumnAliases().isPresent()) {
-            checkColumnAlias(withClause, analyzedPlan.getOutput());
-        }
-        withQueries.put(name, analyzedPlan);
-        // withQueries.put(name, withClause.getQuery());
-    }
-
-    /**
-     * register with queries in CTEContext
-     * @param withClause includes with query
-     * @param statementContext global statementContext
-     */
-    public void registerWithQuery(WithClause withClause, StatementContext statementContext) {
-        String name = withClause.getName();
-        if (withQueries.containsKey(name)) {
-            throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
-        }
-
-        CascadesContext cascadesContext = new Memo(withClause.getQuery())
-                .newCascadesContext(statementContext);
-        cascadesContext.newAnalyzer(this).analyze();
+        CascadesContext cascadesContext = new Memo(withClause.getQuery()).newCascadesContext(statementContext);
+        cascadesContext.newAnalyzer(cteContext).analyze();
 
         LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
         if (withClause.getColumnAliases().isPresent()) {
             checkColumnAlias(withClause, analyzedPlan.getOutput());
             analyzedPlan = withColumnAliases(analyzedPlan, withClause);
         }
-        withQueries.put(name, analyzedPlan);
-        // withQueries.put(name, withClause.getQuery());
+        cteContext.addCTE(name, analyzedPlan);
     }
 
     private LogicalPlan withColumnAliases(LogicalPlan queryPlan, WithClause withClause) {
         List<Slot> outputSlots = queryPlan.getOutput();
         List<String> columnAliases = withClause.getColumnAliases().get();
-        for (int i = 0; i < outputSlots.size(); i++) {
-
-        }
 
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
                 .mapToObj(i -> new Alias(outputSlots.get(i), columnAliases.get(i)))
                 .collect(Collectors.toList());
         return new LogicalProject<>(projects, queryPlan.getGroupExpression(),
-                Optional.ofNullable(queryPlan.getLogicalProperties()), queryPlan);
-    }
-
-    // todo: move these validate operation to related job.
-    private void checkColumnAlias(WithClause withClause) {
-        List<Slot> outputSlots = withClause.getQuery().getOutput();
-        this.checkColumnAlias(withClause, outputSlots);
+            Optional.ofNullable(queryPlan.getLogicalProperties()), queryPlan);
     }
 
     private void checkColumnAlias(WithClause withClause, List<Slot> outputSlots) {

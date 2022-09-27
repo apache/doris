@@ -84,7 +84,7 @@ public abstract class PlanVisitor<R, C> {
     // Logical plans
     // *******************************
 
-    public R visitLogicalCTE(LogicalCTE cte, C context) {
+    public R visitLogicalCTE(LogicalCTE<? extends Plan> cte, C context) {
         return visit(cte, context);
     }
 
