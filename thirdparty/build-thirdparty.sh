@@ -762,6 +762,7 @@ build_brpc() {
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=1 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
+        -DBUILD_BRPC_TOOLS=OFF \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -978,6 +979,12 @@ build_s2() {
 # bitshuffle
 build_bitshuffle() {
     check_if_source_exist "${BITSHUFFLE_SOURCE}"
+    local ld="${DORIS_BIN_UTILS}/ld"
+    local ar="${DORIS_BIN_UTILS}/ar"
+
+    if [[ ! -f "${ld}" ]]; then ld="$(command -v ld)"; fi
+    if [[ ! -f "${ar}" ]]; then ar="$(command -v ar)"; fi
+
     cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
     PREFIX="${TP_INSTALL_DIR}"
 
@@ -1005,14 +1012,20 @@ build_bitshuffle() {
             "src/bitshuffle.c" \
             "src/iochain.c"
         # Merge the object files together to produce a combined .o file.
-        "${DORIS_BIN_UTILS}/ld" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
+        "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
         if [[ "${arch}" == "avx2" ]]; then
+            local nm="${DORIS_BIN_UTILS}/nm"
+            local objcopy="${DORIS_BIN_UTILS}/objcopy"
+
+            if [[ ! -f "${nm}" ]]; then nm="$(command -v nm)"; fi
+            if [[ ! -f "${objcopy}" ]]; then objcopy="$(command -v objcopy)"; fi
+
             # Create a mapping file with '<old_sym> <suffixed_sym>' on each line.
-            "${DORIS_BIN_UTILS}/nm" --defined-only --extern-only "${tmp_obj}" | while read -r addr type sym; do
+            "${nm}" --defined-only --extern-only "${tmp_obj}" | while read -r addr type sym; do
                 echo "${sym} ${sym}_${arch}"
             done >renames.txt
-            "${DORIS_BIN_UTILS}/objcopy" --redefine-syms=renames.txt "${tmp_obj}" "${dst_obj}"
+            "${objcopy}" --redefine-syms=renames.txt "${tmp_obj}" "${dst_obj}"
         else
             mv "${tmp_obj}" "${dst_obj}"
         fi
@@ -1021,7 +1034,7 @@ build_bitshuffle() {
     local links
     read -r -a links <<<"${to_link}"
     rm -f libbitshuffle.a
-    "${DORIS_BIN_UTILS}/ar" rs libbitshuffle.a "${links[@]}"
+    "${ar}" rs libbitshuffle.a "${links[@]}"
     mkdir -p "${PREFIX}/include/bitshuffle"
     cp libbitshuffle.a "${PREFIX}"/lib/
     cp "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}/src/bitshuffle.h" "${PREFIX}/include/bitshuffle/bitshuffle.h"
@@ -1116,6 +1129,7 @@ build_orc() {
         -DZSTD_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DBUILD_LIBHDFSPP=OFF \
         -DBUILD_CPP_TESTS=OFF \
+        -DSTOP_BUILD_ON_WARNING=OFF \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
