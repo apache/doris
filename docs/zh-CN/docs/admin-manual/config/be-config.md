@@ -845,7 +845,7 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 
 * 类型：string
 * 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
-* 默认值：90%
+* 默认值：80%
 
 ### `memory_limitation_per_thread_for_schema_change`
 
