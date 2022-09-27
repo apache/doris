@@ -33,21 +33,26 @@ public interface Project {
     List<NamedExpression> getProjects();
 
     /**
-     * Generate a map that the key is the project output slot, corresponding value is the expression produces the slot.
-     * Note that alias is striped off.
+     * Generate a map that the key is the alias slot, corresponding value is the expression produces the slot.
+     * For example:
+     * <pre>
+     * projects:
+     * [a, alias(b as c), alias((d + e + 1) as f)]
+     * result map:
+     * c -> b
+     * f -> d + e + 1
+     * </pre>
      */
-    default Map<Slot, Expression> getSlotToProducer() {
+    default Map<Slot, Expression> getAliasToProducer() {
         return getProjects()
                 .stream()
-                .collect(Collectors.toMap(
-                        NamedExpression::toSlot,
-                        namedExpr -> {
-                            if (namedExpr instanceof Alias) {
-                                return ((Alias) namedExpr).child();
-                            } else {
-                                return namedExpr;
-                            }
-                        })
+                .filter(Alias.class::isInstance)
+                .collect(
+                        Collectors.toMap(
+                                NamedExpression::toSlot,
+                                // Avoid cast to alias, retrieving the first child expression.
+                                alias -> alias.child(0)
+                        )
                 );
     }
 }
