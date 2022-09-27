@@ -437,11 +437,7 @@ set(CUSTUM_LINKER_COMMAND "ld")
 # TODO: mold will link fail on thirdparty brpc now, waiting for investigation.
 # TRY_TO_CHANGE_LINKER("mold" "mold")
 
-# TODO: brpc will link fail on clang-15, need fix in the future.
-if (COMPILER_GCC OR CLANG_VERSION_MAJOR VERSION_LESS 15)
-    TRY_TO_CHANGE_LINKER("lld" "LLD")
-endif()
-
+TRY_TO_CHANGE_LINKER("lld" "LLD")
 TRY_TO_CHANGE_LINKER("gold" "GNU gold")
 if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
