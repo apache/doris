@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
@@ -317,11 +318,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             case AGG_KEYS:
             case UNIQUE_KEYS:
                 // TODO: Improve complete info for aggregate and unique key types table.
-                olapScanNode.selectSelectIndexInfo(olapScan.getSelectedIndexId(), true, "");
+                PreAggStatus preAgg = olapScan.getPreAggStatus();
+                olapScanNode.selectSelectIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(), preAgg.getOffReason());
                 break;
             case DUP_KEYS:
                 try {
-                    olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), false, "");
+                    olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), true, "");
+                    olapScanNode.setIsPreAggregation(true, "");
                 } catch (Exception e) {
                     throw new AnalysisException(e.getMessage());
                 }
@@ -348,8 +351,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, dataPartition);
         context.addPlanFragment(planFragment);
-        // TODO: Nereids support duplicate table only for now, remove this when support aggregate/unique table.
-        olapScanNode.setIsPreAggregation(true, "Nereids support duplicate table only for now");
         return planFragment;
     }
 
