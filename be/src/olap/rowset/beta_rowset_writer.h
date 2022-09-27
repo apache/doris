@@ -78,7 +78,7 @@ public:
         return Status::OK();
     }
 
-    Status do_segcompaction(SegCompactionCandidatesSharedPtr segments);
+    void segcompaction(SegCompactionCandidatesSharedPtr segments);
 
 private:
     template <typename RowType>
@@ -96,22 +96,29 @@ private:
 
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
-    void segcompaction_if_necessary();
-    void segcompaction_ramaining_if_necessary();
-    vectorized::VMergeIterator* get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
-                                                         std::shared_ptr<Schema> schema,
-                                                         OlapReaderStatistics* stat);
-    std::unique_ptr<segment_v2::SegmentWriter> create_segcompaction_writer(uint64_t begin,
+    Status _segcompaction_if_necessary();
+    Status _segcompaction_ramaining_if_necessary();
+    vectorized::VMergeIterator* _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
+                                                          std::shared_ptr<Schema> schema,
+                                                          OlapReaderStatistics* stat,
+                                                          uint64_t* merged_row_stat);
+    std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
                                                                            uint64_t end);
-    Status delete_original_segments(uint32_t begin, uint32_t end);
-    void rename_compacted_segments(int64_t begin, int64_t end);
-    void rename_compacted_segment_plain(uint64_t seg_id);
-    Status load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
-    void find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
-    SegCompactionCandidatesSharedPtr get_segcompaction_candidates(bool is_last);
-    void wait_flying_segcompaction();
-    bool is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
-    void clear_statistics_for_deleting_segments(uint64_t begin, uint64_t end);
+    Status _delete_original_segments(uint32_t begin, uint32_t end);
+    Status _rename_compacted_segments(int64_t begin, int64_t end);
+    Status _rename_compacted_segment_plain(uint64_t seg_id);
+    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
+    Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
+    Status _wait_flying_segcompaction();
+    bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
+    void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
+    Status _check_correctness(std::unique_ptr<OlapReaderStatistics> stat,
+                              uint64_t merged_row_stat, uint64_t row_count, uint64_t begin,
+                              uint64_t end);
+    bool _check_and_set_is_doing_segcompaction();
+
+    Status _do_segcompaction(SegCompactionCandidatesSharedPtr segments);
 
 private:
     RowsetWriterContext _context;
@@ -149,13 +156,19 @@ private:
         KeyBoundsPB key_bounds;
     };
     std::map<uint32_t, statistics> _segid_statistics_map;
+    std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;
     bool _already_built = false;
 
+
+    // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction;
-    std::mutex _segcompacting_cond_lock;
+    // enforce compare-and-swap on _is_doing_segcompaction
+    std::mutex _is_doing_segcompaction_lock;
     std::condition_variable _segcompacting_cond;
+
+    std::atomic<ErrorCode> _segcompaction_status;
 };
 
 } // namespace doris

@@ -246,6 +246,10 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         std::vector<std::string> ls;
         ls.push_back("10000_0.dat");
         ls.push_back("10000_1.dat");
+        ls.push_back("10000_2.dat");
+        ls.push_back("10000_3.dat");
+        ls.push_back("10000_4.dat");
+        ls.push_back("10000_5.dat");
         EXPECT_TRUE(check_dir(ls));
     }
 

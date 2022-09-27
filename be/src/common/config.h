@@ -858,7 +858,7 @@ CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized s
 // Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
 CONF_Int32(segcompaction_threshold_segment_num, "10");
 
-CONF_Int32(segcompaction_small_threshold, "1000000");
+CONF_Int32(segcompaction_small_threshold, "1048576");
 
 CONF_String(jvm_max_heap_size, "1024M");
 

@@ -231,7 +231,11 @@ class PStatus;
     M(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION, -3112, "", true)         \
     M(OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE, -3113, "", true)           \
     M(OLAP_ERR_ROWSET_ADD_MIGRATION_V2, -3114, "", true)                 \
-    M(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS, -3115, "", false)
+    M(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS, -3115, "", false)         \
+    M(OLAP_ERR_ROWSET_RENAME_FILE_FAILED, -3116, "", false)              \
+    M(OLAP_ERR_SEGCOMPACTION_INIT_READER, -3117, "", false)              \
+    M(OLAP_ERR_SEGCOMPACTION_INIT_WRITER, -3118, "", false)              \
+    M(OLAP_ERR_SEGCOMPACTION_FAILED, -3119, "", false)
 
 enum ErrorCode {
 #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) NAME = ERRORCODE,
