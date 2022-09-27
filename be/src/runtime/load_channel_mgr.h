@@ -68,7 +68,6 @@ private:
     // If yes, it will pick a load channel to try to reduce memory consumption.
     template <typename TabletWriterAddResult>
     Status _handle_mem_exceed_limit(TabletWriterAddResult* response);
-    void _try_to_wait_flushing();
 
     Status _start_bg_worker();
 
@@ -152,7 +151,6 @@ Status LoadChannelMgr::add_batch(const TabletWriterAddRequest& request,
 
 template <typename TabletWriterAddResult>
 Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response) {
-    _try_to_wait_flushing();
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     DCHECK(_process_soft_mem_limit > 0);
@@ -163,7 +161,12 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
     // Pick load channel to reduce memory.
     std::shared_ptr<LoadChannel> channel;
     {
-        std::lock_guard<std::mutex> l(_lock);
+        std::unique_lock<std::mutex> l(_lock);
+        while (_should_wait_flush) {
+            LOG(INFO) << "Reached the load hard limit " << _mem_tracker->limit()
+                      << ", waiting for flush";
+            _wait_flush_cond.wait(l);
+        }
         // Some other thread is flushing data, and not reached hard limit now,
         // we don't need to handle mem limit in current thread.
         if (_reduce_memory_channel != nullptr && !_mem_tracker->limit_exceeded() &&
