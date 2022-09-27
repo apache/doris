@@ -26,6 +26,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "util/string_util.h"
+#include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris {
 
@@ -67,18 +68,34 @@ Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         LOG(WARNING) << "failed to read schema, errmsg=" << maybe_schema.status();
         return Status::InternalError("Failed to create orc file reader");
     }
-    std::shared_ptr<arrow::Schema> schema = maybe_schema.ValueOrDie();
-    for (size_t i = 0; i < schema->num_fields(); ++i) {
+    _schema = maybe_schema.ValueOrDie();
+    for (size_t i = 0; i < _schema->num_fields(); ++i) {
         std::string schemaName =
-                _case_sensitive ? schema->field(i)->name() : to_lower(schema->field(i)->name());
+                _case_sensitive ? _schema->field(i)->name() : to_lower(_schema->field(i)->name());
         // orc index started from 1.
-
         _map_column.emplace(schemaName, i + 1);
     }
     RETURN_IF_ERROR(column_indices());
 
     _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
 
+    return Status::OK();
+}
+
+Status ORCReaderWrap::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                                  std::unordered_set<std::string>* missing_cols) {
+    for (size_t i = 0; i < _schema->num_fields(); ++i) {
+        std::string schema_name =
+                _case_sensitive ? _schema->field(i)->name() : to_lower(_schema->field(i)->name());
+        TypeDescriptor type;
+        RETURN_IF_ERROR(
+                vectorized::arrow_type_to_doris_type(_schema->field(i)->type()->id(), &type));
+        name_to_type->emplace(schema_name, type);
+    }
+
+    for (auto& col : _missing_cols) {
+        missing_cols->insert(col);
+    }
     return Status::OK();
 }
 

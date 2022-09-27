@@ -137,10 +137,6 @@ protected:
     // and will be destroyed at the end.
     std::vector<VExprContext*> _stale_vexpr_ctxs;
 
-    // For load scanner
-    std::unique_ptr<doris::vectorized::VExprContext*> _pre_conjunct_ctx_ptr;
-    std::unique_ptr<RowDescriptor> _src_row_desc;
-
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
 
