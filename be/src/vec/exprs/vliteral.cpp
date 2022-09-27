@@ -182,7 +182,7 @@ void VLiteral::init(const TExprNode& node) {
         }
         }
     }
-    _column_ptr = _data_type->create_column_const(1, field)->convert_to_full_column_if_const();
+    _column_ptr = _data_type->create_column_const(1, field);
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {

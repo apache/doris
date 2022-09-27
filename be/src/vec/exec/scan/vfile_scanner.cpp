@@ -276,11 +276,11 @@ Status VFileScanner::_fill_missing_columns() {
             bool is_origin_column = result_column_id < origin_column_num;
             if (!is_origin_column) {
                 auto result_column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
+                // result_column_ptr maybe a ColumnConst, convert it to a normal column
+                result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = _src_block_ptr->get_by_name(slot_desc->col_name()).type;
                 bool is_nullable = origin_column_type->is_nullable();
-                _src_block_ptr->replace_by_position(
-                        _src_block_ptr->get_position_by_name(slot_desc->col_name()),
-                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                _src_block_ptr->replace_by_position(_src_block_ptr->get_position_by_name(slot_desc->col_name()), is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 _src_block_ptr->erase(result_column_id);
             }
         }
@@ -315,11 +315,13 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-        bool is_origin_column = result_column_id < origin_column_num;
-        auto column_ptr =
-                is_origin_column && _src_block_mem_reuse
-                        ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
-                        : _src_block.get_by_position(result_column_id).column;
+            bool is_origin_column = result_column_id < origin_column_num;
+        auto column_ptr = 
+             is_origin_column && _src_block_mem_reuse
+                     ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
+                     : _src_block.get_by_position(result_column_id).column;
+        // column_ptr maybe a ColumnConst, convert it to a normal column
+        column_ptr = column_ptr->convert_to_full_column_if_const();
 
         DCHECK(column_ptr != nullptr);
 
