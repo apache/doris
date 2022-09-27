@@ -69,11 +69,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visit(Plan plan, PlanContext context) {
-        List<PhysicalProperties> requiredPropertyList = Lists.newArrayList();
-        for (int i = 0; i < context.getGroupExpression().arity(); i++) {
-            requiredPropertyList.add(PhysicalProperties.ANY);
+        List<PhysicalProperties> nCopyList = Lists.newArrayListWithCapacity(context.getGroupExpression().arity());
+        for (int i = context.getGroupExpression().arity(); i > 0; --i) {
+            nCopyList.add(PhysicalProperties.ANY);
         }
-        requestPropertyToChildren.add(requiredPropertyList);
+        requestPropertyToChildren.add(nCopyList);
         return null;
     }
 
