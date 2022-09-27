@@ -73,9 +73,9 @@ public:
     size_t get_number_of_dimensions() const;
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                              int data_version) const override;
-    char* serialize(const IColumn& column, char* buf, int data_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int data_version) const override;
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
