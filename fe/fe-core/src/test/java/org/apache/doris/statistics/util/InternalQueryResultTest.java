@@ -94,8 +94,8 @@ public class InternalQueryResultTest {
     public void testGetColumnValueWithIndex() throws Exception {
         Assert.assertEquals("s1", resultRow.getColumnValue(0).toString());
         Assert.assertEquals(1000, Integer.parseInt((String) resultRow.getColumnValue(1)));
-        Assert.assertEquals(0.1f, Float.parseFloat((String) resultRow.getColumnValue(2)), 1);
-        Assert.assertEquals(0.0001, Double.parseDouble((String) resultRow.getColumnValue(3)), 4);
+        Assert.assertEquals(0.1f, Float.parseFloat((String) resultRow.getColumnValue(2)), 0.0001);
+        Assert.assertEquals(0.0001, Double.parseDouble((String) resultRow.getColumnValue(3)), 0.0001);
         Assert.assertEquals(1000000, Long.parseLong((String) resultRow.getColumnValue(4)));
     }
 
@@ -103,8 +103,8 @@ public class InternalQueryResultTest {
     public void testGetColumnValueWithName() throws Exception {
         Assert.assertEquals("s1", resultRow.getColumnValue(0).toString());
         Assert.assertEquals(1000, Integer.parseInt((String) resultRow.getColumnValue(1)));
-        Assert.assertEquals(0.1f, Float.parseFloat((String) resultRow.getColumnValue(2)), 1);
-        Assert.assertEquals(0.0001, Double.parseDouble((String) resultRow.getColumnValue(3)), 4);
+        Assert.assertEquals(0.1f, Float.parseFloat((String) resultRow.getColumnValue(2)), 0.0001);
+        Assert.assertEquals(0.0001, Double.parseDouble((String) resultRow.getColumnValue(3)), 0.0001);
         Assert.assertEquals(1000000, Long.parseLong((String) resultRow.getColumnValue(4)));
     }
 
@@ -112,8 +112,8 @@ public class InternalQueryResultTest {
     public void testGetTypeValue() throws Exception {
         Assert.assertEquals("s1", resultRow.getString(0));
         Assert.assertEquals(1000, resultRow.getInt(1));
-        Assert.assertEquals(0.1f, resultRow.getFloat(2), 1);
-        Assert.assertEquals(0.0001, resultRow.getDouble(3), 4);
+        Assert.assertEquals(0.1f, resultRow.getFloat(2), 0.0001);
+        Assert.assertEquals(0.0001, resultRow.getDouble(3), 0.0001);
         Assert.assertEquals(1000000, resultRow.getLong(4));
     }
 }
