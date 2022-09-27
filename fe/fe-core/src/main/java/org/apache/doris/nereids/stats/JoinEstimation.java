@@ -114,7 +114,11 @@ public class JoinEstimation {
         boolean forbiddenReducePropagation = false;
         long rowCount;
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
-            rowCount = leftStats.getRowCount() + 1;
+            if (rightStats.isReduced && rightStats.level < 3) {
+                rowCount = leftStats.getRowCount() / 2;
+            } else {
+                rowCount = leftStats.getRowCount() + 1;
+            }
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
             rowCount = rightStats.getRowCount();
         } else if (joinType == JoinType.INNER_JOIN) {
