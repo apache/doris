@@ -17,13 +17,13 @@
 
 #include "schema_dummy_scanner.h"
 
+namespace {
+doris::SchemaScanner::ColumnDesc DUMMY_COLUMN;
+}
+
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaDummyScanner::_s_dummy_columns[] = {};
-
-SchemaDummyScanner::SchemaDummyScanner()
-        : SchemaScanner(_s_dummy_columns,
-                        sizeof(_s_dummy_columns) / sizeof(SchemaScanner::ColumnDesc)) {}
+SchemaDummyScanner::SchemaDummyScanner() : SchemaScanner(&DUMMY_COLUMN, 0) {}
 
 SchemaDummyScanner::~SchemaDummyScanner() {}
 
