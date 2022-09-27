@@ -36,4 +36,9 @@ suite("test_subquery") {
         SELECT k1 FROM test_query_db.test GROUP BY k1 HAVING k1 IN (SELECT k1 FROM test_query_db.baseall WHERE
         k2 >= (SELECT min(k3) FROM test_query_db.bigtable WHERE k2 = baseall.k2)) order by k1;
         """
+
+        qt_sql4 """
+        select /*+SET_VAR(enable_projection=false) */
+        count() from (select k2, k1 from test_query_db.baseall order by k1 limit 1) a;
+        """
 }
