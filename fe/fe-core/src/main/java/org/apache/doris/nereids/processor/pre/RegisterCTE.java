@@ -41,13 +41,14 @@ import java.util.stream.IntStream;
 
 /**
  * Register CTE, includes checking columnAliases, checking CTE name, analyzing each CTE and store the
- * analyzed logicalPlan of CTE's query in CTEContext
+ * analyzed logicalPlan of CTE's query in CTEContext;
+ * Node LogicalCTE will be eliminated after registering.
  */
-public class RegisterWithQueries extends PlanPreprocessor {
+public class RegisterCTE extends PlanPreprocessor {
 
     private final CTEContext cteContext;
 
-    public RegisterWithQueries(CTEContext cteContext) {
+    public RegisterCTE(CTEContext cteContext) {
         this.cteContext = Objects.requireNonNull(cteContext, "cteContext can not be null");
     }
 
@@ -59,6 +60,7 @@ public class RegisterWithQueries extends PlanPreprocessor {
         withClauses.stream().forEach(withClause -> {
             registerWithQuery(withClause, cteContext, statementContext);
         });
+        // eliminate LogicalCTE node
         return (LogicalPlan) logicalCTE.child(0);
     }
 
@@ -70,10 +72,9 @@ public class RegisterWithQueries extends PlanPreprocessor {
 
         CascadesContext cascadesContext = new Memo(withClause.getQuery()).newCascadesContext(statementContext);
         cascadesContext.newAnalyzer(cteContext).analyze();
-
         LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
+
         if (withClause.getColumnAliases().isPresent()) {
-            checkColumnAlias(withClause, analyzedPlan.getOutput());
             analyzedPlan = withColumnAliases(analyzedPlan, withClause);
         }
         cteContext.addCTE(name, analyzedPlan);
@@ -82,6 +83,8 @@ public class RegisterWithQueries extends PlanPreprocessor {
     private LogicalPlan withColumnAliases(LogicalPlan queryPlan, WithClause withClause) {
         List<Slot> outputSlots = queryPlan.getOutput();
         List<String> columnAliases = withClause.getColumnAliases().get();
+
+        checkColumnAlias(withClause, outputSlots);
 
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
                 .mapToObj(i -> new Alias(outputSlots.get(i), columnAliases.get(i)))
@@ -92,6 +95,7 @@ public class RegisterWithQueries extends PlanPreprocessor {
 
     private void checkColumnAlias(WithClause withClause, List<Slot> outputSlots) {
         List<String> columnAlias = withClause.getColumnAliases().get();
+        //
         if (columnAlias.size() != outputSlots.size()) {
             throw new AnalysisException("WITH-clause '" + withClause.getName() + "' returns " + columnAlias.size()
                 + " columns, but " + outputSlots.size() + " labels were specified. The number of column labels must "
@@ -99,6 +103,7 @@ public class RegisterWithQueries extends PlanPreprocessor {
         }
 
         Set<String> names = new HashSet<>();
+        // column alias cannot be used more than once
         columnAlias.stream().forEach(alias -> {
             if (names.contains(alias.toLowerCase())) {
                 throw new AnalysisException("Duplicated CTE column alias: '" + alias.toLowerCase()

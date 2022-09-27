@@ -86,17 +86,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String nameParts) {
-        // check if it is a with reference
-        // LogicalPlan ctePlan = cascadesContext.getWithQueries().get(nameParts);
+        // check if it is a CTE's name
         Optional<LogicalPlan> ctePlan = cteContext.findCTE(nameParts);
         if (ctePlan.isPresent()) {
-            // if there exists the same name between a cte-alias and a table, we use cte first
-            // todo: just deliver the parent cascadesCtx; maybe it's better or necessary to use scope after
-            //  supporting columnNames;
-            // CascadesContext withQueryContext = new Memo(ctePlan.get())
-            //        .newCascadesContext(cascadesContext.getStatementContext());
-            // withQueryContext.newAnalyzer(cteContext).analyze();
-            // return new LogicalSubQueryAlias<>(nameParts, withQueryContext.getMemo().copyOut(false));
             return new LogicalSubQueryAlias<>(nameParts, ctePlan.get());
         }
 

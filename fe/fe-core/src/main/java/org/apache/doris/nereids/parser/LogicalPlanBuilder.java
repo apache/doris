@@ -262,7 +262,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitQuery(QueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: need to add withQueryResultClauses and withCTE -> Doing!
+            // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
             return withQueryOrganization(query, ctx.queryOrganization());
         });

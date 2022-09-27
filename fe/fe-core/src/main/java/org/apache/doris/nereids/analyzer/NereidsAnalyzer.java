@@ -58,7 +58,6 @@ public class NereidsAnalyzer {
      * nereids analyze sql.
      */
     public void analyze() {
-        // new AnalyzeCTEJob(cascadesContext, cteContext).execute();
         new AnalyzeRulesJob(cascadesContext, cteContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();
         new TypeCoercionJob(cascadesContext).execute();
