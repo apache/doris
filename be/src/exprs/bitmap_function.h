@@ -70,6 +70,7 @@ public:
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap_with_check(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
+    static StringVal bitmap_hash64(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
