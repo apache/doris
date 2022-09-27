@@ -224,6 +224,10 @@ set_tcmalloc_heap_limit() {
     *) mem_limit_mb=$((digits / 1024 / 1024 / 1024)) ;;
     esac
 
+    if [[ "${mem_limit_mb}" -eq 0 ]]; then
+        mem_limit_mb=$((total_mem_mb * 80 / 100))
+    fi
+
     if [[ "$mem_limit_mb" -gt "$total_mem_mb" ]]; then
         echo "mem_limit is larger than whole memory of the server. $mem_limit_mb > $total_mem_mb."
         return 1
