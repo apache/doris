@@ -40,6 +40,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -156,13 +157,14 @@ public class SortNode extends PlanNode {
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+        List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
         for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
             if (!slotDescriptorList.get(i).isMaterialized()) {
-                resolvedTupleExprs.remove(i);
+                materializedTupleExprs.remove(i);
             }
         }
         List<SlotId> result = Lists.newArrayList();
-        Expr.getIds(resolvedTupleExprs, null, result);
+        Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
     }
 
@@ -185,7 +187,16 @@ public class SortNode extends PlanNode {
                 info.getIsAscOrder(),
                 info.getNullsFirst());
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        if (resolvedTupleExprs != null) {
+            List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+            for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
+                if (!slotDescriptorList.get(i).isMaterialized()) {
+                    resolvedTupleExprs.remove(i);
+                }
+            }
+            sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+        }
+        
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
         msg.sort_node = sortNode;
