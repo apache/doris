@@ -52,11 +52,15 @@ Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
-    _cast_to_input_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
-    _fill_path_columns_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerFillPathColumnTime");
-    _fill_missing_columns_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerFillMissingColumnTime");
+    _cast_to_input_block_timer =
+            ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
+    _fill_path_columns_timer =
+            ADD_TIMER(_parent->_scanner_profile, "FileScannerFillPathColumnTime");
+    _fill_missing_columns_timer =
+            ADD_TIMER(_parent->_scanner_profile, "FileScannerFillMissingColumnTime");
     _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
-    _convert_to_output_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+    _convert_to_output_block_timer =
+            ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
 
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
@@ -297,7 +301,9 @@ Status VFileScanner::_fill_missing_columns() {
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = _src_block_ptr->get_by_name(slot_desc->col_name()).type;
                 bool is_nullable = origin_column_type->is_nullable();
-                _src_block_ptr->replace_by_position(_src_block_ptr->get_position_by_name(slot_desc->col_name()), is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                _src_block_ptr->replace_by_position(
+                        _src_block_ptr->get_position_by_name(slot_desc->col_name()),
+                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 _src_block_ptr->erase(result_column_id);
             }
         }
@@ -306,6 +312,9 @@ Status VFileScanner::_fill_missing_columns() {
 }
 
 Status VFileScanner::_pre_filter_src_block() {
+    if (!_is_load) {
+        return Status::OK();
+    }
     if (_pre_conjunct_ctx_ptr) {
         SCOPED_TIMER(_pre_filter_timer);
         auto origin_column_num = _src_block_ptr->columns();
@@ -345,11 +354,11 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-        auto column_ptr = 
-             is_origin_column && _src_block_mem_reuse
-                     ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
-                     : _src_block.get_by_position(result_column_id).column;
+        bool is_origin_column = result_column_id < origin_column_num;
+        auto column_ptr =
+                is_origin_column && _src_block_mem_reuse
+                        ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
+                        : _src_block.get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
 
@@ -523,58 +532,62 @@ Status VFileScanner::_init_expr_ctxes() {
         }
     }
 
-    bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
-    int idx = 0;
-    for (auto slot_desc : _output_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        auto it = _params.expr_of_dest_slot.find(slot_desc->id());
-        if (it == std::end(_params.expr_of_dest_slot)) {
-            return Status::InternalError("No expr for dest slot, id={}, name={}", slot_desc->id(),
-                                         slot_desc->col_name());
-        }
+    if (_is_load) {
+        // follow desc expr map and src default value expr map is only for load task.
+        bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
+        int idx = 0;
+        for (auto slot_desc : _output_tuple_desc->slots()) {
+            if (!slot_desc->is_materialized()) {
+                continue;
+            }
+            auto it = _params.expr_of_dest_slot.find(slot_desc->id());
+            if (it == std::end(_params.expr_of_dest_slot)) {
+                return Status::InternalError("No expr for dest slot, id={}, name={}",
+                                             slot_desc->id(), slot_desc->col_name());
+            }
 
-        vectorized::VExprContext* ctx = nullptr;
-        if (!it->second.nodes.empty()) {
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-            RETURN_IF_ERROR(ctx->prepare(_state, *_src_row_desc));
-            RETURN_IF_ERROR(ctx->open(_state));
-        }
-        _dest_vexpr_ctx.emplace_back(ctx);
-        _dest_slot_name_to_idx[slot_desc->col_name()] = idx++;
+            vectorized::VExprContext* ctx = nullptr;
+            if (!it->second.nodes.empty()) {
+                RETURN_IF_ERROR(
+                        vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+                RETURN_IF_ERROR(ctx->prepare(_state, *_src_row_desc));
+                RETURN_IF_ERROR(ctx->open(_state));
+            }
+            _dest_vexpr_ctx.emplace_back(ctx);
+            _dest_slot_name_to_idx[slot_desc->col_name()] = idx++;
 
-        if (has_slot_id_map) {
-            auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-            if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
-                _src_slot_descs_order_by_dest.emplace_back(nullptr);
-            } else {
-                auto _src_slot_it = full_src_slot_map.find(it1->second);
-                if (_src_slot_it == std::end(full_src_slot_map)) {
-                    return Status::InternalError("No src slot {} in src slot descs", it1->second);
+            if (has_slot_id_map) {
+                auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+                if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
+                    _src_slot_descs_order_by_dest.emplace_back(nullptr);
+                } else {
+                    auto _src_slot_it = full_src_slot_map.find(it1->second);
+                    if (_src_slot_it == std::end(full_src_slot_map)) {
+                        return Status::InternalError("No src slot {} in src slot descs",
+                                                     it1->second);
+                    }
+                    _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
+                                                         full_src_index_map[_src_slot_it->first]);
+                    _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
                 }
-                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
-                                                     full_src_index_map[_src_slot_it->first]);
-                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
-    }
 
-    for (auto slot_desc : _real_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
+        for (auto slot_desc : _real_tuple_desc->slots()) {
+            if (!slot_desc->is_materialized()) {
+                continue;
+            }
+            vectorized::VExprContext* ctx = nullptr;
+            auto it = _params.default_value_of_src_slot.find(slot_desc->id());
+            // if does not exist or is empty, the default value will be null
+            if (it != std::end(_params.default_value_of_src_slot) && !it->second.nodes.empty()) {
+                RETURN_IF_ERROR(
+                        vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+                RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
+                RETURN_IF_ERROR(ctx->open(_state));
+            }
+            _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
         }
-        vectorized::VExprContext* ctx = nullptr;
-        auto it = _params.default_value_of_src_slot.find(slot_desc->id());
-        // if does not exist or is empty, the default value will be null
-        if (it != std::end(_params.default_value_of_src_slot) && !it->second.nodes.empty()) {
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-            RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
-            RETURN_IF_ERROR(ctx->open(_state));
-        }
-        _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
     }
     return Status::OK();
 }
