@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveBucketUtil;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -84,6 +85,11 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
     public HiveScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc) {
         this.hmsTable = hmsTable;
         this.desc = desc;
+    }
+
+    @Override
+    public TableIf getTargetTable() {
+        return hmsTable;
     }
 
     @Override

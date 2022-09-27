@@ -137,6 +137,8 @@ protected:
     // The following fields are only valid when using "get_block()" interface.
     std::shared_ptr<arrow::RecordBatch> _batch;
     size_t _arrow_batch_cur_idx = 0;
+    // Save col names which need to be read but does not exist in file
+    std::vector<std::string> _missing_cols;
 };
 
 } // namespace doris
