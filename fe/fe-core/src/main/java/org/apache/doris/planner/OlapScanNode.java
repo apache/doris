@@ -71,6 +71,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -247,7 +248,7 @@ public class OlapScanNode extends ScanNode {
     /**
      * Only used for Neredis to set rollup or materialized view selection result.
      */
-    public void selectSelectIndexInfo(
+    public void setSelectedIndexInfo(
             long selectedIndexId,
             boolean isPreAggregation,
             String reasonOfPreAggregation) {
@@ -1103,5 +1104,10 @@ public class OlapScanNode extends ScanNode {
         } else {
             return DataPartition.RANDOM;
         }
+    }
+
+    @VisibleForTesting
+    public String getReasonOfPreAggregation() {
+        return reasonOfPreAggregation;
     }
 }
