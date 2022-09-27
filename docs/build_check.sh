@@ -53,7 +53,6 @@ npm install -g npm@8.19.1
 npm install -g yarn
 yarn cache clean
 yarn && yarn build   
-cd ../
 rm -rf website   
 
 echo "***************************************"
