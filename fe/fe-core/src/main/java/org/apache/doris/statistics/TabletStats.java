@@ -37,7 +37,6 @@ package org.apache.doris.statistics;
  * "@rowCount = 10" means that the row count is 1000 in one tablet.
  */
 public class TabletStats {
-
     private long rowCount;
     private long dataSize;
 }
