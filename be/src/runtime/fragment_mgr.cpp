@@ -657,6 +657,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                 if (!_is_scan_node(node.node_type)) {
                     continue;
                 }
+                if (node.__isset.conjuncts && !node.conjuncts.empty()) {
+                    // If the scan node has where predicate, do not set concurrency
+                    continue;
+                }
                 if (node.limit > 0 && node.limit < 1024) {
                     concurrency = 1;
                     is_serial = true;
