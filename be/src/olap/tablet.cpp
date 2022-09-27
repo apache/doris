@@ -2122,7 +2122,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
                   << tablet_id();
         return Status::OK();
     }
-    cur_rowset_ids = all_rs_id();
+    cur_rowset_ids = all_rs_id(cur_version - 1);
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
     if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
         LOG(INFO) << "rowset_ids_to_add: " << rowset_ids_to_add.size()
@@ -2149,10 +2149,12 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     return Status::OK();
 }
 
-RowsetIdUnorderedSet Tablet::all_rs_id() const {
+RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
     RowsetIdUnorderedSet rowset_ids;
     for (const auto& rs_it : _rs_version_map) {
-        rowset_ids.insert(rs_it.second->rowset_id());
+        if (rs_it.first.second <= max_version) {
+            rowset_ids.insert(rs_it.second->rowset_id());
+        }
     }
     return rowset_ids;
 }

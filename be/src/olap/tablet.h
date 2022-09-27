@@ -337,7 +337,7 @@ public:
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
-    RowsetIdUnorderedSet all_rs_id() const;
+    RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
 
     void remove_self_owned_remote_rowsets();
 
