@@ -102,14 +102,13 @@ public:
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override {
-        const Self& src_vec = assert_cast<const Self&>(src);
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
+        const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
         for (int i = 0; i < new_size; ++i) {
-            auto offset = *(indices_begin + i);
-            data[origin_size + i] = offset == -1 ? T {} : src_vec.get_element(offset);
+            data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
 
