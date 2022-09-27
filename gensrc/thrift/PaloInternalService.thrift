@@ -165,6 +165,12 @@ struct TQueryOptions {
   44: optional bool trim_tailing_spaces_for_external_table_query = false
 
   47: optional i32 num_free_block_in_scan
+
+  // For debug purpose, dont' merge unique key and agg key when reading data.
+  48: optional bool skip_storage_engine_merge = false
+
+  // For debug purpose, skip delete predicates when reading data
+  49: optional bool skip_delete_predicate = false
 }
 
 // A scan range plus the parameters needed to execute that scan.

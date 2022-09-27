@@ -191,6 +191,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_FREE_BLOCK_IN_SCAN = "num_free_block_in_scan";
 
+    public static final String SKIP_STORAGE_ENGINE_MERGE = "skip_storage_engine_merge";
+
+    public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -467,6 +471,18 @@ public class SessionVariable implements Serializable, Writable {
    
     @VariableMgr.VarAttr(name = NUM_FREE_BLOCK_IN_SCAN)
     public int numFreeBlockInScan = 12;
+
+    /**
+     * For debugg purpose, dont' merge unique key and agg key when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE)
+    public boolean skipStorageEngineMerge = false;
+
+    /**
+     * For debugg purpose, skip delte predicate when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
+    public boolean skipDeletePredicate = false;
 
 
     public String getBlockEncryptionMode() {
@@ -768,6 +784,10 @@ public class SessionVariable implements Serializable, Writable {
         this.showHiddenColumns = showHiddenColumns;
     }
 
+    public boolean skipStorageEngineMerge() {
+        return skipStorageEngineMerge;
+    }
+
     public boolean isAllowPartitionColumnNullable() {
         return allowPartitionColumnNullable;
     }
@@ -976,6 +996,10 @@ public class SessionVariable implements Serializable, Writable {
             resourceLimit.setCpuLimit(cpuResourceLimit);
             tResult.setResourceLimit(resourceLimit);
         }
+
+        tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
+
+        tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         return tResult;
     }

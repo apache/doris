@@ -349,6 +349,15 @@ public:
         return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
+    bool skip_storage_engine_merge() const {
+        return _query_options.__isset.skip_storage_engine_merge &&
+               _query_options.skip_storage_engine_merge;
+    }
+
+    bool skip_delete_predicate() const {
+        return _query_options.__isset.skip_delete_predicate && _query_options.skip_delete_predicate;
+    }
+
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
