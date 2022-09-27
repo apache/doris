@@ -22,7 +22,9 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -55,10 +57,12 @@ import java.util.Map;
 
 public class LoadScanProvider implements FileScanProviderIf {
 
-    FileGroupInfo fileGroupInfo;
+    private FileGroupInfo fileGroupInfo;
+    private TupleDescriptor destTupleDesc;
 
-    public LoadScanProvider(FileGroupInfo fileGroupInfo) {
+    public LoadScanProvider(FileGroupInfo fileGroupInfo, TupleDescriptor destTupleDesc) {
         this.fileGroupInfo = fileGroupInfo;
+        this.destTupleDesc = destTupleDesc;
     }
 
     @Override
@@ -89,6 +93,7 @@ public class LoadScanProvider implements FileScanProviderIf {
     @Override
     public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
         ParamCreateContext ctx = new ParamCreateContext();
+        ctx.destTupleDescriptor = destTupleDesc;
         ctx.fileGroup = fileGroupInfo.getFileGroup();
         ctx.timezone = analyzer.getTimezone();
 
@@ -169,7 +174,7 @@ public class LoadScanProvider implements FileScanProviderIf {
      */
     private void initColumns(ParamCreateContext context, Analyzer analyzer) throws UserException {
         context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
-        context.slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        context.srcSlotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         context.exprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
         // for load job, column exprs is got from file group
@@ -190,7 +195,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         }
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
-                context.exprMap, analyzer, context.srcTupleDescriptor, context.slotDescByName, srcSlotIds,
+                context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
 
         int columnCountFromPath = 0;
@@ -246,5 +251,10 @@ public class LoadScanProvider implements FileScanProviderIf {
         } else {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         }
+    }
+
+    @Override
+    public TableIf getTargetTable() {
+        return fileGroupInfo.getTargetTable();
     }
 }

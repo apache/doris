@@ -23,11 +23,12 @@
 #include "parquet_thrift_util.h"
 
 namespace doris::vectorized {
-ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range,
+ParquetReader::ParquetReader(RuntimeProfile* profile, FileReader* file_reader,
+                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<std::string>& column_names, size_t batch_size,
                              cctz::time_zone* ctz)
         : _profile(profile),
+          _file_reader(file_reader),
           _scan_params(params),
           _scan_range(range),
           _batch_size(batch_size),
@@ -47,14 +48,15 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
 
 ParquetReader::~ParquetReader() {
     close();
-    if (_group_file_reader != _file_reader.get()) {
-        delete _group_file_reader;
-        _group_file_reader = nullptr;
-    }
 }
 
 void ParquetReader::close() {
     if (!_closed) {
+        if (_file_reader != nullptr) {
+            _file_reader->close();
+            delete _file_reader;
+        }
+
         if (_profile != nullptr) {
             COUNTER_UPDATE(_filtered_row_groups, _statistics.filtered_row_groups);
             COUNTER_UPDATE(_to_read_row_groups, _statistics.read_row_groups);
@@ -68,26 +70,8 @@ void ParquetReader::close() {
 }
 
 Status ParquetReader::init_reader(std::vector<ExprContext*>& conjunct_ctxs) {
-    if (_file_reader == nullptr) {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
-                                                        _file_reader, 2048));
-        // RowGroupReader has its own underlying buffer, so we should return file reader directly
-        // If RowGroupReaders use the same file reader with ParquetReader, the file position will change
-        // when ParquetReader try to read ColumnIndex meta, which causes performance cost
-        std::unique_ptr<FileReader> group_file_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
-                                                        group_file_reader, 0));
-        _group_file_reader = group_file_reader.release();
-        RETURN_IF_ERROR(_group_file_reader->open());
-    } else {
-        // test only
-        _group_file_reader = _file_reader.get();
-    }
-    RETURN_IF_ERROR(_file_reader->open());
-    if (_file_reader->size() == 0) {
-        return Status::EndOfFile("Empty Parquet File");
-    }
-    RETURN_IF_ERROR(parse_thrift_footer(_file_reader.get(), _file_metadata));
+    CHECK(_file_reader != nullptr);
+    RETURN_IF_ERROR(parse_thrift_footer(_file_reader, _file_metadata));
     _t_metadata = &_file_metadata->to_thrift();
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
@@ -109,6 +93,8 @@ Status ParquetReader::_init_read_columns() {
         auto iter = _map_column.find(file_col_name);
         if (iter != _map_column.end()) {
             _include_column_ids.emplace_back(iter->second);
+        } else {
+            _missing_cols.push_back(file_col_name);
         }
     }
     // The same order as physical columns
@@ -131,6 +117,21 @@ std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type(
         map.emplace(name, field->type);
     }
     return map;
+}
+
+Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                                  std::unordered_set<std::string>* missing_cols) {
+    auto schema_desc = _file_metadata->schema();
+    std::unordered_set<std::string> column_names;
+    schema_desc.get_column_names(&column_names);
+    for (auto name : column_names) {
+        auto field = schema_desc.get_column(name);
+        name_to_type->emplace(name, field->type);
+    }
+    for (auto& col : _missing_cols) {
+        missing_cols->insert(col);
+    }
+    return Status::OK();
 }
 
 Status ParquetReader::get_next_block(Block* block, bool* eof) {
@@ -166,8 +167,8 @@ Status ParquetReader::_init_row_group_readers(const std::vector<ExprContext*>& c
     for (auto row_group_id : _read_row_groups) {
         auto& row_group = _t_metadata->row_groups[row_group_id];
         std::shared_ptr<RowGroupReader> row_group_reader;
-        row_group_reader.reset(new RowGroupReader(_group_file_reader, _read_columns, row_group_id,
-                                                  row_group, _ctz));
+        row_group_reader.reset(
+                new RowGroupReader(_file_reader, _read_columns, row_group_id, row_group, _ctz));
         std::vector<RowRange> candidate_row_ranges;
         RETURN_IF_ERROR(_process_page_index(row_group, candidate_row_ranges));
         if (candidate_row_ranges.empty()) {
