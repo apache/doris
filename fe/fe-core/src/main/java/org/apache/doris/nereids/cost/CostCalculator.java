@@ -56,7 +56,7 @@ public class CostCalculator {
         CostEstimator costCalculator = new CostEstimator();
         CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
 
-        CostWeight costWeight = new CostWeight(0.5, 1.0, 2.0);
+        CostWeight costWeight = new CostWeight(0.5, 2, 1.5);
         return costWeight.calculate(costEstimate);
     }
 
