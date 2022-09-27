@@ -55,15 +55,15 @@ size_t DataTypeArray::get_number_of_dimensions() const {
 }
 
 int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                         int data_version) const {
+                                                         int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
     return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
            get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data(),
-                                                                data_version);
+                                                                be_exec_version);
 }
 
-char* DataTypeArray::serialize(const IColumn& column, char* buf, int data_version) const {
+char* DataTypeArray::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
@@ -74,10 +74,11 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf, int data_versio
     memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(ColumnArray::Offset64));
     buf += column.size() * sizeof(ColumnArray::Offset64);
     // children
-    return get_nested_type()->serialize(data_column.get_data(), buf, data_version);
+    return get_nested_type()->serialize(data_column.get_data(), buf, be_exec_version);
 }
 
-const char* DataTypeArray::deserialize(const char* buf, IColumn* column, int data_version) const {
+const char* DataTypeArray::deserialize(const char* buf, IColumn* column,
+                                       int be_exec_version) const {
     auto* data_column = assert_cast<ColumnArray*>(column);
     auto& offsets = data_column->get_offsets();
 
@@ -90,7 +91,7 @@ const char* DataTypeArray::deserialize(const char* buf, IColumn* column, int dat
     buf += sizeof(ColumnArray::Offset64) * row_num;
     // children
     return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable(),
-                                          data_version);
+                                          be_exec_version);
 }
 
 void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {

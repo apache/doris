@@ -37,9 +37,9 @@ public:
     TypeIndex get_type_id() const override { return TypeIndex::HLL; }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                              int data_version) const override;
-    char* serialize(const IColumn& column, char* buf, int data_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int data_version) const override;
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
     bool get_is_parametric() const override { return false; }
@@ -69,7 +69,7 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override { return "HLL()"; }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
-    virtual Field get_default() const override {
+    Field get_default() const override {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
         // unreachable
         return String();
