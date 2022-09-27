@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_join4", "query,p0") {
-    def DBname = "test_join4"
+    def DBname = "regression_test_join4"
     sql "DROP DATABASE IF EXISTS ${DBname}"
     sql "CREATE DATABASE IF NOT EXISTS ${DBname}"
     sql "use ${DBname}"
