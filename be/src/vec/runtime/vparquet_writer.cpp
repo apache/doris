@@ -191,7 +191,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                                     : nullptr;
             auto& type = block.get_by_position(i).type;
 
-            int16_t def_level[sz];
+            std::vector<int16_t> def_level(sz);
             // For scalar type, definition level == 1 means this value is not NULL.
             std::fill(def_level.begin(), def_level.end(), 1);
             int16_t single_def_level = 1;
