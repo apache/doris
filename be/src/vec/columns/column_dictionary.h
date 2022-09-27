@@ -281,6 +281,14 @@ public:
 
     inline const StringValue& get_value(value_type code) const { return _dict.get_value(code); }
 
+    inline StringValue get_shrink_value(value_type code) const {
+        StringValue result = _dict.get_value(code);
+        if (_type == OLAP_FIELD_TYPE_CHAR) {
+            result.len = strnlen(result.ptr, result.len);
+        }
+        return result;
+    }
+
     class Dictionary {
     public:
         Dictionary() : _dict_data(new DictContainer()), _total_str_len(0) {};
