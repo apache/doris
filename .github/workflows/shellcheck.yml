@@ -17,7 +17,7 @@
 
 name: ShellCheck
 
-on: [push, pull_request]
+on: [push, pull_request_target]
 
 jobs:
   shellcheck:
@@ -25,9 +25,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout ${{ github.ref }} ( ${{ github.sha }} )
+        if: ${{ github.event_name != 'pull_request_target' }}
         uses: actions/checkout@v3
         with:
           submodules: recursive
+
+      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
+        if: ${{ github.event_name == 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+
+      - name: Patch
+        run: |
+          pushd .github/actions/action-sh-checker >/dev/null
+          git apply ../patches/action-sh-checker.patch
+          popd >/dev/null
 
       - name: Run ShellCheck
         uses: ./.github/actions/action-sh-checker
