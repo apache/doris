@@ -27,9 +27,6 @@ public:
     virtual ~SchemaDummyScanner();
     virtual Status start(RuntimeState* state = nullptr);
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
-
-private:
-    static SchemaScanner::ColumnDesc _s_dummy_columns[];
 };
 
 } // namespace doris
