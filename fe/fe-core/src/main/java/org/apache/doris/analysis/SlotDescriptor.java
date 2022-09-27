@@ -330,7 +330,7 @@ public class SlotDescriptor {
         String typeStr = (type == null ? "null" : type.toString());
         builder.append(prefix).append("SlotDescriptor{")
                 .append("id=").append(id).append(", col=").append(colStr).append(", type=").append(typeStr)
-                .append(", nullable=").append(isNullable).append(", slotIdx=").append(slotIdx).append("}\n");
+                .append(", nullable=").append(isNullable).append(", slotIdx=").append(slotIdx).append("}");
         return builder.toString();
     }
 
