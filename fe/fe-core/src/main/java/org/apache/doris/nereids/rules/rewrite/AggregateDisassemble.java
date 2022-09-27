@@ -67,19 +67,23 @@ import java.util.stream.Collectors;
  *     2. if instance count is 1, shouldn't disassemble the agg plan
  */
 public class AggregateDisassemble extends OneRewriteRuleFactory {
+
     @Override
     public Rule build() {
-        return logicalAggregate().when(agg -> !agg.isDisassembled()).then(aggregate -> {
-            // used in secondDisassemble to transform local expressions into global
-            final Map<Expression, Expression> globalOutputSMap = Maps.newHashMap();
-            // used in secondDisassemble to transform local expressions into global
-            final Map<Expression, Expression> globalGroupBySMap = Maps.newHashMap();
-            Pair<LogicalAggregate, Boolean> ret = firstDisassemble(aggregate, globalOutputSMap, globalGroupBySMap);
-            if (!ret.second) {
-                return ret.first;
-            }
-            return secondDisassemble(ret.first, globalOutputSMap, globalGroupBySMap);
-        }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
+        return logicalAggregate()
+                .whenNot(LogicalAggregate::isDisassembled)
+                .then(aggregate -> {
+                    // used in secondDisassemble to transform local expressions into global
+                    final Map<Expression, Expression> globalOutputSMap = Maps.newHashMap();
+                    // used in secondDisassemble to transform local expressions into global
+                    final Map<Expression, Expression> globalGroupBySMap = Maps.newHashMap();
+                    Pair<LogicalAggregate, Boolean> ret = firstDisassemble(aggregate, globalOutputSMap,
+                            globalGroupBySMap);
+                    if (!ret.second) {
+                        return ret.first;
+                    }
+                    return secondDisassemble(ret.first, globalOutputSMap, globalGroupBySMap);
+                }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 
     // only support distinct function with group by

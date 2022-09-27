@@ -83,8 +83,7 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
                 // case 2:
                 Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
                 if (substitutionMap.containsKey(ref)) {
-                    Alias res = (Alias) substitutionMap.get(ref);
-                    return (res.child() instanceof SlotReference) ? res : res.child();
+                    return substitutionMap.get(ref);
                 }
             } else if (substitutionMap.containsKey(expr)) {
                 return substitutionMap.get(expr).child(0);
