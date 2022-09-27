@@ -105,7 +105,7 @@ private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
-    void _try_to_wait_flushing();
+    bool _try_to_wait_flushing();
 
     // deal with DeltaWriter close_wait(), add tablet to list for return.
     void _close_wait(DeltaWriter* writer,
