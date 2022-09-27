@@ -112,9 +112,9 @@ public class InternalQueryBufferTest {
         Assert.assertEquals(123, result2);
 
         float result3 = internalQueryBuffer.readFloat();
-        Assert.assertEquals(0.1, result3, 1);
+        Assert.assertEquals(0.1, result3, 0.0001);
 
         double result4 = internalQueryBuffer.readDouble();
-        Assert.assertEquals(18.2322, result4, 4);
+        Assert.assertEquals(18.2322, result4, 0.0001);
     }
 }
