@@ -194,7 +194,8 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
 
 std::string VLiteral::debug_string() const {
     std::stringstream out;
-    out << "VLiteral (type = " << _data_type->get_name();
+    out << "VLiteral (name = " << _expr_name;
+    out << ", type = " << _data_type->get_name();
     out << ", value = ";
     if (_column_ptr.get()->size() > 0) {
         StringRef ref = _column_ptr.get()->get_data_at(0);
