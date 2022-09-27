@@ -92,9 +92,7 @@ void VParquetWriterWrapper::parse_schema(const std::vector<TParquetSchema>& parq
     if (null_map != nullptr) {                                                                    \
         auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                  \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                          \
-            if (null_data[row_id] != 0) {                                                         \
-                def_level[row_id] = 0;                                                            \
-            }                                                                                     \
+            def_level[row_id] = null_data[row_id] == 0;                                           \
         }                                                                                         \
         col_writer->WriteBatch(sz, def_level, nullptr,                                            \
                                reinterpret_cast<const NATIVE_TYPE*>(                              \
@@ -194,10 +192,8 @@ Status VParquetWriterWrapper::write(const Block& block) {
             auto& type = block.get_by_position(i).type;
 
             int16_t def_level[sz];
-            for (size_t def_index = 0; def_index < sz; def_index++) {
-                // For scalar type, definition level == 1 means this value is not NULL.
-                def_level[def_index] = 1;
-            }
+            // For scalar type, definition level == 1 means this value is not NULL.
+            std::fill(def_level.begin(), def_level.end(), 1);
             int16_t single_def_level = 1;
             switch (_output_vexpr_ctxs[i]->root()->type().type) {
             case TYPE_BOOLEAN: {
@@ -220,28 +216,16 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 break;
             }
             case TYPE_TINYINT:
-            case TYPE_SMALLINT:
-            case TYPE_INT: {
+            case TYPE_SMALLINT: {
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int32Writer* col_writer =
                         static_cast<parquet::Int32Writer*>(rgWriter->column(i));
                 if (null_map != nullptr) {
                     auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
-                    if (const auto* nested_column =
-                                check_and_get_column<const ColumnVector<Int32>>(col)) {
+                    if (const auto* int16_column =
+                                check_and_get_column<const ColumnVector<Int16>>(col)) {
                         for (size_t row_id = 0; row_id < sz; row_id++) {
-                            if (null_data[row_id] != 0) {
-                                def_level[row_id] = 0;
-                            }
-                        }
-                        col_writer->WriteBatch(sz, def_level, nullptr,
-                                               nested_column->get_data().data());
-                    } else if (const auto* int16_column =
-                                       check_and_get_column<const ColumnVector<Int16>>(col)) {
-                        for (size_t row_id = 0; row_id < sz; row_id++) {
-                            if (null_data[row_id] != 0) {
-                                def_level[row_id] = 0;
-                            }
+                            def_level[row_id] = null_data[row_id] == 0;
                         }
                         for (size_t row_id = 0; row_id < sz; row_id++) {
                             if (null_data[row_id] != 0) {
@@ -255,9 +239,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     } else if (const auto* int8_column =
                                        check_and_get_column<const ColumnVector<Int8>>(col)) {
                         for (size_t row_id = 0; row_id < sz; row_id++) {
-                            if (null_data[row_id] != 0) {
-                                single_def_level = 0;
-                            }
+                            def_level[row_id] = null_data[row_id] == 0;
                             const int32_t tmp = int8_column->get_data()[row_id];
                             col_writer->WriteBatch(1, &single_def_level, nullptr,
                                                    reinterpret_cast<const int32_t*>(&tmp));
@@ -266,11 +248,6 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     } else {
                         RETURN_WRONG_TYPE
                     }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<Int32>>(col)) {
-                    col_writer->WriteBatch(sz, nullable ? def_level : nullptr, nullptr,
-                                           reinterpret_cast<const int32_t*>(
-                                                   not_nullable_column->get_data().data()));
                 } else if (const auto& int16_column =
                                    check_and_get_column<const ColumnVector<Int16>>(col)) {
                     for (size_t row_id = 0; row_id < sz; row_id++) {
@@ -290,6 +267,10 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 }
                 break;
             }
+            case TYPE_INT: {
+                DISPATCH_PARQUET_NUMERIC_WRITER(Int32Writer, ColumnVector<Int32>, Int32)
+                break;
+            }
             case TYPE_DATETIME:
             case TYPE_DATE: {
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
@@ -299,9 +280,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 if (null_map != nullptr) {
                     auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if (null_data[row_id] != 0) {
-                            def_level[row_id] = 0;
-                        }
+                        def_level[row_id] = null_data[row_id] == 0;
                     }
                     uint64_t tmp_data[sz];
                     for (size_t row_id = 0; row_id < sz; row_id++) {
