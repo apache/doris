@@ -1767,4 +1767,22 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_new_load_scan_node = false;
+
+    /**
+     * Max data version of backends serialize block.
+     */
+    @ConfField(mutable = false)
+    public static int max_be_exec_version = 1;
+
+    /**
+     * Min data version of backends serialize block.
+     */
+    @ConfField(mutable = false)
+    public static int min_be_exec_version = 0;
+
+    /**
+     * Data version of backends serialize block.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int be_exec_version = max_be_exec_version;
 }

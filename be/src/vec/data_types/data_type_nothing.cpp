@@ -28,11 +28,12 @@ MutableColumnPtr DataTypeNothing::create_column() const {
     return ColumnNothing::create(0);
 }
 
-char* DataTypeNothing::serialize(const IColumn& column, char* buf, int data_version) const {
+char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     return buf;
 }
 
-const char* DataTypeNothing::deserialize(const char* buf, IColumn* column, int data_version) const {
+const char* DataTypeNothing::deserialize(const char* buf, IColumn* column,
+                                         int be_exec_version) const {
     return buf;
 }
 

@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <snappy.h>
 
+#include "agent/heartbeat_server.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
@@ -36,7 +37,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -64,9 +64,7 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
 }
 
 Block::Block(const PBlock& pblock) {
-    CHECK(pblock.data_version() <= Block::max_data_version)
-            << "invalid pblock.data_version()=" << pblock.data_version()
-            << ", max_data_version=" << max_data_version;
+    CHECK(HeartbeatServer::check_be_exec_version(pblock.be_exec_version()));
 
     const char* buf = nullptr;
     std::string compression_scratch;
@@ -102,7 +100,7 @@ Block::Block(const PBlock& pblock) {
     for (const auto& pcol_meta : pblock.column_metas()) {
         DataTypePtr type = DataTypeFactory::instance().create_data_type(pcol_meta);
         MutableColumnPtr data_column = type->create_column();
-        buf = type->deserialize(buf, data_column.get(), pblock.data_version());
+        buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version());
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -697,10 +695,7 @@ Status Block::serialize(PBlock* pblock,
                         /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
                         size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
-    CHECK(config::block_data_version <= Block::max_data_version)
-            << "invalid config::block_data_version=" << config::block_data_version
-            << ", max_data_version=" << max_data_version;
-    pblock->set_data_version(config::block_data_version);
+    pblock->set_be_exec_version(HeartbeatServer::be_exec_version);
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
@@ -709,7 +704,7 @@ Status Block::serialize(PBlock* pblock,
         c.to_pb_column_meta(pcm);
         // get serialized size
         content_uncompressed_size +=
-                c.type->get_uncompressed_serialized_bytes(*(c.column), config::block_data_version);
+                c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
     }
 
     // serialize data values
@@ -728,7 +723,7 @@ Status Block::serialize(PBlock* pblock,
     char* buf = column_values.data();
 
     for (const auto& c : *this) {
-        buf = c.type->serialize(*(c.column), buf, config::block_data_version);
+        buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
     *uncompressed_bytes = content_uncompressed_size;
 

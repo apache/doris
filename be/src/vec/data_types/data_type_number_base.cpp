@@ -102,12 +102,13 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
 // binary: row num | value1 | value2 | ...
 template <typename T>
 int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                                 int data_version) const {
+                                                                 int be_exec_version) const {
     return sizeof(uint32_t) + column.size() * sizeof(FieldType);
 }
 
 template <typename T>
-char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf, int data_version) const {
+char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
+                                       int be_exec_version) const {
     // row num
     const auto row_num = column.size();
     *reinterpret_cast<uint32_t*>(buf) = row_num;
@@ -123,7 +124,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf, int dat
 
 template <typename T>
 const char* DataTypeNumberBase<T>::deserialize(const char* buf, IColumn* column,
-                                               int data_version) const {
+                                               int be_exec_version) const {
     // row num
     uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
     buf += sizeof(uint32_t);
