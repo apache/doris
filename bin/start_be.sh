@@ -215,7 +215,7 @@ set_tcmalloc_heap_limit() {
     unit=${digits_unit##*[[:digit:] ]}
 
     mem_limit_mb=0
-    case $unit in
+    case ${unit} in
     t | T) mem_limit_mb=$((digits * 1024 * 1024)) ;;
     g | G) mem_limit_mb=$((digits * 1024)) ;;
     m | M) mem_limit_mb=$((digits)) ;;
@@ -228,11 +228,11 @@ set_tcmalloc_heap_limit() {
         mem_limit_mb=$((total_mem_mb * 80 / 100))
     fi
 
-    if [[ "$mem_limit_mb" -gt "$total_mem_mb" ]]; then
-        echo "mem_limit is larger than whole memory of the server. $mem_limit_mb > $total_mem_mb."
+    if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
+        echo "mem_limit is larger than whole memory of the server. ${mem_limit_mb} > ${total_mem_mb}."
         return 1
     fi
-    export TCMALLOC_HEAP_LIMIT_MB=$mem_limit_mb
+    export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
 }
 
 set_tcmalloc_heap_limit || exit 1
