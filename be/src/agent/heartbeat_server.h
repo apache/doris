@@ -34,7 +34,7 @@ class ThriftServer;
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
     explicit HeartbeatServer(TMasterInfo* master_info);
-    virtual ~HeartbeatServer() {};
+    ~HeartbeatServer() override = default;
 
     virtual void init_cluster_id();
 
@@ -45,7 +45,24 @@ public:
     //
     // Output parameters:
     // * heartbeat_result: The result of heartbeat set
-    virtual void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info);
+    void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info) override;
+
+    static const int max_be_exec_version;
+    static const int min_be_exec_version;
+    static int be_exec_version;
+
+    static bool check_be_exec_version(int be_exec_version) {
+        if (be_exec_version > max_be_exec_version || be_exec_version < min_be_exec_version) {
+            LOG(WARNING) << fmt::format(
+                    "Received be_exec_version is not supported, be_exec_version={}, "
+                    "min_be_exec_version={}, max_be_exec_version={}, maybe due to FE version not "
+                    "match "
+                    "with BE.",
+                    be_exec_version, min_be_exec_version, max_be_exec_version);
+            return false;
+        }
+        return true;
+    }
 
 private:
     Status _heartbeat(const TMasterInfo& master_info);
