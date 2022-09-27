@@ -44,7 +44,7 @@ bool GCContextPerDisk::try_add_file_cache(FileCachePtr cache, int64_t file_size)
 void GCContextPerDisk::gc_by_disk_size() {
     while (!_lru_queue.empty() && _used_size > _conf_max_size) {
         auto file_cache = _lru_queue.top();
-        _used_size -= file_cache->get_cache_file_size();
+        _used_size -= file_cache->cache_file_size();
         file_cache->clean_all_cache();
         _lru_queue.pop();
     }
@@ -82,8 +82,8 @@ void FileCacheManager::remove_file_cache(const std::string& cache_path) {
 void FileCacheManager::gc_file_caches() {
     int64_t gc_conf_size = config::file_cache_max_size_per_disk_gb * 1024 * 1024 * 1024;
     std::vector<GCContextPerDisk> contexts;
+    // init for GC by disk size
     if (gc_conf_size > 0) {
-        // init for gc by disk size
         std::vector<DataDir*> data_dirs = doris::StorageEngine::instance()->get_stores();
         contexts.resize(data_dirs.size());
         for (size_t i = 0; i < contexts.size(); ++i) {
@@ -97,25 +97,25 @@ void FileCacheManager::gc_file_caches() {
         if (iter->second == nullptr) {
             continue;
         }
-        // gc file cache by timeout config firstly
+        // policy1: GC file cache by timeout
         iter->second->clean_timeout_cache();
 
+        // sort file cache by last match time
         if (gc_conf_size > 0) {
-            auto file_size = iter->second->get_cache_file_size();
+            auto file_size = iter->second->cache_file_size();
             if (file_size <= 0) {
                 continue;
             }
-            // sort file cache by match time
             for (size_t i = 0; i < contexts.size(); ++i) {
                 if (contexts[i].try_add_file_cache(iter->second, file_size)) {
-                    continue;
+                    break;
                 }
             }
         }
     }
 
+    // policy2: GC file cache by disk size
     if (gc_conf_size > 0) {
-        // gc file cache by disk size config
         for (size_t i = 0; i < contexts.size(); ++i) {
             contexts[i].gc_by_disk_size();
         }

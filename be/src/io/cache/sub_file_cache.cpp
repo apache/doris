@@ -82,7 +82,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
         RETURN_NOT_OK_STATUS_WITH_WARN(_remote_file_reader->close(),
                                        fmt::format("Close remote file reader failed: {}",
                                                    _remote_file_reader->path().native()));
-        _cache_file_size = _get_cache_file_size();
+        _cache_file_size = _calc_cache_file_size();
     }
     {
         std::shared_lock<std::shared_mutex> rlock(_cache_map_lock);
@@ -219,7 +219,7 @@ Status SubFileCache::clean_timeout_cache() {
              iter != timeout_keys.cend(); ++iter) {
             RETURN_IF_ERROR(_clean_cache_internal(*iter));
         }
-        _cache_file_size = _get_cache_file_size();
+        _cache_file_size = _calc_cache_file_size();
     }
     return Status::OK();
 }
@@ -230,7 +230,7 @@ Status SubFileCache::clean_all_cache() {
          iter != _last_match_times.cend(); ++iter) {
         RETURN_IF_ERROR(_clean_cache_internal(iter->first));
     }
-    _cache_file_size = _get_cache_file_size();
+    _cache_file_size = _calc_cache_file_size();
     return Status::OK();
 }
 
@@ -264,7 +264,7 @@ Status SubFileCache::_clean_cache_internal(size_t offset) {
     return Status::OK();
 }
 
-size_t SubFileCache::_get_cache_file_size() {
+size_t SubFileCache::_calc_cache_file_size() {
     size_t cache_file_size = 0;
     for (std::map<size_t, io::FileReaderSPtr>::const_iterator iter = _cache_file_readers.cbegin();
          iter != _cache_file_readers.cend(); ++iter) {

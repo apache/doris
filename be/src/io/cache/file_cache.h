@@ -31,14 +31,14 @@ const std::string CACHE_DONE_FILE_SUFFIX = "_DONE";
 
 class FileCache : public FileReader {
 public:
-    FileCache() : _last_match_time(time(nullptr)) {}
+    FileCache() : _last_match_time(time(nullptr)), _cache_file_size(0) {}
     virtual ~FileCache() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileCache);
 
     virtual const Path& cache_dir() const = 0;
 
-    virtual size_t cache_file_size() const = 0;
+    size_t cache_file_size() const { return _cache_file_size; }
 
     virtual io::FileReaderSPtr remote_file_reader() const = 0;
 
@@ -52,9 +52,6 @@ public:
 
     void update_last_match_time() { _last_match_time = time(nullptr); }
     int64_t get_last_match_time() const { return _last_match_time; }
-
-    // TODO: move file size logic here
-    size_t get_cache_file_size() const { return _cache_file_size; }
 
 protected:
     int64_t _last_match_time;
