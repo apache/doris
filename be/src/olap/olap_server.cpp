@@ -767,7 +767,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
     int64_t interval = config::generate_cache_cleaner_task_interval_sec;
     do {
         LOG(INFO) << "Begin to Clean cache files";
-        FileCacheManager::instance()->clean_timeout_caches();
+        FileCacheManager::instance()->gc_file_caches();
         std::vector<TabletSharedPtr> tablets =
                 StorageEngine::instance()->tablet_manager()->get_all_tablet();
         for (const auto& tablet : tablets) {

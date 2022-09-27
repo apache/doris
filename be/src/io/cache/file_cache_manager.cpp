@@ -17,17 +17,38 @@
 
 #include "io/cache/file_cache_manager.h"
 
-#include <queue>
-
 #include "gutil/strings/util.h"
 #include "io/cache/sub_file_cache.h"
 #include "io/cache/whole_file_cache.h"
 #include "io/fs/local_file_system.h"
+#include "olap/storage_engine.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
 
 namespace doris {
 namespace io {
+
+void GCContextPerDisk::init(const std::string& path, int64_t max_size) {
+    _disk_path = path;
+    _conf_max_size = max_size;
+    _used_size = 0;
+}
+bool GCContextPerDisk::try_add_file_cache(FileCachePtr cache, int64_t file_size) {
+    if (cache->cache_dir().string().substr(0, _disk_path.size()) == _disk_path) {
+        _lru_queue.push(cache);
+        _used_size += file_size;
+        return true;
+    }
+    return false;
+}
+void GCContextPerDisk::gc_by_disk_size() {
+    while (!_lru_queue.empty() && _used_size > _conf_max_size) {
+        auto file_cache = _lru_queue.top();
+        _used_size -= file_cache->get_cache_file_size();
+        file_cache->clean_all_cache();
+        _lru_queue.pop();
+    }
+}
 
 void FileCacheManager::add_file_cache(const std::string& cache_path, FileCachePtr file_cache) {
     std::lock_guard<std::shared_mutex> wrlock(_cache_map_lock);
@@ -58,21 +79,17 @@ void FileCacheManager::remove_file_cache(const std::string& cache_path) {
     }
 }
 
-int64_t FileCacheManager::calc_gc_disk_size() const {
-    int64_t conf_size = config::file_cache_max_storage_size_gb * 1024 * 1024 * 1024;
-    if (conf_size <= 0) {
-        return 0;
+void FileCacheManager::gc_file_caches() {
+    int64_t gc_conf_size = config::file_cache_max_size_per_disk_gb * 1024 * 1024 * 1024;
+    std::vector<GCContextPerDisk> contexts;
+    if (gc_conf_size > 0) {
+        // init for gc by disk size
+        std::vector<DataDir*> data_dirs = doris::StorageEngine::instance()->get_stores();
+        contexts.resize(data_dirs.size());
+        for (size_t i = 0; i < contexts.size(); ++i) {
+            contexts[i].init(data_dirs[i]->path(), gc_conf_size);
+        }
     }
-    int64_t used_size = _total_used_file_size.load();
-    if (used_size <= conf_size) {
-        return 0;
-    }
-    return used_size - conf_size;
-}
-
-void FileCacheManager::clean_timeout_caches() {
-    std::priority_queue<FileCachePtr, std::vector<FileCachePtr>, FileCacheLRUComparator> lru_queue;
-    int64_t gc_disk_size = calc_gc_disk_size();
 
     std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
     for (std::map<std::string, FileCachePtr>::const_iterator iter = _file_cache_map.cbegin();
@@ -80,22 +97,28 @@ void FileCacheManager::clean_timeout_caches() {
         if (iter->second == nullptr) {
             continue;
         }
+        // gc file cache by timeout config firstly
         iter->second->clean_timeout_cache();
 
-        if (gc_disk_size > 0 && iter->second->get_cache_file_size() > 0) {
-            lru_queue.push(iter->second);
+        if (gc_conf_size > 0) {
+            auto file_size = iter->second->get_cache_file_size();
+            if (file_size <= 0) {
+                continue;
+            }
+            // sort file cache by match time
+            for (size_t i = 0; i < contexts.size(); ++i) {
+                if (contexts[i].try_add_file_cache(iter->second, file_size)) {
+                    continue;
+                }
+            }
         }
     }
 
-    // update gc_disk_size again, clean_timeout_cache will update used disk size
-    gc_disk_size = calc_gc_disk_size();
-
-    // GC by disk usage, still need keep rdlock
-    while (!lru_queue.empty() && gc_disk_size > 0) {
-        auto file_cache = lru_queue.top();
-        gc_disk_size -= file_cache->get_cache_file_size();
-        file_cache->clean_all_cache();
-        lru_queue.pop();
+    if (gc_conf_size > 0) {
+        // gc file cache by disk size config
+        for (size_t i = 0; i < contexts.size(); ++i) {
+            contexts[i].gc_by_disk_size();
+        }
     }
 }
 

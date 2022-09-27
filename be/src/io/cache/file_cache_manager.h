@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <queue>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -25,6 +26,20 @@
 
 namespace doris {
 namespace io {
+
+class GCContextPerDisk {
+public:
+    GCContextPerDisk() : _conf_max_size(0), _used_size(0) {}
+    void init(const std::string& path, int64_t max_size);
+    bool try_add_file_cache(FileCachePtr cache, int64_t file_size);
+    void gc_by_disk_size();
+
+private:
+    std::string _disk_path;
+    int64_t _conf_max_size;
+    int64_t _used_size;
+    std::priority_queue<FileCachePtr, std::vector<FileCachePtr>, FileCacheLRUComparator> _lru_queue;
+};
 
 class FileCacheManager {
 public:
@@ -37,9 +52,7 @@ public:
 
     void remove_file_cache(const std::string& cache_path);
 
-    int64_t calc_gc_disk_size() const;
-
-    void clean_timeout_caches();
+    void gc_file_caches();
 
     void clean_timeout_file_not_in_mem(const std::string& cache_path);
 
