@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -29,12 +30,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class LogicalPlanBuilder {
     private final LogicalPlan plan;
@@ -70,9 +73,30 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
+    public LogicalPlanBuilder alias(List<Integer> slotsIndex, List<String> alias) {
+        Preconditions.checkArgument(slotsIndex.size() == alias.size());
+
+        List<NamedExpression> projectExprs = Lists.newArrayList();
+        for (int i = 0; i < slotsIndex.size(); i++) {
+            projectExprs.add(new Alias(this.plan.getOutput().get(slotsIndex.get(i)), alias.get(i)));
+        }
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
+        return from(project);
+    }
+
     public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
         ImmutableList<EqualTo> hashConjunts = ImmutableList.of(
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
+
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
+                Optional.empty(), this.plan, right);
+        return from(join);
+    }
+
+    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, List<Pair<Integer, Integer>> hashOnSlots) {
+        List<EqualTo> hashConjunts = hashOnSlots.stream()
+                .map(pair -> new EqualTo(this.plan.getOutput().get(pair.first), right.getOutput().get(pair.second)))
+                .collect(Collectors.toList());
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
                 Optional.empty(), this.plan, right);

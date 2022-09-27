@@ -30,7 +30,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
+class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
 
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -38,29 +38,14 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
 
     @Test
     void testJoinLAsscomProject() {
-        /*
-         * Star-Join
-         * t1 -- t2
-         * |
-         * t3
-         * <p>
-         *     t1.id=t3.id               t1.id=t2.id
-         *       topJoin                  newTopJoin
-         *       /     \                   /     \
-         *    project   t3           project    project
-         * t1.id=t2.id             t1.id=t3.id    t2
-         * bottomJoin       -->   newBottomJoin
-         *   /    \                   /    \
-         * t1      t2               t1      t3
-         */
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 1, 2))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
                         logicalJoin(
@@ -78,13 +63,13 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
     @Test
     void testAlias() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .matchesExploration(
                         logicalJoin(
                                 logicalProject(
@@ -103,14 +88,14 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
     @Test
     void testAliasTopMultiHashJoin() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
+                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
                 // t1.id=t3.id t2.id = t3.id
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
+                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnOrigin()
                 .printlnExploration()
                 .matchesExploration(
