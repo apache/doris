@@ -17,6 +17,9 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import java.io.DataInput;
@@ -25,17 +28,24 @@ import java.io.IOException;
 
 public class RecoverInfo implements Writable {
     private long dbId;
+    private String newDbName;
     private long tableId;
+    private String newTableName;
     private long partitionId;
+    private String newPartitionName;
 
     public RecoverInfo() {
         // for persist
     }
 
-    public RecoverInfo(long dbId, long tableId, long partitionId) {
+    public RecoverInfo(long dbId, long tableId, long partitionId, String newDbName, String newTableName,
+                       String newPartitionName) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
+        this.newDbName = newDbName;
+        this.newTableName = newTableName;
+        this.newPartitionName = newPartitionName;
     }
 
     public long getDbId() {
@@ -50,17 +60,39 @@ public class RecoverInfo implements Writable {
         return partitionId;
     }
 
+    public String getNewDbName() {
+        return newDbName;
+    }
+
+    public String getNewTableName() {
+        return newTableName;
+    }
+
+    public String getNewPartitionName() {
+        return newPartitionName;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
         out.writeLong(tableId);
         out.writeLong(partitionId);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+            Text.writeString(out, newDbName);
+            Text.writeString(out, newTableName);
+            Text.writeString(out, newPartitionName);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
         partitionId = in.readLong();
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+            newDbName = Text.readString(in);
+            newTableName = Text.readString(in);
+            newPartitionName = Text.readString(in);
+        }
     }
 
 }

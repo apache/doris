@@ -85,6 +85,7 @@ public class PaloFe {
         CommandLineOptions cmdLineOpts = parseArgs(args);
 
         try {
+            Thread.sleep(10000);
             // pid file
             if (!createAndLockPidFile(pidDir + "/fe.pid")) {
                 throw new IOException("pid file is already locked.");

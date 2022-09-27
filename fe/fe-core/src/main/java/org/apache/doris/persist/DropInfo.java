@@ -17,6 +17,8 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import java.io.DataInput;
@@ -29,15 +31,17 @@ public class DropInfo implements Writable {
 
     private long indexId;
     private boolean forceDrop = false;
+    private long recycleTime = 0;
 
     public DropInfo() {
     }
 
-    public DropInfo(long dbId, long tableId, long indexId, boolean forceDrop) {
+    public DropInfo(long dbId, long tableId, long indexId, boolean forceDrop, long recycleTime) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexId = indexId;
         this.forceDrop = forceDrop;
+        this.recycleTime = recycleTime;
     }
 
     public long getDbId() {
@@ -56,6 +60,10 @@ public class DropInfo implements Writable {
         return forceDrop;
     }
 
+    public Long getRecycleTime() {
+        return  recycleTime;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
@@ -66,6 +74,9 @@ public class DropInfo implements Writable {
         } else {
             out.writeBoolean(true);
             out.writeLong(indexId);
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+            out.writeLong(recycleTime);
         }
     }
 
@@ -78,6 +89,9 @@ public class DropInfo implements Writable {
             indexId = in.readLong();
         } else {
             indexId = -1L;
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+            recycleTime = in.readLong();
         }
     }
 
@@ -99,6 +113,6 @@ public class DropInfo implements Writable {
         DropInfo info = (DropInfo) obj;
 
         return (dbId == info.dbId) && (tableId == info.tableId) && (indexId == info.indexId)
-                && (forceDrop == info.forceDrop);
+                && (forceDrop == info.forceDrop) && (recycleTime == info.recycleTime);
     }
 }

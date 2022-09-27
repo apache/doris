@@ -70,7 +70,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime = Maps.newHashMap();
     }
 
-    public synchronized boolean recycleDatabase(Database db, Set<String> tableNames) {
+    public synchronized boolean recycleDatabase(Database db, Set<String> tableNames, boolean isReplay,
+                                             long replayRecycleTime) {
+        long recycleTime = 0;
         if (idToDatabase.containsKey(db.getId())) {
             LOG.error("db[{}] already in recycle bin.", db.getId());
             return false;
@@ -81,16 +83,26 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // erase db with same id
         eraseDatabaseWithSameId(db.getId());
+        Set<Long> tableIds = Sets.newHashSet();
+        for (Table table : db.getTables()) {
+            tableIds.add(table.getId());
+        }
 
         // recycle db
-        RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames);
+        RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames, tableIds);
         idToDatabase.put(db.getId(), databaseInfo);
-        idToRecycleTime.put(db.getId(), System.currentTimeMillis());
+        if (!isReplay || replayRecycleTime == 0) {
+            recycleTime = System.currentTimeMillis();
+        } else {
+            recycleTime = replayRecycleTime;
+        }
+        idToRecycleTime.put(db.getId(), recycleTime);
         LOG.info("recycle db[{}-{}]", db.getId(), db.getFullName());
         return true;
     }
 
-    public synchronized boolean recycleTable(long dbId, Table table, boolean isReplay) {
+    public synchronized boolean recycleTable(long dbId, Table table, boolean isReplay, long replayRecycleTime) {
+        long recycleTime = 0;
         if (idToTable.containsKey(table.getId())) {
             LOG.error("table[{}] already in recycle bin.", table.getId());
             return false;
@@ -101,7 +113,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // recycle table
         RecycleTableInfo tableInfo = new RecycleTableInfo(dbId, table);
-        idToRecycleTime.put(table.getId(), System.currentTimeMillis());
+        if (!isReplay || replayRecycleTime == 0) {
+            recycleTime = System.currentTimeMillis();
+        } else {
+            recycleTime = replayRecycleTime;
+        }
+        idToRecycleTime.put(table.getId(), recycleTime);
         idToTable.put(table.getId(), tableInfo);
         LOG.info("recycle table[{}-{}]", table.getId(), table.getName());
         return true;
@@ -109,8 +126,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     public synchronized boolean recyclePartition(long dbId, long tableId, Partition partition,
                                                  Range<PartitionKey> range, PartitionItem listPartitionItem,
-                                                 DataProperty dataProperty,
-                                                 ReplicaAllocation replicaAlloc,
+                                                 DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                                  boolean isInMemory) {
         if (idToPartition.containsKey(partition.getId())) {
             LOG.error("partition[{}] already in recycle bin.", partition.getId());
@@ -127,6 +143,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToPartition.put(partition.getId(), partitionInfo);
         LOG.info("recycle partition[{}-{}]", partition.getId(), partition.getName());
         return true;
+    }
+
+    public synchronized Long getRecycleTimeById(long id) {
+        return idToRecycleTime.get(id);
+    }
+
+    public synchronized void setRecycleTimeByIdForReplay(long id, Long recycleTime) {
+        idToRecycleTime.put(id, recycleTime);
     }
 
     private synchronized boolean isExpire(long id, long currentTimeMs) {
@@ -338,12 +362,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private void recoverAllTables(RecycleDatabaseInfo dbInfo) throws DdlException {
         Database db = dbInfo.getDb();
         Set<String> tableNames = Sets.newHashSet(dbInfo.getTableNames());
+        Set<Long> tableIds = Sets.newHashSet(dbInfo.getTableIds());
         long dbId = db.getId();
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
             RecycleTableInfo tableInfo = entry.getValue();
-            if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())) {
+            if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
+                    || !tableIds.contains(tableInfo.getTable().getId())) {
                 continue;
             }
 
@@ -419,7 +445,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             iterator.remove();
             idToRecycleTime.remove(table.getId());
             // log
-            RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), -1L);
+            RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), -1L, "", newTableName, "");
             Env.getCurrentEnv().getEditLog().logRecoverTable(recoverInfo);
         } finally {
             table.writeUnlock();
@@ -428,7 +454,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return true;
     }
 
-    public synchronized void replayRecoverTable(Database db, long tableId) {
+    public synchronized void replayRecoverTable(Database db, long tableId, String newTableName) throws DdlException {
         // make sure to get db write lock
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -441,9 +467,27 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Table table = tableInfo.getTable();
             table.writeLock();
             try {
-                db.createTable(tableInfo.getTable());
+                if (!Strings.isNullOrEmpty(newTableName)) {
+                    if (Env.isStoredTableNamesLowerCase()) {
+                        newTableName = newTableName.toLowerCase();
+                    }
+                    if (!table.getName().equals(newTableName)) {
+                        // check if name is already used
+                        if (db.getTable(newTableName).isPresent()) {
+                            throw new DdlException("Table name[" + newTableName + "] is already used");
+                        }
+
+                        if (table.getType() == TableType.OLAP) {
+                            // olap table should also check if any rollup has same name as "newTableName"
+                            ((OlapTable) table).checkAndSetName(newTableName, false);
+                        } else {
+                            table.setName(newTableName);
+                        }
+                    }
+                }
+                db.createTable(table);
                 iterator.remove();
-                idToRecycleTime.remove(tableInfo.getTable().getId());
+                idToRecycleTime.remove(table.getId());
                 LOG.info("replay recover table[{}]", tableId);
             } finally {
                 table.writeUnlock();
@@ -453,7 +497,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     public synchronized void recoverPartition(long dbId, OlapTable table, String partitionName,
-            long partitionIdToRecover) throws DdlException {
+            long partitionIdToRecover, String newPartitionName) throws DdlException {
         long recycleTime = -1;
         // make sure to get db write lock
         RecyclePartitionInfo recoverPartitionInfo = null;
@@ -502,7 +546,15 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         // recover partition
         Partition recoverPartition = recoverPartitionInfo.getPartition();
         Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
+        if (!Strings.isNullOrEmpty(newPartitionName)) {
+            if (table.checkPartitionNameExist(newPartitionName)) {
+                throw new DdlException("Partition name[" + newPartitionName + "] is already used");
+            }
+        }
         table.addPartition(recoverPartition);
+        if (!Strings.isNullOrEmpty(newPartitionName)) {
+            table.renamePartition(partitionName, newPartitionName);
+        }
 
         // recover partition info
         long partitionId = recoverPartition.getId();
@@ -516,13 +568,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime.remove(partitionId);
 
         // log
-        RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId);
+        RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "", "", newPartitionName);
         Env.getCurrentEnv().getEditLog().logRecoverPartition(recoverInfo);
         LOG.info("recover partition[{}]", partitionId);
     }
 
     // The caller should keep table write lock
-    public synchronized void replayRecoverPartition(OlapTable table, long partitionId) {
+    public synchronized void replayRecoverPartition(OlapTable table, long partitionId,
+                                                    String newPartitionName) throws DdlException {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
@@ -532,8 +585,15 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Preconditions.checkState(recyclePartitionInfo.getTableId() == table.getId());
-
+            if (!Strings.isNullOrEmpty(newPartitionName)) {
+                if (table.checkPartitionNameExist(newPartitionName)) {
+                    throw new DdlException("Partition name[" + newPartitionName + "] is already used");
+                }
+            }
             table.addPartition(recyclePartitionInfo.getPartition());
+            if (!Strings.isNullOrEmpty(newPartitionName)) {
+                table.renamePartition(recyclePartitionInfo.getPartition().getName(), newPartitionName);
+            }
             PartitionInfo partitionInfo = table.getPartitionInfo();
             PartitionItem recoverItem = null;
             if (partitionInfo.getType() == PartitionType.RANGE) {
@@ -800,14 +860,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public class RecycleDatabaseInfo implements Writable {
         private Database db;
         private Set<String> tableNames;
+        private Set<Long> tableIds;
 
         public RecycleDatabaseInfo() {
             tableNames = Sets.newHashSet();
+            tableIds = Sets.newHashSet();
         }
 
-        public RecycleDatabaseInfo(Database db, Set<String> tableNames) {
+        public RecycleDatabaseInfo(Database db, Set<String> tableNames, Set<Long> tableIds) {
             this.db = db;
             this.tableNames = tableNames;
+            this.tableIds = tableIds;
         }
 
         public Database getDb() {
@@ -816,6 +879,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public Set<String> getTableNames() {
             return tableNames;
+        }
+
+        public Set<Long> getTableIds() {
+            return tableIds;
         }
 
         @Override
@@ -827,6 +894,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             for (String tableName : tableNames) {
                 Text.writeString(out, tableName);
             }
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+                count = tableIds.size();
+                out.writeInt(count);
+                for (long tableId : tableIds) {
+                    out.writeLong(tableId);
+                }
+            }
         }
 
         public void readFields(DataInput in) throws IOException {
@@ -836,6 +910,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             for (int i = 0; i < count; i++) {
                 String tableName = Text.readString(in);
                 tableNames.add(tableName);
+            }
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+                count = in.readInt();
+                for (int i = 0; i < count; i++) {
+                    long tableId = in.readLong();
+                    tableIds.add(tableId);
+                }
             }
         }
     }
