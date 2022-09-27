@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
@@ -51,5 +52,10 @@ public class Max extends AggregateFunction implements UnaryExpression {
     @Override
     public DataType getIntermediateType() {
         return getDataType();
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitMax(this, context);
     }
 }
