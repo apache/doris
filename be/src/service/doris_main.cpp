@@ -493,12 +493,11 @@ int main(int argc, char** argv) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
-
+        doris::PerfCounters::refresh_proc_status();
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
         !defined(USE_JEMALLOC)
         doris::MemInfo::refresh_allocator_mem();
 #endif
-        doris::PerfCounters::refresh_proc_status();
         int64_t allocator_cache_mem_diff =
                 doris::MemInfo::allocator_cache_mem() -
                 doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consumption();
