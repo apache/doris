@@ -129,6 +129,14 @@ protected:
     Block _src_block;
 
 private:
+    RuntimeProfile::Counter* _get_block_timer = nullptr;
+    RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
+    RuntimeProfile::Counter* _fill_path_columns_timer = nullptr;
+    RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
+    RuntimeProfile::Counter* _pre_filter_timer = nullptr;
+    RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
+
+private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
     Status _cast_to_input_block(Block* block);

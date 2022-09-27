@@ -310,6 +310,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     Preconditions.checkState(false, type);
             }
             // if slot desc is null, which mean it is a unrelated slot, just skip.
+            // eg:
+            // (a, b, c) set (x=a, y=b, z=c)
+            // c does not exist in file, the z will be filled with null, even if z has default value.
+            // and if z is not nullable, the load will fail.
             if (slotDesc != null) {
                 if (expr != null) {
                     expr = castToSlot(slotDesc, expr);

@@ -51,6 +51,13 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
+    _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
+    _cast_to_input_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
+    _fill_path_columns_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerFillPathColumnTime");
+    _fill_missing_columns_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerFillMissingColumnTime");
+    _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
+    _convert_to_output_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
         RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
@@ -117,9 +124,12 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         // Init src block for load job based on the data file schema (e.g. parquet)
         // For query job, simply set _src_block_ptr to block.
         RETURN_IF_ERROR(_init_src_block(block));
-        // Read next block.
-        // Some of column in block may not be filled (column not exist in file)
-        RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &_cur_reader_eof));
+        {
+            SCOPED_TIMER(_get_block_timer);
+            // Read next block.
+            // Some of column in block may not be filled (column not exist in file)
+            RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &_cur_reader_eof));
+        }
 
         if (_src_block_ptr->rows() > 0) {
             // Convert the src block columns type to string in-place.
@@ -192,6 +202,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
     if (!_is_load) {
         return Status::OK();
     }
+    SCOPED_TIMER(_cast_to_input_block_timer);
     // cast primitive type(PT0) to primitive type(PT1)
     size_t idx = 0;
     for (auto& slot_desc : _input_tuple_desc->slots()) {
@@ -221,6 +232,7 @@ Status VFileScanner::_fill_columns_from_path() {
     size_t rows = _src_block_ptr->rows();
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
+        SCOPED_TIMER(_fill_path_columns_timer);
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc == nullptr) continue;
             auto it = _partition_slot_index_map.find(slot_desc->id());
@@ -245,6 +257,11 @@ Status VFileScanner::_fill_columns_from_path() {
 }
 
 Status VFileScanner::_fill_missing_columns() {
+    if (_missing_cols.empty()) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_fill_missing_columns_timer);
     int rows = _src_block_ptr->rows();
     for (auto slot_desc : _real_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
@@ -288,11 +305,24 @@ Status VFileScanner::_fill_missing_columns() {
     return Status::OK();
 }
 
+Status VFileScanner::_pre_filter_src_block() {
+    if (_pre_conjunct_ctx_ptr) {
+        SCOPED_TIMER(_pre_filter_timer);
+        auto origin_column_num = _src_block_ptr->columns();
+        auto old_rows = _src_block_ptr->rows();
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctx_ptr,
+                                                               _src_block_ptr, origin_column_num));
+        _counter.num_rows_unselected += old_rows - _src_block.rows();
+    }
+    return Status::OK();
+}
+
 Status VFileScanner::_convert_to_output_block(Block* block) {
     if (!_is_load) {
         return Status::OK();
     }
 
+    SCOPED_TIMER(_convert_to_output_block_timer);
     // The block is passed from scanner context's free blocks,
     // which is initialized by src columns.
     // But for load job, the block should be filled with dest columns.
@@ -398,17 +428,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
     _counter.num_rows_filtered += rows - block->rows();
 
-    return Status::OK();
-}
-
-Status VFileScanner::_pre_filter_src_block() {
-    if (_pre_conjunct_ctx_ptr) {
-        auto origin_column_num = _src_block_ptr->columns();
-        auto old_rows = _src_block_ptr->rows();
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctx_ptr,
-                                                               _src_block_ptr, origin_column_num));
-        _counter.num_rows_unselected += old_rows - _src_block.rows();
-    }
     return Status::OK();
 }
 
@@ -546,14 +565,10 @@ Status VFileScanner::_init_expr_ctxes() {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        auto it = _params.default_value_of_src_slot.find(slot_desc->id());
-        if (it == std::end(_params.default_value_of_src_slot)) {
-            return Status::InternalError("No defautl value expr for slot, id={}, name={}",
-                                         slot_desc->id(), slot_desc->col_name());
-        }
-
         vectorized::VExprContext* ctx = nullptr;
-        if (!it->second.nodes.empty()) {
+        auto it = _params.default_value_of_src_slot.find(slot_desc->id());
+        // if does not exist or is empty, the default value will be null
+        if (it != std::end(_params.default_value_of_src_slot) && !it->second.nodes.empty()) {
             RETURN_IF_ERROR(
                     vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
             RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
