@@ -696,15 +696,15 @@ Status StorageEngine::submit_quick_compaction_task(TabletSharedPtr tablet) {
 
 Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
                                              SegCompactionCandidatesSharedPtr segments) {
-    writer->do_segcompaction(segments);
+    writer->segcompaction(segments);
+    // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
 
 Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
                                                  SegCompactionCandidatesSharedPtr segments) {
-    _seg_compaction_thread_pool->submit_func(
+    return _seg_compaction_thread_pool->submit_func(
             std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
-    return Status::OK();
 }
 
 void StorageEngine::_cooldown_tasks_producer_callback() {
