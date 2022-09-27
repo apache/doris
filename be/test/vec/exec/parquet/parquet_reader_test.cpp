@@ -22,7 +22,6 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 
 namespace doris {
@@ -92,6 +91,7 @@ TEST_F(ParquetReaderTest, normal) {
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     LocalFileReader* reader =
             new LocalFileReader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
+    reader->open();
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
@@ -106,8 +106,8 @@ TEST_F(ParquetReaderTest, normal) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, column_names, 992, &ctz);
-    p_reader->set_file_reader(reader);
+    auto p_reader =
+            new ParquetReader(nullptr, reader, scan_params, scan_range, column_names, 992, &ctz);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
     runtime_state.init_instance_mem_tracker();
@@ -131,140 +131,5 @@ TEST_F(ParquetReaderTest, normal) {
     delete block;
     delete p_reader;
 }
-
-TEST_F(ParquetReaderTest, scanner) {
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-
-    t_table_desc.id = 0;
-    t_table_desc.tableType = TTableType::OLAP_TABLE;
-    t_table_desc.numCols = 7;
-    t_table_desc.numClusteringCols = 0;
-    t_desc_table.tableDescriptors.push_back(t_table_desc);
-    t_desc_table.__isset.tableDescriptors = true;
-
-    // init boolean and numeric slot
-    std::vector<std::string> numeric_types = {"boolean_col", "tinyint_col", "smallint_col",
-                                              "int_col",     "bigint_col",  "float_col",
-                                              "double_col"};
-    for (int i = 0; i < numeric_types.size(); i++) {
-        TSlotDescriptor tslot_desc;
-        {
-            tslot_desc.id = i;
-            tslot_desc.parent = 0;
-            TTypeDesc type;
-            {
-                TTypeNode node;
-                node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType scalar_type;
-                scalar_type.__set_type(TPrimitiveType::type(i + 2));
-                node.__set_scalar_type(scalar_type);
-                type.types.push_back(node);
-            }
-            tslot_desc.slotType = type;
-            tslot_desc.columnPos = 0;
-            tslot_desc.byteOffset = 0;
-            tslot_desc.nullIndicatorByte = 1;
-            tslot_desc.nullIndicatorBit = 1;
-            tslot_desc.colName = numeric_types[i];
-            tslot_desc.slotIdx = 0;
-            tslot_desc.isMaterialized = true;
-            t_desc_table.slotDescriptors.push_back(tslot_desc);
-        }
-    }
-
-    t_desc_table.__isset.slotDescriptors = true;
-    {
-        TTupleDescriptor t_tuple_desc;
-        t_tuple_desc.id = 0;
-        t_tuple_desc.byteSize = 16;
-        t_tuple_desc.numNullBytes = 0;
-        t_tuple_desc.tableId = 0;
-        t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
-    }
-
-    // set scan range
-    std::vector<TScanRangeParams> scan_ranges;
-    {
-        TScanRangeParams scan_range_params;
-        TFileScanRange file_scan_range;
-        TFileScanRangeParams params;
-        {
-            params.__set_src_tuple_id(0);
-            params.__set_num_of_columns_from_file(7);
-            params.file_type = TFileType::FILE_LOCAL;
-            params.format_type = TFileFormatType::FORMAT_PARQUET;
-            std::vector<TFileScanSlotInfo> file_slots;
-            for (int i = 0; i < numeric_types.size(); i++) {
-                TFileScanSlotInfo slot_info;
-                slot_info.slot_id = i;
-                slot_info.is_file_slot = true;
-                file_slots.emplace_back(slot_info);
-            }
-            params.__set_required_slots(file_slots);
-        }
-        file_scan_range.params = params;
-        TFileRangeDesc range;
-        {
-            range.start_offset = 0;
-            range.size = 1000;
-            range.path = "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet";
-            std::vector<std::string> columns_from_path {"value"};
-            range.__set_columns_from_path(columns_from_path);
-        }
-        file_scan_range.ranges.push_back(range);
-        scan_range_params.scan_range.ext_scan_range.__set_file_scan_range(file_scan_range);
-        scan_ranges.push_back(scan_range_params);
-    }
-
-    std::vector<TExpr> pre_filter_texprs = std::vector<TExpr>();
-    RuntimeState runtime_state((TQueryGlobals()));
-    runtime_state.init_instance_mem_tracker();
-
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
-    runtime_state.set_desc_tbl(desc_tbl);
-    QueryFragmentsCtx query_ctx(1, ExecEnv::GetInstance());
-    query_ctx.set_thread_token(5, false);
-    runtime_state.set_query_fragments_ctx(&query_ctx);
-
-    TPlanNode tnode;
-    tnode.node_id = 0;
-    tnode.node_type = TPlanNodeType::FILE_SCAN_NODE;
-    tnode.num_children = 0;
-    tnode.limit = -1;
-    tnode.row_tuples.push_back(0);
-    tnode.nullable_tuples.push_back(false);
-    tnode.file_scan_node.tuple_id = 0;
-    tnode.__isset.file_scan_node = true;
-
-    NewFileScanNode scan_node(&obj_pool, tnode, *desc_tbl);
-    scan_node.init(tnode, &runtime_state);
-    auto status = scan_node.prepare(&runtime_state);
-
-    EXPECT_TRUE(status.ok());
-    //
-    scan_node.set_scan_ranges(scan_ranges);
-    status = scan_node.open(&runtime_state);
-    ASSERT_TRUE(status.ok());
-
-    doris::vectorized::Block block;
-    bool eos = false;
-    status = scan_node.get_next(&runtime_state, &block, &eos);
-//    for (auto& col : block->get_columns_with_type_and_name()) {
-//        ASSERT_EQ(col.column->size(), 10);
-//    }
-    ASSERT_TRUE(eos);
-
-    scan_node.close(&runtime_state);
-    {
-        std::stringstream ss;
-        scan_node.runtime_profile()->pretty_print(&ss);
-        LOG(INFO) << ss.str();
-    }
-}
-
 } // namespace vectorized
 } // namespace doris

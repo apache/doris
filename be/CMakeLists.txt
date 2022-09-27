@@ -436,6 +436,7 @@ endfunction()
 set(CUSTUM_LINKER_COMMAND "ld")
 # TODO: mold will link fail on thirdparty brpc now, waiting for investigation.
 # TRY_TO_CHANGE_LINKER("mold" "mold")
+
 TRY_TO_CHANGE_LINKER("lld" "LLD")
 TRY_TO_CHANGE_LINKER("gold" "GNU gold")
 if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")

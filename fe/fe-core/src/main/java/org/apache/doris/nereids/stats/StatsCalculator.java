@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -270,7 +271,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             if (colName == null) {
                 throw new RuntimeException("Column name of SlotReference shouldn't be null here");
             }
-            ColumnStats columnStats = tableStats.getColumnStats(colName);
+            ColumnStats columnStats = tableStats.getColumnStatsOrDefault(colName);
             slotToColumnStats.put(slotReference, columnStats);
         }
         long rowCount = tableStats.getRowCount();
@@ -344,7 +345,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             ColumnStats value = null;
             Set<Slot> slots = projection.getInputSlots();
             if (slots.isEmpty()) {
-                value = ColumnStats.createDefaultColumnStats();
+                value = new ColumnStats(1, 1, 1, 0,
+                        new NullLiteral(), new NullLiteral());
             } else {
                 // TODO: just a trick here, need to do real project on column stats
                 for (Slot slot : slots) {
@@ -354,7 +356,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                     }
                 }
                 if (value == null) {
-                    value = ColumnStats.createDefaultColumnStats();
+                    value = new ColumnStats(1, 1, 1, 0,
+                            new NullLiteral(), new NullLiteral());
                 }
             }
             return new SimpleEntry<>(projection.toSlot(), value);
@@ -367,8 +370,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Map<Slot, ColumnStats> columnStatsMap = oneRowRelation.getProjects()
                 .stream()
                 .map(project -> {
-                    ColumnStats columnStats = new ColumnStats();
-                    columnStats.setNdv(1);
+                    ColumnStats columnStats = new ColumnStats(1, -1, -1, -1,
+                            new NullLiteral(), new NullLiteral());
                     // TODO: compute the literal size
                     return Pair.of(project.toSlot(), columnStats);
                 })
@@ -381,11 +384,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Map<Slot, ColumnStats> columnStatsMap = emptyRelation.getProjects()
                 .stream()
                 .map(project -> {
-                    ColumnStats columnStats = new ColumnStats();
-                    columnStats.setNdv(0);
-                    columnStats.setMaxSize(0);
-                    columnStats.setNumNulls(0);
-                    columnStats.setAvgSize(0);
+                    ColumnStats columnStats = new ColumnStats(0, 0, 0, 0,
+                            new NullLiteral(), new NullLiteral());
                     return Pair.of(project.toSlot(), columnStats);
                 })
                 .collect(Collectors.toMap(Pair::key, Pair::value));

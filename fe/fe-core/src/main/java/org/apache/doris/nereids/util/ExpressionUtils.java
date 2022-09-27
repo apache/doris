@@ -228,6 +228,13 @@ public class ExpressionUtils {
         return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
     }
 
+    public static List<Expression> replace(List<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        return exprs.stream()
+                .map(expr -> replace(expr, replaceMap))
+                .collect(ImmutableList.toImmutableList());
+    }
+
     private static class ExpressionReplacer
             extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();

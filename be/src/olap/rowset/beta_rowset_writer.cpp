@@ -292,8 +292,9 @@ RowsetSharedPtr BetaRowsetWriter::build_tmp() {
 
 Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    auto path = BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id,
-                                               _num_segment++);
+    int32_t segment_id = _num_segment.fetch_add(1);
+    auto path =
+            BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id, segment_id);
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
@@ -309,7 +310,7 @@ Status BetaRowsetWriter::_create_segment_writer(
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
-    writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segment,
+    writer->reset(new segment_v2::SegmentWriter(file_writer.get(), segment_id,
                                                 _context.tablet_schema, _context.data_dir,
                                                 _context.max_rows_per_segment, writer_options));
     {
@@ -327,7 +328,6 @@ Status BetaRowsetWriter::_create_segment_writer(
 }
 
 Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    _segment_num_rows.push_back((*writer)->num_rows_written());
     if ((*writer)->num_rows_written() == 0) {
         return Status::OK();
     }
@@ -346,7 +346,13 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     DCHECK_LE(min_key.compare(max_key), 0);
     key_bounds.set_min_key(min_key.to_string());
     key_bounds.set_max_key(max_key.to_string());
-    _segments_encoded_key_bounds.emplace_back(key_bounds);
+    {
+        std::lock_guard<SpinLock> l(_lock);
+        _segment_num_rows.resize(_num_segment);
+        _segments_encoded_key_bounds.resize(_num_segment);
+        _segment_num_rows[(*writer)->get_segment_id()] = (*writer)->num_rows_written();
+        _segments_encoded_key_bounds[(*writer)->get_segment_id()] = key_bounds;
+    }
     writer->reset();
     return Status::OK();
 }
