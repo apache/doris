@@ -406,13 +406,12 @@ public class TupleDescriptor {
 
         builder.append(MoreObjects.toStringHelper(this)
                 .add("id", id.asInt())
-                .add("tbl", tblStr)
-                .add("byteSize", byteSize)
-                .add("materialized", isMaterialized)
-                .toString());
+                .add("tbl", tblStr));
         builder.append("\n");
         for (SlotDescriptor slot : slots) {
-            builder.append(slot.getExplainString(prefix)).append("\n");
+            if (slot.isMaterialized()) {
+                builder.append(slot.getExplainString(prefix)).append("\n");
+            }
         }
         return builder.toString();
     }
