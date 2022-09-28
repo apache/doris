@@ -103,7 +103,7 @@ private:
                                                           OlapReaderStatistics* stat,
                                                           uint64_t* merged_row_stat);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
-                                                                           uint64_t end);
+                                                                            uint64_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
@@ -113,9 +113,8 @@ private:
     Status _wait_flying_segcompaction();
     bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
     void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
-    Status _check_correctness(std::unique_ptr<OlapReaderStatistics> stat,
-                              uint64_t merged_row_stat, uint64_t row_count, uint64_t begin,
-                              uint64_t end);
+    Status _check_correctness(std::unique_ptr<OlapReaderStatistics> stat, uint64_t merged_row_stat,
+                              uint64_t row_count, uint64_t begin, uint64_t end);
     bool _check_and_set_is_doing_segcompaction();
 
     Status _do_segcompaction(SegCompactionCandidatesSharedPtr segments);
@@ -133,15 +132,14 @@ private:
     /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
 
-    mutable SpinLock _lock; // protect following vector.
+    mutable SpinLock _lock; // protect following vectors.
+    // record rows number of every segment
+    std::vector<uint32_t> _segment_num_rows;
     std::vector<io::FileWriterPtr> _file_writers;
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
-    // record rows number of every segment
-    std::vector<uint32_t> _segment_num_rows;
 
-    //TODO:io::FileWriterPtr _file_writer; // writer for current active segment
-    //TODO:io::FileWriterPtr _segcompaction_file_writer;
+    io::FileWriterPtr _segcompaction_file_writer;
 
     // counters and statistics maintained during data write
     std::atomic<int64_t> _num_rows_written;
@@ -149,18 +147,17 @@ private:
     std::atomic<int64_t> _total_index_size;
     // TODO rowset Zonemap
 
-    struct statistics {
+    struct Statistics {
         int64_t row_num;
         int64_t data_size;
         int64_t index_size;
         KeyBoundsPB key_bounds;
     };
-    std::map<uint32_t, statistics> _segid_statistics_map;
+    std::map<uint32_t, Statistics> _segid_statistics_map;
     std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;
     bool _already_built = false;
-
 
     // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction;

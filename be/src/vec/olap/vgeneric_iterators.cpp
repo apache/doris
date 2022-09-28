@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "vec/core/block.h"
@@ -31,6 +30,57 @@
 namespace doris {
 
 namespace vectorized {
+VStatisticsIterator::~VStatisticsIterator() {
+    for (auto& pair : _column_iterators_map) {
+        delete pair.second;
+    }
+}
+
+Status VStatisticsIterator::init(const StorageReadOptions& opts) {
+    if (!_init) {
+        _push_down_agg_type_opt = opts.push_down_agg_type_opt;
+
+        for (size_t i = 0; i < _schema.num_column_ids(); i++) {
+            auto cid = _schema.column_id(i);
+            auto unique_id = _schema.column(cid)->unique_id();
+            if (_column_iterators_map.count(unique_id) < 1) {
+                RETURN_IF_ERROR(_segment->new_column_iterator(opts.tablet_schema->column(cid),
+                                                              &_column_iterators_map[unique_id]));
+            }
+            _column_iterators.push_back(_column_iterators_map[unique_id]);
+        }
+
+        _target_rows = _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : _segment->num_rows();
+        _init = true;
+    }
+
+    return Status::OK();
+}
+
+Status VStatisticsIterator::next_batch(Block* block) {
+    DCHECK(block->columns() == _column_iterators.size());
+    if (_output_rows < _target_rows) {
+        block->clear_column_data();
+        auto columns = block->mutate_columns();
+
+        size_t size = _push_down_agg_type_opt == TPushAggOp::MINMAX
+                              ? 2
+                              : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
+        if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
+            size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
+            for (int i = 0; i < block->columns(); ++i) {
+                columns[i]->resize(size);
+            }
+        } else {
+            for (int i = 0; i < block->columns(); ++i) {
+                _column_iterators[i]->next_batch_of_zone_map(&size, columns[i]);
+            }
+        }
+        _output_rows += size;
+        return Status::OK();
+    }
+    return Status::EndOfFile("End of VStatisticsIterator");
+}
 
 VStatisticsIterator::~VStatisticsIterator() {
     for (auto& pair : _column_iterators_map) {
