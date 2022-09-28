@@ -60,9 +60,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     private final AggPhase aggPhase;
 
     // use for scenes containing distinct agg
-    // 1. If there are LOCAL and GLOBAL phases, global is the final phase
-    // 2. If there are LOCAL, GLOBAL and DISTINCT_LOCAL phases, DISTINCT_LOCAL is the final phase
-    // 3. If there are LOCAL, GLOBAL, DISTINCT_LOCAL, DISTINCT_GLOBAL phases,
+    // 1. If there is LOCAL only, LOCAL is the final phase
+    // 2. If there are LOCAL and GLOBAL phases, global is the final phase
+    // 3. If there are LOCAL, GLOBAL and DISTINCT_LOCAL phases, DISTINCT_LOCAL is the final phase
+    // 4. If there are LOCAL, GLOBAL, DISTINCT_LOCAL, DISTINCT_GLOBAL phases,
     // DISTINCT_GLOBAL is the final phase
     private final boolean isFinalPhase;
 
@@ -73,7 +74,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, false, false, true, AggPhase.GLOBAL, child);
+        this(groupByExpressions, outputExpressions, false, false, true, AggPhase.LOCAL, child);
     }
 
     public LogicalAggregate(
