@@ -1,7 +1,7 @@
 ---
 {
-    "title": "DATE",
-    "language": "en"
+    "title": "DATETIMEV2",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,27 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DATE
-### Description
-DATE function
-
-#### Syntax
-Date
-Convert input type to DATE type
-date
-Date type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'YYYYY-MM-DD'.
+## DATETIMEV2
+### description
+    DATETIMEV2([P])
+    日期时间类型，可选参数P表示时间精度，取值范围是[0, 6]，即最多支持6位小数（微秒）。不设置时为0。
+    取值范围是['0000-01-01 00:00:00[.000000]', '9999-12-31 23:59:59[.999999]'].
+    打印的形式是'YYYY-MM-DD HH:MM:SS.ffffff'
 
 ### note
-If you use version 1.2 and above, it is strongly recommended that you use the DATEV2 type instead of the DATE type as DATEV2 is more efficient than DATE type。
+    相比DATETIME类型，DATETIMEV2更加高效，并且支持了最多到微秒的时间精度。
 
-### example
-```
-SELECT DATE('2003-12-31 01:02:03');
-+-----------------------------+
-| date('2003-12-31 01:02:03') |
-+-----------------------------+
-| 2003-12-31                  |
-+-----------------------------+
-```
 ### keywords
-DATE
+
+    DATETIMEV2
