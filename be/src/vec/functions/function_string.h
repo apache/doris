@@ -187,6 +187,10 @@ private:
             }
 
             int fixed_pos = start[i];
+            if (fixed_pos < -(int)index.size()) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
             if (fixed_pos < 0) {
                 fixed_pos = index.size() + fixed_pos + 1;
             }
