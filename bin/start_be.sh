@@ -207,7 +207,7 @@ export UBSAN_OPTIONS=print_stacktrace=1
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {
     total_mem_mb=$(free -m | grep Mem | awk '{print $2}')
-    mem_limit_str=$(grep ^mem_limit ${DORIS_HOME}/conf/be.conf)
+    mem_limit_str=$(grep ^mem_limit "${DORIS_HOME}"/conf/be.conf)
     digits_unit=${mem_limit_str##*=}
     digits_unit="${digits_unit#"${digits_unit%%[![:space:]]*}"}"
     digits_unit="${digits_unit%"${digits_unit##*[![:space:]]}"}"
