@@ -207,6 +207,8 @@ export UBSAN_OPTIONS=print_stacktrace=1
 ## set hdfs conf
 export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 
+export MALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16"
+
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
 else
