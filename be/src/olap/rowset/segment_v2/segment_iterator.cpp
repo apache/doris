@@ -356,7 +356,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 Status SegmentIterator::_apply_bitmap_index() {
     SCOPED_RAW_TIMER(&_opts.stats->bitmap_index_filter_timer);
     size_t input_rows = _row_bitmap.cardinality();
-    if (!_in_or_compound_col_predicates.empty()) {
+    if (config::enable_index_apply_or_predicates && !_in_or_compound_col_predicates.empty()) {
         RETURN_IF_ERROR(_execute_all_or_compound_predicates());
     }
 
