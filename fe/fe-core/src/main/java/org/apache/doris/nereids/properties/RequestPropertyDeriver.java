@@ -69,7 +69,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visit(Plan plan, PlanContext context) {
-        List<PhysicalProperties> requiredPropertyList = Lists.newArrayListWithCapacity(context.getGroupExpression().arity());
+        List<PhysicalProperties> requiredPropertyList =
+                Lists.newArrayListWithCapacity(context.getGroupExpression().arity());
         for (int i = context.getGroupExpression().arity(); i > 0; --i) {
             requiredPropertyList.add(PhysicalProperties.ANY);
         }
