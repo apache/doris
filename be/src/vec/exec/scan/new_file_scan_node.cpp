@@ -107,7 +107,7 @@ VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
     if (config::enable_new_file_scanner) {
         scanner = new VFileScanner(_state, this, _limit_per_scanner, scan_range,
                                    _scanner_mem_tracker.get(), runtime_profile());
-        ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get());
+        ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range);
     } else {
         switch (scan_range.params.format_type) {
         case TFileFormatType::FORMAT_PARQUET:
