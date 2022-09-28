@@ -225,9 +225,9 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 
 ### `chunk_reserved_bytes_limit`
 
-默认值：2147483648
+默认值：209715200
 
-Chunk Allocator的reserved bytes限制，默认为2GB，增加这个变量可以提高性能，但是会获得更多其他模块无法使用的空闲内存
+Chunk Allocator的reserved bytes限制，默认为200M，增加这个变量可以提高性能，但是会获得更多其他模块无法使用的空闲内存
 
 ### `clear_transaction_task_worker_count`
 
@@ -427,7 +427,7 @@ CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查
 
 * 类型：bool
 * 描述：是否进行使用page cache进行index的缓存，该配置仅在BETA存储格式时生效
-* 默认值：false
+* 默认值：true
 
 ### `disk_stat_monitor_interval`
 

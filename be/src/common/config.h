@@ -232,7 +232,7 @@ CONF_String(storage_page_cache_limit, "20%");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-CONF_Bool(disable_storage_page_cache, "false");
+CONF_Bool(disable_storage_page_cache, "true");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -421,7 +421,7 @@ CONF_Bool(use_mmap_allocate_chunk, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "2147483648");
+CONF_mString(chunk_reserved_bytes_limit, "209715200");
 // 1024, The minimum chunk allocator size (in bytes)
 CONF_Int32(min_chunk_reserved_bytes, "1024");
 
