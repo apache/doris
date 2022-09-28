@@ -458,36 +458,32 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 }
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
+    Status status = Status::OK();
     if (!config::enable_segcompaction || !config::enable_storage_vectorization ||
         !_check_and_set_is_doing_segcompaction()) {
-        return Status::OK();
+        return status;
     }
     if (_segcompaction_status.load() != OLAP_SUCCESS) {
-        _is_doing_segcompaction = false;
-        return Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_FAILED);
-    }
-    if ((_num_segment - _segcompacted_point) >= config::segcompaction_threshold_segment_num) {
+        status = Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_FAILED);
+    } else if ((_num_segment - _segcompacted_point) >=
+               config::segcompaction_threshold_segment_num) {
         SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
-        auto s = _get_segcompaction_candidates(segments, false);
-        if (UNLIKELY(!s.ok())) {
-            _is_doing_segcompaction = false;
-            return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
-        }
-        if (segments->size() > 0) {
+        status = _get_segcompaction_candidates(segments, false);
+        if (LIKELY(status.ok()) && (segments->size() > 0)) {
             LOG(INFO) << "submit segcompaction task, segment num:" << _num_segment
                       << ", segcompacted_point:" << _segcompacted_point;
-            return StorageEngine::instance()->submit_seg_compaction_task(this, segments);
-        } else {
-            _is_doing_segcompaction = false;
-            return Status::OK();
+            status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
+            if (status.ok()) {
+                return status;
+            }
         }
-    } else {
-        _is_doing_segcompaction = false;
-        return Status::OK();
     }
+    _is_doing_segcompaction = false;
+    return status;
 }
 
 Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
+    Status status = Status::OK();
     DCHECK_EQ(_is_doing_segcompaction, false);
     if (!config::enable_segcompaction || !config::enable_storage_vectorization) {
         return Status::OK();
@@ -501,20 +497,17 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     }
     _is_doing_segcompaction = true;
     SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
-    auto s = _get_segcompaction_candidates(segments, true);
-    if (UNLIKELY(!s.ok())) {
-        _is_doing_segcompaction = false;
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
-    }
-    if (segments->size() > 0) {
+    status = _get_segcompaction_candidates(segments, true);
+    if (LIKELY(status.ok()) && (segments->size() > 0)) {
         LOG(INFO) << "submit segcompaction remaining task, segment num:" << _num_segment
                   << ", segcompacted_point:" << _segcompacted_point;
-        StorageEngine::instance()->submit_seg_compaction_task(this, segments);
-        return Status::OK();
-    } else {
-        _is_doing_segcompaction = false;
-        return Status::OK();
+        status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
+        if (status.ok()) {
+            return status;
+        }
     }
+    _is_doing_segcompaction = false;
+    return status;
 }
 
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
@@ -654,10 +647,10 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
 }
 
 Status BetaRowsetWriter::_wait_flying_segcompaction() {
+    std::unique_lock<std::mutex> l(_is_doing_segcompaction_lock);
     uint64_t begin_wait = GetCurrentTimeMicros();
     while (_is_doing_segcompaction) {
         // change sync wait to async?
-        std::unique_lock<std::mutex> l(_is_doing_segcompaction_lock);
         _segcompacting_cond.wait(l);
     }
     uint64_t elapsed = GetCurrentTimeMicros() - begin_wait;
