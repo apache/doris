@@ -357,6 +357,8 @@ public class ConnectProcessor {
             } else {
                 throw new AnalysisException(errorMessage, e);
             }
+        } catch (ArrayStoreException e) {
+            throw new AnalysisException("Sql parser can't convert the result to array, please check your sql.", e);
         } catch (Exception e) {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.
