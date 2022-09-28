@@ -18,6 +18,7 @@
 #include "olap/iterators.h"
 #include "olap/row.h"
 #include "olap/row_block2.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 
 namespace doris {
 
@@ -32,9 +33,13 @@ public:
     // Will generate num_rows rows in total
     VStatisticsIterator(std::shared_ptr<Segment> segment, const Schema& schema)
             : _segment(std::move(segment)), _schema(schema) {}
+
     ~VStatisticsIterator() override;
+
     Status init(const StorageReadOptions& opts) override;
+
     Status next_batch(Block* block) override;
+
     const Schema& schema() const override { return _schema; }
 
 private:
