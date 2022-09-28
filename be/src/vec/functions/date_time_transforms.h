@@ -210,7 +210,7 @@ struct DateFormatImpl {
     static constexpr auto name = "date_format";
 
     static inline auto execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset) {
+                               size_t& offset, const cctz::time_zone& time_zone) {
         const auto& dt = (DateType&)t;
         if (format.size > 128) {
             return std::pair {offset, true};
@@ -257,10 +257,7 @@ struct FromUnixTimeImpl {
     static constexpr auto name = "from_unixtime";
 
     static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset) {
-        // TODO: use default time zone, slowly and incorrect, just for test use
-        static cctz::time_zone time_zone = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
-
+                               size_t& offset, const cctz::time_zone& time_zone) {
         DateType dt;
         if (format.size > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
             return std::pair {offset, true};
@@ -333,8 +330,8 @@ struct TransformerToStringOneArgument {
 template <typename Transform>
 struct TransformerToStringTwoArgument {
     static void vector_constant(const PaddedPODArray<typename Transform::FromType>& ts,
-                                const std::string& format, ColumnString::Chars& res_data,
-                                ColumnString::Offsets& res_offsets,
+                                const std::string& format, const cctz::time_zone& ctz,
+                                ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                                 PaddedPODArray<UInt8>& null_map) {
         auto len = ts.size();
         res_offsets.resize(len);
@@ -345,7 +342,7 @@ struct TransformerToStringTwoArgument {
         for (int i = 0; i < len; ++i) {
             const auto& t = ts[i];
             const auto [new_offset, is_null] = Transform::execute(
-                    t, StringRef(format.c_str(), format.size()), res_data, offset);
+                    t, StringRef(format.c_str(), format.size()), res_data, offset, ctz);
 
             res_offsets[i] = new_offset;
             null_map[i] = is_null;

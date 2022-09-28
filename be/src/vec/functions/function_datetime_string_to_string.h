@@ -26,6 +26,8 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
+#include "udf/udf_internal.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
 
@@ -63,7 +65,6 @@ public:
         const auto* sources = check_and_get_column<ColumnVector<typename Transform::FromType>>(
                 nullable_column ? nullable_column->get_nested_column_ptr().get()
                                 : source_col.get());
-
         if (sources) {
             auto col_res = ColumnString::create();
             ColumnUInt8::MutablePtr col_null_map_to;
@@ -76,6 +77,7 @@ public:
                             typeid_cast<const ColumnConst*>(&source_col1)) {
                     TransformerToStringTwoArgument<Transform>::vector_constant(
                             sources->get_data(), delta_const_column->get_field().get<String>(),
+                            context->impl()->state()->timezone_obj(),
                             col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
                 } else {
                     return Status::InternalError(
@@ -84,8 +86,8 @@ public:
                 }
             } else {
                 TransformerToStringTwoArgument<Transform>::vector_constant(
-                        sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
-                        col_res->get_offsets(), vec_null_map_to);
+                        sources->get_data(), "%Y-%m-%d %H:%i:%s", context->impl()->state()->timezone_obj(),
+                        col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
             }
 
             if (nullable_column) {
