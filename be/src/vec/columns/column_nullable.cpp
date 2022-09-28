@@ -574,8 +574,9 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     if (is_column_const(*column)) {
         auto& column_nested = assert_cast<const ColumnConst&>(*column).get_data_column_ptr();
         if (is_column_nullable(*column_nested)) {
-            return ColumnConst::create(assert_cast<const ColumnNullable&>(*column_nested)
-                    .get_nested_column_ptr(), column->size());
+            return ColumnConst::create(
+                    assert_cast<const ColumnNullable&>(*column_nested).get_nested_column_ptr(),
+                    column->size());
         }
     }
 
