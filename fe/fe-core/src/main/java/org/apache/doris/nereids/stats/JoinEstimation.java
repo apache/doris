@@ -83,7 +83,7 @@ public class JoinEstimation {
             result.forbiddenReducePropagation = true;
             //penalty too right deep tree by multiply level
             result.rowCount = rightStats.level * (leftStats.getRowCount()
-                    + LIMIT_RIGHT_WIDTH * rightStats.getRowCount());
+                    + AVG_DIM_FACT_RATIO * rightStats.getRowCount());
         } else if (eqLeft.getColumn().isPresent() || eqRight.getColumn().isPresent()) {
             Set<Slot> rightSlots = ((PhysicalHashJoin<?, ?>) join).child(1).getOutputSet();
             if ((rightSlots.contains(eqRight)
@@ -108,7 +108,7 @@ public class JoinEstimation {
                 }
             } else {
                 //dimension table JOIN fact table
-                result.rowCount = Math.max(leftStats.getRowCount(), AVG_DIM_FACT_RATIO * rightStats.getRowCount());
+                result.rowCount = leftStats.getRowCount() + AVG_DIM_FACT_RATIO * rightStats.getRowCount();
             }
         } else {
             LOG.debug("HashJoin cost calculation: slot.column is null, star-schema support failed.");
