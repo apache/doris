@@ -56,6 +56,14 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
     private static class ExpressionReplacer extends DefaultExpressionRewriter<Map<Expression, Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
+        public Expression replace(Expression expr, Map<Expression, Expression> substitutionMap) {
+            if (expr instanceof SlotReference) {
+                Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
+                return substitutionMap.getOrDefault(ref, expr);
+            }
+            return visit(expr, substitutionMap);
+        }
+
         /**
          * case 1:
          *          project(alias(c) as d, alias(x) as y)
@@ -84,7 +92,7 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
                 Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
                 if (substitutionMap.containsKey(ref)) {
                     Alias res = (Alias) substitutionMap.get(ref);
-                    return (res.child() instanceof SlotReference) ? res : res.child();
+                    return res.child();
                 }
             } else if (substitutionMap.containsKey(expr)) {
                 return substitutionMap.get(expr).child(0);
@@ -106,7 +114,7 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
                     );
 
             projectExpressions = projectExpressions.stream()
-                    .map(e -> MergeConsecutiveProjects.ExpressionReplacer.INSTANCE.visit(e, childAliasMap))
+                    .map(e -> MergeConsecutiveProjects.ExpressionReplacer.INSTANCE.replace(e, childAliasMap))
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
             return new LogicalProject<>(projectExpressions, childProject.children().get(0));
