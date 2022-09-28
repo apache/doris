@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
 #include "runtime/types.h"
 
 namespace doris::vectorized {
