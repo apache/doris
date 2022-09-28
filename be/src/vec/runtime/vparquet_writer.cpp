@@ -225,9 +225,6 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     if (const auto* int16_column =
                                 check_and_get_column<const ColumnVector<Int16>>(col)) {
                         for (size_t row_id = 0; row_id < sz; row_id++) {
-                            def_level[row_id] = null_data[row_id] == 0;
-                        }
-                        for (size_t row_id = 0; row_id < sz; row_id++) {
                             if (null_data[row_id] != 0) {
                                 single_def_level = 0;
                             }
@@ -239,7 +236,9 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     } else if (const auto* int8_column =
                                        check_and_get_column<const ColumnVector<Int8>>(col)) {
                         for (size_t row_id = 0; row_id < sz; row_id++) {
-                            def_level[row_id] = null_data[row_id] == 0;
+                            if (null_data[row_id] != 0) {
+                                single_def_level = 0;
+                            }
                             const int32_t tmp = int8_column->get_data()[row_id];
                             col_writer->WriteBatch(1, &single_def_level, nullptr,
                                                    reinterpret_cast<const int32_t*>(&tmp));
