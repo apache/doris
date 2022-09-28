@@ -75,9 +75,7 @@ public class DropInfo implements Writable {
             out.writeBoolean(true);
             out.writeLong(indexId);
         }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
-            out.writeLong(recycleTime);
-        }
+        out.writeLong(recycleTime);
     }
 
     public void readFields(DataInput in) throws IOException {

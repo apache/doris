@@ -894,12 +894,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             for (String tableName : tableNames) {
                 Text.writeString(out, tableName);
             }
-            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
-                count = tableIds.size();
-                out.writeInt(count);
-                for (long tableId : tableIds) {
-                    out.writeLong(tableId);
-                }
+
+            count = tableIds.size();
+            out.writeInt(count);
+            for (long tableId : tableIds) {
+                out.writeLong(tableId);
             }
         }
 

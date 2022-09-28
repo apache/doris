@@ -77,11 +77,10 @@ public class RecoverInfo implements Writable {
         out.writeLong(dbId);
         out.writeLong(tableId);
         out.writeLong(partitionId);
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
-            Text.writeString(out, newDbName);
-            Text.writeString(out, newTableName);
-            Text.writeString(out, newPartitionName);
-        }
+
+        Text.writeString(out, newDbName);
+        Text.writeString(out, newTableName);
+        Text.writeString(out, newPartitionName);
     }
 
     public void readFields(DataInput in) throws IOException {

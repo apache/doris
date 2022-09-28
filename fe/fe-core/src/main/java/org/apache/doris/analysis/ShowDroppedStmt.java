@@ -56,8 +56,8 @@ public class ShowDroppedStmt extends ShowStmt {
         }
         boolean valid = analyzeWhereClause();
         if (!valid) {
-            throw new AnalysisException("Where clause should like: LABEL = \"your_label_name\", "
-                + " or LABEL LIKE \"matcher\"");
+            throw new AnalysisException("Where clause should like: Name = \"name\", "
+                + " or Name LIKE \"matcher\"");
         }
     }
 
@@ -86,7 +86,7 @@ public class ShowDroppedStmt extends ShowStmt {
             return false;
         }
         String leftKey = ((SlotRef) where.getChild(0)).getColumnName();
-        if (!"label".equalsIgnoreCase(leftKey)) {
+        if (!"name".equalsIgnoreCase(leftKey) && !"type".equalsIgnoreCase(leftKey)) {
             return false;
         }
 
