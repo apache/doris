@@ -143,7 +143,7 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
 
     // 2. add batch to tablets channel
     if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
-        if (request.has_row_batch()||request.has_block()) {
+        if (request.has_row_batch()) {
             RETURN_IF_ERROR(channel->add_batch(request, response));
         }
     } else {
