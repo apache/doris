@@ -115,6 +115,12 @@ if (WITH_MYSQL)
         )
 endif()
 
+if (USE_JEMALLOC)
+    set(RUNTIME_FILES ${RUNTIME_FILES}
+        memory/jemalloc_hook.cpp
+        )
+endif()
+
 add_library(Runtime STATIC
     ${RUNTIME_FILES}
     )
