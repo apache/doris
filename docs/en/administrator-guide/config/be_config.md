@@ -232,9 +232,9 @@ The number of worker threads to calculate the checksum of the tablet
 
 ### `chunk_reserved_bytes_limit`
 
-Default：2147483648
+Default：209715200
 
-The reserved bytes limit of Chunk Allocator is 2GB by default. Increasing this variable can improve performance, but it will get more free memory that other modules cannot use.
+The reserved bytes limit of Chunk Allocator is 200M by default. Increasing this variable can improve performance, but it will get more free memory that other modules cannot use.
 
 ### `clear_transaction_task_worker_count`
 
@@ -433,7 +433,7 @@ Whether to disable the memory cache pool, it is not disabled by default
 
 * Type: bool
 * Description: Disable to use page cache for index caching, this configuration only takes effect in BETA storage format, usually it is recommended to false
-* Default value: false
+* Default value: true
 
 ### `disk_stat_monitor_interval`
 
