@@ -168,6 +168,10 @@ WITH BROKER broker_name
 
     指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone.md) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
 
+  - `load_parallelism`
+
+    导入并发度，默认为1。调大导入并发度会启动多个执行计划同时执行导入任务，加快导入速度。
+
 ### Example
 
 1. 从 HDFS 导入一批数据

@@ -168,6 +168,11 @@ WITH BROKER broker_name
 
     Specify the time zone for some functions that are affected by time zones, such as `strftime/alignment_timestamp/from_unixtime`, etc. Please refer to the [timezone](../../advanced/time-zone.md) documentation for details. If not specified, the "Asia/Shanghai" timezone is used
 
+  - `load_parallelism`
+
+    It allows the user to set the parallelism of the load execution plan
+    on a single node when the broker load is submitted, default value is 1.
+
 ### Example
 
 1. Import a batch of data from HDFS
