@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DATE",
+    "title": "DATEV2",
     "language": "en"
 }
 ---
@@ -26,25 +26,22 @@ under the License.
 
 ## DATE
 ### Description
-DATE function
-
 #### Syntax
-Date
-Convert input type to DATE type
-date
-Date type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'YYYYY-MM-DD'.
+datev2
+DateV2 type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'YYYYY-MM-DD'.
 
 ### note
-If you use version 1.2 and above, it is strongly recommended that you use the DATEV2 type instead of the DATE type as DATEV2 is more efficient than DATE type。
+DATEV2 type is more efficient than DATE type. During calculation, DATEV2 can save half of the memory usage compared with DATE.
 
 ### example
 ```
-SELECT DATE('2003-12-31 01:02:03');
-+-----------------------------+
-| date('2003-12-31 01:02:03') |
-+-----------------------------+
-| 2003-12-31                  |
-+-----------------------------+
+SELECT CAST('2003-12-31 01:02:03' as DATEV2);
++---------------------------------------+
+| CAST('2003-12-31 01:02:03' AS DATEV2) |
++---------------------------------------+
+| 2003-12-31                            |
++---------------------------------------+
 ```
+
 ### keywords
 DATE
