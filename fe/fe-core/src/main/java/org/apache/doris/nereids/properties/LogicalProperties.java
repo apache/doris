@@ -38,8 +38,8 @@ public class LogicalProperties {
     protected final Supplier<List<Slot>> outputSupplier;
     protected final Supplier<HashSet<ExprId>> outputSetSupplier;
     private Integer hashCode = null;
-    private final Set<ExprId> outputExprIdSet;
-    private final List<Id> outputExprIds;
+    private Set<ExprId> outputExprIdSet;
+    private List<Id> outputExprIds;
 
     /**
      * constructor of LogicalProperties.
@@ -55,10 +55,6 @@ public class LogicalProperties {
                 () -> outputSupplier.get().stream().map(NamedExpression::getExprId)
                         .collect(Collectors.toCollection(HashSet::new))
         );
-        outputExprIdSet = this.outputSupplier.get().stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toSet());
-        outputExprIds = outputExprIdSet.stream().map(Id.class::cast).collect(Collectors.toList());
-
     }
 
     public List<Slot> getOutput() {
@@ -66,12 +62,17 @@ public class LogicalProperties {
     }
 
     public Set<ExprId> getOutputExprIdSet() {
-        return this.outputSupplier.get().stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toSet());
-        // return outputExprIdSet;
+        if (outputExprIdSet == null) {
+            outputExprIdSet = this.outputSupplier.get().stream()
+                    .map(NamedExpression::getExprId).collect(Collectors.toSet());
+        }
+        return outputExprIdSet;
     }
 
     public List<Id> getOutputExprIds() {
+        if (outputExprIds == null) {
+            outputExprIds = outputExprIdSet.stream().map(Id.class::cast).collect(Collectors.toList());
+        }
         return outputExprIds;
     }
 
