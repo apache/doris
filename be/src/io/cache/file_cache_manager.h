@@ -54,13 +54,15 @@ public:
 
     void gc_file_caches();
 
-    void clean_timeout_file_not_in_mem(const std::string& cache_path);
-
     FileCachePtr new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                 io::FileReaderSPtr remote_file_reader,
                                 const std::string& file_cache_type);
 
     bool exist(const std::string& cache_path);
+
+private:
+    void _add_file_cache_for_gc_by_disk(std::vector<GCContextPerDisk>& contexts,
+                                        FileCachePtr file_cache);
 
 private:
     std::shared_mutex _cache_map_lock;
