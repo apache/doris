@@ -33,6 +33,16 @@ namespace doris::vectorized {
 struct StrToDate {
     static constexpr auto name = "str_to_date";
 
+    static bool is_variadic() { return false; }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return make_nullable(std::make_shared<DataTypeDateTime>());
+    }
+
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -122,6 +132,16 @@ struct StrToDate {
 struct MakeDateImpl {
     static constexpr auto name = "makedate";
 
+    static bool is_variadic() { return false; }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()};
+    }
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return make_nullable(std::make_shared<DataTypeDateTime>());
+    }
+
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -210,6 +230,90 @@ struct MakeDateImpl {
                     null_map[i] = 1;
                 }
             }
+        }
+    }
+};
+
+template <typename DateValueType, typename ArgType>
+struct DateTrunc {
+    static constexpr auto name = "date_trunc";
+
+    static bool is_variadic() { return true; }
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            return {std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeString>()};
+        }
+    }
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            return make_nullable(std::make_shared<DataTypeDateTime>());
+        } else {
+            return make_nullable(std::make_shared<DataTypeDateTimeV2>());
+        }
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        DCHECK_EQ(arguments.size(), 2);
+        ColumnPtr argument_columns[2];
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        argument_columns[0] =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        argument_columns[1] =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto datetime_column = static_cast<const ColumnVector<ArgType>*>(argument_columns[0].get());
+        auto str_column = static_cast<const ColumnString*>(argument_columns[1].get());
+        auto& rdata = str_column->get_chars();
+        auto& roffsets = str_column->get_offsets();
+
+        ColumnPtr res = nullptr;
+
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            res = ColumnVector<Int64>::create();
+            executeImpl(datetime_column->get_data(), rdata, roffsets,
+                        static_cast<ColumnVector<Int64>*>(res->assume_mutable().get())->get_data(),
+                        null_map->get_data(), input_rows_count);
+        } else {
+            res = ColumnVector<UInt64>::create();
+            executeImpl(datetime_column->get_data(), rdata, roffsets,
+                        static_cast<ColumnVector<UInt64>*>(res->assume_mutable().get())->get_data(),
+                        null_map->get_data(), input_rows_count);
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+
+    static void executeImpl(const PaddedPODArray<ArgType>& ldata, const ColumnString::Chars& rdata,
+                            const ColumnString::Offsets& roffsets, PaddedPODArray<ArgType>& res,
+                            NullMap& null_map, size_t input_rows_count) {
+        res.resize(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto& dt = (DateValueType&)ldata[i];
+            const char* str_data = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            if (std::strncmp("year", str_data, 4) == 0) {
+                null_map[i] = !dt.template datetime_trunc<YEAR>();
+            } else if (std::strncmp("quarter", str_data, 7) == 0) {
+                null_map[i] = !dt.template datetime_trunc<QUARTER>();
+            } else if (std::strncmp("month", str_data, 5) == 0) {
+                null_map[i] = !dt.template datetime_trunc<MONTH>();
+            } else if (std::strncmp("day", str_data, 3) == 0) {
+                null_map[i] = !dt.template datetime_trunc<DAY>();
+            } else if (std::strncmp("hour", str_data, 4) == 0) {
+                null_map[i] = !dt.template datetime_trunc<HOUR>();
+            } else if (std::strncmp("minute", str_data, 6) == 0) {
+                null_map[i] = !dt.template datetime_trunc<MINUTE>();
+            } else if (std::strncmp("second", str_data, 6) == 0) {
+                null_map[i] = !dt.template datetime_trunc<SECOND>();
+            } else {
+                null_map[i] = 1;
+            }
+            *reinterpret_cast<DateValueType*>(&res[i]) = dt;
         }
     }
 };
@@ -486,10 +590,18 @@ public:
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 2; }
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
+
+    bool is_variadic() const override { return Impl::is_variadic(); }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        return Impl::get_return_type_impl(arguments);
     }
 
     bool use_default_implementation_for_constants() const override { return true; }
@@ -501,13 +613,17 @@ public:
 };
 
 using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate>;
-
 using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
+using FunctionDateTrunc = FunctionOtherTypesToDateType<DateTrunc<VecDateTimeValue, Int64>>;
+using FunctionDateTruncV2 =
+        FunctionOtherTypesToDateType<DateTrunc<DateV2Value<DateTimeV2ValueType>, UInt64>>;
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
     factory.register_function<FunctionMakeDate>();
     factory.register_function<FromDays>();
+    factory.register_function<FunctionDateTrunc>();
+    factory.register_function<FunctionDateTruncV2>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();
