@@ -74,10 +74,10 @@ public class RoutineLoadManagerTest {
     private SystemInfoService systemInfoService;
 
     @Test
-    public void testAddJobByStmt(@Injectable PaloAuth paloAuth,
-                                 @Injectable TResourceInfo tResourceInfo,
-                                 @Mocked ConnectContext connectContext,
-                                 @Mocked Env env) throws UserException {
+    public void testAddJobByStmt(@Injectable PaloAuth auth,
+            @Injectable TResourceInfo tResourceInfo,
+            @Mocked ConnectContext connectContext,
+            @Mocked Env env) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
@@ -113,8 +113,8 @@ public class RoutineLoadManagerTest {
             {
                 env.getAuth();
                 minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
+                result = auth;
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
                 minTimes = 0;
                 result = true;
             }
@@ -143,10 +143,10 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testCreateJobAuthDeny(@Injectable PaloAuth paloAuth,
-                                      @Injectable TResourceInfo tResourceInfo,
-                                      @Mocked ConnectContext connectContext,
-                                      @Mocked Env env) {
+    public void testCreateJobAuthDeny(@Injectable PaloAuth auth,
+            @Injectable TResourceInfo tResourceInfo,
+            @Mocked ConnectContext connectContext,
+            @Mocked Env env) {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
@@ -173,8 +173,8 @@ public class RoutineLoadManagerTest {
             {
                 env.getAuth();
                 minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
+                result = auth;
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
                 minTimes = 0;
                 result = false;
             }
@@ -588,7 +588,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testPauseRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -629,8 +629,8 @@ public class RoutineLoadManagerTest {
                 result = "tbl";
                 env.getAuth();
                 minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                result = auth;
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -659,7 +659,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testResumeRoutineLoadJob(@Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -696,8 +696,8 @@ public class RoutineLoadManagerTest {
                 result = "tbl";
                 env.getAuth();
                 minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                result = auth;
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -710,7 +710,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testStopRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -747,8 +747,8 @@ public class RoutineLoadManagerTest {
                 result = "tbl";
                 env.getAuth();
                 minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                result = auth;
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -913,7 +913,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -950,8 +950,8 @@ public class RoutineLoadManagerTest {
                 result = "tbl";
                 env.getAuth();
                 minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                result = auth;
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -965,7 +965,7 @@ public class RoutineLoadManagerTest {
     @Test
     public void testPauseAndResumeAllRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt,
             @Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Env env, @Mocked InternalCatalog catalog,
-            @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth paloAuth,
+            @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -1014,8 +1014,8 @@ public class RoutineLoadManagerTest {
                 result = "tbl";
                 env.getAuth();
                 minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                result = auth;
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
                 resumeRoutineLoadStmt.isAll();

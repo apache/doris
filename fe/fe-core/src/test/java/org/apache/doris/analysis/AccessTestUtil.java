@@ -94,7 +94,7 @@ public class AccessTestUtil {
         try {
             Env env = Deencapsulation.newInstance(Env.class);
 
-            PaloAuth paloAuth = fetchAdminAccess();
+            PaloAuth auth = fetchAdminAccess();
 
             fakeEditLog = new FakeEditLog();
             EditLog editLog = new EditLog("name");
@@ -165,7 +165,7 @@ public class AccessTestUtil {
                 {
                     env.getAuth();
                     minTimes = 0;
-                    result = paloAuth;
+                    result = auth;
 
                     env.getCurrentCatalog();
                     minTimes = 0;
@@ -336,7 +336,7 @@ public class AccessTestUtil {
         try {
             Env env = Deencapsulation.newInstance(Env.class);
 
-            PaloAuth paloAuth = fetchBlockAccess();
+            PaloAuth auth = fetchBlockAccess();
             Database db = mockDb("testCluster:testDb");
 
             InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
@@ -397,7 +397,7 @@ public class AccessTestUtil {
                 {
                     env.getAuth();
                     minTimes = 0;
-                    result = paloAuth;
+                    result = auth;
 
                     env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;

@@ -71,14 +71,14 @@ public class LdapPrivsChecker {
     }
 
     private static boolean hasTblPatternPrivs(UserIdentity currentUser, PrivPredicate wanted, String db, String tbl,
-                                              PaloAuth.PrivLevel level) {
+            PaloAuth.PrivLevel level) {
         PrivBitSet savedPrivs = PrivBitSet.of();
         getCurrentUserTblPrivs(currentUser, db, tbl, savedPrivs, level);
         return PaloPrivilege.satisfy(savedPrivs, wanted);
     }
 
     private static boolean hasResourcePatternPrivs(UserIdentity currentUser, PrivPredicate wanted, String resourceName,
-                                                   PaloAuth.PrivLevel level) {
+            PaloAuth.PrivLevel level) {
         PrivBitSet savedPrivs = PrivBitSet.of();
         getCurrentUserResourcePrivs(currentUser, resourceName, savedPrivs, level);
         return PaloPrivilege.satisfy(savedPrivs, wanted);
@@ -110,7 +110,7 @@ public class LdapPrivsChecker {
     }
 
     private static void getCurrentUserTblPrivs(UserIdentity currentUser, String db, String tbl, PrivBitSet savedPrivs,
-                                               PaloAuth.PrivLevel level) {
+            PaloAuth.PrivLevel level) {
         if (!hasLdapPrivs(currentUser)) {
             return;
         }

@@ -33,7 +33,7 @@ public class DropMaterializedViewStmtTest {
     @Mocked
     Analyzer analyzer;
     @Mocked
-    PaloAuth paloAuth;
+    PaloAuth auth;
 
     @Test
     public void testEmptyMVName(@Injectable TableName tableName) {
@@ -50,7 +50,7 @@ public class DropMaterializedViewStmtTest {
     public void testNoPermission(@Injectable TableName tableName) {
         new Expectations() {
             {
-                paloAuth.checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                auth.checkTblPriv(ConnectContext.get(), tableName.getDb(),
                         tableName.getTbl(), PrivPredicate.DROP);
                 result = false;
             }
