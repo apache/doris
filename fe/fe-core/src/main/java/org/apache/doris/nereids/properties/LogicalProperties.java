@@ -66,7 +66,9 @@ public class LogicalProperties {
     }
 
     public Set<ExprId> getOutputExprIdSet() {
-        return outputExprIdSet;
+        return this.outputSupplier.get().stream()
+                .map(NamedExpression::getExprId).collect(Collectors.toSet());
+        // return outputExprIdSet;
     }
 
     public List<Id> getOutputExprIds() {
