@@ -161,6 +161,7 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
     {
         SCOPED_TIMER(_convert_tuple_timer);
         fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
+
         auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
             if (!need_extra_convert) {
                 fmt::format_to(_insert_stmt_buffer, "'{}'", str);
