@@ -411,6 +411,7 @@ USA	Pete	Hello
 9223372036854775807	2
 
 -- !window_error1 --
+\N	\N
 -9223372036854775807	true
 -9223372036854775807	true
 -11011907	false
@@ -426,7 +427,6 @@ USA	Pete	Hello
 11011920	true
 9223372036854775807	false
 9223372036854775807	false
-\N	\N
 
 -- !window_error2 --
 \N	\N
