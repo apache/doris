@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_functions_by_literal") {
+suite("test_cast_string_to_array") {
     sql "set enable_vectorized_engine = true"
     sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
