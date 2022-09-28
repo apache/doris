@@ -130,6 +130,7 @@ TEST_F(ParquetReaderTest, normal) {
     //    EXPECT_TRUE(eof);
     //    delete block;
     //    delete p_reader;
+    delete reader;
 }
 } // namespace vectorized
 } // namespace doris
