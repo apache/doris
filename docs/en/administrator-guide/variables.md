@@ -497,9 +497,3 @@ Translated with www.DeepL.com/Translator (free version)
   SM4_128_OFB,
   SM4_128_CTR,
 ```
-
-* `skip_storage_engine_merge`
-  For debugging purpose. In vectorized execution engine, in case of problems of reading data of Aggregate Key model and Unique Key model, setting value to `true` will read data as Duplicate Key model.
-
-* `skip_delete_predicate`
-  For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.
