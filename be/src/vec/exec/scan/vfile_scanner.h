@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "exec/olap_common.h"
 #include "exec/text_converter.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
@@ -49,7 +50,8 @@ public:
     Status close(RuntimeState* state) override;
 
 public:
-    Status prepare(VExprContext** vconjunct_ctx_ptr);
+    Status prepare(VExprContext** vconjunct_ctx_ptr,
+                   std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -69,11 +71,11 @@ protected:
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
-
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // File slot id to index in _file_slot_descs
-    std::map<SlotId, int> _file_slot_index_map;
+    std::unordered_map<SlotId, int> _file_slot_index_map;
     // file col name to index in _file_slot_descs
     std::map<std::string, int> _file_slot_name_map;
     // col names from _file_slot_descs
@@ -81,7 +83,7 @@ protected:
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
     // Partition slot id to index in _partition_slot_descs
-    std::map<SlotId, int> _partition_slot_index_map;
+    std::unordered_map<SlotId, int> _partition_slot_index_map;
     // created from param.expr_of_dest_slot
     // For query, it saves default value expr of all dest columns, or nullptr for NULL.
     // For load, it saves convertion expr/default value of all dest columns.

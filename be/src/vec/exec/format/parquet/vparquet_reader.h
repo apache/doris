@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
+#include "exec/olap_common.h"
 #include "gen_cpp/parquet_types.h"
 #include "io/file_reader.h"
 #include "vec/core/block.h"
@@ -79,7 +79,8 @@ public:
     // for test
     void set_file_reader(FileReader* file_reader) { _file_reader = file_reader; }
 
-    Status init_reader(std::vector<ExprContext*>& conjunct_ctxs);
+    Status init_reader(
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     Status get_next_block(Block* block, bool* eof) override;
 
@@ -96,8 +97,7 @@ public:
 private:
     bool _next_row_group_reader();
     Status _init_read_columns();
-    Status _init_row_group_readers(const std::vector<ExprContext*>& conjunct_ctxs);
-    void _init_conjuncts(const std::vector<ExprContext*>& conjunct_ctxs);
+    Status _init_row_group_readers();
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
     Status _process_page_index(const tparquet::RowGroup& row_group,
@@ -114,19 +114,13 @@ private:
     Status _process_bloom_filter(bool* filter_group);
     Status _filter_row_groups();
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
-    bool _determine_filter_min_max(const std::vector<ExprContext*>& conjuncts,
-                                   const std::string& encoded_min, const std::string& encoded_max);
-    void _eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                                bool& need_filter);
-    void _eval_in_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                            bool& need_filter);
 
 private:
     RuntimeProfile* _profile;
     // file reader is passed from file scanner, and owned by this parquet reader.
     FileReader* _file_reader = nullptr;
-    const TFileScanRangeParams& _scan_params;
-    const TFileRangeDesc& _scan_range;
+    //    const TFileScanRangeParams& _scan_params;
+    //    const TFileRangeDesc& _scan_range;
 
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
@@ -134,8 +128,7 @@ private:
     std::shared_ptr<RowGroupReader> _current_group_reader;
     int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::unordered_map<int, std::vector<ExprContext*>> _slot_conjuncts;
-    std::vector<int> _include_column_ids; // columns that need to get from file
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::vector<ParquetReadColumn> _read_columns;
     std::list<int32_t> _read_row_groups;
     // parquet file reader object
