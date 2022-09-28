@@ -172,10 +172,9 @@ public class FoldConstantTest {
     public void testArithmeticFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
         assertRewrite("1 + 1", Literal.of((short) 2));
-        assertRewrite("1 - 1", Literal.of((byte) 0));
+        assertRewrite("1 - 1", Literal.of((short) 0));
         assertRewrite("100 + 100", Literal.of((short) 200));
-        assertRewrite("1 - 2", Literal.of((byte) -1));
-
+        assertRewrite("1 - 2", Literal.of((short) -1));
         assertRewrite("1 - 2 > 1", "false");
         assertRewrite("1 - 2 + 1 > 1 + 1 - 100", "true");
         assertRewrite("10 * 2 / 1 + 1 > (1 + 1) - 100", "true");
