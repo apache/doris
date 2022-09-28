@@ -104,6 +104,21 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                     single_column_block_predicate);
         }
     }
+    
+    if (read_context->all_compound_predicates != nullptr) {
+        read_options.all_compound_column_predicates.insert(
+                read_options.all_compound_column_predicates.end(),
+                read_context->all_compound_predicates->begin(),
+                read_context->all_compound_predicates->end());
+    }
+    
+    if (read_context->in_or_compound_predicates != nullptr) {
+        read_options.in_or_compound_column_predicates.insert(
+                read_options.in_or_compound_column_predicates.end(),
+                read_context->in_or_compound_predicates->begin(),
+                read_context->in_or_compound_predicates->end());
+    }
+
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (read_context->delete_bitmap != nullptr) {

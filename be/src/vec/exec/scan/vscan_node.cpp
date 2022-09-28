@@ -467,6 +467,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
+            bool is_compound_predicate = TExprNodeType::COMPOUND_PRED == cur_expr->node_type();
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -504,6 +505,20 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                         },
                         *range);
             }
+
+            if (pdt == PushDownType::UNACCEPTABLE && is_compound_predicate) {
+                auto fn_name = cur_expr->fn().name.function_name;
+                bool not_compound = false;
+                if (fn_name == "not") {
+                    not_compound = true;
+                }
+                std::vector<ColumnValueRangeType> column_value_rangs;
+                _normalize_compound_predicate(cur_expr, *(_vconjunct_ctx_ptr.get()), 
+                                &pdt, &column_value_rangs,
+                                in_predicate_checker, eq_predicate_checker);
+                _compound_value_ranges.push_back(std::make_pair(not_compound, column_value_rangs));
+            }
+
             if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
                 *output_expr = nullptr;
                 return Status::OK();
@@ -908,6 +923,186 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
         }
     }
     return Status::OK();
+}
+
+Status VScanNode::_normalize_compound_predicate(vectorized::VExpr* expr,
+                    VExprContext* expr_ctx, 
+                    PushDownType* pdt,
+                    std::vector<ColumnValueRangeType>* column_value_rangs,
+                    const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>& in_predicate_checker,
+                    const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>& eq_predicate_checker) {
+    if (TExprNodeType::COMPOUND_PRED == expr->node_type()) {
+        DCHECK(expr->children().size() == 2);
+        auto compound_fn_name = expr->fn().name.function_name;
+        auto children_num = expr->children().size();
+        for (auto i = 0; i < children_num; ++i) {
+            VExpr* child_expr = expr->children()[i];
+            if (TExprNodeType::BINARY_PRED == child_expr->node_type()) {
+                SlotDescriptor* slot = nullptr;
+                ColumnValueRangeType* range_on_slot = nullptr;
+                if (_is_predicate_acting_on_slot(child_expr, in_predicate_checker, &slot, &range_on_slot) ||
+                        _is_predicate_acting_on_slot(child_expr, eq_predicate_checker, &slot, &range_on_slot)) {
+                    ColumnValueRangeType active_range = *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
+                    std::visit(
+                        [&](auto& value_range) {
+                           _normalize_binary_in_compound_predicate(
+                                    child_expr, expr_ctx, slot, value_range, pdt,
+                                    _get_compound_type_by_fn_name(compound_fn_name));
+                        },
+                        active_range);
+                    
+                    column_value_rangs->emplace_back(active_range);
+                }
+            } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
+                _normalize_compound_predicate(
+                            child_expr, expr_ctx, 
+                            pdt, column_value_rangs, 
+                            in_predicate_checker, eq_predicate_checker);
+            }
+        }
+    }
+    
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status VScanNode::_normalize_binary_in_compound_predicate(
+                vectorized::VExpr* expr, VExprContext* expr_ctx,
+                SlotDescriptor* slot, ColumnValueRange<T>& range,
+                PushDownType* pdt, const TCompoundType::type& compound_type) {
+    DCHECK(expr->children().size() == 2);
+    if (TExprNodeType::BINARY_PRED == expr->node_type()) {
+        auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
+        auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
+        auto noneq_checker = [](const std::string& fn_name) {
+            return fn_name != "ne" && fn_name != "eq";
+        };
+
+        StringRef value;
+        int slot_ref_child = -1;
+        PushDownType eq_pdt =
+                _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr),
+                                                   expr_ctx, &value, &slot_ref_child, eq_checker);
+        PushDownType ne_pdt =
+                _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr),
+                                                   expr_ctx, &value, &slot_ref_child, ne_checker);
+        PushDownType noneq_pdt = _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr), 
+                                                    expr_ctx, &value, &slot_ref_child, noneq_checker);
+
+        if (eq_pdt == PushDownType::UNACCEPTABLE 
+                && ne_pdt == PushDownType::UNACCEPTABLE
+                && noneq_pdt == PushDownType::UNACCEPTABLE) {
+            return Status::OK();
+        }
+        DCHECK(slot_ref_child >= 0);
+
+        if (eq_pdt == PushDownType::ACCEPTABLE) {
+            auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(slot->type().precision,
+                                                                           slot->type().scale);
+            auto fn_name = std::string("");
+            if (value.data != nullptr) {
+                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
+                              T == TYPE_HLL) {
+                    auto val = StringValue(value.data, value.size);
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            temp_range, reinterpret_cast<void*>(&val),
+                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                } else {
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                }
+                range.intersection(temp_range);
+            }
+            *pdt = eq_pdt;
+
+            // exceed limit, no conditions will be pushed down to storage engine.
+            if (range.get_fixed_value_size() > _max_pushdown_conditions_per_column) {
+                range.set_whole_value_range();
+                *pdt = PushDownType::UNACCEPTABLE;
+            }
+            range.set_compound_type(compound_type);
+        }
+
+        if (ne_pdt == PushDownType::ACCEPTABLE) {
+            bool is_fixed_range = range.is_fixed_value_range();
+            auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range.column_name());
+            auto fn_name = std::string("");
+            if (value.data != nullptr) {
+                auto fn_name = std::string("");
+                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
+                              T == TYPE_HLL) {
+                    auto val = StringValue(value.data, value.size);
+                    if (is_fixed_range) {
+                        RETURN_IF_ERROR(_change_value_range<true>(
+                                range, reinterpret_cast<void*>(&val),
+                                ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                    } else {
+                        RETURN_IF_ERROR(_change_value_range<true>(
+                                not_in_range, reinterpret_cast<void*>(&val),
+                                ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                    }
+                } else {
+                    if (is_fixed_range) {
+                        RETURN_IF_ERROR(_change_value_range<true>(
+                                range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                                ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                    } else {
+                        RETURN_IF_ERROR(_change_value_range<true>(
+                                not_in_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                                ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                    }
+                }
+            }
+
+            if (is_fixed_range ||
+                not_in_range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+                if (!is_fixed_range) {
+                    _not_in_value_ranges.push_back(not_in_range);
+                }
+                *pdt = ne_pdt;
+            }
+            range.set_compound_type(compound_type);
+        }
+
+        if (noneq_pdt == PushDownType::ACCEPTABLE) {
+            const std::string& fn_name =
+                    reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
+
+            // where A = nullptr should return empty result set
+            if (value.data != nullptr) {
+                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
+                              T == TYPE_HLL) {
+                    auto val = StringValue(value.data, value.size);
+                    RETURN_IF_ERROR(_change_value_range<false>(range, reinterpret_cast<void*>(&val),
+                                                               ColumnValueRange<T>::add_compound_value_range,
+                                                               fn_name, slot_ref_child));
+                } else {
+                    RETURN_IF_ERROR(_change_value_range<false>(
+                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            ColumnValueRange<T>::add_compound_value_range, fn_name, slot_ref_child));
+                }
+                *pdt = noneq_pdt;
+            }
+            range.set_compound_type(compound_type);
+        }
+    }
+
+    return Status::OK();
+}
+
+TCompoundType::type VScanNode::_get_compound_type_by_fn_name(const std::string& fn_name) {
+    TCompoundType::type compound_type;
+    if (fn_name == "and") {
+        compound_type = TCompoundType::AND;
+    } else if (fn_name == "or") {
+        compound_type = TCompoundType::OR;
+    } else if (fn_name == "not") {
+        compound_type = TCompoundType::NOT;
+    } else {
+        compound_type = TCompoundType::UNKNOWN;
+    }
+    return compound_type;
 }
 
 template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>

@@ -233,6 +233,30 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
             }
         }
 
+        for (auto i = 0; i < _compound_value_ranges.size(); ++i) {
+            bool not_compound = _compound_value_ranges[i].first;
+            std::vector<TCondition> conditions;
+            for (auto& iter : _compound_value_ranges[i].second) {
+                std::vector<TCondition> filters;
+                std::visit([&](auto&& range) { 
+                    if (range.is_boundary_value_range()) {
+                        range.to_boundary_condition(filters); 
+                    } else {
+                        range.to_olap_filter(filters);
+                    }
+
+                }, iter);
+
+                for (const auto& filter : filters) {
+                    conditions.push_back(std::move(filter));
+                }
+            }
+
+            if (!conditions.empty()) {
+                _compound_filters.emplace_back(std::make_pair(not_compound, conditions));
+            }
+        }
+        
         // Append value ranges in "_not_in_value_ranges"
         for (auto& range : _not_in_value_ranges) {
             std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
@@ -385,6 +409,8 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             NewOlapScanner* scanner = new NewOlapScanner(
                     _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
                     _need_agg_finalize, *scan_range, _scanner_profile.get());
+            
+            scanner->set_compound_filters(_compound_filters);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);

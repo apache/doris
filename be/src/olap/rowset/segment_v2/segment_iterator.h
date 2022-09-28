@@ -114,6 +114,9 @@ private:
     Status _get_row_ranges_by_column_conditions();
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     Status _apply_bitmap_index();
+    Status _apply_index_in_compound(
+            const std::vector<ColumnPredicate*>& predicates, roaring::Roaring* output_bitmap);
+    Status _execute_all_or_compound_predicates();
 
     void _init_lazy_materialization();
     void _vec_init_lazy_materialization();
@@ -221,6 +224,8 @@ private:
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _all_compound_col_predicates;
+    std::vector<std::pair<bool, std::vector<ColumnPredicate*>>> _in_or_compound_col_predicates;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`

@@ -92,6 +92,15 @@ Status Segment::_open() {
 
 Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
+    auto cond_in_compound_query = [&](int32_t column_id) -> auto {
+        for (auto pred : read_options.all_compound_column_predicates) {
+            if (pred->column_id() == column_id) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     for (auto& entry : read_options.col_id_to_predicates) {
@@ -101,7 +110,9 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
             continue;
         }
         int32_t uid = read_options.tablet_schema->column(column_id).unique_id();
-        if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
+        if (_column_readers.count(uid) < 1 || 
+                !_column_readers.at(uid)->has_zone_map() ||
+                cond_in_compound_query(column_id)) {
             continue;
         }
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&

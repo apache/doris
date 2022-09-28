@@ -75,6 +75,7 @@ public:
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
         std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
         std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
+        std::vector<std::pair<bool, std::vector<TCondition>>> compound_conditions;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
 
@@ -164,6 +165,11 @@ protected:
 
     void _init_conditions_param(const ReaderParams& read_params);
 
+    void _init_compound_conditions_param(const ReaderParams& read_params);
+
+    bool _all_conditions_in_or_compound(
+                const std::vector<std::pair<bool, std::vector<TCondition>>>& compound_column_conditions);
+
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
 
@@ -198,6 +204,8 @@ protected:
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _all_compound_col_predicates;
+    std::vector<std::pair<bool, std::vector<ColumnPredicate*>>> _in_or_compound_col_predicates;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 

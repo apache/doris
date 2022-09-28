@@ -168,6 +168,12 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     }
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
+    if (!opts.all_compound_column_predicates.empty()) {
+        _all_compound_col_predicates = opts.all_compound_column_predicates;
+    }
+    if (!opts.in_or_compound_column_predicates.empty()) {
+        _in_or_compound_col_predicates = opts.in_or_compound_column_predicates;
+    }
     return Status::OK();
 }
 
@@ -350,6 +356,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 Status SegmentIterator::_apply_bitmap_index() {
     SCOPED_RAW_TIMER(&_opts.stats->bitmap_index_filter_timer);
     size_t input_rows = _row_bitmap.cardinality();
+    if (!_in_or_compound_col_predicates.empty()) {
+        RETURN_IF_ERROR(_execute_all_or_compound_predicates());
+    }
+
     std::vector<ColumnPredicate*> remaining_predicates;
 
     for (auto pred : _col_predicates) {
@@ -368,6 +378,53 @@ Status SegmentIterator::_apply_bitmap_index() {
     }
     _col_predicates = std::move(remaining_predicates);
     _opts.stats->rows_bitmap_index_filtered += (input_rows - _row_bitmap.cardinality());
+    return Status::OK();
+}
+
+Status SegmentIterator::_execute_all_or_compound_predicates() {
+    for (auto iter : _in_or_compound_col_predicates) {
+        bool not_compound = iter.first;
+        auto predicates_per_conjunct = iter.second;
+        roaring::Roaring union_bitmap;
+        RETURN_IF_ERROR(_apply_index_in_compound(predicates_per_conjunct, &union_bitmap));
+        if (not_compound) {
+            roaring::Roaring tmp = _row_bitmap;
+            tmp -= union_bitmap;
+            union_bitmap = tmp;
+        }
+        
+        if (!union_bitmap.isEmpty()) {
+            _row_bitmap &= union_bitmap;
+        }
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_apply_index_in_compound(
+            const std::vector<ColumnPredicate*>& predicates, roaring::Roaring* output_bitmap) {
+    int apply_pred_by_index_count = 0;
+    roaring::Roaring union_bitmap;
+    for (auto pred : predicates) {
+        int32_t unique_id = _schema.unique_id(pred->column_id());
+        if (_bitmap_index_iterators.count(unique_id) < 1 ||
+            _bitmap_index_iterators[unique_id] == nullptr) {
+            // no bitmap index for this column
+            continue;
+        } 
+        
+        roaring::Roaring bitmap = _row_bitmap;
+        RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
+                                       &bitmap));
+        ++apply_pred_by_index_count;
+        if (output_bitmap) {
+            union_bitmap |= bitmap;
+        }
+    }
+
+    if (output_bitmap && (apply_pred_by_index_count == predicates.size())) {
+        *output_bitmap = union_bitmap;
+    }
+
     return Status::OK();
 }
 

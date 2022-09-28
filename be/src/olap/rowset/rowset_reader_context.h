@@ -45,6 +45,8 @@ struct RowsetReaderContext {
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
     const std::vector<ColumnPredicate*>* predicates = nullptr;
+    const std::vector<ColumnPredicate*>* all_compound_predicates = nullptr;
+    const std::vector<std::pair<bool, std::vector<ColumnPredicate*>>>* in_or_compound_predicates = nullptr;
     // value column predicate in UNIQUE table
     const std::vector<ColumnPredicate*>* value_predicates = nullptr;
     const std::vector<RowCursor>* lower_bound_keys = nullptr;

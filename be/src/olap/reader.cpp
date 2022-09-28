@@ -85,6 +85,9 @@ TabletReader::~TabletReader() {
     for (auto pred : _value_col_predicates) {
         delete pred;
     }
+    for (auto pred : _all_compound_col_predicates) {
+        delete pred;
+    }
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
@@ -200,6 +203,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
+    _reader_context.all_compound_predicates = &_all_compound_col_predicates;
+    _reader_context.in_or_compound_predicates = &_in_or_compound_col_predicates;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
     _reader_context.is_lower_keys_included = &_is_lower_keys_included;
@@ -234,6 +239,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _reader_context.runtime_state = read_params.runtime_state;
 
     _init_conditions_param(read_params);
+    _init_compound_conditions_param(read_params);
 
     Status res = _init_delete_condition(read_params);
     if (!res.ok()) {
@@ -465,6 +471,49 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     // Function filter push down to storage engine
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
+    }
+}
+
+bool TabletReader::_all_conditions_in_or_compound(
+                const std::vector<std::pair<bool, std::vector<TCondition>>>& compound_column_conditions) {
+    if (compound_column_conditions.empty()) {
+        return false;
+    }
+
+    for (auto& condition : compound_column_conditions) {
+        std::vector<TCondition> t_conditions = condition.second;
+        for (auto child_condition : t_conditions) {
+            if (child_condition.compound_type != TCompoundType::OR) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+void TabletReader::_init_compound_conditions_param(const ReaderParams& read_params) {
+    bool all_conditions_in_or_compound = _all_conditions_in_or_compound(read_params.compound_conditions);
+
+    for (const auto& iter : read_params.compound_conditions) {
+        bool not_compound = iter.first;
+        auto conditions_per_conjunct = iter.second;
+        std::vector<ColumnPredicate*> predicate_per_conjunct;
+        for (const auto& condition : conditions_per_conjunct) {
+            TCondition tmp_cond = condition;
+            auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
+            tmp_cond.__set_column_unique_id(condition_col_uid);
+            ColumnPredicate* predicate = parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+            if (predicate != nullptr) {
+                _all_compound_col_predicates.push_back(predicate);
+                if (all_conditions_in_or_compound) {
+                    predicate_per_conjunct.push_back(predicate);
+                }
+            }
+        }
+        if (!predicate_per_conjunct.empty()) {
+            _in_or_compound_col_predicates.push_back(std::make_pair(not_compound, predicate_per_conjunct));
+        }
     }
 }
 

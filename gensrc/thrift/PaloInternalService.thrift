@@ -521,6 +521,13 @@ struct TFetchDataResult {
     4: optional Status.TStatus status
 }
 
+enum TCompoundType {
+    UNKNOWN = 0,
+    AND = 1,
+    OR = 2,
+    NOT = 3,
+}
+
 struct TCondition {
     1:  required string column_name
     2:  required string condition_op
@@ -528,6 +535,7 @@ struct TCondition {
     // In delete condition, the different column may have same column name, need
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
+    5:  optional TCompoundType compound_type = TCompoundType.UNKNOWN
 }
 
 struct TExportStatusResult {
