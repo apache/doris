@@ -1,7 +1,7 @@
 ---
 {
-    "title": "DATE",
-    "language": "en"
+    "title": "DATEV2",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,27 +24,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DATE
-### Description
-DATE function
-
-#### Syntax
-Date
-Convert input type to DATE type
-date
-Date type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'YYYYY-MM-DD'.
+## DATEV2
+### description
+    DATEV2类型
+        日期类型，目前的取值范围是['0000-01-01', '9999-12-31'], 默认的打印形式是'YYYY-MM-DD'
 
 ### note
-If you use version 1.2 and above, it is strongly recommended that you use the DATEV2 type instead of the DATE type as DATEV2 is more efficient than DATE type。
+    DATEV2类型相比DATE类型更加高效，在计算时，DATEV2相比DATE可以节省一半的内存使用量。
 
 ### example
-```
-SELECT DATE('2003-12-31 01:02:03');
-+-----------------------------+
-| date('2003-12-31 01:02:03') |
-+-----------------------------+
-| 2003-12-31                  |
-+-----------------------------+
-```
+    mysql> SELECT CAST('2003-12-31 01:02:03' as DATEV2);
+        -> '2003-12-31'
+
 ### keywords
-DATE
+
+    DATEV2
