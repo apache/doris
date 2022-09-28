@@ -96,6 +96,9 @@ public:
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
 
+    void _set_scan_concurrency(const TExecPlanFragmentParams& params,
+                               QueryFragmentsCtx* fragments_ctx);
+
     bool _is_scan_node(const TPlanNodeType::type& type);
 
     // This is input params
