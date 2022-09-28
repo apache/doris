@@ -189,6 +189,10 @@ public abstract class Literal extends Expression implements LeafExpression {
         throw new AnalysisException("no support cast!");
     }
 
+    public boolean isCharacterLiteral() {
+        return this instanceof StringLiteral || this instanceof CharLiteral || this instanceof VarcharLiteral;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
