@@ -172,6 +172,10 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
                         lowestCostChildren, requestChildrenProperties, requestChildrenProperties, context);
                 double enforceCost = regulator.adjustChildrenProperties();
+                if (enforceCost < 0) {
+                    // invalid enforce, return.
+                    return;
+                }
                 curTotalCost += enforceCost;
 
                 // Not need to do pruning here because it has been done when we get the

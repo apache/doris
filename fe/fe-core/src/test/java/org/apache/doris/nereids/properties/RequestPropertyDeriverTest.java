@@ -150,7 +150,7 @@ public class RequestPropertyDeriverTest {
                 Lists.newArrayList(key),
                 AggPhase.LOCAL,
                 true,
-                true,
+                false,
                 logicalProperties,
                 groupPlan
         );
