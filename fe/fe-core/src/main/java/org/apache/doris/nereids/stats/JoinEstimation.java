@@ -50,6 +50,19 @@ import java.util.Set;
 public class JoinEstimation {
     private static final Logger LOG = LogManager.getLogger(JoinEstimation.class);
 
+    //LIMIT_RIGHT_WIDTH: the larger RIGHT_WIDTH means right child contains more join node. Although sometimes,
+    // right deep tree could reduce the input tuple number, it is bad for building hash table in parallel. That why
+    // we add penalty if the right child is too wide.
+    private static int LIMIT_RIGHT_WIDTH = 3;
+
+    //AVG_DIM_FACT_RATIO: by average, the number of fact tuples of one dimension. for example, in tpch, in
+    //lineitem, there are 1-7 tuples of the same orderkey, the average is 4.
+    private static int AVG_DIM_FACT_RATIO = 2;
+
+    //REDUCE_TIMES = 1/selectivity
+    //TODO currently, regard selectivity as 0.5, need to be refined.
+    private static int REDUCE_TIMES = 2;
+
     private static class JoinEstimationResult {
         public boolean forbiddenReducePropagation = false;
         public boolean isReducedByHashJoin = false;
@@ -68,21 +81,14 @@ public class JoinEstimation {
     private static JoinEstimationResult estimateInnerJoin(PhysicalHashJoin join, EqualTo equalto,
             StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
         JoinEstimationResult result = new JoinEstimationResult();
-        //LIMIT_RIGHT_WIDTH: the larger RIGHT_WIDTH means right child contains more join node. Although sometimes,
-        // right deep tree could reduce the input tuple number, it is bad for building hash table in parallel. That why
-        // we add penalty if the right child is too wide.
-        final int LIMIT_RIGHT_WIDTH = 2;
-        //AVG_DIM_FACT_RATIO: by average, the number of fact tuples of one dimension. for example, in tpch, in
-        //lineitem, there are 1-7 tuples of the same orderkey, the average is 4.
-        final int AVG_DIM_FACT_RATIO = 2;
         SlotReference eqLeft = (SlotReference) equalto.child(0);
         SlotReference eqRight = (SlotReference) equalto.child(1);
-        if ((rightStats.level >= LIMIT_RIGHT_WIDTH && !rightStats.isReduced)
-                || rightStats.level > LIMIT_RIGHT_WIDTH + 1) {
+        if ((rightStats.width == LIMIT_RIGHT_WIDTH && !rightStats.isReduced)
+                || rightStats.width > LIMIT_RIGHT_WIDTH + 1) {
             //if the right side is too wide, ignore the filter effect.
             result.forbiddenReducePropagation = true;
             //penalty too right deep tree by multiply level
-            result.rowCount = rightStats.level * (leftStats.getRowCount()
+            result.rowCount = rightStats.width * (leftStats.getRowCount()
                     + AVG_DIM_FACT_RATIO * rightStats.getRowCount());
         } else if (eqLeft.getColumn().isPresent() || eqRight.getColumn().isPresent()) {
             Set<Slot> rightSlots = ((PhysicalHashJoin<?, ?>) join).child(1).getOutputSet();
@@ -100,7 +106,7 @@ public class JoinEstimation {
                     result.isReducedByHashJoin = true;
                     //TODO current we regard selectivity as 0.5. After we have more accurate estimated selectivity,
                     // replace it.
-                    result.rowCount = leftStats.getRowCount() / 2;
+                    result.rowCount = leftStats.getRowCount() / REDUCE_TIMES;
                 } else {
                     //dimension table is not reduced, the join result tuple number equals to
                     // the tuple number of fact table.
@@ -133,13 +139,17 @@ public class JoinEstimation {
         boolean forbiddenReducePropagation = false;
         long rowCount;
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
-            if (rightStats.isReduced && rightStats.level < 3) {
-                rowCount = leftStats.getRowCount() / 2;
+            if (rightStats.isReduced && rightStats.width <= LIMIT_RIGHT_WIDTH) {
+                rowCount = leftStats.getRowCount() / REDUCE_TIMES;
             } else {
                 rowCount = leftStats.getRowCount() + 1;
             }
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
-            rowCount = rightStats.getRowCount();
+            if (leftStats.isReduced) {
+                rowCount = rightStats.getRowCount() / REDUCE_TIMES;
+            } else {
+                rowCount = rightStats.getRowCount() + 1;
+            }
         } else if (joinType == JoinType.INNER_JOIN) {
             if (!join.getHashJoinConjuncts().isEmpty() && join instanceof PhysicalHashJoin
                     && ConnectContext.get().getSessionVariable().isNereidsStarSchemaSupport()) {
@@ -192,7 +202,7 @@ public class JoinEstimation {
         }
         statsDeriveResult.setRowCount(rowCount);
         statsDeriveResult.isReduced = !forbiddenReducePropagation && (isReducedByHashJoin || leftStats.isReduced);
-        statsDeriveResult.level = rightStats.level + leftStats.level;
+        statsDeriveResult.width = rightStats.width + leftStats.width;
         return statsDeriveResult;
     }
 
