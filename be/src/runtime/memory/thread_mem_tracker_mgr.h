@@ -51,12 +51,15 @@ public:
 
     // only for tcmalloc hook
     static void consume_no_attach(int64_t size) {
-        ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume(size);
+        if (ExecEnv::GetInstance()->initialized()) {
+            ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume(size);
+        }
     }
 
     // After thread initialization, calling `init` again must call `clear_untracked_mems` first
     // to avoid memory tracking loss.
     void init();
+    void init_impl();
 
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
     void attach_limiter_tracker(const std::string& task_id, const TUniqueId& fragment_instance_id,
@@ -85,9 +88,13 @@ public:
     bool is_attach_query() { return _fragment_instance_id_stack.back() != TUniqueId(); }
 
     std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
+        if (_limiter_tracker_raw == nullptr) init_impl();
         return _limiter_tracker_stack.back();
     }
-    MemTrackerLimiter* limiter_mem_tracker_raw() { return _limiter_tracker_raw; }
+    MemTrackerLimiter* limiter_mem_tracker_raw() {
+        if (_limiter_tracker_raw == nullptr) init_impl();
+        return _limiter_tracker_raw;
+    }
 
     void set_check_limit(bool check_limit) { _check_limit = check_limit; }
     void set_check_attach(bool check_attach) { _check_attach = check_attach; }
@@ -120,7 +127,7 @@ private:
 
     // _limiter_tracker_stack[0] = orphan_mem_tracker
     std::vector<std::shared_ptr<MemTrackerLimiter>> _limiter_tracker_stack;
-    MemTrackerLimiter* _limiter_tracker_raw;
+    MemTrackerLimiter* _limiter_tracker_raw = nullptr;
     std::vector<MemTracker*> _consumer_tracker_stack;
 
     // If true, call memtracker try_consume, otherwise call consume.
@@ -138,12 +145,18 @@ inline void ThreadMemTrackerMgr::init() {
     // _limiter_tracker_stack[0] = orphan_mem_tracker
     DCHECK(_limiter_tracker_stack.size() <= 1)
             << "limiter_tracker_stack.size(): " << _limiter_tracker_stack.size();
-    if (_limiter_tracker_stack.size() == 0) {
-        _limiter_tracker_stack.push_back(ExecEnv::GetInstance()->orphan_mem_tracker());
-        _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
-        _task_id_stack.push_back("");
-        _fragment_instance_id_stack.push_back(TUniqueId());
+    if (_limiter_tracker_raw == nullptr && ExecEnv::GetInstance()->initialized()) {
+        init_impl();
     }
+}
+
+inline void ThreadMemTrackerMgr::init_impl() {
+    DCHECK(_limiter_tracker_stack.size() == 0);
+    DCHECK(_limiter_tracker_raw == nullptr);
+    _limiter_tracker_stack.push_back(ExecEnv::GetInstance()->orphan_mem_tracker());
+    _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
+    _task_id_stack.push_back("");
+    _fragment_instance_id_stack.push_back(TUniqueId());
     _check_limit = true;
 }
 
@@ -166,9 +179,10 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
+    // After the jemalloc hook is loaded, before ExecEnv init, _limiter_tracker=nullptr.
     if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
          _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
-        !_stop_consume) {
+        !_stop_consume && ExecEnv::GetInstance()->initialized()) {
         if (_check_limit) {
             flush_untracked_mem<true>();
         } else {
@@ -182,8 +196,9 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the TCMalloc Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;
-    old_untracked_mem = _untracked_mem;
+    if (_limiter_tracker_raw == nullptr) init_impl();
     DCHECK(_limiter_tracker_raw);
+    old_untracked_mem = _untracked_mem;
     if (CheckLimit) {
 #ifndef BE_TEST
         // When all threads are started, `attach_limiter_tracker` is expected to be called to bind the limiter tracker.
