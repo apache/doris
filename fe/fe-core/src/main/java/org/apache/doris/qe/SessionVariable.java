@@ -223,6 +223,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
+    public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -569,6 +571,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
+
+    /**
+     * The current statistics are only used for CBO test,
+     * and are not available to users. (work in progress)
+     */
+    @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
+    public boolean enableCboStatistics = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -973,6 +982,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableLocalExchange() {
         return enableLocalExchange;
+    }
+
+    public boolean getEnableCboStatistics() {
+        return enableCboStatistics;
     }
 
     /**

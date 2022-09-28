@@ -439,9 +439,9 @@ void PartitionedHashTable::Close() {
     const int64_t HEAVILY_USED = 1024 * 1024;
     // TODO: These statistics should go to the runtime profile as well.
     if ((num_buckets_ > LARGE_HT) || (num_probes_ > HEAVILY_USED)) VLOG_CRITICAL << PrintStats();
-    for (auto& data_page : data_pages_) allocator_->Free(move(data_page));
+    for (auto& data_page : data_pages_) allocator_->Free(std::move(data_page));
     data_pages_.clear();
-    if (bucket_allocation_ != nullptr) allocator_->Free(move(bucket_allocation_));
+    if (bucket_allocation_ != nullptr) allocator_->Free(std::move(bucket_allocation_));
 }
 
 Status PartitionedHashTable::CheckAndResize(uint64_t buckets_to_fill,
@@ -508,7 +508,7 @@ Status PartitionedHashTable::ResizeBuckets(int64_t num_buckets,
     }
 
     num_buckets_ = num_buckets;
-    allocator_->Free(move(bucket_allocation_));
+    allocator_->Free(std::move(bucket_allocation_));
     bucket_allocation_ = std::move(new_allocation);
     buckets_ = reinterpret_cast<Bucket*>(bucket_allocation_->data());
     *got_memory = true;

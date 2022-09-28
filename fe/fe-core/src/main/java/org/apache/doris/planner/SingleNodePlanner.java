@@ -455,7 +455,6 @@ public class SingleNodePlanner {
 
 
                     // check return columns
-                    Column firstColumn = returnColumns.get(0);
                     for (Column col : returnColumns) {
                         // TODO(zc): Here column is null is too bad
                         // Only column of Inline-view will be null
@@ -463,11 +462,10 @@ public class SingleNodePlanner {
                             continue;
                         }
 
-                        if (type == KeysType.AGG_KEYS) {
-                            if (!col.isKey() && !col.getName().equals(firstColumn.getName())) {
-                                returnColumnValidate = false;
-                                break;
-                            }
+                        // The value column of the agg does not support zone_map index.
+                        if (type == KeysType.AGG_KEYS && !col.isKey()) {
+                            returnColumnValidate = false;
+                            break;
                         }
 
                         // The zone map max length of CharFamily is 512, do not

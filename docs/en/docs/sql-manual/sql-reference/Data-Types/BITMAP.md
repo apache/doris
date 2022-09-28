@@ -30,10 +30,10 @@ BITMAP
 
 BITMAP cannot be used as a key column, and the aggregation type is BITMAP_UNION when building the table.
 The user does not need to specify the length and default value. The length is controlled within the system according to the degree of data aggregation.
-And the BITMAP column can only be queried or used by supporting functions such as bitmap_union_count, bitmap_union, and bitmap_hash.
+And the BITMAP column can only be queried or used by supporting functions such as bitmap_union_count, bitmap_union, bitmap_hash and bitmap_hash64.
     
 The use of BITMAP in offline scenarios will affect the import speed. In the case of a large amount of data, the query speed will be slower than HLL and better than Count Distinct.
-Note: If BITMAP does not use a global dictionary in real-time scenarios, using bitmap_hash() may cause an error of about one-thousandth.
+Note: If BITMAP does not use a global dictionary in real-time scenarios, using bitmap_hash() may cause an error of about one-thousandth. If the error rate is not tolerable, bitmap_hash64 can be used instead.
 
 ### example
 
