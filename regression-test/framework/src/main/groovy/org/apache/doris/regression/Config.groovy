@@ -165,6 +165,12 @@ class Config {
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
 
+        if (!config.suiteWildcard && !config.groups && !config.directories && !config.excludeSuiteWildcard
+            && !config.excludeGroupSet && !config.excludeDirectorySet) {
+            log.info("no suites/directories/groups specified, set groups to p0".toString())
+            config.groups = ["p0"].toSet()
+        }
+
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
