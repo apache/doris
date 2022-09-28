@@ -125,4 +125,11 @@ suite("test_string_function") {
     qt_sql "select substring('abc1', 5);"
     qt_sql "select substring('abc1def', 2, 2);"
 
+    qt_sql "select substr('a',3,1);"
+    qt_sql "select substr('a',2,1);"
+    qt_sql "select substr('a',1,1);"
+    qt_sql "select substr('a',0,1);"
+    qt_sql "select substr('a',-1,1);"
+    qt_sql "select substr('a',-2,1);"
+    qt_sql "select substr('a',-3,1);"
 }
