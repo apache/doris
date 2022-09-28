@@ -44,22 +44,22 @@ public class ExecutableFunctions {
      * Executable arithmetic functions
      */
 
-    @ExecFunction(name = "add", argTypes = {"TINYINT", "TINYINT"}, returnType = "TINYINT")
-    public static TinyIntLiteral addTinyint(TinyIntLiteral first, TinyIntLiteral second) {
-        byte result = (byte) Math.addExact(first.getValue(), second.getValue());
-        return new TinyIntLiteral(result);
-    }
-
-    @ExecFunction(name = "add", argTypes = {"SMALLINT", "SMALLINT"}, returnType = "SMALLINT")
-    public static SmallIntLiteral addSmallint(SmallIntLiteral first, SmallIntLiteral second) {
+    @ExecFunction(name = "add", argTypes = {"TINYINT", "TINYINT"}, returnType = "SMALLINT")
+    public static SmallIntLiteral addTinyint(TinyIntLiteral first, TinyIntLiteral second) {
         short result = (short) Math.addExact(first.getValue(), second.getValue());
         return new SmallIntLiteral(result);
     }
 
-    @ExecFunction(name = "add", argTypes = {"INT", "INT"}, returnType = "INT")
-    public static IntegerLiteral addInt(IntegerLiteral first, IntegerLiteral second) {
+    @ExecFunction(name = "add", argTypes = {"SMALLINT", "SMALLINT"}, returnType = "INT")
+    public static IntegerLiteral addSmallint(SmallIntLiteral first, SmallIntLiteral second) {
         int result = Math.addExact(first.getValue(), second.getValue());
         return new IntegerLiteral(result);
+    }
+
+    @ExecFunction(name = "add", argTypes = {"INT", "INT"}, returnType = "BIGINT")
+    public static BigIntLiteral addInt(IntegerLiteral first, IntegerLiteral second) {
+        long result = Math.addExact(first.getValue(), second.getValue());
+        return new BigIntLiteral(result);
     }
 
     @ExecFunction(name = "add", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT")
