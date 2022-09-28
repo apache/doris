@@ -95,12 +95,12 @@ TEST_F(ParquetReaderTest, normal) {
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    //    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
     }
-    TFileScanRangeParams scan_params;
+    //    TFileScanRangeParams scan_params;
     TFileRangeDesc scan_range;
     {
         scan_range.start_offset = 0;

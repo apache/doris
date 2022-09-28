@@ -119,8 +119,8 @@ private:
     RuntimeProfile* _profile;
     // file reader is passed from file scanner, and owned by this parquet reader.
     FileReader* _file_reader = nullptr;
-    const TFileScanRangeParams& _scan_params;
-    const TFileRangeDesc& _scan_range;
+    //    const TFileScanRangeParams& _scan_params;
+    //    const TFileRangeDesc& _scan_range;
 
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
