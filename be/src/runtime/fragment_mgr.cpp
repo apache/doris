@@ -593,6 +593,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                                         BackendOptions::get_localhost()));
         }
         fragments_ctx = search->second;
+        _set_scan_concurrency(params, fragments_ctx.get());
     } else {
         // This may be a first fragment request of the query.
         // Create the query fragments context.
@@ -609,21 +610,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->set_rsc_info = true;
         }
 
-        if (params.__isset.query_options) {
-            fragments_ctx->timeout_second = params.query_options.query_timeout;
-            if (params.query_options.__isset.resource_limit) {
-                fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
-            }
-        }
-        if (params.__isset.fragment && params.fragment.__isset.plan &&
-            params.fragment.plan.nodes.size() > 0) {
-            for (auto& node : params.fragment.plan.nodes) {
-                if (node.limit > 0 && node.limit < 1024) {
-                    fragments_ctx->set_serial_thread_token();
-                    break;
-                }
-            }
-        }
+        fragments_ctx->timeout_second = params.query_options.query_timeout;
+        _set_scan_concurrency(params, fragments_ctx.get());
 
         {
             // Find _fragments_ctx_map again, in case some other request has already
@@ -676,6 +664,36 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     return Status::OK();
+}
+
+void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params, QueryFragmentsCtx* fragments_ctx) {
+    if (params.__isset.query_options) {
+        if (params.query_options.__isset.resource_limit) {
+            fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
+            return;
+        }
+    }
+    if (params.__isset.fragment && params.fragment.__isset.plan &&
+        params.fragment.plan.nodes.size() > 0) {
+        for (auto& node : params.fragment.plan.nodes) {
+            // Only for SCAN NODE
+            if (node.node_type != TPlanNodeType::OLAP_SCAN_NODE) {
+                continue;
+            }
+            if (node.__isset.conjuncts && !node.conjuncts.empty()) {
+                // If the scan node has where predicate, do not set concurrency
+                continue;
+            }
+            if (node.limit > 0 && node.limit < 1024) {
+                fragments_ctx->set_serial_thread_token();
+                return;
+            } 
+        }
+    }
+}
+
+bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
+    return type == TPlanNodeType::OLAP_SCAN_NODE;
 }
 
 Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
