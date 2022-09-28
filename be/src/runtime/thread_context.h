@@ -268,4 +268,30 @@ public:
                                         ->_thread_mem_tracker_mgr->last_consumer_tracker(), \
                                 msg),                                                       \
                     ##__VA_ARGS__);
+
+// Mem Hook to consume thread mem tracker
+#define MEM_MALLOC_HOOK(size)                                                                \
+    do {                                                                                     \
+        if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_context != nullptr) { \
+            doris::update_bthread_context();                                                 \
+            doris::bthread_context->_thread_mem_tracker_mgr->consume(size);                  \
+        } else if (LIKELY(doris::thread_context_ptr._init)) {                                \
+            doris::thread_context_ptr._ptr->_thread_mem_tracker_mgr->consume(size);          \
+        } else {                                                                             \
+            doris::ThreadMemTrackerMgr::consume_no_attach(size);                             \
+        }                                                                                    \
+    } while (0)
+
+#define MEM_FREE_HOOK(size)                                                                  \
+    do {                                                                                     \
+        if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_context != nullptr) { \
+            doris::update_bthread_context();                                                 \
+            doris::bthread_context->_thread_mem_tracker_mgr->consume(-size);                 \
+        } else if (doris::thread_context_ptr._init) {                                        \
+            doris::thread_context_ptr._ptr->_thread_mem_tracker_mgr->consume(-size);         \
+        } else {                                                                             \
+            doris::ThreadMemTrackerMgr::consume_no_attach(-size);                            \
+        }                                                                                    \
+    } while (0)
+
 } // namespace doris
