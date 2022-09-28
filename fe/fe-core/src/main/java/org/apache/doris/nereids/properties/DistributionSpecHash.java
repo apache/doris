@@ -215,16 +215,10 @@ public class DistributionSpecHash extends DistributionSpec {
         }
         DistributionSpecHash that = (DistributionSpecHash) o;
         return shuffleType == that.shuffleType && orderedShuffledColumns.equals(that.orderedShuffledColumns);
-        // return tableId == that.tableId && orderedShuffledColumns.equals(that.orderedShuffledColumns)
-        //         && shuffleType == that.shuffleType && partitionIds.equals(that.partitionIds)
-        //         && equivalenceExprIds.equals(that.equivalenceExprIds)
-        //         && exprIdToEquivalenceSet.equals(that.exprIdToEquivalenceSet);
     }
 
     @Override
     public int hashCode() {
-        // return Objects.hash(orderedShuffledColumns, shuffleType, tableId, partitionIds,
-        //         equivalenceExprIds, exprIdToEquivalenceSet);
         return Objects.hash(shuffleType, orderedShuffledColumns);
     }
 

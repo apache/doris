@@ -89,14 +89,14 @@ public final class CostEstimate {
      * sum of cost estimate
      */
     public static CostEstimate sum(CostEstimate one, CostEstimate two, CostEstimate... more) {
-        double v1 = one.cpuCost + two.cpuCost;
-        double v2 = one.memoryCost + two.memoryCost;
-        double v3 = one.networkCost + one.networkCost;
+        double cpuCostSum = one.cpuCost + two.cpuCost;
+        double memoryCostSum = one.memoryCost + two.memoryCost;
+        double networkCostSum = one.networkCost + one.networkCost;
         for (CostEstimate costEstimate : more) {
-            v1 += costEstimate.cpuCost;
-            v2 += costEstimate.memoryCost;
-            v3 += costEstimate.networkCost;
+            cpuCostSum += costEstimate.cpuCost;
+            memoryCostSum += costEstimate.memoryCost;
+            networkCostSum += costEstimate.networkCost;
         }
-        return new CostEstimate(v1, v2, v3);
+        return new CostEstimate(cpuCostSum, memoryCostSum, networkCostSum);
     }
 }

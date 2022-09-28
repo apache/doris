@@ -73,6 +73,9 @@ public class JoinUtils {
             rightExprIds = right;
         }
 
+        /**
+         * PushDownExpressionInHashConjuncts ensure the "slots" is only one slot.
+         */
         boolean isCoveredByLeftSlots(ExprId slot) {
             return leftExprIds.contains(slot);
         }
