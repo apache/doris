@@ -26,6 +26,7 @@
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -100,6 +101,8 @@ public:
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     IOContext io_ctx;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    // runtime state
+    RuntimeState* runtime_state = nullptr;
 };
 
 class RowwiseIterator {

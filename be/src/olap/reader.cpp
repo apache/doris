@@ -521,6 +521,12 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
             _col_preds_except_leafnode_of_andnode.push_back(predicate);
         }
     }
+
+    if (read_params.reader_type == READER_QUERY) {
+        auto & runtime_predicate =
+            read_params.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+        runtime_predicate.set_tablet_schema(_tablet_schema);
+    }
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(

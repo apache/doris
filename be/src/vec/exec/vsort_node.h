@@ -76,6 +76,8 @@ private:
     std::unique_ptr<Sorter> _sorter;
 
     static constexpr size_t ACCUMULATED_PARTIAL_SORT_THRESHOLD = 256;
+
+    RuntimeState* _runtime_state = nullptr;
 };
 
 } // namespace doris::vectorized

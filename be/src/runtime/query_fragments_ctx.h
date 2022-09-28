@@ -28,6 +28,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_predicate.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -118,6 +119,8 @@ public:
         return _shared_hash_table_controller;
     }
 
+    vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
+
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -161,6 +164,8 @@ private:
     std::atomic<bool> _is_cancelled {false};
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+
+    vectorized::RuntimePredicate _runtime_predicate;
 };
 
 } // namespace doris

@@ -910,6 +910,16 @@ void SegmentIterator::_vec_init_lazy_materialization() {
         }
     }
 
+    // add runtime predicate to _col_predicates
+    if (_opts.runtime_state && _opts.runtime_state->get_query_fragments_ctx()) {
+        auto & runtime_predicate =
+            _opts.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+        _runtime_predicate = runtime_predicate.get_predictate();
+        if (_runtime_predicate) {
+            _col_predicates.push_back(_runtime_predicate.get());
+        }
+    }
+
     if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
         std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
         std::set<ColumnId> vec_pred_col_id_set;

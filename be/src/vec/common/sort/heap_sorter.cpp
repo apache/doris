@@ -141,6 +141,17 @@ Status HeapSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     return Status::OK();
 }
 
+Field HeapSorter::get_top_value() {
+    Field field;
+    // get field from first sort column of top row
+    if (_heap->size() >= _heap_size) {
+        auto & top = _heap->top();
+        top.sort_columns()[0]->get(top.row_id(), field);
+    }
+
+    return field;
+}
+
 void HeapSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows) {
     const auto& top_cursor = _heap->top();
     const int cursor_rid = top_cursor.row_id();

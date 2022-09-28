@@ -77,6 +77,10 @@ public:
 
     virtual size_t data_size() const = 0;
 
+    // for topn runtime predicate
+    const SortDescription& get_sort_description() { return _sort_description; }
+    virtual Field get_top_value() { return {}; }
+
 protected:
     Status partial_sort(Block& src_block, Block& dest_block);
 
