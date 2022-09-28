@@ -233,6 +233,7 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->impl()->set_constant_cols(constant_cols);
+    fn_ctx->impl()->_state = new RuntimeState(TQueryGlobals());
     func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
     func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL);
 
