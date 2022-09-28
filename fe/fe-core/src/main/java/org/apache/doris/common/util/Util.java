@@ -446,9 +446,7 @@ public class Util {
     }
 
     public static boolean showHiddenColumns() {
-        return ConnectContext.get() != null && (
-            ConnectContext.get().getSessionVariable().showHiddenColumns()
-            || ConnectContext.get().getSessionVariable().skipStorageEngineMerge());
+        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().showHiddenColumns();
     }
 
     public static String escapeSingleRegex(String s) {
