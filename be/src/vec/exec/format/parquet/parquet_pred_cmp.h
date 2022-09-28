@@ -17,13 +17,10 @@
 
 #pragma once
 
-#include <exprs/expr_context.h>
-#include <exprs/in_predicate.h>
-
 #include <cstring>
 #include <vector>
 
-#include "vparquet_group_reader.h"
+#include "exec/olap_common.h"
 
 namespace doris::vectorized {
 
@@ -79,8 +76,8 @@ namespace doris::vectorized {
         return true;                                                       \
     }
 
-bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
-                  const char* min_bytes, const char* max_bytes) {
+static bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values,
+                         const char* min_bytes, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _FILTER_GROUP_BY_IN(int8_t, in_pred_values, min_bytes, max_bytes)
@@ -125,33 +122,8 @@ bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred_values
     return false;
 }
 
-void ParquetReader::_eval_in_predicate(ExprContext* ctx, const char* min_bytes,
-                                       const char* max_bytes, bool& need_filter) {
-    Expr* conjunct = ctx->root();
-    std::vector<void*> in_pred_values;
-    const InPredicate* pred = static_cast<const InPredicate*>(conjunct);
-    HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
-    // TODO: process expr: in(func(123),123)
-    while (iter->has_next()) {
-        if (nullptr == iter->get_value()) {
-            return;
-        }
-        in_pred_values.emplace_back(const_cast<void*>(iter->get_value()));
-        iter->next();
-    }
-    auto conjunct_type = conjunct->get_child(1)->type().type;
-    switch (conjunct->op()) {
-    case TExprOpcode::FILTER_IN:
-        need_filter = _eval_in_val(conjunct_type, in_pred_values, min_bytes, max_bytes);
-        break;
-        //  case TExprOpcode::FILTER_NOT_IN:
-    default:
-        need_filter = false;
-    }
-}
-
-bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
-              const char* max_bytes) {
+static bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
+                     const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE(int16_t, value, min_bytes, max_bytes, conjunct_value, min, max)
@@ -200,7 +172,7 @@ bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_bytes,
     return false;
 }
 
-bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
+static bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, max_bytes, conjunct_value, max)
@@ -250,7 +222,7 @@ bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     return false;
 }
 
-bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
+static bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, max_bytes, conjunct_value, max)
@@ -300,7 +272,7 @@ bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_bytes) {
     return false;
 }
 
-bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
+static bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, min_bytes, conjunct_value, min)
@@ -350,7 +322,7 @@ bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     return false;
 }
 
-bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
+static bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     switch (conjunct_type) {
     case TYPE_TINYINT: {
         _PLAIN_DECODE_SINGLE(int8_t, value, min_bytes, conjunct_value, min)
@@ -400,96 +372,141 @@ bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_bytes) {
     return false;
 }
 
-void ParquetReader::_eval_binary_predicate(ExprContext* ctx, const char* min_bytes,
-                                           const char* max_bytes, bool& need_filter) {
-    Expr* conjunct = ctx->root();
-    Expr* expr = conjunct->get_child(1);
-    if (expr == nullptr) {
-        return;
-    }
-    // supported conjunct example: slot_ref < 123, slot_ref > func(123), ..
-    auto conjunct_type = expr->type().type;
-    void* conjunct_value = ctx->get_value(expr, nullptr);
-    switch (conjunct->op()) {
-    case TExprOpcode::EQ:
-        need_filter = _eval_eq(conjunct_type, conjunct_value, min_bytes, max_bytes);
-        break;
-    case TExprOpcode::NE:
-        break;
-    case TExprOpcode::GT:
-        need_filter = _eval_gt(conjunct_type, conjunct_value, max_bytes);
-        break;
-    case TExprOpcode::GE:
-        need_filter = _eval_ge(conjunct_type, conjunct_value, max_bytes);
-        break;
-    case TExprOpcode::LT:
-        need_filter = _eval_lt(conjunct_type, conjunct_value, min_bytes);
-        break;
-    case TExprOpcode::LE:
-        need_filter = _eval_le(conjunct_type, conjunct_value, min_bytes);
-        break;
-    default:
-        break;
-    }
-}
+struct ScanPredicate {
+    ScanPredicate() = default;
+    ~ScanPredicate() = default;
+    std::string _col_name;
+    TExprOpcode::type _op;
+    std::vector<void*> _values;
+    bool _null_op = false;
+    bool _is_null = false;
+    int _scale;
+};
 
-bool ParquetReader::_determine_filter_min_max(const std::vector<ExprContext*>& conjuncts,
-                                              const std::string& encoded_min,
-                                              const std::string& encoded_max) {
-    const char* min_bytes = encoded_min.data();
-    const char* max_bytes = encoded_max.data();
-    bool need_filter = false;
-    for (int i = 0; i < conjuncts.size(); i++) {
-        Expr* conjunct = conjuncts[i]->root();
-        if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
-            _eval_binary_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
-        } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
-            _eval_in_predicate(conjuncts[i], min_bytes, max_bytes, need_filter);
+template <PrimitiveType primitive_type>
+static void to_filter(const ColumnValueRange<primitive_type>& col_val_range,
+                      std::vector<ScanPredicate>& filters) {
+    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+    const auto& high_value = col_val_range.get_range_max_value();
+    const auto& low_value = col_val_range.get_range_min_value();
+    const auto& high_op = col_val_range.get_range_high_op();
+    const auto& low_op = col_val_range.get_range_low_op();
+
+    // todo: process equals
+    if (col_val_range.is_fixed_value_range()) {
+        // 1. convert to in filter condition
+        ScanPredicate condition;
+        condition._col_name = col_val_range.column_name();
+        condition._op = TExprOpcode::FILTER_NEW_IN;
+        condition._scale = col_val_range.scale();
+        if (col_val_range.get_fixed_value_set().empty()) {
+            return;
+        }
+        for (const auto& value : col_val_range.get_fixed_value_set()) {
+            condition._values.push_back(const_cast<CppType*>(&value));
+        }
+        filters.push_back(condition);
+    } else if (low_value < high_value) {
+        // 2. convert to min max filter condition
+        ScanPredicate null_pred;
+        if (col_val_range.is_high_value_maximum() && high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL &&
+            col_val_range.is_low_value_mininum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL &&
+            !col_val_range.contain_null()) {
+            null_pred._col_name = col_val_range.column_name();
+            null_pred._null_op = true;
+            null_pred._is_null = false;
+            filters.push_back(null_pred);
+            return;
+        }
+        ScanPredicate low;
+        if (!col_val_range.is_low_value_mininum() ||
+            SQLFilterOp::FILTER_LARGER_OR_EQUAL != low_op) {
+            low._col_name = col_val_range.column_name();
+            low._op = (low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL ? TExprOpcode::GE
+                                                                     : TExprOpcode::GT);
+            low._values.push_back(const_cast<CppType*>(&low_value));
+            low._scale = col_val_range.scale();
+            filters.push_back(low);
+        }
+
+        ScanPredicate high;
+        if (!col_val_range.is_high_value_maximum() ||
+            SQLFilterOp::FILTER_LESS_OR_EQUAL != high_op) {
+            high._col_name = col_val_range.column_name();
+            high._op = (high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL ? TExprOpcode::LE
+                                                                     : TExprOpcode::LT);
+            high._values.push_back(const_cast<CppType*>(&high_value));
+            high._scale = col_val_range.scale();
+            filters.push_back(high);
+        }
+    } else {
+        // 3. convert to is null and is not null filter condition
+        ScanPredicate null_pred;
+        if (col_val_range.is_low_value_maximum() && col_val_range.is_high_value_mininum() &&
+            col_val_range.contain_null()) {
+            null_pred._col_name = col_val_range.column_name();
+            null_pred._null_op = true;
+            null_pred._is_null = true;
+            filters.push_back(null_pred);
         }
     }
-    return need_filter;
 }
 
-void _eval_binary(Expr* conjunct, void* conjunct_value, const char* min_bytes,
-                  const char* max_bytes, bool& need_filter) {
-    // todo: use this instead of row group minmax filter
-    Expr* expr = conjunct->get_child(1);
-    if (expr == nullptr) {
+static void _eval_predicate(ScanPredicate filter, PrimitiveType col_type, const char* min_bytes,
+                            const char* max_bytes, bool& need_filter) {
+    if (filter._values.empty()) {
         return;
     }
-    auto conjunct_type = expr->type().type;
-    switch (conjunct->op()) {
+    if (filter._op == TExprOpcode::FILTER_NEW_IN) {
+        need_filter = _eval_in_val(col_type, filter._values, min_bytes, max_bytes);
+        return;
+    }
+    // preserve TExprOpcode::FILTER_NEW_NOT_IN
+    auto& value = filter._values[0];
+    switch (filter._op) {
     case TExprOpcode::EQ:
-        need_filter = _eval_eq(conjunct_type, conjunct_value, min_bytes, max_bytes);
+        need_filter = _eval_eq(col_type, value, min_bytes, max_bytes);
         break;
     case TExprOpcode::NE:
         break;
     case TExprOpcode::GT:
-        need_filter = _eval_gt(conjunct_type, conjunct_value, max_bytes);
+        need_filter = _eval_gt(col_type, value, max_bytes);
         break;
     case TExprOpcode::GE:
-        need_filter = _eval_ge(conjunct_type, conjunct_value, max_bytes);
+        need_filter = _eval_ge(col_type, value, max_bytes);
         break;
     case TExprOpcode::LT:
-        need_filter = _eval_lt(conjunct_type, conjunct_value, min_bytes);
+        need_filter = _eval_lt(col_type, value, min_bytes);
         break;
     case TExprOpcode::LE:
-        need_filter = _eval_le(conjunct_type, conjunct_value, min_bytes);
+        need_filter = _eval_le(col_type, value, min_bytes);
         break;
     default:
         break;
     }
 }
 
-bool PageIndex::_filter_page_by_min_max(ExprContext* conjunct_expr, const std::string& encoded_min,
-                                        const std::string& encoded_max) {
+static bool determine_filter_min_max(ColumnValueRangeType& col_val_range,
+                                     const std::string& encoded_min,
+                                     const std::string& encoded_max) {
     const char* min_bytes = encoded_min.data();
     const char* max_bytes = encoded_max.data();
     bool need_filter = false;
-    Expr* conjunct = conjunct_expr->root();
-    void* conjunct_value = conjunct_expr->get_value(conjunct->get_child(1), nullptr);
-    if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
-        _eval_binary(conjunct, conjunct_value, min_bytes, max_bytes, need_filter);
+    std::vector<ScanPredicate> filters;
+    PrimitiveType col_type;
+    std::visit(
+            [&](auto&& range) {
+                col_type = range.type();
+                to_filter(range, filters);
+            },
+            col_val_range);
+
+    for (int i = 0; i < filters.size(); i++) {
+        ScanPredicate filter = filters[i];
+        _eval_predicate(filter, col_type, min_bytes, max_bytes, need_filter);
+        if (need_filter) {
+            break;
+        }
     }
     return need_filter;
 }

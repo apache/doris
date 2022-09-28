@@ -194,7 +194,7 @@ protected:
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
     // column -> ColumnValueRange
-    std::map<std::string, ColumnValueRangeType> _colname_to_value_range;
+    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".

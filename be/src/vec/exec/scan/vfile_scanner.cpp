@@ -48,8 +48,11 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _profile(profile),
           _strict_mode(false) {}
 
-Status VFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
+Status VFileScanner::prepare(
+        VExprContext** vconjunct_ctx_ptr,
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    _colname_to_value_range = colname_to_value_range;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
     _cast_to_input_block_timer =
@@ -469,7 +472,8 @@ Status VFileScanner::_get_next_reader() {
                     new ParquetReader(_profile, file_reader.release(), _params, range,
                                       _file_col_names, _state->query_options().batch_size,
                                       const_cast<cctz::time_zone*>(&_state->timezone_obj())));
-            init_status = ((ParquetReader*)(_cur_reader.get()))->init_reader(_conjunct_ctxs);
+            init_status =
+                    ((ParquetReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
