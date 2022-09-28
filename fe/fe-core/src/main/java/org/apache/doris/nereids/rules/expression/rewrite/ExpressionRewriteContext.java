@@ -17,8 +17,15 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
+import org.apache.doris.qe.ConnectContext;
+
 /**
  * expression rewrite context.
  */
 public class ExpressionRewriteContext {
+    public final ConnectContext connectContext;
+
+    public ExpressionRewriteContext(ConnectContext connectContext) {
+        this.connectContext = connectContext;
+    }
 }

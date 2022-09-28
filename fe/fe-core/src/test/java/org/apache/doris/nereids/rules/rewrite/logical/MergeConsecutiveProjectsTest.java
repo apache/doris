@@ -89,7 +89,8 @@ public class MergeConsecutiveProjectsTest {
                 relation);
         LogicalProject project2 = new LogicalProject<>(
                 Lists.newArrayList(
-                        new Alias(new Add(aliasRef, new IntegerLiteral(2)), "Y")
+                        new Alias(new Add(aliasRef, new IntegerLiteral(2)), "Y"),
+                        aliasRef
                 ),
                 project1);
 
@@ -100,11 +101,12 @@ public class MergeConsecutiveProjectsTest {
         System.out.println(plan.treeString());
         Assertions.assertTrue(plan instanceof LogicalProject);
         LogicalProject finalProject = (LogicalProject) plan;
-        Add finalExpression = new Add(
+        Add aPlus1Plus2 = new Add(
                 new Add(colA, new IntegerLiteral(1)),
                 new IntegerLiteral(2)
         );
-        Assertions.assertEquals(1, finalProject.getProjects().size());
-        Assertions.assertEquals(((Alias) finalProject.getProjects().get(0)).child(), finalExpression);
+        Assertions.assertEquals(2, finalProject.getProjects().size());
+        Assertions.assertEquals(aPlus1Plus2, ((Alias) finalProject.getProjects().get(0)).child());
+        Assertions.assertEquals(alias, finalProject.getProjects().get(1));
     }
 }

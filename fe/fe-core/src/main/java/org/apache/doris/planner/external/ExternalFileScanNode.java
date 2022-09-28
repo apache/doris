@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -45,6 +46,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
@@ -72,16 +74,23 @@ public class ExternalFileScanNode extends ExternalScanNode {
         public List<Expr> conjuncts;
 
         public TupleDescriptor destTupleDescriptor;
-
+        public Map<String, SlotDescriptor> destSlotDescByName;
         // === Set when init ===
         public TupleDescriptor srcTupleDescriptor;
+        public Map<String, SlotDescriptor> srcSlotDescByName;
         public Map<String, Expr> exprMap;
-        public Map<String, SlotDescriptor> slotDescByName;
         public String timezone;
         // === Set when init ===
 
         public TFileScanRangeParams params;
 
+        public void createDestSlotMap() {
+            Preconditions.checkNotNull(destTupleDescriptor);
+            destSlotDescByName = Maps.newHashMap();
+            for (SlotDescriptor slot : destTupleDescriptor.getSlots()) {
+                destSlotDescByName.put(slot.getColumn().getName(), slot);
+            }
+        }
     }
 
     public enum Type {
@@ -169,7 +178,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 break;
             case LOAD:
                 for (FileGroupInfo fileGroupInfo : fileGroupInfos) {
-                    this.scanProviders.add(new LoadScanProvider(fileGroupInfo));
+                    this.scanProviders.add(new LoadScanProvider(fileGroupInfo, desc));
                 }
                 break;
             default:
@@ -186,6 +195,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     private void initParamCreateContexts(Analyzer analyzer) throws UserException {
         for (FileScanProviderIf scanProvider : scanProviders) {
             ParamCreateContext context = scanProvider.createContext(analyzer);
+            context.createDestSlotMap();
             // set where and preceding filter.
             // FIXME(cmy): we should support set different expr for different file group.
             initAndSetPrecedingFilter(context.fileGroup.getPrecedingFilterExpr(), context.srcTupleDescriptor, analyzer);
@@ -255,11 +265,63 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 contexts.size() + " vs. " + scanProviders.size());
         for (int i = 0; i < contexts.size(); ++i) {
             ParamCreateContext context = contexts.get(i);
-            finalizeParamsForLoad(context, analyzer);
             FileScanProviderIf scanProvider = scanProviders.get(i);
+            setDefaultValueExprs(scanProvider, context);
+            finalizeParamsForLoad(context, analyzer);
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
+        }
+    }
+
+    protected void setDefaultValueExprs(FileScanProviderIf scanProvider, ParamCreateContext context)
+            throws UserException {
+        TableIf tbl = scanProvider.getTargetTable();
+        Preconditions.checkNotNull(tbl);
+        TExpr tExpr = new TExpr();
+        tExpr.setNodes(Lists.newArrayList());
+
+        for (Column column : tbl.getBaseSchema()) {
+            Expr expr;
+            if (column.getDefaultValue() != null) {
+                if (column.getDefaultValueExprDef() != null) {
+                    expr = column.getDefaultValueExpr();
+                } else {
+                    expr = new StringLiteral(column.getDefaultValue());
+                }
+            } else {
+                if (column.isAllowNull()) {
+                    expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                } else {
+                    expr = null;
+                }
+            }
+            SlotDescriptor slotDesc = null;
+            switch (type) {
+                case LOAD: {
+                    slotDesc = context.srcSlotDescByName.get(column.getName());
+                    break;
+                }
+                case QUERY: {
+                    slotDesc = context.destSlotDescByName.get(column.getName());
+                    break;
+                }
+                default:
+                    Preconditions.checkState(false, type);
+            }
+            // if slot desc is null, which mean it is a unrelated slot, just skip.
+            // eg:
+            // (a, b, c) set (x=a, y=b, z=c)
+            // c does not exist in file, the z will be filled with null, even if z has default value.
+            // and if z is not nullable, the load will fail.
+            if (slotDesc != null) {
+                if (expr != null) {
+                    expr = castToSlot(slotDesc, expr);
+                    context.params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
+                } else {
+                    context.params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
+                }
+            }
         }
     }
 
@@ -268,7 +330,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
             context.params.setSrcTupleId(-1);
             return;
         }
-        Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
+        Map<String, SlotDescriptor> slotDescByName = context.srcSlotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
         TupleDescriptor srcTupleDesc = context.srcTupleDescriptor;
         boolean negative = context.fileGroup.isNegative();
@@ -425,4 +487,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
+
+
 

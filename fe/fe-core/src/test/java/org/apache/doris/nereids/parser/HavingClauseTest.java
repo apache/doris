@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
@@ -33,7 +34,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.PatternMatchSupported;
@@ -168,7 +171,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA2.toSlot(), new TinyIntLiteral((byte) 0))))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA2.toSlot(), Literal.of(0L))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
         NamedExpressionUtil.clear();
 
@@ -181,7 +184,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA2.toSlot(), new TinyIntLiteral((byte) 0))))));
+                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA2.toSlot(), Literal.of(0L))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
@@ -201,7 +204,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
+                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), Literal.of(0L))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
@@ -212,7 +215,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
+                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), Literal.of(0L))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
@@ -237,7 +240,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, minPK)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(minPK.toSlot(), new TinyIntLiteral((byte) 0))))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(minPK.toSlot(), Literal.of((byte) 0))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
         NamedExpressionUtil.clear();
 
@@ -250,11 +253,11 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA1A2.toSlot(), new TinyIntLiteral((byte) 0))))));
+                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA1A2.toSlot(), Literal.of(0L))))));
         NamedExpressionUtil.clear();
 
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0";
-        Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new TinyIntLiteral((byte) 3))),
+        Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new SmallIntLiteral((byte) 3))),
                 "sum(((a1 + a2) + 3))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
@@ -263,7 +266,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2, sumA1A23)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA1A23.toSlot(), new TinyIntLiteral((byte) 0))))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA1A23.toSlot(), Literal.of(0L))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA1A2.toSlot()))));
         NamedExpressionUtil.clear();
 
@@ -276,7 +279,7 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, countStar)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(countStar.toSlot(), new TinyIntLiteral((byte) 0))))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(countStar.toSlot(), Literal.of(0L))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
         NamedExpressionUtil.clear();
     }
@@ -310,7 +313,8 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                                     )
                                 )
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, sumB1)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(a1, sumB1.toSlot())))
+                        ).when(FieldChecker.check("predicates", new GreaterThan(new Cast(a1, BigIntType.INSTANCE),
+                                sumB1.toSlot())))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
         NamedExpressionUtil.clear();
     }
@@ -353,14 +357,14 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                 ImmutableList.of("default_cluster:test_having", "t1")
         );
         SlotReference a2 = new SlotReference(
-                new ExprId(3), "a1", TinyIntType.INSTANCE, true,
+                new ExprId(3), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_having", "t1")
         );
         Alias pk1 = new Alias(new ExprId(7), new Add(pk, Literal.of((byte) 1)), "(pk + 1)");
-        Alias pk11 = new Alias(new ExprId(8), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((byte) 1)), "((pk + 1) + 1)");
+        Alias pk11 = new Alias(new ExprId(8), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((short) 1)), "((pk + 1) + 1)");
         Alias pk2 = new Alias(new ExprId(9), new Add(pk, Literal.of((byte) 2)), "(pk + 2)");
         Alias sumA1 = new Alias(new ExprId(10), new Sum(a1), "SUM(a1)");
-        Alias countA11 = new Alias(new ExprId(11), new Add(new Count(a1, false), Literal.of((byte) 1)), "(COUNT(a1) + 1)");
+        Alias countA11 = new Alias(new ExprId(11), new Add(new Count(a1, false), Literal.of(1L)), "(COUNT(a1) + 1)");
         Alias sumA1A2 = new Alias(new ExprId(12), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
         Alias v1 = new Alias(new ExprId(0), new Count(a2, false), "v1");
         PlanChecker.from(connectContext).analyze(sql)
@@ -382,11 +386,11 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                                                 new And(
                                                         new And(
                                                                 new GreaterThan(pk.toSlot(), Literal.of((byte) 0)),
-                                                                new GreaterThan(countA11.toSlot(), Literal.of((byte) 0))),
-                                                        new GreaterThan(new Add(sumA1A2.toSlot(), Literal.of((byte) 1)), Literal.of((byte) 0))),
-                                                new GreaterThan(new Add(v1.toSlot(), Literal.of((byte) 1)), Literal.of((byte) 0))
+                                                                new GreaterThan(countA11.toSlot(), Literal.of(0L))),
+                                                        new GreaterThan(new Add(sumA1A2.toSlot(), Literal.of(1L)), Literal.of(0L))),
+                                                new GreaterThan(new Add(v1.toSlot(), Literal.of(1L)), Literal.of(0L))
                                         ),
-                                        new GreaterThan(v1.toSlot(), Literal.of((byte) 0))
+                                        new GreaterThan(v1.toSlot(), Literal.of(0L))
                                 )
                         ))
                     ).when(FieldChecker.check(

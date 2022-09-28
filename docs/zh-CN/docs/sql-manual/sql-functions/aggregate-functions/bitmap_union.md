@@ -56,7 +56,7 @@ ALTER TABLE pv_bitmap ADD ROLLUP pv (page, user_id);
 
 `BITMAP_EMPTY()`: 生成空 bitmap 列，用于 insert 或导入的时填充默认值
 
-`BITMAP_HASH(expr)`: 将任意类型的列通过 Hash 的方式转为 bitmap
+`BITMAP_HASH(expr)`或者`BITMAP_HASH64(expr)`: 将任意类型的列通过 Hash 的方式转为 bitmap
 
 ##### Stream Load
 

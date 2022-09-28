@@ -32,7 +32,7 @@ VExprContext::VExprContext(VExpr* expr)
           _stale(false) {}
 
 VExprContext::~VExprContext() {
-    DCHECK(!_prepared || _closed);
+    DCHECK(!_prepared || _closed) << get_stack_trace();
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         delete _fn_contexts[i];

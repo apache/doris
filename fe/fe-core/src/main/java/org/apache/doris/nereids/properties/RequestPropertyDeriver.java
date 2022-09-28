@@ -80,7 +80,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, PlanContext context) {
         // 1. first phase agg just return any
-        if (agg.getAggPhase().isLocal()) {
+        if (agg.getAggPhase().isLocal() && !agg.isFinalPhase()) {
             addToRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -27,7 +28,7 @@ import java.util.List;
 /**
  * Greater than and equal expression: a >= b.
  */
-public class GreaterThanEqual extends ComparisonPredicate {
+public class GreaterThanEqual extends ComparisonPredicate implements PropagateNullable {
     /**
      * Constructor of Greater Than And Equal.
      *

@@ -24,6 +24,7 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -43,19 +44,21 @@ import java.util.function.Predicate;
  * The column stats are mainly used to provide input for the Optimizer's cost model.
  * <p>
  * The description of column stats are following:
- * 1. @ndv: The number distinct values of column.
- * 2. @avgSize: The average size of column. The unit is bytes.
- * 3. @maxSize: The max size of column. The unit is bytes.
- * 4. @numNulls: The number of nulls.
- * 5. @minValue: The min value of column.
- * 6. @maxValue: The max value of column.
+ *   1. @ndv: The number distinct values of column.
+ *   2. @avgSize: The average size of column. The unit is bytes.
+ *   3. @maxSize: The max size of column. The unit is bytes.
+ *   4. @numNulls: The number of nulls.
+ *   5. @minValue: The min value of column.
+ *   6. @maxValue: The max value of column.
  * <p>
  * The granularity of the statistics is whole table.
  * For example:
- * "@ndv = 10" means that the number distinct values is 10 in the whole table.
+ * "@ndv = 10" means that the number distinct values is 10 in the whole table or partition.
+ * <p>
+ * After the statistics task is successfully completed, update the ColumnStats,
+ * ColumnStats should not be updated in any other way.
  */
 public class ColumnStats {
-
     public static final StatsType NDV = StatsType.NDV;
     public static final StatsType AVG_SIZE = StatsType.AVG_SIZE;
     public static final StatsType MAX_SIZE = StatsType.MAX_SIZE;
@@ -72,16 +75,94 @@ public class ColumnStats {
     private float avgSize = -1;  // in bytes
     private long maxSize = -1;  // in bytes
     private long numNulls = -1;
-    private LiteralExpr minValue;
-    private LiteralExpr maxValue;
 
-    public static ColumnStats createDefaultColumnStats() {
-        ColumnStats columnStats = new ColumnStats();
-        columnStats.setAvgSize(1);
-        columnStats.setMaxSize(1);
-        columnStats.setNdv(1);
-        columnStats.setNumNulls(0);
-        return columnStats;
+    private LiteralExpr minValue = new NullLiteral();
+    private LiteralExpr maxValue = new NullLiteral();
+
+    /**
+     * Return default column statistic.
+     */
+    public static ColumnStats getDefaultColumnStats() {
+        return new ColumnStats();
+    }
+
+    /**
+     * Merge column statistics(the original statistics should not be modified)
+     *
+     * @param left statistics to be merged
+     * @param right statistics to be merged
+     */
+    public static ColumnStats mergeColumnStats(ColumnStats left, ColumnStats right) {
+        // merge ndv
+        long leftNdv = left.getNdv();
+        long rightNdv = right.getNdv();
+
+        if (leftNdv == -1) {
+            leftNdv = rightNdv;
+        } else {
+            leftNdv = rightNdv != -1 ? (leftNdv + rightNdv) : leftNdv;
+        }
+
+        // merge avg_size
+        float leftAvgSize = left.getAvgSize();
+        float rightAvgSize = right.getAvgSize();
+        if (leftAvgSize == -1) {
+            leftAvgSize = rightAvgSize;
+        } else {
+            leftAvgSize = rightAvgSize != -1 ? ((leftAvgSize + rightAvgSize) / 2) : leftAvgSize;
+        }
+
+        // merge max_size
+        long leftMaxSize = left.getMaxSize();
+        long rightMaxSize = right.getMaxSize();
+        if (leftMaxSize == -1) {
+            leftMaxSize = rightMaxSize;
+        } else {
+            leftMaxSize = Math.max(leftMaxSize, rightMaxSize);
+        }
+
+        // merge num_nulls
+        long leftNumNulls = left.getNumNulls();
+        long rightNumNulls = right.getNumNulls();
+        if (leftNumNulls == -1) {
+            leftNumNulls = rightNumNulls;
+        } else {
+            leftNumNulls = rightNumNulls != -1 ? (leftNumNulls + rightNumNulls) : leftNumNulls;
+        }
+
+        // merge min_value
+        LiteralExpr leftMinValue = left.getMinValue();
+        LiteralExpr rightMinValue = right.getMinValue();
+        if (leftMinValue == null) {
+            leftMinValue = rightMinValue;
+        } else {
+            leftMinValue = leftMinValue.compareTo(rightMinValue) > 0 ? rightMinValue : leftMinValue;
+        }
+
+        // merge max_value
+        LiteralExpr leftMaxValue = left.getMaxValue();
+        LiteralExpr rightMaxValue = right.getMaxValue();
+        if (leftMaxValue == null) {
+            leftMaxValue = rightMaxValue;
+        } else {
+            leftMaxValue = leftMaxValue.compareTo(rightMaxValue) < 0 ? rightMaxValue : leftMaxValue;
+        }
+
+        // generate the new merged-statistics
+        return new ColumnStats(leftNdv, leftAvgSize, leftMaxSize, leftNumNulls, leftMinValue, leftMaxValue);
+    }
+
+    public ColumnStats() {
+    }
+
+    public ColumnStats(long ndv, float avgSize, long maxSize,
+            long numNulls, LiteralExpr minValue, LiteralExpr maxValue) {
+        this.ndv = ndv;
+        this.avgSize = avgSize;
+        this.maxSize = maxSize;
+        this.numNulls = numNulls;
+        this.minValue = minValue;
+        this.maxValue = maxValue;
     }
 
     public ColumnStats(ColumnStats other) {
@@ -89,15 +170,12 @@ public class ColumnStats {
         this.avgSize = other.avgSize;
         this.maxSize = other.maxSize;
         this.numNulls = other.numNulls;
-        if (other.minValue != null) {
+        if (other.minValue != null && !(other.minValue instanceof NullLiteral)) {
             this.minValue = (LiteralExpr) other.minValue.clone();
         }
-        if (other.maxValue != null) {
+        if (other.maxValue != null && !(other.minValue instanceof NullLiteral)) {
             this.maxValue = (LiteralExpr) other.maxValue.clone();
         }
-    }
-
-    public ColumnStats() {
     }
 
     public long getNdv() {
@@ -124,31 +202,35 @@ public class ColumnStats {
         return maxValue;
     }
 
-    public void setNdv(long ndv) {
-        this.ndv = ndv;
+    public List<String> getShowInfo() {
+        List<String> result = Lists.newArrayList();
+        result.add(Long.toString(ndv));
+        result.add(Float.toString(avgSize));
+        result.add(Long.toString(maxSize));
+        result.add(Long.toString(numNulls));
+        if (minValue != null) {
+            result.add(minValue.getStringValue());
+        } else {
+            result.add("N/A");
+        }
+        if (maxValue != null) {
+            result.add(maxValue.getStringValue());
+        } else {
+            result.add("N/A");
+        }
+        return result;
     }
 
-    public void setAvgSize(float avgSize) {
-        this.avgSize = avgSize;
+    public ColumnStats copy() {
+        return new ColumnStats(this);
     }
 
-    public void setMaxSize(long maxSize) {
-        this.maxSize = maxSize;
-    }
-
-    public void setNumNulls(long numNulls) {
-        this.numNulls = numNulls;
-    }
-
-    public void setMinValue(LiteralExpr minValue) {
-        this.minValue = minValue;
-    }
-
-    public void setMaxValue(LiteralExpr maxValue) {
-        this.maxValue = maxValue;
-    }
-
-    public void updateStats(Type columnType, Map<StatsType, String> statsTypeToValue) throws AnalysisException {
+    /**
+     * After the statistics task is successfully completed, update the statistics of the column,
+     * statistics should not be updated in any other way.
+     */
+    public void updateStats(Type columnType, Map<StatsType, String> statsTypeToValue)
+            throws AnalysisException {
         for (Map.Entry<StatsType, String> entry : statsTypeToValue.entrySet()) {
             StatsType statsType = entry.getKey();
             switch (statsType) {
@@ -180,23 +262,10 @@ public class ColumnStats {
         }
     }
 
-    public List<String> getShowInfo() {
-        List<String> result = Lists.newArrayList();
-        result.add(Long.toString(ndv));
-        result.add(Float.toString(avgSize));
-        result.add(Long.toString(maxSize));
-        result.add(Long.toString(numNulls));
-        if (minValue != null) {
-            result.add(minValue.getStringValue());
-        } else {
-            result.add("N/A");
-        }
-        if (maxValue != null) {
-            result.add(maxValue.getStringValue());
-        } else {
-            result.add("N/A");
-        }
-        return result;
+    // TODO: The generated statistics should not be modified
+    public void updateBySelectivity(double selectivity) {
+        ndv = (long) Math.ceil(ndv * selectivity);
+        numNulls = (long) Math.ceil(numNulls * selectivity);
     }
 
     private LiteralExpr validateColumnValue(Type type, String columnValue) throws AnalysisException {
@@ -247,15 +316,5 @@ public class ColumnStats {
             default:
                 throw new AnalysisException("Unsupported setting this type: " + type + " of min max value");
         }
-    }
-
-    public ColumnStats copy() {
-        return new ColumnStats(this);
-    }
-
-    public ColumnStats updateBySelectivity(double selectivity) {
-        ndv = (long) Math.ceil(ndv * selectivity);
-        numNulls = (long) Math.ceil(numNulls * selectivity);
-        return this;
     }
 }

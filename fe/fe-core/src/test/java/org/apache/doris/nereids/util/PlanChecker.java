@@ -318,6 +318,14 @@ public class PlanChecker {
         return this;
     }
 
+    /**
+     * Check nereids planner could plan the input SQL without any exception.
+     */
+    public PlanChecker checkPlannerResult(String sql) {
+        return checkPlannerResult(sql, planner -> {
+        });
+    }
+
     public static PlanChecker from(ConnectContext connectContext) {
         return new PlanChecker(connectContext);
     }

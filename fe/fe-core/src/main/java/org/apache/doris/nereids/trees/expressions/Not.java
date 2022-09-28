@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -34,7 +35,7 @@ import java.util.Objects;
 /**
  * Not expression: not a.
  */
-public class Not extends Expression implements UnaryExpression, ExpectsInputTypes {
+public class Not extends Expression implements UnaryExpression, ExpectsInputTypes, PropagateNullable {
 
     public static final List<AbstractDataType> EXPECTS_INPUT_TYPES = ImmutableList.of(BooleanType.INSTANCE);
 

@@ -53,7 +53,7 @@ public class FunctionRegistryTest implements PatternMatchSupported {
                         logicalOneRowRelation().when(r -> {
                             Year year = (Year) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("2021-01-01",
-                                    ((Literal) year.getArguments().get(0)).getValue());
+                                    ((Literal) year.getArguments().get(0).child(0)).getValue());
                             return true;
                         })
                 );
@@ -70,13 +70,13 @@ public class FunctionRegistryTest implements PatternMatchSupported {
                         logicalOneRowRelation().when(r -> {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition()).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) firstSubstring.getLength().get()).getValue());
+                            Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition().child(0)).getValue());
+                            Assertions.assertEquals((byte) 2, ((Literal) firstSubstring.getLength().get().child(0)).getValue());
 
                             Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
                             Assertions.assertTrue(secondSubstring.getSource() instanceof Substring);
-                            Assertions.assertEquals((byte) 1, ((Literal) secondSubstring.getPosition()).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) secondSubstring.getLength().get()).getValue());
+                            Assertions.assertEquals((byte) 1, ((Literal) secondSubstring.getPosition().child(0)).getValue());
+                            Assertions.assertEquals((byte) 2, ((Literal) secondSubstring.getLength().get().child(0)).getValue());
                             return true;
                         })
                 );
@@ -93,13 +93,13 @@ public class FunctionRegistryTest implements PatternMatchSupported {
                         logicalOneRowRelation().when(r -> {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition()).getValue());
-                            Assertions.assertFalse(firstSubstring.getLength().isPresent());
+                            Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition().child(0)).getValue());
+                            Assertions.assertTrue(firstSubstring.getLength().isPresent());
 
                             Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
                             Assertions.assertEquals("def", ((Literal) secondSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) secondSubstring.getPosition()).getValue());
-                            Assertions.assertEquals((byte) 3, ((Literal) secondSubstring.getLength().get()).getValue());
+                            Assertions.assertEquals((byte) 2, ((Literal) secondSubstring.getPosition().child(0)).getValue());
+                            Assertions.assertEquals((byte) 3, ((Literal) secondSubstring.getLength().get().child(0)).getValue());
                             return true;
                         })
                 );

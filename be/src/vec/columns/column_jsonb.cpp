@@ -368,7 +368,7 @@ void ColumnJsonb::reserve(size_t n) {
     chars.reserve(n);
 }
 
-MutableColumnPtr ColumnJsonb::get_shinked_column() {
+MutableColumnPtr ColumnJsonb::get_shrinked_column() {
     auto shrinked_column = ColumnJsonb::create();
     shrinked_column->get_offsets().reserve(offsets.size());
     shrinked_column->get_chars().reserve(chars.size());

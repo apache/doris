@@ -64,4 +64,5 @@ public class NullSafeEqual extends ComparisonPredicate {
     public ComparisonPredicate commute() {
         return new NullSafeEqual(right(), left());
     }
+
 }

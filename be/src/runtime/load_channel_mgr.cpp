@@ -69,8 +69,9 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mgr_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _load_process_soft_mem_limit =
-            load_mgr_mem_limit * config::load_process_soft_mem_limit_percent / 100;
+    _load_soft_mem_limit = load_mgr_mem_limit * config::load_process_soft_mem_limit_percent / 100;
+    _process_soft_mem_limit =
+            ExecEnv::GetInstance()->process_mem_tracker()->limit() * config::soft_mem_limit_frac;
     _mem_tracker = std::make_shared<MemTrackerLimiter>(load_mgr_mem_limit, "LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
@@ -109,15 +110,6 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 
     RETURN_IF_ERROR(channel->open(params));
     return Status::OK();
-}
-
-void LoadChannelMgr::_try_to_wait_flushing() {
-    std::unique_lock<std::mutex> l(_lock);
-    while (_should_wait_flush) {
-        LOG(INFO) << "Reached the load channel manager mem limit " << _mem_tracker->limit()
-                  << ", waiting for flush";
-        _wait_flush_cond.wait(l);
-    }
 }
 
 static void dummy_deleter(const CacheKey& key, void* value) {}

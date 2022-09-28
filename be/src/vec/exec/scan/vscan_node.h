@@ -37,6 +37,7 @@ public:
             : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
     friend class VScanner;
     friend class NewOlapScanner;
+    friend class VFileScanner;
     friend class ScannerContext;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
