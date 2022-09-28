@@ -67,8 +67,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalProject",
-                "projects", projects,
-                "level", statsDeriveResult.level
+                "projects", projects
         );
     }
 
