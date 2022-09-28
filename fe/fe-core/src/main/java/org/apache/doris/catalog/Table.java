@@ -59,6 +59,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public volatile boolean isDropped = false;
 
+    private boolean hasCompoundKey = false;
     protected long id;
     protected volatile String name;
     protected volatile String qualifiedDbName;
@@ -392,15 +393,21 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
         this.id = in.readLong();
         this.name = Text.readString(in);
-
+        List<Column> keys = Lists.newArrayList();
         // base schema
         int columnCount = in.readInt();
         for (int i = 0; i < columnCount; i++) {
             Column column = Column.read(in);
+            if (column.isKey()) {
+                keys.add(column);
+            }
             this.fullSchema.add(column);
             this.nameToColumn.put(column.getName(), column);
         }
-
+        if (keys.size() > 1) {
+            keys.forEach(key -> key.setCompoundKey(true));
+            hasCompoundKey = true;
+        }
         comment = Text.readString(in);
 
         // read create time
@@ -481,5 +488,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         }
 
         return true;
+    }
+
+    public boolean isHasCompoundKey() {
+        return hasCompoundKey;
     }
 }
