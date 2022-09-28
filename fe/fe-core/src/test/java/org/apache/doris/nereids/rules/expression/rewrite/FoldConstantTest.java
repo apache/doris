@@ -171,9 +171,9 @@ public class FoldConstantTest {
     @Test
     public void testArithmeticFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE, FoldConstantRuleOnFE.INSTANCE));
-        assertRewrite("1 + 1", Literal.of((byte) 2));
+        assertRewrite("1 + 1", Literal.of((short) 2));
         assertRewrite("1 - 1", Literal.of((byte) 0));
-        assertRewrite("100 + 100", Literal.of((byte) 200));
+        assertRewrite("100 + 100", Literal.of((short) 200));
         assertRewrite("1 - 2", Literal.of((byte) -1));
 
         assertRewrite("1 - 2 > 1", "false");
@@ -284,9 +284,9 @@ public class FoldConstantTest {
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = PARSER.parseExpression(expression);
-        needRewriteExpression = replaceUnboundSlot(needRewriteExpression, mem);
+        needRewriteExpression = typeCoercion(replaceUnboundSlot(needRewriteExpression, mem));
         Expression expectedExpression = PARSER.parseExpression(expected);
-        expectedExpression = replaceUnboundSlot(expectedExpression, mem);
+        expectedExpression = typeCoercion(replaceUnboundSlot(expectedExpression, mem));
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
@@ -318,6 +318,10 @@ public class FoldConstantTest {
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
+    }
+
+    private Expression typeCoercion(Expression expression) {
+        return TypeCoercion.INSTANCE.visit(expression, null);
     }
 
     private DataType getType(char t) {
