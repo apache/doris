@@ -301,6 +301,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("month", new Integer(SqlParserSymbols.KW_MONTH));
         keywordMap.put("name", new Integer(SqlParserSymbols.KW_NAME));
         keywordMap.put("names", new Integer(SqlParserSymbols.KW_NAMES));
+        keywordMap.put("natural", new Integer(SqlParserSymbols.KW_NATURAL));
         keywordMap.put("negative", new Integer(SqlParserSymbols.KW_NEGATIVE));
         keywordMap.put("never", new Integer(SqlParserSymbols.KW_NEVER));
         keywordMap.put("next", new Integer(SqlParserSymbols.KW_NEXT));
