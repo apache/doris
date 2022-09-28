@@ -24,7 +24,6 @@
 #include <string_view>
 
 #include "runtime/string_search.hpp"
-#include "util/encryption_util.h"
 #include "util/url_coding.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/functions/function_reverse.h"
@@ -49,8 +48,7 @@ struct StringASCII {
         res.resize(size);
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            // if strlen(raw_str) == 0, raw_str[0] is '\0'
-            res[i] = (strlen(raw_str) == 0) ? 0 : static_cast<uint8_t>(raw_str[0]);
+            res[i] = (offsets[i] == offsets[i - 1]) ? 0 : static_cast<uint8_t>(raw_str[0]);
         }
         return Status::OK();
     }
@@ -71,7 +69,7 @@ struct StringLengthImpl {
         auto size = offsets.size();
         res.resize(size);
         for (int i = 0; i < size; ++i) {
-            int str_size = offsets[i] - offsets[i - 1] - 1;
+            int str_size = offsets[i] - offsets[i - 1];
             res[i] = str_size;
         }
         return Status::OK();
@@ -94,8 +92,8 @@ struct StringUtf8LengthImpl {
         res.resize(size);
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1] - 1;
-            res[i] = get_char_len(StringValue(const_cast<char*>(raw_str), str_size), str_size);
+            int str_size = offsets[i] - offsets[i - 1];
+            res[i] = get_char_len(StringValue(raw_str, str_size), str_size);
         }
         return Status::OK();
     }
@@ -153,7 +151,7 @@ struct FindInSetOp {
         do {
             end = start;
             // Position end.
-            while (strr[end] != ',' && end < strr.length()) {
+            while (end < strr.length() && strr[end] != ',') {
                 ++end;
             }
 
@@ -188,8 +186,8 @@ struct InStrOP {
             return;
         }
 
-        StringValue str_sv(const_cast<char*>(strl.data()), strl.length());
-        StringValue substr_sv(const_cast<char*>(strr.data()), strr.length());
+        StringValue str_sv(strl.data(), strl.length());
+        StringValue substr_sv(strr.data(), strr.length());
         StringSearch search(&substr_sv);
         // Hive returns positions starting from 1.
         int loc = search.search(&str_sv);
@@ -224,10 +222,10 @@ struct StringFunctionImpl {
         res.resize(size);
         for (int i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            int l_str_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_str_size = loffsets[i] - loffsets[i - 1];
 
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-            int r_str_size = roffsets[i] - roffsets[i - 1] - 1;
+            int r_str_size = roffsets[i] - roffsets[i - 1];
 
             std::string_view lview(l_raw_str, l_str_size);
             std::string_view rview(r_raw_str, r_str_size);
@@ -288,7 +286,8 @@ struct TrimImpl {
 
         for (size_t i = 0; i < offset_size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            StringVal str(raw_str);
+            ColumnString::Offset size = offsets[i] - offsets[i - 1];
+            StringVal str(raw_str, size);
             if constexpr (is_ltrim) {
                 str = simd::VStringFunctions::ltrim(str);
             }
@@ -367,9 +366,9 @@ struct UnHexImpl {
             }
 
             auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
+            size_t srclen = offsets[i] - offsets[i - 1];
 
-            if (*source == '\0' && srclen == 0) {
+            if (srclen == 0) {
                 StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
@@ -438,9 +437,9 @@ struct ToBase64Impl {
             }
 
             auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
+            size_t srclen = offsets[i] - offsets[i - 1];
 
-            if (*source == '\0' && srclen == 0) {
+            if (srclen == 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
                 continue;
             }
@@ -478,9 +477,9 @@ struct FromBase64Impl {
             }
 
             auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
+            size_t srclen = offsets[i] - offsets[i - 1];
 
-            if (*source == '\0' && srclen == 0) {
+            if (srclen == 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
                 continue;
             }
@@ -518,10 +517,10 @@ struct StringAppendTrailingCharIfAbsent {
         for (size_t i = 0; i < input_rows_count; ++i) {
             buffer.clear();
 
-            int l_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_size = loffsets[i] - loffsets[i - 1];
             const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
-            int r_size = roffsets[i] - roffsets[i - 1] - 1;
+            int r_size = roffsets[i] - roffsets[i - 1];
             const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
             if (r_size != 1) {

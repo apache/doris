@@ -26,6 +26,7 @@
 #include "util/bitmap.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
@@ -324,6 +325,25 @@ Status RowBlockV2::_copy_data_to_column(int cid,
         auto column_decimal =
                 assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
         insert_data_directly(cid, column_decimal);
+        break;
+    }
+    case OLAP_FIELD_TYPE_JSONB: {
+        auto json_string = assert_cast<vectorized::ColumnJsonb*>(column);
+        size_t limit = config::jsonb_type_length_soft_limit_bytes;
+        for (uint16_t j = 0; j < _selected_size; ++j) {
+            if (!nullable_mark_array[j]) {
+                uint16_t row_idx = _selection_vector[j];
+                auto slice = reinterpret_cast<const Slice*>(column_block(cid).cell_ptr(row_idx));
+                if (LIKELY(slice->size <= limit)) {
+                    json_string->insert_data(slice->data, slice->size);
+                } else {
+                    return Status::NotSupported(
+                            fmt::format("Not support json len over than {} in vec engine.", limit));
+                }
+            } else {
+                json_string->insert_default();
+            }
+        }
         break;
     }
     case OLAP_FIELD_TYPE_ARRAY: {

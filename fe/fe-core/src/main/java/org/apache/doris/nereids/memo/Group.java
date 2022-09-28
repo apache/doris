@@ -182,7 +182,7 @@ public class Group {
      */
     public void setBestPlan(GroupExpression expression, double cost, PhysicalProperties properties) {
         if (lowestCostPlans.containsKey(properties)) {
-            if (lowestCostPlans.get(properties).first > cost) {
+            if (lowestCostPlans.get(properties).first >= cost) {
                 lowestCostPlans.put(properties, Pair.of(cost, expression));
             }
         } else {
@@ -197,10 +197,14 @@ public class Group {
         return null;
     }
 
+    /**
+     * replace best plan with new properties
+     */
     public void replaceBestPlan(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
         Pair<Double, GroupExpression> pair = lowestCostPlans.get(oldProperty);
         GroupExpression lowestGroupExpr = pair.second;
-        lowestGroupExpr.updateLowestCostTable(newProperty, lowestGroupExpr.getInputPropertiesList(oldProperty), cost);
+        lowestGroupExpr.updateLowestCostTable(newProperty,
+                lowestGroupExpr.getInputPropertiesList(oldProperty), cost);
         lowestCostPlans.remove(oldProperty);
         lowestCostPlans.put(newProperty, pair);
     }

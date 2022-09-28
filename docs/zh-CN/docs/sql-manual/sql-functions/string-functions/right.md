@@ -44,4 +44,4 @@ mysql> select right("Hello doris",5);
 +-------------------------+
 ```
 ### keywords
-RIGHT
+    RIGHT

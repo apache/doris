@@ -28,7 +28,8 @@
 namespace doris::vectorized {
 
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
-void sort_block(Block& block, const SortDescription& description, UInt64 limit = 0);
+void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
+                UInt64 limit = 0);
 
 /** Used only in StorageMergeTree to sort the data with INSERT.
   * Sorting is stable. This is important for keeping the order of rows in the CollapsingMergeTree engine
@@ -77,7 +78,7 @@ struct EqualRangeIterator {
         // should continue to sort this row according to current column. Using the first non-zero
         // value and first zero value after first non-zero value as two bounds, we can get an equal range here
         if (!(_cur_range_begin == 0) || !(_flags[_cur_range_begin] == 1)) {
-            _cur_range_begin = simd::find_nonzero(_flags, _cur_range_begin + 1);
+            _cur_range_begin = simd::find_one(_flags, _cur_range_begin + 1);
             if (_cur_range_begin >= _end) {
                 return false;
             }

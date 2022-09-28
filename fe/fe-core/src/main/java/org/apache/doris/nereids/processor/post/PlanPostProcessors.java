@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Objects;
@@ -37,14 +38,22 @@ public class PlanPostProcessors {
 
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
         PhysicalPlan resultPlan = physicalPlan;
-        for (PlanPostprocessor processor : getProcessors()) {
+        for (PlanPostProcessor processor : getProcessors()) {
             resultPlan = (PhysicalPlan) physicalPlan.accept(processor, cascadesContext);
         }
         return resultPlan;
     }
 
-    public List<PlanPostprocessor> getProcessors() {
+    /**
+     * get processors
+     */
+    public List<PlanPostProcessor> getProcessors() {
         // add processor if we need
-        return ImmutableList.of();
+        Builder<PlanPostProcessor> builder = ImmutableList.builder();
+        if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()) {
+            builder.add(new RuntimeFilterGenerator());
+            builder.add(new Validator());
+        }
+        return builder.build();
     }
 }

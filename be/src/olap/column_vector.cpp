@@ -133,6 +133,10 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_STRING>::CppType>(
                     type_info, is_nullable));
             break;
+        case OLAP_FIELD_TYPE_JSONB:
+            local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_JSONB>::CppType>(
+                    type_info, is_nullable));
+            break;
         case OLAP_FIELD_TYPE_HLL:
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_HLL>::CppType>(
                     type_info, is_nullable));
@@ -222,6 +226,16 @@ Status ArrayColumnVectorBatch::resize(size_t new_cap) {
         _offsets->resize(new_cap + 1);
     }
     return Status::OK();
+}
+
+void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx,
+                                              size_t size) {
+    DCHECK(size > 0);
+    size_t first_offset = *(_offsets->scalar_cell_ptr(start_idx));
+    for (size_t i = 1; i < size; ++i) {
+        segment_v2::ordinal_t first_ordinal = ordinals[0];
+        *(_offsets->scalar_cell_ptr(start_idx + i)) = first_offset + (ordinals[i] - first_ordinal);
+    }
 }
 
 void ArrayColumnVectorBatch::get_offset_by_length(size_t start_idx, size_t size) {

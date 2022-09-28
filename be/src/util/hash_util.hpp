@@ -33,6 +33,7 @@
 #elif __aarch64__
 #include <sse2neon.h>
 #endif
+#include <xxh3.h>
 #include <zlib.h>
 
 #include "gen_cpp/Types_types.h"
@@ -131,60 +132,11 @@ public:
     // refer to https://github.com/apache/commons-codec/blob/master/src/main/java/org/apache/commons/codec/digest/MurmurHash3.java
     static const uint32_t MURMUR3_32_SEED = 104729;
 
-    ALWAYS_INLINE static uint32_t rotl32(uint32_t x, int8_t r) {
-        return (x << r) | (x >> (32 - r));
-    }
-
-    ALWAYS_INLINE static uint32_t fmix32(uint32_t h) {
-        h ^= h >> 16;
-        h *= 0x85ebca6b;
-        h ^= h >> 13;
-        h *= 0xc2b2ae35;
-        h ^= h >> 16;
-        return h;
-    }
-
     // modify from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
     static uint32_t murmur_hash3_32(const void* key, int32_t len, uint32_t seed) {
-        const uint8_t* data = (const uint8_t*)key;
-        const int nblocks = len / 4;
-
-        uint32_t h1 = seed;
-
-        const uint32_t c1 = 0xcc9e2d51;
-        const uint32_t c2 = 0x1b873593;
-        const uint32_t* blocks = (const uint32_t*)(data + nblocks * 4);
-
-        for (int i = -nblocks; i; i++) {
-            uint32_t k1 = blocks[i];
-
-            k1 *= c1;
-            k1 = rotl32(k1, 15);
-            k1 *= c2;
-
-            h1 ^= k1;
-            h1 = rotl32(h1, 13);
-            h1 = h1 * 5 + 0xe6546b64;
-        }
-
-        const uint8_t* tail = (const uint8_t*)(data + nblocks * 4);
-        uint32_t k1 = 0;
-        switch (len & 3) {
-        case 3:
-            k1 ^= tail[2] << 16;
-        case 2:
-            k1 ^= tail[1] << 8;
-        case 1:
-            k1 ^= tail[0];
-            k1 *= c1;
-            k1 = rotl32(k1, 15);
-            k1 *= c2;
-            h1 ^= k1;
-        };
-
-        h1 ^= len;
-        h1 = fmix32(h1);
-        return h1;
+        uint32_t out = 0;
+        murmur_hash3_x86_32(key, len, seed, &out);
+        return out;
     }
 
     static const int MURMUR_R = 47;
@@ -362,6 +314,18 @@ public:
     static inline void hash_combine(std::size_t& seed, const T& v) {
         std::hash<T> hasher;
         seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+
+    // xxHash function for a byte array.  For convenience, a 64-bit seed is also
+    // hashed into the result.  The mapping may change from time to time.
+    static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
+        return XXH3_64bits_withSeed(s, len, seed);
+    }
+
+    // same to the up function, just for null value
+    static xxh_u64 xxHash64NullWithSeed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
     }
 };
 

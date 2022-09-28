@@ -35,10 +35,12 @@ class ConfigOptions {
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
+    static Option metaServiceHttpAddressOpt
     static Option pathOpt
     static Option dataOpt
     static Option realDataOpt
     static Option sf1DataOpt
+    static Option cacheDataOpt
     static Option pluginOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
@@ -138,6 +140,15 @@ class ConfigOptions {
                 .longOpt("sf1DataPath")
                 .desc("the sf1 data path contains data file for ssb_sf1, tpcds_sf1 and tpch_sf1 cases")
                 .build()
+        cacheDataOpt = Option.builder("CD")
+                .argName("cacheDataPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("cacheDataPath")
+                .desc("the cache data path caches data for stream load from s3")
+                .build()
+
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
                 .required(false)
@@ -223,6 +234,14 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("feHttpPassword")
                 .desc("the password of fe http server")
+                .build()
+        metaServiceHttpAddressOpt = Option.builder("hm")
+                .argName("address")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("metaServiceHttpAddress")
+                .desc("the meta service http address, format is ip:port")
                 .build()
         genOutOpt = Option.builder("genOut")
                 .required(false)
@@ -316,6 +335,7 @@ class ConfigOptions {
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)
+                .addOption(metaServiceHttpAddressOpt)
                 .addOption(genOutOpt)
                 .addOption(confFileOpt)
                 .addOption(forceGenOutOpt)

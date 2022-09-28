@@ -37,10 +37,13 @@
 namespace doris {
 
 // Broker
-ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
-                                     int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                     int64_t range_size, bool case_sensitive)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, case_sensitive),
+ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,
+                                     const std::vector<SlotDescriptor*>& file_slot_descs,
+                                     FileReader* file_reader, int32_t num_of_columns_from_file,
+                                     int64_t range_start_offset, int64_t range_size,
+                                     bool case_sensitive)
+        : ArrowReaderWrap(state, file_slot_descs, file_reader, num_of_columns_from_file,
+                          case_sensitive),
           _rows_of_group(0),
           _current_line_of_group(0),
           _current_line_of_batch(0),
@@ -48,7 +51,6 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size
           _range_size(range_size) {}
 
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
-                                      const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                       const std::vector<ExprContext*>& conjunct_ctxs,
                                       const std::string& timezone) {
     try {
@@ -97,7 +99,7 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 
         _timezone = timezone;
 
-        RETURN_IF_ERROR(column_indices(tuple_slot_descs));
+        RETURN_IF_ERROR(column_indices());
         if (config::parquet_predicate_push_down) {
             int64_t file_size = 0;
             size(&file_size);
@@ -238,8 +240,7 @@ Status ParquetReaderWrap::init_parquet_type() {
     return Status::OK();
 }
 
-Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                               MemPool* mem_pool, bool* eof) {
+Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
     if (_batch == nullptr) {
         _current_line_of_group += _rows_of_group;
         return read_record_batch(eof);
@@ -251,7 +252,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     try {
         size_t slots = _include_column_ids.size();
         for (size_t i = 0; i < slots; ++i) {
-            auto slot_desc = tuple_slot_descs[i];
+            auto slot_desc = _file_slot_descs[i];
             column_index = i; // column index in batch record
             switch (_parquet_column_type[i]) {
             case arrow::Type::type::STRING: {

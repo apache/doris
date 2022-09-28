@@ -53,7 +53,7 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 

@@ -32,7 +32,6 @@
 #include "runtime/descriptors.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/core/block_info.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/names.h"
@@ -71,8 +70,6 @@ private:
     mutable int64_t _compress_time_ns = 0;
 
 public:
-    BlockInfo info;
-
     Block() = default;
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);
@@ -273,13 +270,6 @@ public:
     // serialize block to PBlock
     Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
                      segment_v2::CompressionTypePB compression_type,
-                     bool allow_transfer_large_data = false) const;
-
-    // serialize block to PBlock
-    // compressed_buffer reuse to avoid frequent allocation and deallocation,
-    // NOTE: compressed_buffer's data may be swapped with pblock->mutable_column_values
-    Status serialize(PBlock* pblock, std::string* compressed_buffer, size_t* uncompressed_bytes,
-                     size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
     // serialize block to PRowbatch

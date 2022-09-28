@@ -25,6 +25,14 @@ suite("view") {
     """
 
     sql """
+        SET enable_nereids_planner=true
+    """
+
+    sql """
+        SET enable_bucket_shuffle_join=false
+    """
+
+    sql """
         create view if not exists v1 as 
         select * 
         from customer
@@ -43,8 +51,10 @@ suite("view") {
             select *
             from v2
             ) t 
-        on v1.c_custkey = t.lo_custkey;
+        on v1.c_custkey = t.lo_custkey
     """
+
+    sql "SET enable_fallback_to_original_planner=false"
 
     qt_select_1 """
         select * 

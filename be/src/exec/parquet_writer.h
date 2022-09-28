@@ -22,6 +22,7 @@
 #include <arrow/io/api.h>
 #include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/reader.h>
@@ -63,14 +64,42 @@ private:
     int64_t _written_len = 0;
 };
 
+class ParquetBuildHelper {
+public:
+    static void build_schema_repetition_type(
+            parquet::Repetition::type& parquet_repetition_type,
+            const TParquetRepetitionType::type& column_repetition_type);
+
+    static void build_schema_data_type(parquet::Type::type& parquet_data_type,
+                                       const TParquetDataType::type& column_data_type);
+
+    static void build_compression_type(parquet::WriterProperties::Builder& builder,
+                                       const TParquetCompressionType::type& compression_type);
+
+    static void build_version(parquet::WriterProperties::Builder& builder,
+                              const TParquetVersion::type& parquet_version);
+};
+
 // a wrapper of parquet output stream
 class ParquetWriterWrapper {
 public:
+    //TODO: in order to consider the compatibility when upgrading, could remove this code after 1.2
     ParquetWriterWrapper(FileWriter* file_writer, const std::vector<ExprContext*>& output_expr_ctxs,
                          const std::map<std::string, std::string>& properties,
                          const std::vector<std::vector<std::string>>& schema,
                          bool output_object_data);
-    virtual ~ParquetWriterWrapper();
+    void parse_properties(const std::map<std::string, std::string>& propertie_map);
+
+    Status parse_schema(const std::vector<std::vector<std::string>>& schema);
+
+    ParquetWriterWrapper(doris::FileWriter* file_writer,
+                         const std::vector<ExprContext*>& output_vexpr_ctxs,
+                         const std::vector<TParquetSchema>& parquet_schemas,
+                         const TParquetCompressionType::type& compression_type,
+                         const bool& parquet_disable_dictionary,
+                         const TParquetVersion::type& parquet_version, bool output_object_data);
+
+    ~ParquetWriterWrapper() = default;
 
     Status write(const RowBatch& row_batch);
 
@@ -80,15 +109,20 @@ public:
 
     void close();
 
-    void parse_properties(const std::map<std::string, std::string>& propertie_map);
+    void parse_schema(const std::vector<TParquetSchema>& parquet_schemas);
 
-    Status parse_schema(const std::vector<std::vector<std::string>>& schema);
+    void parse_properties(const TParquetCompressionType::type& compression_type,
+                          const bool& parquet_disable_dictionary,
+                          const TParquetVersion::type& parquet_version);
 
     parquet::RowGroupWriter* get_rg_writer();
 
     int64_t written_len();
 
 private:
+    template <typename T>
+    void write_int32_column(int index, T* item);
+
     std::shared_ptr<ParquetOutputStream> _outstream;
     std::shared_ptr<parquet::WriterProperties> _properties;
     std::shared_ptr<parquet::schema::GroupNode> _schema;

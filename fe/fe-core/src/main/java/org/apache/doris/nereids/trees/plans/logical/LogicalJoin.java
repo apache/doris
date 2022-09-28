@@ -211,7 +211,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         Builder<Expression> builder = new Builder<Expression>()
                 .addAll(hashJoinConjuncts);
         otherJoinCondition.ifPresent(builder::add);
@@ -249,5 +249,16 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public RIGHT_CHILD_TYPE right() {
         return (RIGHT_CHILD_TYPE) child(1);
+    }
+
+    public LogicalJoin withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
+        return new LogicalJoin<>(
+                joinType, hashJoinConjuncts, this.otherJoinCondition, left(), right(), joinReorderContext);
+    }
+
+    public LogicalJoin withhashJoinConjunctsAndChildren(List<Expression> hashJoinConjuncts, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinCondition, children.get(0), children.get(1),
+                joinReorderContext);
     }
 }

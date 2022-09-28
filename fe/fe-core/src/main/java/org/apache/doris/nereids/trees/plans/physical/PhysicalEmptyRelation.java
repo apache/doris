@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
 
@@ -41,15 +42,17 @@ import java.util.Optional;
  * select * from tbl limit 0
  */
 public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation {
-    private final List<NamedExpression> projects;
+    private final List<? extends NamedExpression> projects;
 
-    public PhysicalEmptyRelation(List<NamedExpression> projects, LogicalProperties logicalProperties) {
-        this(projects, Optional.empty(), logicalProperties, null);
+    public PhysicalEmptyRelation(List<? extends NamedExpression> projects, LogicalProperties logicalProperties) {
+        this(projects, Optional.empty(), logicalProperties, null, null);
     }
 
-    public PhysicalEmptyRelation(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties) {
-        super(PlanType.PHYSICAL_EMPTY_RELATION, groupExpression, logicalProperties, physicalProperties);
+    public PhysicalEmptyRelation(List<? extends NamedExpression> projects, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult) {
+        super(PlanType.PHYSICAL_EMPTY_RELATION, groupExpression, logicalProperties, physicalProperties,
+                statsDeriveResult);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
@@ -59,20 +62,20 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalEmptyRelation(projects, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties);
+                logicalPropertiesSupplier.get(), physicalProperties, statsDeriveResult);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalEmptyRelation(projects, Optional.empty(),
-                logicalProperties.get(), physicalProperties);
+                logicalProperties.get(), physicalProperties, statsDeriveResult);
     }
 
     @Override
@@ -110,13 +113,14 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     }
 
     @Override
-    public List<NamedExpression> getProjects() {
+    public List<? extends NamedExpression> getProjects() {
         return projects;
     }
 
     @Override
-    public PhysicalPlan withPhysicalProperties(PhysicalProperties physicalProperties) {
+    public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult) {
         return new PhysicalEmptyRelation(projects, Optional.empty(),
-                logicalPropertiesSupplier.get(), physicalProperties);
+                logicalPropertiesSupplier.get(), physicalProperties, statsDeriveResult);
     }
 }

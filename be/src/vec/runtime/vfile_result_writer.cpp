@@ -54,7 +54,8 @@ VFileResultWriter::VFileResultWriter(
           _parent_profile(parent_profile),
           _sinker(sinker),
           _output_block(output_block),
-          _output_row_descriptor(output_row_descriptor) {
+          _output_row_descriptor(output_row_descriptor),
+          _vparquet_writer(nullptr) {
     _output_object_data = output_object_data;
 }
 
@@ -117,7 +118,11 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         // just use file writer is enough
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        return Status::NotSupported("Parquet Writer is not supported yet!");
+        _vparquet_writer.reset(new VParquetWriterWrapper(
+                _file_writer_impl.get(), _output_vexpr_ctxs, _file_opts->parquet_schemas,
+                _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
+                _file_opts->parquet_version, _output_object_data));
+        RETURN_IF_ERROR(_vparquet_writer->init_parquet_writer());
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -183,23 +188,29 @@ Status VFileResultWriter::append_block(Block& block) {
     }
     RETURN_IF_ERROR(write_csv_header());
     SCOPED_TIMER(_append_row_batch_timer);
-    if (_parquet_writer != nullptr) {
-        return Status::NotSupported("Parquet Writer is not supported yet!");
+    Status status = Status::OK();
+    // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
+    // failed, just return the error status
+    auto output_block =
+            VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block, status);
+    auto num_rows = output_block.rows();
+    if (UNLIKELY(num_rows == 0)) {
+        return status;
+    }
+    if (_vparquet_writer) {
+        _write_parquet_file(output_block);
     } else {
-        Status status = Status::OK();
-        // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
-        // failed, just return the error status
-        auto output_block = VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
-                                                                               block, status);
-        auto num_rows = output_block.rows();
-        if (UNLIKELY(num_rows == 0)) {
-            return status;
-        }
         RETURN_IF_ERROR(_write_csv_file(output_block));
     }
 
     _written_rows += block.rows();
     return Status::OK();
+}
+
+Status VFileResultWriter::_write_parquet_file(const Block& block) {
+    RETURN_IF_ERROR(_vparquet_writer->write(block));
+    // split file if exceed limit
+    return _create_new_file_if_exceed_size();
 }
 
 Status VFileResultWriter::_write_csv_file(const Block& block) {
@@ -283,7 +294,13 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     break;
                 }
                 case TYPE_OBJECT:
-                case TYPE_HLL:
+                case TYPE_HLL: {
+                    if (!_output_object_data) {
+                        _plain_text_outstream << NULL_IN_CSV;
+                        break;
+                    }
+                    [[fallthrough]];
+                }
                 case TYPE_VARCHAR:
                 case TYPE_CHAR:
                 case TYPE_STRING: {
@@ -317,7 +334,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     break;
                 }
                 default: {
-                    // not supported type, like BITMAP, HLL, just export null
+                    // not supported type, like BITMAP, just export null
                     _plain_text_outstream << NULL_IN_CSV;
                 }
                 }
@@ -397,8 +414,11 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
 }
 
 Status VFileResultWriter::_close_file_writer(bool done) {
-    if (_parquet_writer != nullptr) {
-        return Status::NotSupported("Parquet Writer is not supported yet!");
+    if (_vparquet_writer) {
+        _vparquet_writer->close();
+        _current_written_bytes = _vparquet_writer->written_len();
+        COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
+        _vparquet_writer.reset(nullptr);
     } else if (_file_writer_impl) {
         _file_writer_impl->close();
     }

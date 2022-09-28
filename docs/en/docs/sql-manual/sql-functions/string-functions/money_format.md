@@ -58,4 +58,4 @@ mysql> select money_format(1123.4);
 +----------------------+
 ```
 ### keywords
-MONEY_FORMAT,MONEY,FORMAT
+    MONEY_FORMAT,MONEY,FORMAT

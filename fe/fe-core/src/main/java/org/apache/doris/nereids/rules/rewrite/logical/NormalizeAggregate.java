@@ -24,7 +24,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -61,7 +62,7 @@ import java.util.stream.Collectors;
 public class NormalizeAggregate extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalAggregate().when(aggregate -> !aggregate.isNormalized()).then(aggregate -> {
+        return logicalAggregate().whenNot(LogicalAggregate::isNormalized).then(aggregate -> {
             // substitution map used to substitute expression in aggregate's output to use it as top projections
             Map<Expression, Expression> substitutionMap = Maps.newHashMap();
             List<Expression> keys = aggregate.getGroupByExpressions();
@@ -102,29 +103,44 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
             List<NamedExpression> outputs = aggregate.getOutputExpressions();
             Map<Boolean, List<NamedExpression>> partitionedOutputs = outputs.stream()
                     .collect(Collectors.groupingBy(e -> e.anyMatch(AggregateFunction.class::isInstance)));
+
+            boolean needBottomProjects = partitionedKeys.containsKey(false);
             if (partitionedOutputs.containsKey(true)) {
                 // process expressions that contain aggregate function
                 Set<AggregateFunction> aggregateFunctions = partitionedOutputs.get(true).stream()
                         .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
                         .collect(Collectors.toSet());
-                newOutputs.addAll(aggregateFunctions.stream()
-                        .map(f -> new Alias(f, f.toSql()))
-                        .peek(a -> substitutionMap.put(a.child(), a.toSlot()))
-                        .collect(Collectors.toList()));
-                // add slot references in aggregate function to bottom projections
-                bottomProjections.addAll(aggregateFunctions.stream()
-                        .flatMap(f -> f.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
-                        .map(SlotReference.class::cast)
-                        .collect(Collectors.toSet()));
+
+                // replace all non-slot expression in aggregate functions children.
+                for (AggregateFunction aggregateFunction : aggregateFunctions) {
+                    List<Expression> newChildren = Lists.newArrayList();
+                    for (Expression child : aggregateFunction.getArguments()) {
+                        if (child instanceof SlotReference || child instanceof Literal) {
+                            newChildren.add(child);
+                            if (child instanceof SlotReference) {
+                                bottomProjections.add((SlotReference) child);
+                            }
+                        } else {
+                            needBottomProjects = true;
+                            Alias alias = new Alias(child, child.toSql());
+                            bottomProjections.add(alias);
+                            newChildren.add(alias.toSlot());
+                        }
+                    }
+                    AggregateFunction newFunction = (AggregateFunction) aggregateFunction.withChildren(newChildren);
+                    Alias alias = new Alias(newFunction, newFunction.toSql());
+                    newOutputs.add(alias);
+                    substitutionMap.put(aggregateFunction, alias.toSlot());
+                }
             }
 
             // assemble
             LogicalPlan root = aggregate.child();
-            if (partitionedKeys.containsKey(false)) {
+            if (needBottomProjects) {
                 root = new LogicalProject<>(bottomProjections, root);
             }
             root = new LogicalAggregate<>(newKeys, newOutputs, aggregate.isDisassembled(),
-                    true, aggregate.getAggPhase(), root);
+                    true, aggregate.isFinalPhase(), aggregate.getAggPhase(), root);
             List<NamedExpression> projections = outputs.stream()
                     .map(e -> ExpressionUtils.replace(e, substitutionMap))
                     .map(NamedExpression.class::cast)

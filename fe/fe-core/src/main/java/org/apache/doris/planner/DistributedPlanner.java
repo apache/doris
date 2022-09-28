@@ -271,7 +271,7 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) throws UserException {
-        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
+        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode || node instanceof JdbcScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
@@ -643,7 +643,8 @@ public class DistributedPlanner {
                 }
 
                 SlotRef leftSlot = lhsJoinExpr.unwrapSlotRef();
-                if (leftSlot.getTable() instanceof OlapTable) {
+                if (leftSlot.getTable() instanceof OlapTable
+                        && leftScanNode.desc.getSlots().contains(leftSlot.getDesc())) {
                     // table name in SlotRef is not the really name. `select * from test as t`
                     // table name in SlotRef is `t`, but here we need is `test`.
                     leftJoinColumnNames.add(leftSlot.getTable().getName() + "." + leftSlot.getColumnName());

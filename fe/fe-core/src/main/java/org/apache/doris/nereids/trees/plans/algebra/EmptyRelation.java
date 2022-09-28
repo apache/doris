@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.analyzer.Relation;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
 import java.util.List;
@@ -27,6 +28,6 @@ import java.util.List;
  * e.g.
  * select * from tbl limit 0
  */
-public interface EmptyRelation {
-    List<NamedExpression> getProjects();
+public interface EmptyRelation extends Relation {
+    List<? extends NamedExpression> getProjects();
 }

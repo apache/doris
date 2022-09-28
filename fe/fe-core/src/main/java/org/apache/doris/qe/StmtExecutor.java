@@ -160,7 +160,8 @@ public class StmtExecutor implements ProfileWriter {
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
-
+    private static final String NULL_VALUE_FOR_LOAD = "\\N";
+    private final Object writeProfileLock = new Object();
     private ConnectContext context;
     private StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -170,7 +171,6 @@ public class StmtExecutor implements ProfileWriter {
     private RuntimeProfile profile;
     private RuntimeProfile summaryProfile;
     private RuntimeProfile plannerRuntimeProfile;
-    private final Object writeProfileLock = new Object();
     private volatile boolean isFinishedProfile = false;
     private String queryType = "Query";
     private volatile Coordinator coord = null;
@@ -181,7 +181,6 @@ public class StmtExecutor implements ProfileWriter {
     private ShowResultSet proxyResultSet = null;
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
     private boolean isCached;
-
     private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
 
     // this constructor is mainly for proxy
@@ -207,6 +206,21 @@ public class StmtExecutor implements ProfileWriter {
         this.isProxy = false;
         this.statementContext = new StatementContext(ctx, originStmt);
         this.statementContext.setParsedStatement(parsedStmt);
+    }
+
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) {
+        if (cols.size() == 0) {
+            return null;
+        }
+        InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
+        for (Expr expr : cols) {
+            if (expr instanceof NullLiteral) {
+                row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
+            } else {
+                row.addColBuilder().setValue(expr.getStringValue());
+            }
+        }
+        return row.build();
     }
 
     public void setCoord(Coordinator coord) {
@@ -330,13 +344,20 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
+    public String getProxyStatus() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.name();
+        }
+        return masterOpExecutor.getProxyStatus();
+    }
+
     public boolean isQueryStmt() {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
 
     /**
      * Used for audit in ConnectProcessor.
-     *
+     * <p>
      * TODO: There are three interface in StatementBase be called when doing audit:
      *      toDigest needAuditEncryption when parsedStmt is not a query
      *      and isValuesOrConstantSelect when parsedStmt is instance of InsertStmt.
@@ -346,7 +367,7 @@ public class StmtExecutor implements ProfileWriter {
      *      isValuesOrConstantSelect: when this interface return true, original string is truncated at 1024
      *
      * @return parsed and analyzed statement for Stale planner.
-     *          an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
+     * an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
      */
     public StatementBase getParsedStmt() {
         return parsedStmt;
@@ -569,6 +590,7 @@ public class StmtExecutor implements ProfileWriter {
     /**
      * get variables in stmt.
      * TODO: only support select stmt now. need to support Nereids.
+     *
      * @throws DdlException
      */
     private void analyzeVariablesInStmt() throws DdlException {
@@ -897,7 +919,7 @@ public class StmtExecutor implements ProfileWriter {
     // the meta fields must be sent right before the first batch of data(or eos flag).
     // so if it has data(or eos is true), this method must return true.
     private boolean sendCachedValues(MysqlChannel channel, List<InternalService.PCacheValue> cacheValues,
-                                     SelectStmt selectStmt, boolean isSendFields, boolean isEos)
+            SelectStmt selectStmt, boolean isSendFields, boolean isEos)
             throws Exception {
         RowBatch batch = null;
         boolean isSend = isSendFields;
@@ -1123,7 +1145,7 @@ public class StmtExecutor implements ProfileWriter {
             plannerProfile.setQueryFetchResultFinishTime();
         } catch (Exception e) {
             fetchResultSpan.recordException(e);
-            throw  e;
+            throw e;
         } finally {
             fetchResultSpan.end();
         }
@@ -1329,23 +1351,6 @@ public class StmtExecutor implements ProfileWriter {
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
         executor.beginTransaction(request);
-    }
-
-    private static final String NULL_VALUE_FOR_LOAD = "\\N";
-
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) {
-        if (cols.size() == 0) {
-            return null;
-        }
-        InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
-        for (Expr expr : cols) {
-            if (expr instanceof NullLiteral) {
-                row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
-            } else {
-                row.addColBuilder().setValue(expr.getStringValue());
-            }
-        }
-        return row.build();
     }
 
     // Process a select statement.

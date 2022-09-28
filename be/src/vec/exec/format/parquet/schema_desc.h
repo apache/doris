@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+
 #include <unordered_map>
 #include <vector>
 
@@ -76,6 +78,12 @@ private:
     Status parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                             FieldSchema* node_field);
 
+    TypeDescriptor convert_to_doris_type(tparquet::LogicalType logicalType);
+
+    TypeDescriptor convert_to_doris_type(tparquet::ConvertedType::type convertedType);
+
+    TypeDescriptor get_doris_type(const tparquet::SchemaElement& physical_schema);
+
 public:
     FieldDescriptor() = default;
     ~FieldDescriptor() = default;
@@ -104,6 +112,8 @@ public:
     void get_column_names(std::unordered_set<std::string>* names) const;
 
     std::string debug_string() const;
+
+    int32_t size() const { return _fields.size(); };
 };
 
 } // namespace doris::vectorized

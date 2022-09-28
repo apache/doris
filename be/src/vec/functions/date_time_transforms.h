@@ -21,14 +21,15 @@
 #pragma once
 
 #include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "util/binary_cast.hpp"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/exception.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date_time.h"
-#include "vec/functions/function_helpers.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -154,14 +155,10 @@ struct DayNameImpl {
                                size_t& offset, bool& is_null) {
         const auto* day_name = dt.day_name();
         is_null = !dt.is_valid_date();
-        if (day_name == nullptr || is_null) {
-            offset += 1;
-            res_data[offset - 1] = 0;
-        } else {
+        if (day_name != nullptr && !is_null) {
             auto len = strlen(day_name);
             memcpy(&res_data[offset], day_name, len);
-            offset += len + 1;
-            res_data[offset - 1] = 0;
+            offset += len;
         }
         return offset;
     }
@@ -187,14 +184,10 @@ struct MonthNameImpl {
                                size_t& offset, bool& is_null) {
         const auto* month_name = dt.month_name();
         is_null = !dt.is_valid_date();
-        if (month_name == nullptr || is_null) {
-            offset += 1;
-            res_data[offset - 1] = 0;
-        } else {
+        if (month_name != nullptr && !is_null) {
             auto len = strlen(month_name);
             memcpy(&res_data[offset], month_name, len);
-            offset += (len + 1);
-            res_data[offset - 1] = 0;
+            offset += len;
         }
         return offset;
     }
@@ -220,18 +213,14 @@ struct DateFormatImpl {
                                size_t& offset) {
         const auto& dt = (DateType&)t;
         if (format.size > 128) {
-            offset += 1;
-            res_data.emplace_back(0);
             return std::pair {offset, true};
         }
         char buf[128];
         if (!dt.to_format_string(format.data, format.size, buf)) {
-            offset += 1;
-            res_data.emplace_back(0);
             return std::pair {offset, true};
         }
 
-        auto len = strlen(buf) + 1;
+        auto len = strlen(buf);
         res_data.insert(buf, buf + len);
         offset += len;
         return std::pair {offset, false};
@@ -274,19 +263,15 @@ struct FromUnixTimeImpl {
 
         DateType dt;
         if (format.size > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
-            offset += 1;
-            res_data.emplace_back(0);
             return std::pair {offset, true};
         }
 
         char buf[128];
         if (!dt.to_format_string(format.data, format.size, buf)) {
-            offset += 1;
-            res_data.emplace_back(0);
             return std::pair {offset, true};
         }
 
-        auto len = strlen(buf) + 1;
+        auto len = strlen(buf);
         res_data.insert(buf, buf + len);
         offset += len;
         return std::pair {offset, false};
@@ -353,6 +338,7 @@ struct TransformerToStringTwoArgument {
                                 PaddedPODArray<UInt8>& null_map) {
         auto len = ts.size();
         res_offsets.resize(len);
+        res_data.reserve(len * format.size() + len);
         null_map.resize_fill(len, false);
 
         size_t offset = 0;

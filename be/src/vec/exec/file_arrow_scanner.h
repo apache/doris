@@ -52,7 +52,8 @@ public:
     void close() override;
 
 protected:
-    virtual ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
+    virtual ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                               FileReader* file_reader,
                                                int32_t num_of_columns_from_file,
                                                int64_t range_start_offset, int64_t range_size) = 0;
     virtual void _update_profile(std::shared_ptr<Statistics>& statistics) {}
@@ -83,9 +84,9 @@ public:
     ~VFileParquetScanner() override = default;
 
 protected:
-    ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                       int64_t range_size) override;
+    ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                       FileReader* file_reader, int32_t num_of_columns_from_file,
+                                       int64_t range_start_offset, int64_t range_size) override;
 
     void _init_profiles(RuntimeProfile* profile) override;
     void _update_profile(std::shared_ptr<Statistics>& statistics) override;
@@ -108,9 +109,9 @@ public:
     ~VFileORCScanner() override = default;
 
 protected:
-    ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                       int64_t range_size) override;
+    ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                       FileReader* file_reader, int32_t num_of_columns_from_file,
+                                       int64_t range_start_offset, int64_t range_size) override;
     void _init_profiles(RuntimeProfile* profile) override {};
 };
 

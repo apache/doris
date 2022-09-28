@@ -17,8 +17,13 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.trees.expressions.Slot;
+
+import java.util.List;
+
 /**
  * Relation base interface
  */
 public interface Relation {
+    List<Slot> getOutput();
 }

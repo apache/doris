@@ -52,6 +52,7 @@ ENV REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/" \
     DEFAULT_DIR="/var/local" \
     JAVA_HOME="/usr/lib/jvm/java-1.8.0" \
     PATH="/var/local/ldb-toolchain/bin/:$PATH"
+    # USE_AVX2=0 # set it when building no-avx2 image
 
 # disable auto enable ccache
 RUN rm -f /etc/profile.d/ccache.*

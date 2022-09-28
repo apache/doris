@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "vec/columns/column_array.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -73,9 +72,10 @@ public:
     /// 1 for plain array, 2 for array of arrays and so on.
     size_t get_number_of_dimensions() const;
 
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
-    char* serialize(const IColumn& column, char* buf) const override;
-    const char* deserialize(const char* buf, IColumn* column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 

@@ -25,6 +25,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
+#include "vec/common/hash_table/string_hash_map.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 
@@ -615,6 +616,125 @@ struct AggregatedDataVariants {
 
 using AggregatedDataVariantsPtr = std::shared_ptr<AggregatedDataVariants>;
 
+struct AggregateDataContainer {
+public:
+    AggregateDataContainer(size_t size_of_key, size_t size_of_aggregate_states)
+            : _size_of_key(size_of_key), _size_of_aggregate_states(size_of_aggregate_states) {
+        _expand();
+    }
+
+    template <typename KeyType>
+    AggregateDataPtr append_data(const KeyType& key) {
+        assert(sizeof(KeyType) == _size_of_key);
+        if (UNLIKELY(_index_in_sub_container == SUB_CONTAINER_CAPACITY)) {
+            _expand();
+        }
+
+        *reinterpret_cast<KeyType*>(_current_keys) = key;
+        auto aggregate_data = _current_agg_data;
+        ++_total_count;
+        ++_index_in_sub_container;
+        _current_agg_data += _size_of_aggregate_states;
+        _current_keys += _size_of_key;
+        return aggregate_data;
+    }
+
+    template <typename Derived, bool IsConst>
+    class IteratorBase {
+        using Container =
+                std::conditional_t<IsConst, const AggregateDataContainer, AggregateDataContainer>;
+
+        Container* container;
+        uint32_t index;
+        uint32_t sub_container_index;
+        uint32_t index_in_sub_container;
+
+        friend class HashTable;
+
+    public:
+        IteratorBase() {}
+        IteratorBase(Container* container_, uint32_t index_)
+                : container(container_), index(index_) {
+            sub_container_index = index / SUB_CONTAINER_CAPACITY;
+            index_in_sub_container = index % SUB_CONTAINER_CAPACITY;
+        }
+
+        bool operator==(const IteratorBase& rhs) const { return index == rhs.index; }
+        bool operator!=(const IteratorBase& rhs) const { return index != rhs.index; }
+
+        Derived& operator++() {
+            index++;
+            sub_container_index = index / SUB_CONTAINER_CAPACITY;
+            index_in_sub_container = index % SUB_CONTAINER_CAPACITY;
+            return static_cast<Derived&>(*this);
+        }
+
+        template <typename KeyType>
+        KeyType get_key() {
+            assert(sizeof(KeyType) == container->_size_of_key);
+            return ((KeyType*)(container->_key_containers[sub_container_index]))
+                    [index_in_sub_container];
+        }
+
+        AggregateDataPtr get_aggregate_data() {
+            return &(container->_value_containers[sub_container_index]
+                                                 [container->_size_of_aggregate_states *
+                                                  index_in_sub_container]);
+        }
+    };
+
+    class Iterator : public IteratorBase<Iterator, false> {
+    public:
+        using IteratorBase<Iterator, false>::IteratorBase;
+    };
+
+    class ConstIterator : public IteratorBase<ConstIterator, true> {
+    public:
+        using IteratorBase<ConstIterator, true>::IteratorBase;
+    };
+
+    ConstIterator begin() const { return ConstIterator(this, 0); }
+
+    ConstIterator cbegin() const { return begin(); }
+
+    Iterator begin() { return Iterator(this, 0); }
+
+    ConstIterator end() const { return ConstIterator(this, _total_count); }
+    ConstIterator cend() const { return end(); }
+    Iterator end() { return Iterator(this, _total_count); }
+
+    void init_once() {
+        if (_inited) return;
+        _inited = true;
+        iterator = begin();
+    }
+    Iterator iterator;
+
+private:
+    void _expand() {
+        _index_in_sub_container = 0;
+        _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
+        _key_containers.emplace_back(_current_keys);
+
+        _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
+                                                                SUB_CONTAINER_CAPACITY);
+        _value_containers.emplace_back(_current_agg_data);
+    }
+
+private:
+    static constexpr uint32_t SUB_CONTAINER_CAPACITY = 8192;
+    Arena _arena_pool;
+    std::vector<char*> _key_containers;
+    std::vector<AggregateDataPtr> _value_containers;
+    AggregateDataPtr _current_agg_data;
+    char* _current_keys;
+    size_t _size_of_key {};
+    size_t _size_of_aggregate_states {};
+    uint32_t _index_in_sub_container {};
+    uint32_t _total_count {};
+    bool _inited = false;
+};
+
 // not support spill
 class AggregationNode : public ::doris::ExecNode {
 public:
@@ -674,6 +794,8 @@ private:
     RuntimeProfile::Counter* _serialize_result_timer;
     RuntimeProfile::Counter* _deserialize_data_timer;
     RuntimeProfile::Counter* _hash_table_compute_timer;
+    RuntimeProfile::Counter* _hash_table_iterate_timer;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer;
     RuntimeProfile::Counter* _streaming_agg_timer;
     RuntimeProfile::Counter* _hash_table_size_counter;
     RuntimeProfile::Counter* _hash_table_input_counter;
@@ -684,6 +806,12 @@ private:
 
     bool _should_limit_output = false;
     bool _reach_limit = false;
+
+    PODArray<AggregateDataPtr> _places;
+    std::vector<char> _deserialize_buffer;
+    std::vector<size_t> _hash_values;
+    std::vector<AggregateDataPtr> _values;
+    std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
 private:
     /// Return true if we should keep expanding hash tables in the preagg. If false,
@@ -743,21 +871,23 @@ private:
         }
 
         int rows = block->rows();
-        PODArray<AggregateDataPtr> places(rows);
+        if (_places.size() < rows) {
+            _places.resize(rows);
+        }
 
         if constexpr (limit) {
-            _find_in_hash_table(places.data(), key_columns, rows);
+            _find_in_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add_selected(
-                        block, _offsets_of_aggregate_states[i], places.data(), &_agg_arena_pool);
+                        block, _offsets_of_aggregate_states[i], _places.data(), &_agg_arena_pool);
             }
         } else {
-            _emplace_into_hash_table(places.data(), key_columns, rows);
+            _emplace_into_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
-                                                            places.data(), &_agg_arena_pool);
+                                                            _places.data(), &_agg_arena_pool);
             }
 
             if (_should_limit_output) {
@@ -793,10 +923,12 @@ private:
         }
 
         int rows = block->rows();
-        PODArray<AggregateDataPtr> places(rows);
+        if (_places.size() < rows) {
+            _places.resize(rows);
+        }
 
         if constexpr (limit) {
-            _find_in_hash_table(places.data(), key_columns, rows);
+            _find_in_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 if (_aggregate_evaluators[i]->is_merge()) {
@@ -806,34 +938,37 @@ private:
                         column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
                     }
 
-                    std::unique_ptr<char[]> deserialize_buffer(
-                            new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
+                    size_t buffer_size =
+                            _aggregate_evaluators[i]->function()->size_of_data() * rows;
+                    if (_deserialize_buffer.size() < buffer_size) {
+                        _deserialize_buffer.resize(buffer_size);
+                    }
 
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                deserialize_buffer.get(), *column, &_agg_arena_pool, rows);
+                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_vec(
-                                deserialize_buffer.get(), (ColumnString*)(column.get()),
+                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
                                 &_agg_arena_pool, rows);
                     }
                     _aggregate_evaluators[i]->function()->merge_vec_selected(
-                            places.data(), _offsets_of_aggregate_states[i],
-                            deserialize_buffer.get(), &_agg_arena_pool, rows);
+                            _places.data(), _offsets_of_aggregate_states[i],
+                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
 
-                    _aggregate_evaluators[i]->function()->destroy_vec(deserialize_buffer.get(),
+                    _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
                                                                       rows);
 
                 } else {
                     _aggregate_evaluators[i]->execute_batch_add_selected(
-                            block, _offsets_of_aggregate_states[i], places.data(),
+                            block, _offsets_of_aggregate_states[i], _places.data(),
                             &_agg_arena_pool);
                 }
             }
         } else {
-            _emplace_into_hash_table(places.data(), key_columns, rows);
+            _emplace_into_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 if (_aggregate_evaluators[i]->is_merge()) {
@@ -843,30 +978,33 @@ private:
                         column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
                     }
 
-                    std::unique_ptr<char[]> deserialize_buffer(
-                            new char[_aggregate_evaluators[i]->function()->size_of_data() * rows]);
+                    size_t buffer_size =
+                            _aggregate_evaluators[i]->function()->size_of_data() * rows;
+                    if (_deserialize_buffer.size() < buffer_size) {
+                        _deserialize_buffer.resize(buffer_size);
+                    }
 
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                deserialize_buffer.get(), *column, &_agg_arena_pool, rows);
+                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_vec(
-                                deserialize_buffer.get(), (ColumnString*)(column.get()),
+                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
                                 &_agg_arena_pool, rows);
                     }
                     _aggregate_evaluators[i]->function()->merge_vec(
-                            places.data(), _offsets_of_aggregate_states[i],
-                            deserialize_buffer.get(), &_agg_arena_pool, rows);
+                            _places.data(), _offsets_of_aggregate_states[i],
+                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
 
-                    _aggregate_evaluators[i]->function()->destroy_vec(deserialize_buffer.get(),
+                    _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
                                                                       rows);
 
                 } else {
                     _aggregate_evaluators[i]->execute_batch_add(block,
                                                                 _offsets_of_aggregate_states[i],
-                                                                places.data(), &_agg_arena_pool);
+                                                                _places.data(), &_agg_arena_pool);
                 }
             }
 

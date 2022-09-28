@@ -53,4 +53,4 @@ mysql> select k1 from test where k1 not regexp 'ok$';
 ```
 
 ### keywords
-REGEXP, NOT, NOT REGEXP
+    REGEXP, NOT, NOT REGEXP

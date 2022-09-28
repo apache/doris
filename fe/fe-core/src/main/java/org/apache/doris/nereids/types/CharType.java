@@ -35,6 +35,9 @@ public class CharType extends CharacterType {
     }
 
     public static CharType createCharType(int len) {
+        if (len == SYSTEM_DEFAULT.len) {
+            return SYSTEM_DEFAULT;
+        }
         return new CharType(len);
     }
 

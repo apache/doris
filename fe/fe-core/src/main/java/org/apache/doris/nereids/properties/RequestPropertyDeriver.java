@@ -25,8 +25,10 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -78,18 +80,20 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, PlanContext context) {
         // 1. first phase agg just return any
-        if (agg.getAggPhase().isLocal()) {
+        if (agg.getAggPhase().isLocal() && !agg.isFinalPhase()) {
             addToRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         }
-
+        if (agg.getAggPhase() == AggPhase.GLOBAL && !agg.isFinalPhase()) {
+            addToRequestPropertyToChildren(requestPropertyFromParent);
+            return null;
+        }
         // 2. second phase agg, need to return shuffle with partition key
         List<Expression> partitionExpressions = agg.getPartitionExpressions();
         if (partitionExpressions.isEmpty()) {
             addToRequestPropertyToChildren(PhysicalProperties.GATHER);
             return null;
         }
-
         // TODO: when parent is a join node,
         //    use requestPropertyFromParent to keep column order as join to avoid shuffle again.
         if (partitionExpressions.stream().allMatch(SlotReference.class::isInstance)) {
@@ -123,20 +127,20 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
+        // for broadcast join
+        if (JoinUtils.couldBroadcast(hashJoin)) {
+            addToRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+        }
+
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
             Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
-            // other shuffle join
+            // shuffle join
             addToRequestPropertyToChildren(
                     PhysicalProperties.createHash(
                             new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
                     PhysicalProperties.createHash(
                             new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
-        }
-
-        // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
-            addToRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
         }
 
         return null;
@@ -147,6 +151,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, PlanContext context) {
         // TODO: currently doris only use NLJ to do cross join, update this if we use NLJ to do other joins.
         addToRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, PlanContext context) {
+        addToRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 

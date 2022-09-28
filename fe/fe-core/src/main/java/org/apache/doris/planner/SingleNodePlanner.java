@@ -56,8 +56,10 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -66,7 +68,9 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNullSide;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -360,6 +364,152 @@ public class SingleNodePlanner {
         selectNode.init(analyzer);
         Preconditions.checkState(selectNode.hasValidStats());
         return selectNode;
+    }
+
+    private TPushAggOp freshTPushAggOpByName(String functionName, TPushAggOp originAggOp) {
+        TPushAggOp newPushAggOp = null;
+        if (functionName.equalsIgnoreCase("COUNT")) {
+            newPushAggOp = TPushAggOp.COUNT;
+        } else {
+            newPushAggOp = TPushAggOp.MINMAX;
+        }
+
+        if (originAggOp == null || newPushAggOp == originAggOp) {
+            return newPushAggOp;
+        }
+        return TPushAggOp.MIX;
+    }
+
+    private void pushDownAggNoGrouping(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
+        do {
+            // TODO: Support other scan node in the future
+            if (!(root instanceof OlapScanNode)) {
+                break;
+            }
+
+            KeysType type = ((OlapScanNode) root).getOlapTable().getKeysType();
+            if (type == KeysType.UNIQUE_KEYS || type == KeysType.PRIMARY_KEYS) {
+                break;
+            }
+
+            // TODO: Support muti table in the future
+            if (selectStmt.getTableRefs().size() != 1) {
+                break;
+            }
+
+            // No not support group by and where clause
+            if (null == aggInfo || !aggInfo.getGroupingExprs().isEmpty()) {
+                break;
+            }
+            List<Expr> allConjuncts = analyzer.getAllConjuncts(selectStmt.getTableRefs().get(0).getId());
+            if (allConjuncts != null) {
+                break;
+            }
+
+            List<FunctionCallExpr> aggExprs = aggInfo.getAggregateExprs();
+            boolean aggExprValidate = true;
+            TPushAggOp aggOp = null;
+            for (FunctionCallExpr aggExpr : aggExprs) {
+                // Only support `min`, `max`, `count` and `count` only effective in dup table
+                String functionName = aggExpr.getFnName().getFunction();
+                if (!functionName.equalsIgnoreCase("MAX")
+                        && !functionName.equalsIgnoreCase("MIN")
+                        && !functionName.equalsIgnoreCase("COUNT")) {
+                    aggExprValidate = false;
+                    break;
+                }
+
+                if (functionName.equalsIgnoreCase("COUNT")
+                        && type != KeysType.DUP_KEYS) {
+                    aggExprValidate = false;
+                    break;
+                }
+
+                aggOp = freshTPushAggOpByName(functionName, aggOp);
+
+                if (aggExpr.getChildren().size() > 1) {
+                    aggExprValidate = false;
+                    break;
+                }
+
+                boolean returnColumnValidate = true;
+                if (aggExpr.getChildren().size() == 1) {
+                    List<Column> returnColumns = Lists.newArrayList();
+                    if (!(aggExpr.getChild(0) instanceof SlotRef)) {
+                        Expr child = aggExpr.getChild(0);
+                        if ((child instanceof CastExpr) && (child.getChild(0) instanceof SlotRef)) {
+                            if (child.getType().isNumericType()
+                                    && child.getChild(0).getType().isNumericType()) {
+                                returnColumns.add(((SlotRef) child.getChild(0)).getDesc().getColumn());
+                            } else {
+                                aggExprValidate = false;
+                                break;
+                            }
+                        } else {
+                            aggExprValidate = false;
+                            break;
+                        }
+                    } else {
+                        returnColumns.add(((SlotRef) aggExpr.getChild(0)).getDesc().getColumn());
+                    }
+
+
+                    // check return columns
+                    for (Column col : returnColumns) {
+                        // TODO(zc): Here column is null is too bad
+                        // Only column of Inline-view will be null
+                        if (col == null) {
+                            continue;
+                        }
+
+                        // The value column of the agg does not support zone_map index.
+                        if (type == KeysType.AGG_KEYS && !col.isKey()) {
+                            returnColumnValidate = false;
+                            break;
+                        }
+
+                        // The zone map max length of CharFamily is 512, do not
+                        // over the length: https://github.com/apache/doris/pull/6293
+                        if (aggOp == TPushAggOp.MINMAX || aggOp == TPushAggOp.MIX) {
+                            PrimitiveType colType = col.getDataType();
+                            if (colType.isArrayType() || colType.isComplexType()
+                                    || colType == PrimitiveType.STRING) {
+                                returnColumnValidate = false;
+                                break;
+                            }
+
+                            if (colType.isCharFamily() && aggOp != TPushAggOp.COUNT
+                                    && col.getType().getLength() > 512) {
+                                returnColumnValidate = false;
+                                break;
+                            }
+                        }
+
+                        if (aggOp == TPushAggOp.COUNT || aggOp == TPushAggOp.MIX) {
+                            // NULL value behavior in `count` function is zero, so
+                            // we should not use row_count to speed up query. the col
+                            // must be not null
+                            if (col.isAllowNull()) {
+                                returnColumnValidate = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!returnColumnValidate) {
+                    aggExprValidate = false;
+                    break;
+                }
+            }
+
+            if (!aggExprValidate) {
+                break;
+            }
+
+            OlapScanNode olapNode = (OlapScanNode) root;
+            olapNode.setPushDownAggNoGrouping(aggOp);
+        } while (false);
     }
 
     private void turnOffPreAgg(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
@@ -998,6 +1148,10 @@ public class SingleNodePlanner {
                 materializeTableResultForCrossJoinOrCountStar(ref, analyzer);
                 PlanNode plan = createTableRefNode(analyzer, ref, selectStmt);
                 turnOffPreAgg(aggInfo, selectStmt, analyzer, plan);
+                if (VectorizedUtil.isVectorized()
+                        && ConnectContext.get().getSessionVariable().enablePushDownNoGroupAgg) {
+                    pushDownAggNoGrouping(aggInfo, selectStmt, analyzer, plan);
+                }
 
                 if (plan instanceof OlapScanNode) {
                     OlapScanNode olapNode = (OlapScanNode) plan;
@@ -1026,6 +1180,10 @@ public class SingleNodePlanner {
             // selectStmt.seondSubstituteInlineViewExprs(analyzer.getChangeResSmap());
 
             turnOffPreAgg(aggInfo, selectStmt, analyzer, root);
+            if (VectorizedUtil.isVectorized()
+                    && ConnectContext.get().getSessionVariable().enablePushDownNoGroupAgg) {
+                pushDownAggNoGrouping(aggInfo, selectStmt, analyzer, root);
+            }
 
             if (root instanceof OlapScanNode) {
                 OlapScanNode olapNode = (OlapScanNode) root;
@@ -1399,6 +1557,7 @@ public class SingleNodePlanner {
                 unionNode.init(analyzer);
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
+                unionNode.setOutputSmap(inlineViewRef.getSmap());
                 if (analyzer.isOuterJoined(inlineViewRef.getId())) {
                     List<Expr> nullableRhs;
                     if (analyzer.isOuterJoinedLeftSide(inlineViewRef.getId())) {

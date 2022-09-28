@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.MVRefreshInfo;
+import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.catalog.TableIf.TableType;
 
@@ -44,6 +45,7 @@ public class OlapTableFactory {
     }
 
     public static class MaterializedViewParams extends BuildParams {
+        public MVRefreshInfo.BuildMode buildMode;
         public MVRefreshInfo mvRefreshInfo;
         public QueryStmt queryStmt;
     }
@@ -135,6 +137,12 @@ public class OlapTableFactory {
         return this;
     }
 
+    private OlapTableFactory withBuildMode(BuildMode buildMode) {
+        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
+        materializedViewParams.buildMode = buildMode;
+        return this;
+    }
+
     public OlapTableFactory withRefreshInfo(MVRefreshInfo mvRefreshInfo) {
         Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
@@ -150,7 +158,8 @@ public class OlapTableFactory {
             return withIndexes(new TableIndexes(createOlapTableStmt.getIndexes()));
         } else {
             CreateMultiTableMaterializedViewStmt createMVStmt = (CreateMultiTableMaterializedViewStmt) stmt;
-            return withRefreshInfo(createMVStmt.getRefreshInfo())
+            return withBuildMode(createMVStmt.getBuildMode())
+                    .withRefreshInfo(createMVStmt.getRefreshInfo())
                     .withQueryStmt(createMVStmt.getQueryStmt());
         }
     }

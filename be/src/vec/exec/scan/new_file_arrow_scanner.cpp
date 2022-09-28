@@ -215,13 +215,13 @@ Status NewFileArrowScanner::_open_next_reader() {
         int32_t num_of_columns_from_file = _file_slot_descs.size();
 
         _cur_file_reader =
-                _new_arrow_reader(file_reader.release(), _state->batch_size(),
-                                  num_of_columns_from_file, range.start_offset, range.size);
+                _new_arrow_reader(_file_slot_descs, file_reader.release(), num_of_columns_from_file,
+                                  range.start_offset, range.size);
 
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_parent->output_tuple_id());
         // TODO _conjunct_ctxs is empty for now. _conjunct_ctxs is not empty.
-        Status status = _cur_file_reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs,
-                                                      _state->timezone());
+        Status status =
+                _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
         if (status.is_end_of_file()) {
             continue;
         } else {
@@ -246,12 +246,10 @@ NewFileParquetScanner::NewFileParquetScanner(RuntimeState* state, NewFileScanNod
     //        _init_profiles(profile);
 }
 
-ArrowReaderWrap* NewFileParquetScanner::_new_arrow_reader(FileReader* file_reader,
-                                                          int64_t batch_size,
-                                                          int32_t num_of_columns_from_file,
-                                                          int64_t range_start_offset,
-                                                          int64_t range_size) {
-    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file,
+ArrowReaderWrap* NewFileParquetScanner::_new_arrow_reader(
+        const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader,
+        int32_t num_of_columns_from_file, int64_t range_start_offset, int64_t range_size) {
+    return new ParquetReaderWrap(_state, file_slot_descs, file_reader, num_of_columns_from_file,
                                  range_start_offset, range_size, false);
 }
 
@@ -262,11 +260,10 @@ NewFileORCScanner::NewFileORCScanner(RuntimeState* state, NewFileScanNode* paren
         : NewFileArrowScanner(state, parent, limit, scan_range, tracker, profile,
                               pre_filter_texprs) {}
 
-ArrowReaderWrap* NewFileORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                      int32_t num_of_columns_from_file,
-                                                      int64_t range_start_offset,
-                                                      int64_t range_size) {
-    return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file, range_start_offset,
-                             range_size, false);
+ArrowReaderWrap* NewFileORCScanner::_new_arrow_reader(
+        const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader,
+        int32_t num_of_columns_from_file, int64_t range_start_offset, int64_t range_size) {
+    return new ORCReaderWrap(_state, file_slot_descs, file_reader, num_of_columns_from_file,
+                             range_start_offset, range_size, false);
 }
 } // namespace doris::vectorized

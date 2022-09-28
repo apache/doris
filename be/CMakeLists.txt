@@ -223,7 +223,10 @@ add_library(leveldb STATIC IMPORTED)
 set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libleveldb.a)
 
 add_library(jemalloc STATIC IMPORTED)
-set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
+set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libjemalloc_doris.a)
+
+add_library(jemalloc_arrow STATIC IMPORTED)
+set_target_properties(jemalloc_arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
 
 add_library(brotlicommon STATIC IMPORTED)
 set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
@@ -418,6 +421,10 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
+if (RECORD_COMPILER_SWITCHES)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -frecord-gcc-switches")
+endif()
+
 function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
     if (CUSTUM_LINKER_COMMAND STREQUAL "ld")
         execute_process(COMMAND ${CMAKE_C_COMPILER} -fuse-ld=${LINKER_COMMAND} -Wl,--version ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
@@ -432,6 +439,7 @@ endfunction()
 set(CUSTUM_LINKER_COMMAND "ld")
 # TODO: mold will link fail on thirdparty brpc now, waiting for investigation.
 # TRY_TO_CHANGE_LINKER("mold" "mold")
+
 TRY_TO_CHANGE_LINKER("lld" "LLD")
 TRY_TO_CHANGE_LINKER("gold" "GNU gold")
 if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
@@ -452,7 +460,7 @@ if (COMPILER_GCC)
 endif ()
 
 if (COMPILER_CLANG)
-    add_compile_options (-fcolor-diagnostics)
+    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
     endif()
@@ -676,6 +684,7 @@ set(COMMON_THIRDPARTY
     roaring
     fmt
     jemalloc
+    jemalloc_arrow
     brotlicommon
     brotlidec
     brotlienc

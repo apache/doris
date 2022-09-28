@@ -22,17 +22,16 @@
 
 #include <fmt/format.h>
 
-#include "common/logging.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/field_visitors.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -895,7 +894,7 @@ struct ConvertThroughParsing {
                                          ? (*offsets)[i]
                                          : (current_offset + fixed_string_size);
             size_t string_size = std::is_same_v<FromDataType, DataTypeString>
-                                         ? next_offset - current_offset - 1
+                                         ? next_offset - current_offset
                                          : fixed_string_size;
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);

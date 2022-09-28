@@ -21,7 +21,9 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
@@ -36,17 +38,22 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
  * Abstract class for all Expression in Nereids.
  */
-public abstract class Expression extends AbstractTreeNode<Expression> {
+public abstract class Expression extends AbstractTreeNode<Expression> implements ComputeNullable {
 
     private static final String INPUT_CHECK_ERROR_MESSAGE = "argument %d requires %s type, however '%s' is of %s type";
 
     public Expression(Expression... children) {
         super(children);
+    }
+
+    public Expression(List<Expression> children) {
+        super(Optional.empty(), children);
     }
 
     public DataType getDataType() throws UnboundException {
@@ -55,10 +62,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
 
     public String toSql() throws UnboundException {
         throw new UnboundException("sql");
-    }
-
-    public boolean nullable() throws UnboundException {
-        throw new UnboundException("nullable");
     }
 
     public TypeCheckResult checkInputDataTypes() {
@@ -135,6 +138,14 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
      */
     public final Set<Slot> getInputSlots() {
         return collect(Slot.class::isInstance);
+    }
+
+    public boolean isLiteral() {
+        return this instanceof Literal;
+    }
+
+    public boolean isNullLiteral() {
+        return this instanceof NullLiteral;
     }
 
     @Override

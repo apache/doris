@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CHAR_LENGTH",
+    "title": "char_length",
     "language": "zh-CN"
 }
 ---
@@ -51,4 +51,4 @@ mysql> select char_length("中国");
 +-----------------------+
 ```
 ### keywords
-CHAR_LENGTH, CHARACTER_LENGTH
+    CHAR_LENGTH, CHARACTER_LENGTH

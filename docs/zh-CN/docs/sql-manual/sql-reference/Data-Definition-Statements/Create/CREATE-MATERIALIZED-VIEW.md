@@ -113,7 +113,7 @@ duplicate key (k1,k2,k3,k4)
 distributed BY hash(k4) buckets 3
 properties("replication_num" = "1");
 ```
-注意：分区列和分桶列必须作为物化视图中的key列
+注意：如果物化视图包含了base表的分区列和分桶列,那么这些列必须作为物化视图中的key列
 
 1. 创建一个仅包含原始表 （k1, k2）列的物化视图
 

@@ -29,7 +29,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -100,8 +99,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return Collections.emptyList();
+    public List<? extends Expression> getExpressions() {
+        return ImmutableList.of();
     }
 
     @Override

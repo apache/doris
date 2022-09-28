@@ -36,6 +36,7 @@ public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
                 ImmutableList.of(),
                 agg.getAggPhase(),
                 false,
+                agg.isFinalPhase(),
                 agg.getLogicalProperties(),
                 agg.child())
         ).toRule(RuleType.LOGICAL_AGG_TO_PHYSICAL_HASH_AGG_RULE);

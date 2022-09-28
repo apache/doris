@@ -79,6 +79,7 @@ suite("aggregate") {
         }
     }
 
+    sql " sync "
     qt_aggregate """ select max(upper(c_string)), min(upper(c_string)) from ${tableName} """
     qt_aggregate """ select avg(c_bigint), avg(c_double) from ${tableName} """
     qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from ${tableName} """
@@ -173,6 +174,7 @@ suite("aggregate") {
 
     // test_query_normal_order_aggression
     String k3 = fields[8]
+    String k8 = fields[9]
     qt_aggregate10"select ${k1}, ${k3}, count(${k2}) over (partition by ${k1}, ${k3} order by ${k3}) as wj from baseall order by ${k1}, ${k3}, wj"
     qt_aggregate11"""select ${k1}, count(${k2}) over (partition by ${k1} order by ${k3}
              range between unbounded preceding and unbounded following)
@@ -245,6 +247,8 @@ suite("aggregate") {
              (select ${k1}, ${k3}, sum(${k2}) as mysum from baseall 
              group by ${k1}, ${k3}) t2 where t1.${k1}=t2.${k1} and t1.${k3}=t2.${k3}
              order by t1.${k1}, t1.${k3}, t2.mysum"""
+
+    qt_aggregate30"select max(${k8}) from baseall"
 
     qt_aggregate_2phase_0"""select avg(distinct k1),avg(k2) from baseall"""
     qt_aggregate_2phase_1"""select k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1"""

@@ -22,11 +22,13 @@ import groovy.util.logging.Slf4j
 
 import com.google.common.collect.Maps
 import org.apache.commons.cli.CommandLine
+import org.apache.commons.cli.Option
 import org.apache.doris.regression.util.FileUtils
 import org.apache.doris.regression.util.JdbcUtils
 
 import java.sql.Connection
 import java.sql.DriverManager
+import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Predicate
 
 import static org.apache.doris.regression.ConfigOptions.*
@@ -43,10 +45,13 @@ class Config {
     public String feHttpUser
     public String feHttpPassword
 
+    public String metaServiceHttpAddress
+
     public String suitePath
     public String dataPath
     public String realDataPath
     public String sf1DataPath
+    public String cacheDataPath
     public String pluginPath
 
     public String testGroups
@@ -72,6 +77,7 @@ class Config {
     public Set<String> excludeDirectorySet = new HashSet<>()
 
     public InetSocketAddress feHttpInetSocketAddress
+    public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
     public Integer suiteParallel
     public Integer actionParallel
@@ -81,8 +87,8 @@ class Config {
     Config() {}
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
-           String feHttpAddress, String feHttpUser, String feHttpPassword,
-           String suitePath, String dataPath, String realDataPath, String sf1DataPath,
+           String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
+           String suitePath, String dataPath, String realDataPath, String sf1DataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath) {
         this.defaultDb = defaultDb
@@ -92,10 +98,12 @@ class Config {
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
+        this.metaServiceHttpAddress = metaServiceHttpAddress
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.realDataPath = realDataPath
         this.sf1DataPath = sf1DataPath
+        this.cacheDataPath = cacheDataPath
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -124,6 +132,7 @@ class Config {
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.sf1DataPath = cmd.getOptionValue(sf1DataOpt, config.sf1DataPath)
+        config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
@@ -156,6 +165,12 @@ class Config {
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
 
+        if (!config.suiteWildcard && !config.groups && !config.directories && !config.excludeSuiteWildcard
+            && !config.excludeGroupSet && !config.excludeDirectorySet) {
+            log.info("no suites/directories/groups specified, set groups to p0".toString())
+            config.groups = ["p0"].toSet()
+        }
+
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
@@ -164,6 +179,16 @@ class Config {
         } catch (Throwable t) {
             throw new IllegalStateException("Can not parse stream load address: ${config.feHttpAddress}", t)
         }
+
+        config.metaServiceHttpAddress = cmd.getOptionValue(metaServiceHttpAddressOpt, config.metaServiceHttpAddress)
+        try {
+            Inet4Address host = Inet4Address.getByName(config.metaServiceHttpAddress.split(":")[0]) as Inet4Address
+            int port = Integer.valueOf(config.metaServiceHttpAddress.split(":")[1])
+            config.metaServiceHttpInetSocketAddress = new InetSocketAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse meta service address: ${config.metaServiceHttpAddress}", t)
+        }
+        log.info("msAddr : $config.metaServiceHttpAddress, socketAddr : $config.metaServiceHttpInetSocketAddress")
 
         config.defaultDb = cmd.getOptionValue(defaultDbOpt, config.defaultDb)
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
@@ -205,10 +230,12 @@ class Config {
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
+            configToString(obj.metaServiceHttpAddress),
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
             configToString(obj.sf1DataPath),
+            configToString(obj.cacheDataPath),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -257,6 +284,11 @@ class Config {
             log.info("Set feHttpAddress to '${config.feHttpAddress}' because not specify.".toString())
         }
 
+        if (config.metaServiceHttpAddress == null) {
+            config.metaServiceHttpAddress = "127.0.0.1:5000"
+            log.info("Set metaServiceHttpAddress to '${config.metaServiceHttpAddress}' because not specify.".toString())
+        }
+
         if (config.feHttpUser == null) {
             config.feHttpUser = "root"
             log.info("Set feHttpUser to '${config.feHttpUser}' because not specify.".toString())
@@ -285,6 +317,11 @@ class Config {
         if (config.sf1DataPath == null) {
             config.sf1DataPath = "regression-test/sf1Data"
             log.info("Set sf1DataPath to '${config.sf1DataPath}' because not specify.".toString())
+        }
+
+        if (config.cacheDataPath == null) {
+            config.cacheDataPath = "regression-test/cacheData"
+            log.info("Set cacheDataPath to '${config.cacheDataPath}' because not specify.".toString())
         }
 
         if (config.pluginPath == null) {

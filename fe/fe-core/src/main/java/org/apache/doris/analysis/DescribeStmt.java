@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
@@ -200,6 +201,13 @@ public class DescribeStmt extends ShowStmt {
                             odbcTable.getOdbcTableName(),
                             odbcTable.getOdbcDriver(),
                             odbcTable.getOdbcTableTypeName());
+                    totalRows.add(row);
+                } else if (table.getType() == TableType.JDBC) {
+                    isOlapTable = false;
+                    JdbcTable jdbcTable = (JdbcTable) table;
+                    List<String> row = Arrays.asList(jdbcTable.getJdbcUrl(), jdbcTable.getJdbcUser(),
+                            jdbcTable.getJdbcPasswd(), jdbcTable.getDriverClass(), jdbcTable.getDriverUrl(),
+                            jdbcTable.getExternalTableName(), jdbcTable.getResourceName(), jdbcTable.getJdbcTypeName());
                     totalRows.add(row);
                 } else if (table.getType() == TableType.MYSQL) {
                     isOlapTable = false;

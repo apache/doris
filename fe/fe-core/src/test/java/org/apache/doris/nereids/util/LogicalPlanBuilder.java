@@ -19,9 +19,12 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -58,10 +61,10 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
-    public LogicalPlanBuilder project(List<Integer> slots) {
+    public LogicalPlanBuilder project(List<Integer> slotsIndex) {
         List<NamedExpression> projectExprs = Lists.newArrayList();
-        for (int i = 0; i < slots.size(); i++) {
-            projectExprs.add(this.plan.getOutput().get(i));
+        for (Integer index : slotsIndex) {
+            projectExprs.add(this.plan.getOutput().get(index));
         }
         LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
         return from(project);
@@ -75,4 +78,19 @@ public class LogicalPlanBuilder {
                 Optional.empty(), this.plan, right);
         return from(join);
     }
+
+    public LogicalPlanBuilder limit(long limit, long offset) {
+        LogicalLimit<LogicalPlan> limitPlan = new LogicalLimit<>(limit, offset, this.plan);
+        return from(limitPlan);
+    }
+
+    public LogicalPlanBuilder limit(long limit) {
+        return limit(limit, 0);
+    }
+
+    public LogicalPlanBuilder filter(Expression predicate) {
+        LogicalFilter<LogicalPlan> limitPlan = new LogicalFilter<>(predicate, this.plan);
+        return from(limitPlan);
+    }
+
 }

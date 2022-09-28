@@ -22,7 +22,6 @@
 
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
-#include "vec/common/exception.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -125,7 +124,7 @@ public:
     }
 
     // shrink the end zeros for CHAR type or ARRAY<CHAR> type
-    virtual MutablePtr get_shinked_column() {
+    virtual MutablePtr get_shrinked_column() {
         LOG(FATAL) << "Cannot clone_resized() column " << get_name();
         return nullptr;
     }
@@ -146,10 +145,6 @@ public:
     /// If possible, returns pointer to memory chunk which contains n-th element (if it isn't possible, throws an exception)
     /// Is used to optimize some computations (in aggregation, for example).
     virtual StringRef get_data_at(size_t n) const = 0;
-
-    /// Like getData, but has special behavior for columns that contain variable-length strings.
-    /// Returns zero-ending memory chunk (i.e. its size is 1 byte longer).
-    virtual StringRef get_data_at_with_terminating_zero(size_t n) const { return get_data_at(n); }
 
     /// If column stores integers, it returns n-th element transformed to UInt64 using static_cast.
     /// If column stores floating point numbers, bits of n-th elements are copied to lower bits of UInt64, the remaining bits are zeros.
@@ -328,23 +323,36 @@ public:
         LOG(FATAL) << "deserialize_vec_with_null_map not supported";
     }
 
+    /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
     /// Update state of hash function with value of n-th element.
     /// On subsequent calls of this method for sequence of column values of arbitrary types,
     ///  passed bytes to hash must identify sequence of values unambiguously.
-    virtual void update_hash_with_value(size_t n, SipHash& hash) const = 0;
+    virtual void update_hash_with_value(size_t n, SipHash& hash) const {
+        LOG(FATAL) << "update_hash_with_value siphash not supported";
+    }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
-    virtual void update_hashes_with_value(std::vector<SipHash>& hash,
+    /// do xxHash here, faster than other hash method
+    virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << "update_hashes_with_value not supported";
+        LOG(FATAL) << "update_hashes_with_value siphash not supported";
+    };
+
+    /// Update state of hash function with value of n elements to avoid the virtual function call
+    /// null_data to mark whether need to do hash compute, null_data == nullptr
+    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
+    /// do xxHash here, faster than other sip hash
+    virtual void update_hashes_with_value(uint64_t* __restrict hashes,
+                                          const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << "update_hashes_with_value xxhash not supported";
     };
 
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
-    virtual void update_crcs_with_value(std::vector<uint32_t>& hash, PrimitiveType type,
+    virtual void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
                                         const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << "update_crcs_with_value not supported";
     };
@@ -393,6 +401,16 @@ public:
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
                            int nan_direction_hint) const = 0;
+
+    /**
+     * To compare all rows in this column with another row (with row_id = rhs_row_id in column rhs)
+     * @param nan_direction_hint and direction indicates the ordering.
+     * @param cmp_res if we already has a comparison result for row i, e.g. cmp_res[i] = 1, we can skip row i
+     * @param filter this stores comparison results for all rows. filter[i] = 1 means row i is less than row rhs_row_id in rhs
+     */
+    virtual void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                                  int direction, std::vector<uint8>& cmp_res,
+                                  uint8* __restrict filter) const;
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.

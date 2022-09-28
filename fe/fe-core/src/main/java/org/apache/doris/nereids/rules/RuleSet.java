@@ -17,9 +17,14 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
-import org.apache.doris.nereids.rules.exploration.join.JoinLAsscom;
-import org.apache.doris.nereids.rules.exploration.join.JoinLAsscomProject;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
@@ -33,7 +38,15 @@ import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalPro
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuter;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushDownExpressionsInHashCondition;
+import org.apache.doris.nereids.rules.rewrite.logical.PushDownJoinOtherCondition;
+import org.apache.doris.nereids.rules.rewrite.logical.PushPredicatesThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -45,15 +58,29 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(JoinCommute.OUTER_LEFT_DEEP)
-            .add(JoinLAsscom.INNER)
-            .add(JoinLAsscomProject.INNER)
+            .add(JoinCommute.ZIG_ZAG)
+            .add(InnerJoinLAsscom.INSTANCE)
+            .add(InnerJoinLAsscomProject.INSTANCE)
+            .add(OuterJoinLAsscom.INSTANCE)
+            .add(OuterJoinLAsscomProject.INSTANCE)
+            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
+            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
+            .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(new AggregateDisassemble())
+            .add(new PushdownFilterThroughProject())
             .add(new MergeConsecutiveProjects())
             .build();
 
-    public static final List<Rule> REWRITE_RULES = planRuleFactories()
-            .add(new AggregateDisassemble())
-            .build();
+    public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
+            new PushDownJoinOtherCondition(),
+            new PushPredicatesThroughJoin(),
+            new PushDownExpressionsInHashCondition(),
+            new PushdownProjectThroughLimit(),
+            new PushdownFilterThroughProject(),
+            EliminateOuter.INSTANCE,
+            new MergeConsecutiveProjects(),
+            new MergeConsecutiveFilters(),
+            new MergeConsecutiveLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalAggToPhysicalHashAgg())
@@ -71,25 +98,25 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
-            .add(JoinCommute.OUTER_LEFT_DEEP)
-            .add(JoinLAsscom.INNER)
-            .add(JoinLAsscomProject.INNER)
-            .add(JoinLAsscom.OUTER)
-            .add(JoinLAsscomProject.OUTER)
+            // .add(JoinCommute.LEFT_DEEP)
+            // .add(JoinLAsscom.INNER)
+            // .add(JoinLAsscomProject.INNER)
+            // .add(JoinLAsscom.OUTER)
+            // .add(JoinLAsscomProject.OUTER)
             // semi join Transpose ....
             .build();
 
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
-            .add(JoinCommute.OUTER_ZIG_ZAG)
-            .add(JoinLAsscom.INNER)
-            .add(JoinLAsscomProject.INNER)
-            .add(JoinLAsscom.OUTER)
-            .add(JoinLAsscomProject.OUTER)
+            // .add(JoinCommute.ZIG_ZAG)
+            // .add(JoinLAsscom.INNER)
+            // .add(JoinLAsscomProject.INNER)
+            // .add(JoinLAsscom.OUTER)
+            // .add(JoinLAsscomProject.OUTER)
             // semi join Transpose ....
             .build();
 
     public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
-            .add(JoinCommute.OUTER_BUSHY)
+            .add(JoinCommute.BUSHY)
             // TODO: add more rule
             // .add(JoinLeftAssociate.INNER)
             // .add(JoinLeftAssociateProject.INNER)
@@ -100,7 +127,7 @@ public class RuleSet {
             // .add(JoinExchangeLeftProject.INNER)
             // .add(JoinExchangeRightProject.INNER)
             // .add(JoinRightAssociate.OUTER)
-            .add(JoinLAsscom.OUTER)
+            // .add(JoinLAsscom.OUTER)
             // semi join Transpose ....
             .build();
 
@@ -124,6 +151,11 @@ public class RuleSet {
 
         public RuleFactories add(RuleFactory ruleFactory) {
             rules.addAll(ruleFactory.buildRules());
+            return this;
+        }
+
+        public RuleFactories addAll(List<Rule> rules) {
+            this.rules.addAll(rules);
             return this;
         }
 

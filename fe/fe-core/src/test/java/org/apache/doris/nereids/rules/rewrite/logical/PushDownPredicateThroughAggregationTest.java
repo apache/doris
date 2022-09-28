@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -69,7 +70,7 @@ public class PushDownPredicateThroughAggregationTest {
     */
     @Test
     public void pushDownPredicateOneFilterTest() {
-        Plan scan = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
+        Plan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student, ImmutableList.of(""));
         Slot gender = scan.getOutput().get(1);
         Slot age = scan.getOutput().get(3);
 
@@ -129,7 +130,7 @@ public class PushDownPredicateThroughAggregationTest {
      */
     @Test
     public void pushDownPredicateTwoFilterTest() {
-        Plan scan = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of(""));
+        Plan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student, ImmutableList.of(""));
         Slot gender = scan.getOutput().get(1);
         Slot name = scan.getOutput().get(2);
         Slot age = scan.getOutput().get(3);

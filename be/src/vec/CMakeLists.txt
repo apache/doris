@@ -48,15 +48,19 @@ set(VEC_FILES
   columns/column_decimal.cpp
   columns/column_nullable.cpp
   columns/column_string.cpp
+  columns/column_jsonb.cpp
   columns/column_vector.cpp
   columns/columns_common.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp
   common/pod_array.cpp
+  common/sort/heap_sorter.cpp
+  common/sort/sorter.cpp
+  common/sort/topn_sorter.cpp
+  common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
-  core/block_info.cpp
   core/column_with_type_and_name.cpp
   core/field.cpp
   core/field.cpp
@@ -80,13 +84,13 @@ set(VEC_FILES
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
   data_types/data_type_time_v2.cpp
+  data_types/data_type_jsonb.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/ves_http_scan_node.cpp
   exec/ves_http_scanner.cpp
   exec/volap_scan_node.cpp
   exec/vsort_node.cpp
-  exec/vsort_exec_exprs.cpp
   exec/volap_scanner.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
@@ -213,18 +217,20 @@ set(VEC_FILES
   sink/vmysql_table_sink.cpp
   sink/vodbc_table_sink.cpp
   sink/vresult_file_sink.cpp
+  sink/vjdbc_table_sink.cpp
+  sink/vtable_sink.cpp
   runtime/vdatetime_value.cpp
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
+  runtime/vparquet_writer.cpp
   utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp
   exec/file_arrow_scanner.cpp
   exec/file_scanner.cpp
   exec/file_scan_node.cpp
   exec/file_text_scanner.cpp
-  exec/file_hdfs_scanner.cpp
   exec/format/parquet/vparquet_column_chunk_reader.cpp
   exec/format/parquet/vparquet_group_reader.cpp
   exec/format/parquet/vparquet_page_index.cpp
@@ -245,7 +251,10 @@ set(VEC_FILES
   exec/scan/new_file_scan_node.cpp
   exec/scan/new_file_scanner.cpp
   exec/scan/new_file_text_scanner.cpp
-)
+  exec/scan/vfile_scanner.cpp
+  exec/scan/new_odbc_scanner.cpp
+  exec/scan/new_odbc_scan_node.cpp
+  )
 
 add_library(Vec STATIC
         ${VEC_FILES}

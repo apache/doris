@@ -50,10 +50,10 @@ size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
 //  - [optional] len.  No len indicates longest substr possible
 StringVal StringFunctions::substring(FunctionContext* context, const StringVal& str,
                                      const IntVal& pos, const IntVal& len) {
-    if (str.is_null || pos.is_null || len.is_null || pos.val > str.len) {
+    if (str.is_null || pos.is_null || len.is_null) {
         return StringVal::null();
     }
-    if (len.val <= 0 || str.len == 0 || pos.val == 0) {
+    if (len.val <= 0 || str.len == 0 || pos.val == 0 || pos.val > str.len) {
         return StringVal();
     }
 
@@ -710,7 +710,7 @@ IntVal StringFunctions::find_in_set(FunctionContext* context, const StringVal& s
     do {
         end = start;
         // Position end.
-        while (str_set.ptr[end] != ',' && end < str_set.len) {
+        while (end < str_set.len && str_set.ptr[end] != ',') {
             ++end;
         }
         StringValue token(reinterpret_cast<char*>(str_set.ptr) + start, end - start);

@@ -20,13 +20,16 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -42,9 +45,23 @@ import java.util.Set;
  * which operands actually participate in the semi-join.
  */
 public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
+
+    public static final SemiJoinLogicalJoinTranspose LEFT_DEEP = new SemiJoinLogicalJoinTranspose(true);
+
+    public static final SemiJoinLogicalJoinTranspose ALL = new SemiJoinLogicalJoinTranspose(false);
+
+    private final boolean leftDeep;
+
+    public SemiJoinLogicalJoinTranspose(boolean leftDeep) {
+        this.leftDeep = leftDeep;
+    }
+
     @Override
     public Rule build() {
-        return leftSemiLogicalJoin(logicalJoin(), group())
+        return logicalJoin(logicalJoin(), group())
+                .when(topJoin -> topJoin.getJoinType() == JoinType.LEFT_SEMI_JOIN
+                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN)
+                .whenNot(topJoin -> topJoin.left().getJoinType().isSemiOrAntiJoin())
                 .when(this::conditionChecker)
                 .then(topSemiJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topSemiJoin.left();
@@ -52,7 +69,14 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topSemiJoin.right();
 
-                    boolean lasscom = bottomJoin.getOutputSet().containsAll(a.getOutput());
+                    List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
+                    Set<Slot> aOutputSet = a.getOutputSet();
+
+                    boolean lasscom = false;
+                    for (Expression hashJoinConjunct : hashJoinConjuncts) {
+                        Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
+                        lasscom = ExpressionUtils.isIntersecting(usedSlot, aOutputSet) || lasscom;
+                    }
 
                     if (lasscom) {
                         /*
@@ -81,20 +105,27 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
                                 bottomJoin.getOtherJoinCondition(), a, newBottomSemiJoin);
                     }
-                }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
+                }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
     }
 
     // bottomJoin just return A OR B, else return false.
-    private boolean conditionChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin) {
-        Set<Slot> bottomOutputSet = topJoin.left().getOutputSet();
+    private boolean conditionChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topSemiJoin) {
+        List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
 
-        Set<Slot> aOutputSet = topJoin.left().left().getOutputSet();
-        Set<Slot> bOutputSet = topJoin.left().right().getOutputSet();
+        List<Slot> aOutput = topSemiJoin.left().left().getOutput();
+        List<Slot> bOutput = topSemiJoin.left().right().getOutput();
 
-        boolean isProjectA = !ExpressionUtils.isIntersecting(bottomOutputSet, aOutputSet);
-        boolean isProjectB = !ExpressionUtils.isIntersecting(bottomOutputSet, bOutputSet);
-
-        Preconditions.checkState(isProjectA || isProjectB, "join output must contain child");
-        return !(isProjectA && isProjectB);
+        boolean hashContainsA = false;
+        boolean hashContainsB = false;
+        for (Expression hashJoinConjunct : hashJoinConjuncts) {
+            Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
+            hashContainsA = ExpressionUtils.isIntersecting(usedSlot, aOutput) || hashContainsA;
+            hashContainsB = ExpressionUtils.isIntersecting(usedSlot, bOutput) || hashContainsB;
+        }
+        if (leftDeep && hashContainsB) {
+            return false;
+        }
+        Preconditions.checkState(hashContainsA || hashContainsB, "join output must contain child");
+        return !(hashContainsA && hashContainsB);
     }
 }

@@ -19,6 +19,7 @@
 
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -117,7 +118,7 @@ private:
     private:
         static bool should_padding(const ColumnString* column, size_t padding_length) {
             // Check sum of data length, including terminating zero.
-            return column->size() * (padding_length + 1) != column->chars.size();
+            return column->size() * padding_length != column->chars.size();
         }
 
         static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
@@ -126,11 +127,11 @@ private:
                     assert_cast<vectorized::ColumnString*>(column->assume_mutable().get());
 
             column->offsets.resize(input->size());
-            column->chars.resize(input->size() * (padding_length + 1));
-            memset(padded_column->chars.data(), 0, input->size() * (padding_length + 1));
+            column->chars.resize(input->size() * padding_length);
+            memset(padded_column->chars.data(), 0, input->size() * padding_length);
 
             for (size_t i = 0; i < input->size(); i++) {
-                column->offsets[i] = (i + 1) * (padding_length + 1);
+                column->offsets[i] = (i + 1) * padding_length;
 
                 auto str = input->get_data_at(i);
 
@@ -139,8 +140,7 @@ private:
                         << ", real=" << str.size;
 
                 if (str.size) {
-                    memcpy(padded_column->chars.data() + i * (padding_length + 1), str.data,
-                           str.size);
+                    memcpy(padded_column->chars.data() + i * padding_length, str.data, str.size);
                 }
             }
 
@@ -165,6 +165,21 @@ private:
 
     private:
         bool _check_length;
+        PaddedPODArray<Slice> _slice;
+    };
+
+    class OlapColumnDataConvertorJsonb : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorJsonb() = default;
+        ~OlapColumnDataConvertorJsonb() override = default;
+
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override;
+        Status convert_to_olap() override;
+
+    private:
         PaddedPODArray<Slice> _slice;
     };
 

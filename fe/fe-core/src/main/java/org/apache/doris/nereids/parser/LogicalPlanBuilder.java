@@ -95,6 +95,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -385,7 +386,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitPredicated(PredicatedContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression e = getExpression(ctx.valueExpression());
-            // TODO: add predicate(is not null ...)
             return ctx.predicate() == null ? e : withPredicate(e, ctx.predicate());
         });
     }
@@ -398,7 +398,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.PLUS:
                     return e;
                 case DorisParser.MINUS:
-                    //TODO: Add single operator subtraction
+                    // TODO: Add single operator subtraction
                 default:
                     throw new ParseException("Unsupported arithmetic unary type: " + ctx.operator.getText(), ctx);
             }
@@ -745,6 +745,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withLimit(LogicalPlan input, Optional<LimitClauseContext> limitCtx) {
         return input.optionalMap(limitCtx, () -> {
             long limit = Long.parseLong(limitCtx.get().limit.getText());
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", limitCtx.get());
+            }
             long offset = 0;
             Token offsetToken = limitCtx.get().offset;
             if (offsetToken != null) {
@@ -944,6 +947,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 ctx.NOT() != null
                         );
                     }
+                    break;
+                case DorisParser.NULL:
+                    outExpression = new IsNull(valueExpression);
                     break;
                 default:
                     throw new ParseException("Unsupported predicate type: " + ctx.kind.getText(), ctx);

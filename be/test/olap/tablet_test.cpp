@@ -118,6 +118,7 @@ public:
         pb1->set_start_version(start);
         pb1->set_end_version(end);
         pb1->set_creation_time(10000);
+        pb1->set_tablet_schema(_tablet_meta->tablet_schema());
     }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end, int64_t earliest_ts,
@@ -129,6 +130,7 @@ public:
         pb1->set_end_version(end);
         pb1->set_creation_time(10000);
         pb1->set_num_segments(2);
+        pb1->set_tablet_schema(_tablet_meta->tablet_schema());
     }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end,
@@ -139,6 +141,7 @@ public:
         pb1->set_creation_time(10000);
         pb1->set_segments_key_bounds(keybounds);
         pb1->set_num_segments(keybounds.size());
+        pb1->set_tablet_schema(_tablet_meta->tablet_schema());
     }
 
     void init_all_rs_meta(std::vector<RowsetMetaSharedPtr>* rs_metas) {
@@ -381,7 +384,6 @@ TEST_F(TestTablet, rowset_tree_update) {
 
     RowsetMetaSharedPtr rsm1(new RowsetMeta());
     init_rs_meta(rsm1, 6, 7, convert_key_bounds({{"100", "200"}, {"300", "400"}}));
-    rsm1->set_tablet_schema(tablet->tablet_schema());
     RowsetId id1;
     id1.init(10010);
     RowsetSharedPtr rs_ptr1;
@@ -391,7 +393,6 @@ TEST_F(TestTablet, rowset_tree_update) {
 
     RowsetMetaSharedPtr rsm2(new RowsetMeta());
     init_rs_meta(rsm2, 8, 8, convert_key_bounds({{"500", "999"}}));
-    rsm2->set_tablet_schema(tablet->tablet_schema());
     RowsetId id2;
     id2.init(10086);
     rsm2->set_rowset_id(id2);

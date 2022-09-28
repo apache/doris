@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
@@ -99,6 +100,18 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
+    // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
+    // that mean the tablet_meta is still no upgrade to doris 1.2 versions.
+    // Before doris 1.2 version, rowset metas don't have tablet schema.
+    // And when upgrade to doris 1.2 version,
+    // all rowset metas will be set the tablet schmea from tablet meta.
+    if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
+        _max_version_schema = BaseTablet::tablet_schema();
+    } else {
+        _max_version_schema =
+                rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas())->tablet_schema();
+    }
+    DCHECK(_max_version_schema);
 
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
@@ -170,32 +183,6 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
               << ", rowsets_to_clone=" << rowsets_to_clone.size()
               << ", versions_to_delete=" << versions_to_delete.size();
     Status res = Status::OK();
-    do {
-        // load new local tablet_meta to operate on
-        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta(*_tablet_meta));
-
-        // delete versions from new local tablet_meta
-        for (const Version& version : versions_to_delete) {
-            new_tablet_meta->delete_rs_meta_by_version(version, nullptr);
-            LOG(INFO) << "delete version from new local tablet_meta when clone. [table="
-                      << full_name() << ", version=" << version << "]";
-        }
-
-        // add new cloned rowset
-        for (auto& rs_meta : rowsets_to_clone) {
-            new_tablet_meta->add_rs_meta(rs_meta);
-        }
-        VLOG_NOTICE << "load rowsets successfully when clone. tablet=" << full_name()
-                    << ", added rowset size=" << rowsets_to_clone.size();
-        // save and reload tablet_meta
-        res = new_tablet_meta->save_meta(_data_dir);
-        if (!res.ok()) {
-            LOG(WARNING) << "failed to save new local tablet_meta when clone. res:" << res;
-            break;
-        }
-        _tablet_meta = new_tablet_meta;
-    } while (0);
-
     RowsetVector rs_to_delete, rs_to_add;
 
     for (auto& version : versions_to_delete) {
@@ -225,8 +212,33 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
         for (auto rowset_ptr : rs_to_add) {
             RETURN_IF_ERROR(update_delete_bitmap_without_lock(rowset_ptr));
         }
-        save_meta();
     }
+
+    do {
+        // load new local tablet_meta to operate on
+        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta(*_tablet_meta));
+
+        // delete versions from new local tablet_meta
+        for (const Version& version : versions_to_delete) {
+            new_tablet_meta->delete_rs_meta_by_version(version, nullptr);
+            LOG(INFO) << "delete version from new local tablet_meta when clone. [table="
+                      << full_name() << ", version=" << version << "]";
+        }
+
+        // add new cloned rowset
+        for (auto& rs_meta : rowsets_to_clone) {
+            new_tablet_meta->add_rs_meta(rs_meta);
+        }
+        VLOG_NOTICE << "load rowsets successfully when clone. tablet=" << full_name()
+                    << ", added rowset size=" << rowsets_to_clone.size();
+        // save and reload tablet_meta
+        res = new_tablet_meta->save_meta(_data_dir);
+        if (!res.ok()) {
+            LOG(WARNING) << "failed to save new local tablet_meta when clone. res:" << res;
+            break;
+        }
+        _tablet_meta = new_tablet_meta;
+    } while (0);
 
     // reconstruct from tablet meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
@@ -1865,12 +1877,20 @@ Status Tablet::remove_all_remote_rowsets() {
 
 TabletSchemaSPtr Tablet::tablet_schema() const {
     std::shared_lock wrlock(_meta_lock);
-    if (UNLIKELY(_tablet_meta->all_rs_metas().empty())) {
-        return BaseTablet::tablet_schema();
+    return _max_version_schema;
+}
+
+void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
+    std::lock_guard wrlock(_meta_lock);
+    // Double Check for concurrent update
+    if (!_max_version_schema ||
+        tablet_schema->schema_version() > _max_version_schema->schema_version()) {
+        _max_version_schema = tablet_schema;
     }
-    const RowsetMetaSharedPtr rowset_meta =
-            rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
-    return rowset_meta->tablet_schema();
+}
+
+TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mutex>&) {
+    return _max_version_schema;
 }
 
 Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
@@ -1950,7 +1970,6 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
     for (auto& seg : segments) {
         seg->load_pk_index_and_bf(); // We need index blocks to iterate
         auto pk_idx = seg->get_primary_key_index();
-        int cnt = 0;
         int total = pk_idx->num_rows();
         uint32_t row_id = 0;
         int32_t remaining = total;
@@ -1982,19 +2001,28 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
             }
             for (size_t i = 0; i < num_read; i++) {
                 const Slice* key = reinterpret_cast<const Slice*>(cvb->cell_ptr(i));
+                RowLocation loc;
                 // first check if exist in pre segment
                 if (check_pre_segments) {
-                    bool find = _check_pk_in_pre_segments(pre_segments, *key, dummy_version,
-                                                          delete_bitmap);
-                    if (find) {
-                        cnt++;
+                    auto st = _check_pk_in_pre_segments(pre_segments, *key, dummy_version,
+                                                        delete_bitmap, &loc);
+                    if (st.ok()) {
+                        delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
+                                           loc.row_id);
+                        ++row_id;
+                        continue;
+                    } else if (st.is_already_exist()) {
+                        delete_bitmap->add({rowset_id, seg->id(), dummy_version.first}, row_id);
+                        ++row_id;
                         continue;
                     }
                 }
-                RowLocation loc;
                 auto st = lookup_row_key(*key, specified_rowset_ids, &loc, dummy_version.first - 1);
                 CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
-                if (st.is_not_found()) continue;
+                if (st.is_not_found()) {
+                    ++row_id;
+                    continue;
+                }
 
                 // sequence id smaller than the previous one, so delete current row
                 if (st.is_already_exist()) {
@@ -2003,7 +2031,6 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                     loc.row_id = row_id;
                 }
 
-                ++cnt;
                 ++row_id;
                 delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
                                    loc.row_id);
@@ -2021,20 +2048,24 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
     return Status::OK();
 }
 
-bool Tablet::_check_pk_in_pre_segments(
+Status Tablet::_check_pk_in_pre_segments(
         const std::vector<segment_v2::SegmentSharedPtr>& pre_segments, const Slice& key,
-        const Version& version, DeleteBitmapPtr delete_bitmap) {
+        const Version& version, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
     for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
-        RowLocation loc;
-        auto st = (*it)->lookup_row_key(key, &loc);
-        CHECK(st.ok() || st.is_not_found());
+        auto st = (*it)->lookup_row_key(key, loc);
+        CHECK(st.ok() || st.is_not_found() || st.is_already_exist());
         if (st.is_not_found()) {
             continue;
+        } else if (st.ok() && _schema->has_sequence_col() &&
+                   delete_bitmap->contains({loc->rowset_id, loc->segment_id, version.first},
+                                           loc->row_id)) {
+            // if has sequence col, we continue to compare the sequence_id of
+            // all segments, util we find an existing key.
+            continue;
         }
-        delete_bitmap->add({loc.rowset_id, loc.segment_id, version.first}, loc.row_id);
-        return true;
+        return st;
     }
-    return false;
+    return Status::NotFound("Can't find key in the segment");
 }
 
 void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,

@@ -160,6 +160,8 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, child(0)->row_desc(), _mem_pool.get(),
                                                    intermediate_slot_desc, output_slot_desc));
+        _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
+                                            !_agg_functions[i]->data_type()->is_nullable());
     }
 
     _offsets_of_aggregate_states.resize(_agg_functions_size);
@@ -572,8 +574,15 @@ Status VAnalyticEvalNode::_output_current_block(Block* block) {
         block->erase_not_in(_origin_cols);
     }
 
+    DCHECK(_change_to_nullable_flags.size() == _result_window_columns.size());
     for (size_t i = 0; i < _result_window_columns.size(); ++i) {
-        block->insert({std::move(_result_window_columns[i]), _agg_functions[i]->data_type(), ""});
+        if (_change_to_nullable_flags[i]) {
+            block->insert({make_nullable(std::move(_result_window_columns[i])),
+                           make_nullable(_agg_functions[i]->data_type()), ""});
+        } else {
+            block->insert(
+                    {std::move(_result_window_columns[i]), _agg_functions[i]->data_type(), ""});
+        }
     }
 
     _output_block_index++;

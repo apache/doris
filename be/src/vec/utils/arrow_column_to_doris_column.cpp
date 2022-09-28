@@ -23,10 +23,8 @@
 
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
-#include "arrow/scalar.h"
 #include "arrow/type.h"
 #include "arrow/type_fwd.h"
-#include "arrow/type_traits.h"
 #include "gutil/casts.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -114,7 +112,6 @@ static Status convert_column_with_string_data(const arrow::Array* array, size_t 
             const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
             column_chars_t.insert(raw_data, raw_data + concrete_array->value_length(offset_i));
         }
-        column_chars_t.emplace_back('\0');
 
         column_offsets.emplace_back(column_chars_t.size());
     }
@@ -136,7 +133,6 @@ static Status convert_column_with_fixed_size_data(const arrow::Array* array, siz
             const auto* raw_data = array_data + (offset_i * width);
             column_chars_t.insert(raw_data, raw_data + width);
         }
-        column_chars_t.emplace_back('\0');
         column_offsets.emplace_back(column_chars_t.size());
     }
     return Status::OK();
@@ -412,4 +408,60 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
     return Status::NotSupported(
             fmt::format("Not support arrow type:{}", arrow_column->type()->name()));
 }
+
+Status arrow_type_to_doris_type(arrow::Type::type type, TypeDescriptor* return_type) {
+    switch (type) {
+    case arrow::Type::STRING:
+    case arrow::Type::BINARY:
+    case arrow::Type::FIXED_SIZE_BINARY:
+        return_type->type = TYPE_STRING;
+        break;
+    case arrow::Type::INT8:
+        return_type->type = TYPE_TINYINT;
+        break;
+    case arrow::Type::UINT8:
+    case arrow::Type::INT16:
+        return_type->type = TYPE_SMALLINT;
+        break;
+    case arrow::Type::UINT16:
+    case arrow::Type::INT32:
+        return_type->type = TYPE_INT;
+        break;
+    case arrow::Type::UINT32:
+    case arrow::Type::INT64:
+        return_type->type = TYPE_BIGINT;
+        break;
+    case arrow::Type::UINT64:
+        return_type->type = TYPE_LARGEINT;
+        break;
+    case arrow::Type::HALF_FLOAT:
+    case arrow::Type::FLOAT:
+        return_type->type = TYPE_FLOAT;
+        break;
+    case arrow::Type::DOUBLE:
+        return_type->type = TYPE_DOUBLE;
+        break;
+    case arrow::Type::BOOL:
+        return_type->type = TYPE_BOOLEAN;
+        break;
+    case arrow::Type::DATE32:
+        return_type->type = TYPE_DATEV2;
+        break;
+    case arrow::Type::DATE64:
+        return_type->type = TYPE_DATETIMEV2;
+        break;
+    case arrow::Type::TIMESTAMP:
+        return_type->type = TYPE_BIGINT;
+        break;
+    case arrow::Type::DECIMAL:
+        return_type->type = TYPE_DECIMALV2;
+        return_type->precision = 27;
+        return_type->scale = 9;
+        break;
+    default:
+        return Status::InternalError("unsupport type: {}", type);
+    }
+    return Status::OK();
+}
+
 } // namespace doris::vectorized

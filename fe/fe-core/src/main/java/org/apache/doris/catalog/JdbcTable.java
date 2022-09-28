@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,12 +47,23 @@ public class JdbcTable extends Table {
     private static final String TABLE = "table";
     private static final String RESOURCE = "resource";
     private static final String TABLE_TYPE = "table_type";
-    // TODO: We may have to support various types of databases like ODBC
-    // map now jdbc external table Doris support now
+    private static final String URL = "jdbc_url";
+    private static final String USER = "user";
+    private static final String PASSWORD = "password";
+    private static final String DRIVER_CLASS = "driver_class";
+    private static final String DRIVER_URL = "driver_url";
+    private static final String CHECK_SUM = "checksum";
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
     private String resourceName;
     private String externalTableName;
     private String jdbcTypeName;
+
+    private String jdbcUrl;
+    private String jdbcUser;
+    private String jdbcPasswd;
+    private String driverClass;
+    private String driverUrl;
+    private String checkSum;
 
     static {
         Map<String, TOdbcTableType> tempMap = new HashMap<>();
@@ -72,18 +84,49 @@ public class JdbcTable extends Table {
         validate(properties);
     }
 
+    public String getCheckSum() {
+        return checkSum;
+    }
+
+    public String getExternalTableName() {
+        return externalTableName;
+    }
+
+    public String getJdbcTypeName() {
+        return jdbcTypeName;
+    }
+
+    public String getJdbcUrl() {
+        return jdbcUrl;
+    }
+
+    public String getJdbcUser() {
+        return jdbcUser;
+    }
+
+    public String getJdbcPasswd() {
+        return jdbcPasswd;
+    }
+
+    public String getDriverClass() {
+        return driverClass;
+    }
+
+    public String getDriverUrl() {
+        return driverUrl;
+    }
+
     @Override
     public TTableDescriptor toThrift() {
         TJdbcTable tJdbcTable = new TJdbcTable();
-        JdbcResource jdbcResource = (JdbcResource) (Env.getCurrentEnv().getResourceMgr().getResource(resourceName));
-        tJdbcTable.setJdbcUrl(jdbcResource.getProperty(JdbcResource.URL));
-        tJdbcTable.setJdbcUser(jdbcResource.getProperty(JdbcResource.USER));
-        tJdbcTable.setJdbcPassword(jdbcResource.getProperty(JdbcResource.PASSWORD));
+        tJdbcTable.setJdbcUrl(jdbcUrl);
+        tJdbcTable.setJdbcUser(jdbcUser);
+        tJdbcTable.setJdbcPassword(jdbcPasswd);
         tJdbcTable.setJdbcTableName(externalTableName);
-        tJdbcTable.setJdbcDriverClass(jdbcResource.getProperty(JdbcResource.DRIVER_CLASS));
-        tJdbcTable.setJdbcDriverUrl(jdbcResource.getProperty(JdbcResource.DRIVER_URL));
-        tJdbcTable.setJdbcResourceName(jdbcResource.getName());
-        tJdbcTable.setJdbcDriverChecksum(jdbcResource.getProperty(JdbcResource.CHECK_SUM));
+        tJdbcTable.setJdbcDriverClass(driverClass);
+        tJdbcTable.setJdbcDriverUrl(driverUrl);
+        tJdbcTable.setJdbcResourceName(resourceName);
+        tJdbcTable.setJdbcDriverChecksum(checkSum);
 
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.JDBC_TABLE, fullSchema.size(), 0,
                 getName(), "");
@@ -94,17 +137,50 @@ public class JdbcTable extends Table {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-        Text.writeString(out, externalTableName);
-        Text.writeString(out, resourceName);
-        Text.writeString(out, jdbcTypeName);
+        Map<String, String> serializeMap = Maps.newHashMap();
+        serializeMap.put(TABLE, externalTableName);
+        serializeMap.put(RESOURCE, resourceName);
+        serializeMap.put(TABLE_TYPE, jdbcTypeName);
+        serializeMap.put(URL, jdbcUrl);
+        serializeMap.put(USER, jdbcUser);
+        serializeMap.put(PASSWORD, jdbcPasswd);
+        serializeMap.put(DRIVER_CLASS, driverClass);
+        serializeMap.put(DRIVER_URL, driverUrl);
+        serializeMap.put(CHECK_SUM, checkSum);
+
+        int size = (int) serializeMap.values().stream().filter(v -> {
+            return v != null;
+        }).count();
+        out.writeInt(size);
+
+        for (Map.Entry<String, String> kv : serializeMap.entrySet()) {
+            if (kv.getValue() != null) {
+                Text.writeString(out, kv.getKey());
+                Text.writeString(out, kv.getValue());
+            }
+        }
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        externalTableName = Text.readString(in);
-        resourceName = Text.readString(in);
-        jdbcTypeName = Text.readString(in);
+
+        int size = in.readInt();
+        Map<String, String> serializeMap = Maps.newHashMap();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            serializeMap.put(key, value);
+        }
+        externalTableName = serializeMap.get(TABLE);
+        resourceName = serializeMap.get(RESOURCE);
+        jdbcTypeName = serializeMap.get(TABLE_TYPE);
+        jdbcUrl = serializeMap.get(URL);
+        jdbcUser = serializeMap.get(USER);
+        jdbcPasswd = serializeMap.get(PASSWORD);
+        driverClass = serializeMap.get(DRIVER_CLASS);
+        driverUrl = serializeMap.get(DRIVER_URL);
+        checkSum = serializeMap.get(CHECK_SUM);
     }
 
     public String getResourceName() {
@@ -125,18 +201,17 @@ public class JdbcTable extends Table {
 
     @Override
     public String getSignature(int signatureVersion) {
-        JdbcResource jdbcResource = (JdbcResource) (Env.getCurrentEnv().getResourceMgr().getResource(resourceName));
         StringBuilder sb = new StringBuilder(signatureVersion);
         sb.append(name);
         sb.append(type);
         sb.append(resourceName);
         sb.append(externalTableName);
-        sb.append(jdbcTypeName);
-        sb.append(jdbcResource.getProperty(JdbcResource.URL));
-        sb.append(jdbcResource.getProperty(JdbcResource.USER));
-        sb.append(jdbcResource.getProperty(JdbcResource.PASSWORD));
-        sb.append(jdbcResource.getProperty(JdbcResource.DRIVER_CLASS));
-        sb.append(jdbcResource.getProperty(JdbcResource.DRIVER_URL));
+        sb.append(jdbcUrl);
+        sb.append(jdbcUser);
+        sb.append(jdbcPasswd);
+        sb.append(driverClass);
+        sb.append(driverUrl);
+        sb.append(checkSum);
 
         String md5 = DigestUtils.md5Hex(sb.toString());
         LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
@@ -181,5 +256,13 @@ public class JdbcTable extends Table {
         if (resource.getType() != ResourceType.JDBC) {
             throw new DdlException("resource [" + resourceName + "] is not jdbc resource");
         }
+
+        JdbcResource jdbcResource = (JdbcResource) resource;
+        jdbcUrl = jdbcResource.getProperty(URL);
+        jdbcUser = jdbcResource.getProperty(USER);
+        jdbcPasswd = jdbcResource.getProperty(PASSWORD);
+        driverClass = jdbcResource.getProperty(DRIVER_CLASS);
+        driverUrl = jdbcResource.getProperty(DRIVER_URL);
+        checkSum = jdbcResource.getProperty(CHECK_SUM);
     }
 }

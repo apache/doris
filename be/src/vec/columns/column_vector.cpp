@@ -112,6 +112,16 @@ void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
+void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
+                                               const uint8_t* __restrict null_data) const {
+    auto s = size();
+    for (int i = 0; i < s; i++) {
+        hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
+                                               hashes[i]);
+    }
+}
+
+template <typename T>
 void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                   IColumn::Permutation& perms, EqualRange& range,
                                   bool last_column) const {
@@ -119,7 +129,32 @@ void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 }
 
 template <typename T>
-void ColumnVector<T>::update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
+                                       int nan_direction_hint, int direction,
+                                       std::vector<uint8>& cmp_res,
+                                       uint8* __restrict filter) const {
+    auto sz = this->size();
+    DCHECK(cmp_res.size() == sz);
+    const auto& cmp_base = assert_cast<const ColumnVector<T>&>(rhs).get_data()[rhs_row_id];
+    size_t begin = simd::find_zero(cmp_res, 0);
+    while (begin < sz) {
+        size_t end = simd::find_one(cmp_res, begin + 1);
+        for (size_t row_id = begin; row_id < end; row_id++) {
+            auto value_a = get_data()[row_id];
+            int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
+            if (res * direction < 0) {
+                filter[row_id] = 1;
+                cmp_res[row_id] = 1;
+            } else if (res * direction > 0) {
+                cmp_res[row_id] = 1;
+            }
+        }
+        begin = simd::find_zero(cmp_res, end + 1);
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                              const uint8_t* __restrict null_data) const {
     auto s = hashes.size();
     DCHECK(s == size());
@@ -314,20 +349,22 @@ void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t
 template <typename T>
 void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices_begin,
                                           const int* indices_end) {
-    const Self& src_vec = assert_cast<const Self&>(src);
     auto origin_size = size();
     auto new_size = indices_end - indices_begin;
     data.resize(origin_size + new_size);
 
-    for (int i = 0; i < new_size; ++i) {
-        int offset = indices_begin[i];
-        if constexpr (std::is_same_v<T, UInt8>) {
-            // Now Uint8 use to identify null and non null
-            // 1. nullable column : offset == -1 means is null at the here, set true here
-            // 2. real data column : offset == -1 what at is meaningless
-            data[origin_size + i] = (offset == -1) ? T {1} : src_vec.get_element(offset);
-        } else {
-            data[origin_size + i] = (offset == -1) ? T {0} : src_vec.get_element(offset);
+    const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+
+    if constexpr (std::is_same_v<T, UInt8>) {
+        // nullmap : indices_begin[i] == -1 means is null at the here, set true here
+        for (int i = 0; i < new_size; ++i) {
+            data[origin_size + i] = (indices_begin[i] == -1) +
+                                    (indices_begin[i] != -1) * src_data[indices_begin[i]];
+        }
+    } else {
+        // real data : indices_begin[i] == -1 what at is meaningless
+        for (int i = 0; i < new_size; ++i) {
+            data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
 }

@@ -57,7 +57,7 @@ ALTER TABLE pv_bitmap ADD ROLLUP pv (page, user_id);
 
 `BITMAP_EMPTY ()`: Generate empty bitmap columns, used for insert or import to fill the default value
 
-`BITMAP_HASH (expr)`: Convert any type of column to a bitmap by hashing
+`BITMAP_HASH (expr)` or `BITMAP_HASH64 (expr)`: Convert any type of column to a bitmap by hashing
 
 ##### Stream Load
 

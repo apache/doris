@@ -22,6 +22,8 @@
 #include <memory>
 #include <string>
 
+#include "agent/heartbeat_server.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_bitmap.h"
 namespace doris::vectorized {
 TEST(ColumnComplexTest, BasicTest) {
@@ -63,13 +65,15 @@ public:
 
     void check_serialize_and_deserialize(MutableColumnPtr& col) {
         auto column = assert_cast<ColumnBitmap*>(col.get());
-        auto size = _bitmap_type.get_uncompressed_serialized_bytes(*column);
+        auto size = _bitmap_type.get_uncompressed_serialized_bytes(
+                *column, HeartbeatServer::max_be_exec_version);
         std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-        auto result = _bitmap_type.serialize(*column, buf.get());
+        auto result =
+                _bitmap_type.serialize(*column, buf.get(), HeartbeatServer::max_be_exec_version);
         ASSERT_EQ(result, buf.get() + size);
 
         auto column2 = _bitmap_type.create_column();
-        _bitmap_type.deserialize(buf.get(), column2.get());
+        _bitmap_type.deserialize(buf.get(), column2.get(), HeartbeatServer::max_be_exec_version);
         check_bitmap_column(*column, *column2.get());
     }
 

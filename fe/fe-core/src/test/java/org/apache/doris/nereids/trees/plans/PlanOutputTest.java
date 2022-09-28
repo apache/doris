@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -84,7 +85,8 @@ public class PlanOutputTest {
     @Test
     public void testPhysicalPlanMustHaveLogicalProperties() {
         Assertions.assertThrows(NullPointerException.class, () ->
-                new PhysicalRelation(PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("db"), Optional.empty(), null) {
+                new PhysicalRelation(RelationId.createGenerator().getNextId(),
+                        PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("db"), Optional.empty(), null) {
                     @Override
                     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
                         return null;
@@ -96,7 +98,8 @@ public class PlanOutputTest {
                     }
 
                     @Override
-                    public PhysicalPlan withPhysicalProperties(PhysicalProperties physicalProperties) {
+                    public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+                            StatsDeriveResult statsDeriveResult) {
                         return null;
                     }
 

@@ -102,14 +102,13 @@ public:
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override {
-        const Self& src_vec = assert_cast<const Self&>(src);
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
+        const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
         for (int i = 0; i < new_size; ++i) {
-            auto offset = *(indices_begin + i);
-            data[origin_size + i] = offset == -1 ? T {} : src_vec.get_element(offset);
+            data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
 
@@ -154,9 +153,11 @@ public:
                                        const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    void update_hashes_with_value(std::vector<SipHash>& hash,
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crcs_with_value(std::vector<uint32_t>& hashes, PrimitiveType type,
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
@@ -230,6 +231,10 @@ public:
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
 
     UInt32 get_scale() const { return scale; }
 

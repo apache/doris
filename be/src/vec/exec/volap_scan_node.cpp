@@ -376,7 +376,10 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     }
 
     VLOG_CRITICAL << "TransferThread finish.";
-    _transfer_done = true;
+    {
+        std::unique_lock<std::mutex> l(_blocks_lock);
+        _transfer_done = true;
+    }
     _block_added_cv.notify_all();
     {
         std::unique_lock<std::mutex> l(_scan_blocks_lock);
@@ -912,7 +915,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
 
         if (config::doris_scan_range_max_mb > 0) {
             size_based_scanners_per_tablet = std::max(
-                    1, (int)tablet->tablet_footprint() / config::doris_scan_range_max_mb << 20);
+                    1, (int)(tablet->tablet_footprint() / (config::doris_scan_range_max_mb << 20)));
         }
 
         int ranges_per_scanner =

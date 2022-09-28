@@ -18,8 +18,10 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 #include "runtime/buffer_control_block.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -73,7 +75,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     MysqlRowBuffer _buffer;
     int buf_ret = 0;
 
-    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR) {
+    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR || type == TYPE_JSONB) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -104,6 +106,24 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                     }
                 } else {
                     buf_ret = _buffer.push_string(string_val.data, string_val.size);
+                }
+            }
+            if constexpr (type == TYPE_JSONB) {
+                const auto json_val = column->get_data_at(i);
+                if (json_val.data == nullptr) {
+                    if (json_val.size == 0) {
+                        // 0x01 is a magic num, not useful actually, just for present ""
+                        char* tmp_val = reinterpret_cast<char*>(0x01);
+                        buf_ret = _buffer.push_string(tmp_val, json_val.size);
+                    } else {
+                        buf_ret = _buffer.push_null();
+                    }
+                } else {
+                    JsonbToJson toStr;
+                    std::string json_str = toStr.jsonb_to_string(
+                            JsonbDocument::createDocument(json_val.data, json_val.size)
+                                    ->getValue());
+                    buf_ret = _buffer.push_string(json_str.c_str(), json_str.size());
                 }
             }
 
@@ -564,6 +584,14 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, false>(column_ptr, result,
                                                                                 type_ptr);
+            }
+            break;
+        }
+        case TYPE_JSONB: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_JSONB, true>(column_ptr, result);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_JSONB, false>(column_ptr, result);
             }
             break;
         }

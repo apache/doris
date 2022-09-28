@@ -58,12 +58,11 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile) {
         _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
     }
 
-    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
-    _label = fmt::format(
-            "{} | {}", label,
-            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label());
-    _bind_group_num =
-            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->group_num();
+    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw() != nullptr);
+    MemTrackerLimiter* parent =
+            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw();
+    _label = fmt::format("[Observer] {} | {}", label, parent->label());
+    _bind_group_num = parent->group_num();
     {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
         _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(
@@ -104,10 +103,11 @@ void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshot
 }
 
 std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
-    return fmt::format("MemTracker Label={}, Parent Label={}, Used={}, Peak={}", snapshot.label,
-                       snapshot.parent,
-                       PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
-                       PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES));
+    return fmt::format(
+            "MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)", snapshot.label,
+            snapshot.parent, PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
+            snapshot.cur_consumption, PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES),
+            snapshot.peak_consumption);
 }
 
 static std::unordered_map<std::string, std::shared_ptr<MemTracker>> global_mem_trackers;
@@ -118,8 +118,8 @@ std::shared_ptr<MemTracker> MemTracker::get_global_mem_tracker(const std::string
     if (global_mem_trackers.find(label) != global_mem_trackers.end()) {
         return global_mem_trackers[label];
     } else {
-        global_mem_trackers.emplace(label,
-                                    std::make_shared<MemTracker>(fmt::format("[Global]{}", label)));
+        global_mem_trackers.emplace(
+                label, std::make_shared<MemTracker>(fmt::format("[Global] {}", label)));
         return global_mem_trackers[label];
     }
 }

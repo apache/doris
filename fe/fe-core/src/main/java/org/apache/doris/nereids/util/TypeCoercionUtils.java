@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -122,6 +124,10 @@ public class TypeCoercionUtils {
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
             }
+        } else if (input.isDate()) {
+            if (expected instanceof DateTimeType) {
+                returnType = expected.defaultConcreteType();
+            }
         }
 
         if (returnType == null && input instanceof PrimitiveType
@@ -199,6 +205,39 @@ public class TypeCoercionUtils {
             tightestCommonType = DecimalType.widerDecimalType((DecimalType) right, DecimalType.forType(left));
         }
         return Optional.ofNullable(tightestCommonType);
+    }
+
+    /**
+     * The type used for arithmetic operations.
+     */
+    public static DataType getNumResultType(DataType type) {
+        if (type.isTinyIntType() || type.isSmallIntType() || type.isIntType() || type.isBigIntType()) {
+            return BigIntType.INSTANCE;
+        } else if (type.isLargeIntType()) {
+            return LargeIntType.INSTANCE;
+        } else if (type.isFloatType() || type.isDoubleType() || type.isStringType()) {
+            return DoubleType.INSTANCE;
+        } else if (type.isDecimalType()) {
+            return DecimalType.SYSTEM_DEFAULT;
+        } else if (type.isNullType()) {
+            return NullType.INSTANCE;
+        }
+        throw new AnalysisException("no found appropriate data type.");
+    }
+
+    /**
+     * The common type used by arithmetic operations.
+     */
+    public static DataType findCommonNumericsType(DataType t1, DataType t2) {
+        if (t1.isDoubleType() || t2.isDoubleType()) {
+            return DoubleType.INSTANCE;
+        } else if (t1.isDecimalType() || t2.isDecimalType()) {
+            return DecimalType.SYSTEM_DEFAULT;
+        } else if (t1.isLargeIntType() || t2.isLargeIntType()) {
+            return LargeIntType.INSTANCE;
+        } else {
+            return BigIntType.INSTANCE;
+        }
     }
 
     /**
@@ -289,6 +328,23 @@ public class TypeCoercionUtils {
         if (input.getDataType().equals(dataType)) {
             return input;
         } else {
+            if (input instanceof Literal) {
+                DataType type = input.getDataType();
+                while (!type.equals(dataType)) {
+                    DataType promoted = type.promotion();
+                    if (type.equals(promoted)) {
+                        break;
+                    }
+                    type = promoted;
+                }
+                if (type.equals(dataType)) {
+                    Literal promoted = DataType.promoteNumberLiteral(((Literal) input).getValue(), dataType);
+                    if (promoted != null) {
+                        return promoted;
+                    }
+
+                }
+            }
             return new Cast(input, dataType);
         }
     }

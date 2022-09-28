@@ -35,7 +35,7 @@ public class DecimalType extends FractionalType {
 
     public static int MAX_PRECISION = 38;
     public static int MAX_SCALE = 38;
-    public static DecimalType SYSTEM_DEFAULT = new DecimalType(MAX_PRECISION, 18);
+    public static final DecimalType SYSTEM_DEFAULT = new DecimalType(MAX_PRECISION, 18);
 
     private static final DecimalType BOOLEAN_DECIMAL = new DecimalType(1, 0);
     private static final DecimalType TINYINT_DECIMAL = new DecimalType(3, 0);

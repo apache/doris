@@ -104,9 +104,9 @@ public:
 
     int64_t memtable_consumption() const;
 
-    int64_t save_mem_consumption_snapshot();
+    int64_t save_memtable_consumption_snapshot();
 
-    int64_t get_mem_consumption_snapshot() const;
+    int64_t get_memtable_consumption_snapshot() const;
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
@@ -161,16 +161,19 @@ private:
     // use in vectorized load
     bool _is_vec;
 
-    //only used for std::sort more detail see issue(#9237)
-    int64_t _mem_consumption_snapshot = 0;
+    // memory consumption snapshot for current memtable, only
+    // used for std::sort
+    int64_t _memtable_consumption_snapshot = 0;
 
     std::unordered_set<int64_t> _unfinished_slave_node;
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;
     std::shared_mutex _slave_node_lock;
 
-    DeleteBitmapPtr _delete_bitmap;
+    DeleteBitmapPtr _delete_bitmap = nullptr;
     // current rowset_ids, used to do diff in publish_version
     RowsetIdUnorderedSet _rowset_ids;
+    // current max version, used to calculate delete bitmap
+    int64_t _cur_max_version;
 };
 
 } // namespace doris
