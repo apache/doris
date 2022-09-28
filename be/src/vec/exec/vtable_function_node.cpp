@@ -17,8 +17,6 @@
 
 #include "vec/exec/vtable_function_node.h"
 
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "exprs/table_function/table_function.h"
 #include "exprs/table_function/table_function_factory.h"
 #include "vec/exprs/vexpr.h"
@@ -191,6 +189,9 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
             if (columns[_child_slots.size()]->size() >= state->batch_size()) {
                 break;
             }
+        }
+        if (columns[_child_slots.size()]->size() >= state->batch_size()) {
+            break;
         }
     }
 
