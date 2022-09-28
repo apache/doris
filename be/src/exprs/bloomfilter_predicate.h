@@ -244,9 +244,13 @@ struct DateV2FindOp
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value;
         value.from_date(*reinterpret_cast<const uint32_t*>(data));
-        return bloom_filter.test(
-                Slice((char*)&value,
-                      sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>)));
+
+        uint64_t datetime_value =
+                ((uint64_t)binary_cast<
+                        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>,
+                        uint32_t>(value))
+                << doris::vectorized::TIME_PART_LENGTH;
+        return bloom_filter.test(Slice((char*)&datetime_value, sizeof(uint64_t)));
     }
 };
 
