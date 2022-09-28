@@ -80,22 +80,22 @@ public class ExecutableFunctions {
         return new DecimalLiteral(result);
     }
 
-    @ExecFunction(name = "subtract", argTypes = {"TINYINT", "TINYINT"}, returnType = "TINYINT")
-    public static TinyIntLiteral subtractTinyint(TinyIntLiteral first, TinyIntLiteral second) {
-        byte result = (byte) Math.subtractExact(first.getValue(), second.getValue());
-        return new TinyIntLiteral(result);
-    }
-
-    @ExecFunction(name = "subtract", argTypes = {"SMALLINT", "SMALLINT"}, returnType = "SMALLINT")
-    public static SmallIntLiteral subtractSmallint(SmallIntLiteral first, SmallIntLiteral second) {
+    @ExecFunction(name = "subtract", argTypes = {"TINYINT", "TINYINT"}, returnType = "SMALLINT")
+    public static SmallIntLiteral subtractTinyint(TinyIntLiteral first, TinyIntLiteral second) {
         short result = (short) Math.subtractExact(first.getValue(), second.getValue());
         return new SmallIntLiteral(result);
     }
 
-    @ExecFunction(name = "subtract", argTypes = {"INT", "INT"}, returnType = "INT")
-    public static IntegerLiteral subtractInt(IntegerLiteral first, IntegerLiteral second) {
+    @ExecFunction(name = "subtract", argTypes = {"SMALLINT", "SMALLINT"}, returnType = "INT")
+    public static IntegerLiteral subtractSmallint(SmallIntLiteral first, SmallIntLiteral second) {
         int result = Math.subtractExact(first.getValue(), second.getValue());
         return new IntegerLiteral(result);
+    }
+
+    @ExecFunction(name = "subtract", argTypes = {"INT", "INT"}, returnType = "BIGINT")
+    public static BigIntLiteral subtractInt(IntegerLiteral first, IntegerLiteral second) {
+        long result = Math.subtractExact(first.getValue(), second.getValue());
+        return new BigIntLiteral(result);
     }
 
     @ExecFunction(name = "subtract", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT")
@@ -116,22 +116,22 @@ public class ExecutableFunctions {
         return new DecimalLiteral(result);
     }
 
-    @ExecFunction(name = "multiply", argTypes = {"TINYINT", "TINYINT"}, returnType = "TINYINT")
-    public static TinyIntLiteral multiplyTinyint(TinyIntLiteral first, TinyIntLiteral second) {
-        byte result = (byte) Math.multiplyExact(first.getValue(), second.getValue());
-        return new TinyIntLiteral(result);
-    }
-
-    @ExecFunction(name = "multiply", argTypes = {"SMALLINT", "SMALLINT"}, returnType = "SMALLINT")
-    public static SmallIntLiteral multiplySmallint(SmallIntLiteral first, SmallIntLiteral second) {
+    @ExecFunction(name = "multiply", argTypes = {"TINYINT", "TINYINT"}, returnType = "SMALLINT")
+    public static SmallIntLiteral multiplyTinyint(TinyIntLiteral first, TinyIntLiteral second) {
         short result = (short) Math.multiplyExact(first.getValue(), second.getValue());
         return new SmallIntLiteral(result);
     }
 
-    @ExecFunction(name = "multiply", argTypes = {"INT", "INT"}, returnType = "INT")
-    public static IntegerLiteral multiplyInt(IntegerLiteral first, IntegerLiteral second) {
+    @ExecFunction(name = "multiply", argTypes = {"SMALLINT", "SMALLINT"}, returnType = "INT")
+    public static IntegerLiteral multiplySmallint(SmallIntLiteral first, SmallIntLiteral second) {
         int result = Math.multiplyExact(first.getValue(), second.getValue());
         return new IntegerLiteral(result);
+    }
+
+    @ExecFunction(name = "multiply", argTypes = {"INT", "INT"}, returnType = "BIGINT")
+    public static BigIntLiteral multiplyInt(IntegerLiteral first, IntegerLiteral second) {
+        long result = Math.multiplyExact(first.getValue(), second.getValue());
+        return new BigIntLiteral(result);
     }
 
     @ExecFunction(name = "multiply", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT")
