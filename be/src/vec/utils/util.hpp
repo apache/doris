@@ -45,6 +45,18 @@ public:
         return columns_with_type_and_name;
     }
 
+    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc) {
+        ColumnsWithTypeAndName columns_with_type_and_name;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                columns_with_type_and_name.emplace_back(
+                        slot_desc->get_data_type_ptr()->create_column(),
+                        slot_desc->get_data_type_ptr(), slot_desc->col_name());
+            }
+        }
+        return columns_with_type_and_name;
+    }
+
     static void update_null_map(NullMap& dst, const NullMap& src) {
         size_t size = dst.size();
         auto* __restrict l = dst.data();
