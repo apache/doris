@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -50,25 +49,6 @@ class PushFilterInsideJoinTest implements PatternMatchSupported {
                 .printlnTree()
                 .matchesFromRoot(
                         logicalJoin().when(join -> join.getOtherJoinCondition().get().equals(predicates))
-                );
-    }
-
-    @Test
-    void testPushInsideFailed() {
-        Expression predicates = new EqualTo(scan1.getOutput().get(1), scan2.getOutput().get(1));
-
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinEmptyOn(scan2, JoinType.CROSS_JOIN)
-                .filter(predicates)
-                .build();
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(PushFilterInsideJoin.INSTANCE)
-                .printlnTree()
-                .matchesFromRoot(
-                        logicalFilter(
-                                logicalJoin()
-                        ).when(filter -> filter.getPredicates().equals(predicates))
                 );
     }
 }
