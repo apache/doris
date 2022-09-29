@@ -380,10 +380,16 @@ public class OriginalPlanner extends Planner {
             SortNode sortNode = (SortNode) node;
             PlanNode child = sortNode.getChild(0);
             if (child instanceof OlapScanNode && sortNode.getLimit() > 0
-                    && sortNode.getSortInfo().getOrderingExprs().get(0) instanceof SlotRef) {
-                OlapScanNode scanNode = (OlapScanNode) child;
-                sortNode.setUseTopnOpt(true);
-                scanNode.setUseTopnOpt(true);
+                    && sortNode.getSortInfo().getOrderingExprs().size() > 0) {
+                Expr firstSortExpr = sortNode.getSortInfo().getOrderingExprs().get(0);
+                if (firstSortExpr instanceof SlotRef) {
+                    SlotRef slot = (SlotRef) firstSortExpr;
+                    if (!slot.getColumn().getType().isStringType()) {
+                        OlapScanNode scanNode = (OlapScanNode) child;
+                        sortNode.setUseTopnOpt(true);
+                        scanNode.setUseTopnOpt(true);
+                    }
+                }
             }
         }
     }
