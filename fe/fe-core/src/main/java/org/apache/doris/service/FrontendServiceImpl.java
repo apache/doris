@@ -43,6 +43,7 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
@@ -68,6 +69,8 @@ import org.apache.doris.thrift.TDescribeTableParams;
 import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
+import org.apache.doris.thrift.TFetchBackendsInfoRequest;
+import org.apache.doris.thrift.TFetchBackendsInfoResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
@@ -974,6 +977,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
             result.setMsg("not ready");
         }
+        return result;
+    }
+
+    @Override
+    public TFetchBackendsInfoResult fetchBackendInfo(TFetchBackendsInfoRequest request) throws TException {
+        TFetchBackendsInfoResult result = new TFetchBackendsInfoResult();
+        List<List<String>> backendsInfo = BackendsProcDir.getClusterBackendInfos(request.getClusterName());
+        for (List<String> row : backendsInfo) {
+            row.remove(BackendsProcDir.HOSTNAME_INDEX);
+        }
+        result.setBackendInfo(backendsInfo);
+        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 

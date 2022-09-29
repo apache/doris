@@ -17,6 +17,7 @@
 
 #include "exec/schema_scanner.h"
 
+#include "exec/schema_scanner/schema_backends_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -113,6 +114,8 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
         return new (std::nothrow) SchemaPartitionsScanner();
     case TSchemaTableType::SCH_ROWSETS:
         return new (std::nothrow) SchemaRowsetsScanner();
+    case TSchemaTableType::SCH_BACKENDS:
+        return new (std::nothrow) SchemaBackendsScanner();
     default:
         return new (std::nothrow) SchemaDummyScanner();
         break;

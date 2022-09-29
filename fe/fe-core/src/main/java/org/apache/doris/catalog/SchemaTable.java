@@ -399,7 +399,33 @@ public class SchemaTable extends Table {
                                     .column("CREATION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("OLDEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .build())).build();
+                                    .build()))
+            .put("backends", new SchemaTable(SystemIdGenerator.getNextId(), "backends", TableType.SCHEMA,
+                    builder().column("BackendId", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("Cluster", ScalarType.createVarchar(64))
+                            .column("IP", ScalarType.createVarchar(16))
+                            .column("HeartbeatPort", ScalarType.createType(PrimitiveType.INT))
+                            .column("BePort", ScalarType.createType(PrimitiveType.INT))
+                            .column("HttpPort", ScalarType.createType(PrimitiveType.INT))
+                            .column("BrpcPort", ScalarType.createType(PrimitiveType.INT))
+                            .column("LastStartTime", ScalarType.createVarchar(32))
+                            .column("LastHeartbeat", ScalarType.createVarchar(32))
+                            .column("Alive", ScalarType.createVarchar(8))
+                            .column("SystemDecommissioned", ScalarType.createVarchar(8))
+                            .column("ClusterDecommissioned", ScalarType.createVarchar(8))
+                            .column("TabletNum", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("DataUsedCapacity", ScalarType.createVarchar(32))
+                            .column("AvailCapacity", ScalarType.createVarchar(32))
+                            .column("TotalCapacity", ScalarType.createVarchar(32))
+                            .column("UsedPct", ScalarType.createVarchar(32))
+                            .column("MaxDiskUsedPct", ScalarType.createVarchar(32))
+                            .column("RemoteUsedCapacity", ScalarType.createVarchar(32))
+                            .column("Tag", ScalarType.createVarchar(128))
+                            .column("ErrMsg", ScalarType.createVarchar(2048))
+                            .column("Version", ScalarType.createVarchar(64))
+                            .column("Status", ScalarType.createVarchar(1024))
+                            .build()))
+            .build();
     private SchemaTableType schemaTableType;
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
