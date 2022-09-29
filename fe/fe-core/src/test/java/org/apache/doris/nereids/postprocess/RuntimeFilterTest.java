@@ -30,7 +30,6 @@ import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -74,14 +73,13 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
-    @Disabled
     public void testNestedJoinGenerateRuntimeFilter() {
         String sql = SSBUtils.Q4_1;
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(4, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
-                Pair.of("lo_custkey", "c_custkey"), Pair.of("lo_suppkey", "s_suppkey"),
-                Pair.of("lo_partkey", "p_partkey"), Pair.of("lo_orderdate", "d_datekey")));
+                Pair.of("p_partkey", "lo_partkey"), Pair.of("s_suppkey", "lo_suppkey"),
+                Pair.of("c_custkey", "lo_custkey"), Pair.of("lo_orderdate", "d_datekey")));
     }
 
     @Test
@@ -231,7 +229,6 @@ public class RuntimeFilterTest extends SSBTestBase {
     private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, List<Pair<String, String>> colNames) {
         Assertions.assertEquals(filters.size(), colNames.size());
         for (int i = 0; i < filters.size(); i++) {
-            System.out.println(filters.get(i).getSrcExpr().toSql() + " " + filters.get(i).getTargetExpr().toSql());
             Assertions.assertTrue(filters.get(i).getSrcExpr().toSql().equals(colNames.get(i).first)
                     && filters.get(i).getTargetExpr().toSql().equals(colNames.get(i).second));
         }
