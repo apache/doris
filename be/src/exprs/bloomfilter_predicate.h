@@ -242,10 +242,8 @@ struct DateV2FindOp
         : public CommonFindOp<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>,
                               BloomFilterAdaptor> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value;
-        value.from_date(*reinterpret_cast<const uint32_t*>(data));
         return bloom_filter.test(
-                Slice((char*)&value,
+                Slice((char*)data,
                       sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>)));
     }
 };
@@ -256,10 +254,8 @@ struct DateTimeV2FindOp
                   doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>,
                   BloomFilterAdaptor> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> value;
-        value.from_datetime(*reinterpret_cast<const uint64_t*>(data));
         return bloom_filter.test(Slice(
-                (char*)&value,
+                (char*)data,
                 sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>)));
     }
 };
