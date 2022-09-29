@@ -97,7 +97,7 @@ private:
             refs[i].data = sv.ptr;
             refs[i].size = sv.len;
         }
-        res_ptr->insert_many_strings(refs, sel_size);
+        res_ptr->insert_many_continuous_strings(refs, sel_size);
     }
 
     void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
