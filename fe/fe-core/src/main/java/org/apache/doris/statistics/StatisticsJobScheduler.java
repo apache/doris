@@ -78,7 +78,8 @@ public class StatisticsJobScheduler extends MasterDaemon {
             = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_job_num);
 
     public StatisticsJobScheduler() {
-        super("Statistics job scheduler", 0);
+        super("Statistics job scheduler",
+                Config.statistic_job_scheduler_execution_interval_ms);
     }
 
     @Override
