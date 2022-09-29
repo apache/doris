@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import com.google.common.base.Preconditions;
@@ -53,7 +54,9 @@ public class Validator extends PlanPostProcessor {
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
-        Preconditions.checkArgument(!(child instanceof PhysicalProject));
+        Preconditions.checkState(!(child instanceof PhysicalProject));
+        // Forbidden filter-cross join, because we put all filter on cross join into its other join condition.
+        Preconditions.checkState(!(child instanceof PhysicalNestedLoopJoin));
 
         // Check filter is from child output.
         Set<Slot> childOutputSet = child.getOutputSet();
