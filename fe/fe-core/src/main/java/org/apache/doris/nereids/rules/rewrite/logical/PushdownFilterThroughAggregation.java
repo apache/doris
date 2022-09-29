@@ -62,7 +62,7 @@ import java.util.Set;
  *
  */
 
-public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
+public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
@@ -86,7 +86,7 @@ public class PushPredicateThroughAggregation extends OneRewriteRuleFactory {
             });
 
             return pushDownPredicate(filter, aggregate, pushDownPredicates, filterPredicates);
-        }).toRule(RuleType.PUSH_DOWN_PREDICATE_THROUGH_AGGREGATION);
+        }).toRule(RuleType.PUSHDOWN_PREDICATE_THROUGH_AGGREGATION);
     }
 
     private Plan pushDownPredicate(LogicalFilter filter, LogicalAggregate aggregate,

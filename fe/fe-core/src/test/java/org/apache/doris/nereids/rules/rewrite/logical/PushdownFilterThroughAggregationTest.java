@@ -47,7 +47,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class PushDownPredicateThroughAggregationTest {
+public class PushdownFilterThroughAggregationTest {
 
     /**
     * origin plan:
@@ -187,6 +187,6 @@ public class PushDownPredicateThroughAggregationTest {
     }
 
     private Memo rewrite(Plan plan) {
-        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushPredicateThroughAggregation());
+        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushdownFilterThroughAggregation());
     }
 }
