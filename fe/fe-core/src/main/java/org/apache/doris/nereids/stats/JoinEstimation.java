@@ -17,29 +17,112 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Estimate hash join stats.
  * TODO: Update other props in the ColumnStats properly.
  */
 public class JoinEstimation {
+    private static final Logger LOG = LogManager.getLogger(JoinEstimation.class);
 
-    private static final double DEFAULT_JOIN_RATIO = 10.0;
+    //LIMIT_RIGHT_WIDTH: the larger RIGHT_WIDTH means right child contains more join node. Although sometimes,
+    // right deep tree could reduce the input tuple number, it is bad for building hash table in parallel. That why
+    // we add penalty if the right child is too wide.
+    private static int LIMIT_RIGHT_WIDTH = 3;
+
+    //AVG_DIM_FACT_RATIO: by average, the number of fact tuples of one dimension. for example, in tpch, in
+    //lineitem, there are 1-7 tuples of the same orderkey, the average is 4.
+    private static int AVG_DIM_FACT_RATIO = 2;
+
+    //REDUCE_TIMES = 1/selectivity
+    //TODO currently, regard selectivity as 0.5, need to be refined.
+    private static int REDUCE_TIMES = 2;
+
+    private static class JoinEstimationResult {
+        public boolean forbiddenReducePropagation = false;
+        public boolean isReducedByHashJoin = false;
+        public long rowCount = 0;
+    }
+
+    /**
+     * the basic idea of star-schema is:
+     * 1. fact_table JOIN dimension_table, if dimension table are filtered, the result can be regarded as
+     * applying a filter on fact table.
+     * 2. fact_table JOIN dimension_table, if the dimension table is not filtered, the number of join result tuple
+     * equals to the number of fact tuples.
+     * 3. dimension table JOIN fact table, the number of join result tuple is that of fact table or 2 times
+     * of dimension table.
+     */
+    private static JoinEstimationResult estimateInnerJoin(PhysicalHashJoin join, EqualTo equalto,
+            StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
+        JoinEstimationResult result = new JoinEstimationResult();
+        SlotReference eqLeft = (SlotReference) equalto.child(0);
+        SlotReference eqRight = (SlotReference) equalto.child(1);
+        if ((rightStats.width == LIMIT_RIGHT_WIDTH && !rightStats.isReduced)
+                || rightStats.width > LIMIT_RIGHT_WIDTH + 1) {
+            //if the right side is too wide, ignore the filter effect.
+            result.forbiddenReducePropagation = true;
+            //penalty too right deep tree by multiply level
+            result.rowCount = rightStats.width * (leftStats.getRowCount()
+                    + AVG_DIM_FACT_RATIO * rightStats.getRowCount());
+        } else if (eqLeft.getColumn().isPresent() || eqRight.getColumn().isPresent()) {
+            Set<Slot> rightSlots = ((PhysicalHashJoin<?, ?>) join).child(1).getOutputSet();
+            if ((rightSlots.contains(eqRight)
+                    && eqRight.getColumn().isPresent()
+                    && eqRight.getColumn().get().isKey()
+                    && !compoundKey(eqRight))
+                    || (rightSlots.contains(eqLeft)
+                    && eqLeft.getColumn().isPresent()
+                    && eqLeft.getColumn().get().isKey()
+                    && !compoundKey(eqLeft))) {
+                //fact table JOIN dimension table
+                if (rightStats.isReduced) {
+                    //dimension table is reduced
+                    result.isReducedByHashJoin = true;
+                    //TODO current we regard selectivity as 0.5. After we have more accurate estimated selectivity,
+                    // replace it.
+                    result.rowCount = leftStats.getRowCount() / REDUCE_TIMES;
+                } else {
+                    //dimension table is not reduced, the join result tuple number equals to
+                    // the tuple number of fact table.
+                    result.rowCount = leftStats.getRowCount();
+                }
+            } else {
+                //dimension table JOIN fact table
+                result.rowCount = leftStats.getRowCount() + AVG_DIM_FACT_RATIO * rightStats.getRowCount();
+            }
+        } else {
+            LOG.debug("HashJoin cost calculation: slot.column is null, star-schema support failed.");
+            result.rowCount = Math.max(leftStats.getRowCount() + rightStats.getRowCount(),
+                    leftStats.getRowCount() * AVG_DIM_FACT_RATIO);
+        }
+        return result;
+    }
 
     /**
      * Do estimate.
@@ -52,15 +135,53 @@ public class JoinEstimation {
         // List<Expression> normalizedConjuncts = hashJoinConjuncts.stream().map(EqualTo.class::cast)
         //         .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, leftStats.getSlotToColumnStats().keySet()))
         //         .collect(Collectors.toList());
-
+        boolean isReducedByHashJoin = false;
+        boolean forbiddenReducePropagation = false;
         long rowCount;
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
-            rowCount = Math.round(leftStats.getRowCount() / DEFAULT_JOIN_RATIO) + 1;
+            if (rightStats.isReduced && rightStats.width <= LIMIT_RIGHT_WIDTH) {
+                rowCount = leftStats.getRowCount() / REDUCE_TIMES;
+            } else {
+                rowCount = leftStats.getRowCount() + 1;
+            }
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
-            rowCount = Math.round(rightStats.getRowCount() / DEFAULT_JOIN_RATIO) + 1;
+            if (leftStats.isReduced) {
+                rowCount = rightStats.getRowCount() / REDUCE_TIMES;
+            } else {
+                rowCount = rightStats.getRowCount() + 1;
+            }
         } else if (joinType == JoinType.INNER_JOIN) {
-            long childRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
-            rowCount = Math.round(childRowCount / DEFAULT_JOIN_RATIO) + 1;
+            if (!join.getHashJoinConjuncts().isEmpty() && join instanceof PhysicalHashJoin
+                    && ConnectContext.get().getSessionVariable().isNereidsStarSchemaSupport()) {
+                /*
+                 * Doris does not support primary key and foreign key. But the data may satisfy pk and fk constraints.
+                 * This fact is indicated by session variable `support_star_schema_nereids`.
+                 * If `support_star_schema_nereids` is true, we have the following implications:
+                 * 1. the duplicate key, the unique key and the aggregate key are primary key.
+                 * 2. the inner join is between fact table and dimension table
+                 */
+                //TODO:
+                // 1.currently, we only consider single primary key table. The idea could be expanded to table
+                //   with compound keys, like tpch lineitem/partsupp.
+                // 2.after aggregation, group key is unique. we could use it as primary key.
+                // 3.isReduced should be replaced by selectivity. and we need to refine the propagation of selectivity.
+                JoinEstimationResult better = new JoinEstimationResult();
+                better.rowCount = Long.MAX_VALUE;
+
+                for (Expression equalto : join.getHashJoinConjuncts()) {
+                    JoinEstimationResult result = estimateInnerJoin((PhysicalHashJoin) join,
+                            (EqualTo) equalto, leftStats, rightStats);
+                    if (result.rowCount < better.rowCount) {
+                        better = result;
+                    }
+                }
+                rowCount = better.rowCount;
+                forbiddenReducePropagation = better.forbiddenReducePropagation;
+                isReducedByHashJoin = better.isReducedByHashJoin;
+            } else {
+                long childRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+                rowCount = childRowCount;
+            }
         } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
             rowCount = leftStats.getRowCount();
         } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
@@ -80,7 +201,20 @@ public class JoinEstimation {
             statsDeriveResult.merge(rightStats);
         }
         statsDeriveResult.setRowCount(rowCount);
+        statsDeriveResult.isReduced = !forbiddenReducePropagation && (isReducedByHashJoin || leftStats.isReduced);
+        statsDeriveResult.width = rightStats.width + leftStats.width;
         return statsDeriveResult;
+    }
+
+    private static boolean compoundKey(SlotReference slotReference) {
+        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(slotReference.getQualifier().get(0));
+        if (db.isPresent()) {
+            Optional<Table> table = db.get().getTable(slotReference.getQualifier().get(1));
+            if (table.isPresent()) {
+                return table.get().isHasCompoundKey();
+            }
+        }
+        return false;
     }
 
     private static Expression removeCast(Expression parent) {
