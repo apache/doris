@@ -422,7 +422,7 @@ class Config {
         if (dir.indexOf(File.separator + "sql", dir.length() - 4) > 0 && dir.endsWith("sql")) {
             dir = dir.substring(0, dir.indexOf(File.separator + "sql", dir.length() - 4))
         }
-        if (dir.indexOf(File.separator + "sql" + File.separator) > 0 && dir.endsWith("sql")) {
+        if (dir.indexOf(File.separator + "sql" + File.separator) > 0) {
             dir = dir.substring(0, dir.indexOf(File.separator + "sql" + File.separator))
         }
 
