@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
 import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
 import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
 import org.apache.doris.nereids.jobs.batch.TypeCoercionJob;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.rules.analysis.Scope;
 
 import java.util.Objects;

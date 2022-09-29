@@ -87,7 +87,8 @@ public class RegisterCTE extends PlanPreprocessor {
         checkColumnAlias(withClause, outputSlots);
 
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
-                .mapToObj(i -> new Alias(outputSlots.get(i), columnAliases.get(i)))
+                .mapToObj(i -> i >= columnAliases.size()
+                    ? outputSlots.get(i) : new Alias(outputSlots.get(i), columnAliases.get(i)))
                 .collect(Collectors.toList());
         return new LogicalProject<>(projects, queryPlan.getGroupExpression(),
             Optional.ofNullable(queryPlan.getLogicalProperties()), queryPlan);
@@ -95,8 +96,9 @@ public class RegisterCTE extends PlanPreprocessor {
 
     private void checkColumnAlias(WithClause withClause, List<Slot> outputSlots) {
         List<String> columnAlias = withClause.getColumnAliases().get();
-        //
-        if (columnAlias.size() != outputSlots.size()) {
+        // if the size of columnAlias is smaller than outputSlots' size, we will replace the corresponding number
+        // of front slots with columnAlias.
+        if (columnAlias.size() > outputSlots.size()) {
             throw new AnalysisException("WITH-clause '" + withClause.getName() + "' returns " + columnAlias.size()
                 + " columns, but " + outputSlots.size() + " labels were specified. The number of column labels must "
                 + "be smaller or equal to the number of returned columns.");
