@@ -35,8 +35,8 @@ struct MultiplyImpl {
     }
 
     template <typename Result = DecimalV2Value>
-    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b) {
-        return a * b;
+    static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
+        return DecimalV2Value(a.value() * b.value() / DecimalV2Value::ONE_BILLION);
     }
     /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
