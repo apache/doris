@@ -19,8 +19,6 @@ package org.apache.doris.nereids.cost;
 
 import com.google.common.base.Preconditions;
 
-import java.util.stream.Stream;
-
 /**
  * Use for estimating the cost of plan.
  */
@@ -88,13 +86,17 @@ public final class CostEstimate {
     }
 
     /**
-     * Sums partial cost estimates of some (single) plan node.
+     * sum of cost estimate
      */
     public static CostEstimate sum(CostEstimate one, CostEstimate two, CostEstimate... more) {
-        return Stream.concat(Stream.of(one, two), Stream.of(more))
-                .reduce(zero(), (a, b) -> new CostEstimate(
-                        a.cpuCost + b.cpuCost,
-                        a.memoryCost + b.memoryCost,
-                        a.networkCost + b.networkCost));
+        double cpuCostSum = one.cpuCost + two.cpuCost;
+        double memoryCostSum = one.memoryCost + two.memoryCost;
+        double networkCostSum = one.networkCost + one.networkCost;
+        for (CostEstimate costEstimate : more) {
+            cpuCostSum += costEstimate.cpuCost;
+            memoryCostSum += costEstimate.memoryCost;
+            networkCostSum += costEstimate.networkCost;
+        }
+        return new CostEstimate(cpuCostSum, memoryCostSum, networkCostSum);
     }
 }

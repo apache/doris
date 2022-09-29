@@ -21,7 +21,9 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
@@ -30,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all plan node.
@@ -77,6 +80,10 @@ public interface Plan extends TreeNode<Plan> {
      */
     default Set<Slot> getOutputSet() {
         return ImmutableSet.copyOf(getOutput());
+    }
+
+    default Set<ExprId> getOutputExprIdSet() {
+        return getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
     }
 
     /**
