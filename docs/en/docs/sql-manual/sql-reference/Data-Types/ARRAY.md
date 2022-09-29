@@ -73,6 +73,7 @@ Insert data example:
 mysql> INSERT INTO `array_test` VALUES (1, [1,2,3,4,5]);
 mysql> INSERT INTO `array_test` VALUES (2, array(6,7,8)), (3, array()), (4, null);
 ```
+Note: The above sql supports the array() function only in non-vectorized scenarios, but not in vectorized scenarios.
 
 Select data example:
 
