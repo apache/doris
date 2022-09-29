@@ -52,7 +52,8 @@ public class StatisticsTaskScheduler extends MasterDaemon {
     private final Queue<StatisticsTask> queue = Queues.newLinkedBlockingQueue();
 
     public StatisticsTaskScheduler() {
-        super("Statistics task scheduler", 0);
+        super("Statistics task scheduler",
+                Config.statistic_task_scheduler_execution_interval_ms);
     }
 
     @Override
