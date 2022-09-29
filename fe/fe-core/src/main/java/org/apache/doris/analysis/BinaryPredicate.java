@@ -309,7 +309,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
         if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
-            return Type.DATETIMEV2;
+            return Type.DATEV2;
         } else if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
             return ScalarType.createDatetimeV2Type(Math.max(t1.getScalarScale(), t2.getScalarScale()));
         } else if (t1.isDatetimeV2()) {
