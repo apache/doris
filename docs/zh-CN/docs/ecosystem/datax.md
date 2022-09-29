@@ -180,6 +180,7 @@ PROPERTIES (
                         "password": "xxx",
                         "postSql": [],
                         "preSql": [],
+                        "format":"csv|json",
                         "loadProps": {
                         },
                         "maxBatchRows" : 300000,
@@ -191,5 +192,6 @@ PROPERTIES (
     }
 }
 ```
+> 注意：```format``` 参数默认值：```csv```，如果想要使用```json```格式，需要在配置中指定```format``` 为```json```.
 
 4.执行datax任务，具体参考 [datax官网](https://github.com/alibaba/DataX/blob/master/userGuid.md)
