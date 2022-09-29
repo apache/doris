@@ -240,7 +240,9 @@ PROPERTIES (
 
 ## Unique 模型
 
-在某些多维分析场景下，用户更关注的是如何保证 Key 的唯一性，即如何获得 Primary Key 唯一性约束。因此，我们引入了 Unique 的数据模型。该模型本质上是聚合模型的一个特例，也是一种简化的表结构表示方式。我们举例说明。
+在某些多维分析场景下，用户更关注的是如何保证 Key 的唯一性，即如何获得 Primary Key 唯一性约束。因此，我们引入了 Unique 数据模型。在1.2版本之前，该模型本质上是聚合模型的一个特例，也是一种简化的表结构表示方式。由于聚合模型的实现方式是读时合并（merge on read)，因此在一些聚合查询上性能不佳（参考后续章节[聚合模型的局限性](#聚合模型的局限性)的描述），在1.2版本我们引入了Unique模型新的实现方式，写时合并（merge on write），通过在写入时做一些额外的工作，实现了最优的查询性能。写时合并将在未来替换读时合并成为Unique模型的默认实现方式，两者将会短暂的共存一段时间。下面将对两种实现方式分别举例进行说明。
+
+### 读时合并（与聚合模型相同的实现方式）
 
 | ColumnName    | Type         | IsKey | Comment      |
 | ------------- | ------------ | ----- | ------------ |
@@ -308,7 +310,54 @@ PROPERTIES (
 );
 ```
 
-即 Unique 模型完全可以用聚合模型中的 REPLACE 方式替代。其内部的实现方式和数据存储方式也完全一样。这里不再继续举例说明。
+即Unique 模型的读时合并实现完全可以用聚合模型中的 REPLACE 方式替代。其内部的实现方式和数据存储方式也完全一样。这里不再继续举例说明。
+
+### 写时合并（1.2版本新增）
+
+Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种模型了，查询性能更接近于duplicate模型，在有主键约束需求的场景上相比聚合模型有较大的查询性能优势，尤其是在聚合模型上。
+
+在1.2版本中，作为一个新的feature，写时合并默认关闭，用户可以通过添加下面的property来开启
+
+```
+“enable_unique_key_merge_on_write” = “true”
+```
+
+仍然以上面的表为例，建表语句为
+
+```sql
+CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+(
+    `user_id` LARGEINT NOT NULL COMMENT "用户id",
+    `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
+    `city` VARCHAR(20) COMMENT "用户所在城市",
+    `age` SMALLINT COMMENT "用户年龄",
+    `sex` TINYINT COMMENT "用户性别",
+    `phone` LARGEINT COMMENT "用户电话",
+    `address` VARCHAR(500) COMMENT "用户地址",
+    `register_time` DATETIME COMMENT "用户注册时间"
+)
+UNIQUE KEY(`user_id`, `username`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+"enable_unique_key_merge_on_write" = "true"
+);
+```
+
+使用这种建表语句建出来的表结构，与聚合模型就完全不同了：
+
+| ColumnName    | Type         | AggregationType | Comment      |
+| ------------- | ------------ | --------------- | ------------ |
+| user_id       | BIGINT       |                 | 用户id       |
+| username      | VARCHAR(50)  |                 | 用户昵称     |
+| city          | VARCHAR(20)  | NONE            | 用户所在城市 |
+| age           | SMALLINT     | NONE            | 用户年龄     |
+| sex           | TINYINT      | NONE            | 用户性别     |
+| phone         | LARGEINT     | NONE            | 用户电话     |
+| address       | VARCHAR(500) | NONE            | 用户住址     |
+| register_time | DATETIME     | NONE            | 用户注册时间 |
+
+在开启了写时合并选项的Unique表上，数据在导入阶段就会去将被覆盖和被更新的数据进行标记删除，同时将新的数据写入新的文件。在查询的时候，所有被标记删除的数据都会在文件级别被过滤掉，读取出来的数据就都是最新的数据，消除掉了读时合并中的数据聚合过程，并且能够在很多情况下支持多种谓词的下推。因此在许多场景都能带来比较大的性能提升，尤其是在有聚合查询的情况下。
 
 ## Duplicate 模型
 
@@ -348,7 +397,7 @@ PROPERTIES (
 
 ## 聚合模型的局限性
 
-这里我们针对 Aggregate 模型（包括 Unique 模型），来介绍下聚合模型的局限性。
+这里我们针对 Aggregate 模型，来介绍下聚合模型的局限性。
 
 在聚合模型中，模型对外展现的，是**最终聚合后的**数据。也就是说，任何还未聚合的数据（比如说两个不同导入批次的数据），必须通过某种方式，以保证对外展示的一致性。我们举例说明。
 
@@ -449,6 +498,38 @@ SELECT COUNT(*) FROM table;
 
 另一种方式，就是 **将如上的 `count` 列的聚合类型改为 REPLACE，且依然值恒为 1**。那么 `select sum(count) from table;` 和 `select count(*) from table;` 的结果将是一致的。并且这种方式，没有导入重复行的限制。
 
+### Unique模型的写时合并实现
+
+还是以刚才的数据为例，写时合并为每次导入的rowset增加了对应的delete bitmap，来标记哪些数据被覆盖。第一批数据导入后状态如下
+
+**batch 1**
+
+| user_id | date       | cost | delete bit |
+| ------- | ---------- | ---- | ---------- |
+| 10001   | 2017-11-20 | 50   | false      |
+| 10002   | 2017-11-21 | 39   | false      |
+
+当第二批数据导入完成后，第一批数据中重复的行就会被标记为已删除，此时两批数据状态如下
+
+**batch 1**
+
+| user_id | date       | cost | delete bit |
+| ------- | ---------- | ---- | ---------- |
+| 10001   | 2017-11-20 | 50   | **true**   |
+| 10002   | 2017-11-21 | 39   | false      |
+
+**batch 2**
+
+| user_id | date       | cost | delete bit |
+| ------- | ---------- | ---- | ---------- |
+| 10001   | 2017-11-20 | 1    | false      |
+| 10001   | 2017-11-21 | 5    | false      |
+| 10003   | 2017-11-22 | 22   | false      |
+
+在查询时，所有在delete bitmap中被标记删除的数据都不会读出来，因此也无需进行做任何数据聚合，上述数据中有效的行数为4行，查询出的结果也应该是4行，也就可以采取开销最小的方式来获取结果，即前面提到的“仅扫描某一列数据，获得 count 值”的方式。
+
+在测试环境中，count(*) 查询在Unique模型的写时合并实现上的性能，相比聚合模型有10倍以上的提升。
+
 ### Duplicate 模型
 
 Duplicate 模型没有聚合模型的这个局限性。因为该模型不涉及聚合语意，在做 count(*) 查询时，任意选择一列查询，即可得到语意正确的结果。
@@ -462,5 +543,6 @@ Duplicate、Aggregate、Unique 模型，都会在建表指定 key 列，然而�
 
 1. Aggregate 模型可以通过预聚合，极大地降低聚合查询时所需扫描的数据量和查询的计算量，非常适合有固定模式的报表类查询场景。但是该模型对 count(*) 查询很不友好。同时因为固定了 Value 列上的聚合方式，在进行其他类型的聚合查询时，需要考虑语意正确性。
 2. Unique 模型针对需要唯一主键约束的场景，可以保证主键唯一性约束。但是无法利用 ROLLUP 等预聚合带来的查询优势（因为本质是 REPLACE，没有 SUM 这种聚合方式）。
-   - 【注意】Unique 模型仅支持整行更新，如果用户既需要唯一主键约束，又需要更新部分列（例如将多张源表导入到一张 doris 表的情形），则可以考虑使用 Aggregate 模型，同时将非主键列的聚合类型设置为 REPLACE_IF_NOT_NULL。具体的用法可以参考[语法手册](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
+   1. 对于聚合查询有较高性能需求的用户，推荐使用自1.2版本加入的写时合并实现。
+   2. 【注意】Unique 模型仅支持整行更新，如果用户既需要唯一主键约束，又需要更新部分列（例如将多张源表导入到一张 doris 表的情形），则可以考虑使用 Aggregate 模型，同时将非主键列的聚合类型设置为 REPLACE_IF_NOT_NULL。具体的用法可以参考[语法手册](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 3. Duplicate 适合任意维度的 Ad-hoc 查询。虽然同样无法利用预聚合的特性，但是不受聚合模型的约束，可以发挥列存模型的优势（只读取相关列，而不需要读取所有 Key 列）。
