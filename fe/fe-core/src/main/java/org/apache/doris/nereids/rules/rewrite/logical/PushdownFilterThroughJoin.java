@@ -81,7 +81,9 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
      * transformed:
      *                      project
      *                        |
-     *           join (otherConditions: a.k1 = b.k1, a.k2 > b.k2)
+     *                filter(a.k2 > b.k2)
+     *                        |
+     *           join (otherConditions: a.k1 = b.k1)
      *                /                \
      * filter(a.k1 > 1 and a.k2 > 2)   filter(b.k1 > 2 and b.k2 > 5)
      *             |                                    |
