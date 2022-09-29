@@ -36,6 +36,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -101,8 +102,9 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
 
         // generate new plan
         LogicalAggregate<LogicalAggregate<GroupPlan>> globalAggregate = new LogicalAggregate<>(
-                aggregate.getGroupByExpressions(),
+                local.getGroupByExpressions(),
                 globalOutputExprs,
+                Optional.of(aggregate.getGroupByExpressions()),
                 true,
                 aggregate.isNormalized(),
                 false,
