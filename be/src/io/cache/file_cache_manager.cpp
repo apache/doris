@@ -83,7 +83,7 @@ void FileCacheManager::remove_file_cache(const std::string& cache_path) {
 void FileCacheManager::_add_file_cache_for_gc_by_disk(std::vector<GCContextPerDisk>& contexts,
                                                       FileCachePtr file_cache) {
     // sort file cache by last match time
-    if (config::file_cache_max_size_per_disk_gb > 0) {
+    if (config::file_cache_max_size_per_disk > 0) {
         auto file_size = file_cache->cache_file_size();
         if (file_size <= 0) {
             return;
@@ -96,7 +96,7 @@ void FileCacheManager::_add_file_cache_for_gc_by_disk(std::vector<GCContextPerDi
     }
 }
 void FileCacheManager::gc_file_caches() {
-    int64_t gc_conf_size = config::file_cache_max_size_per_disk_gb * 1024 * 1024 * 1024;
+    int64_t gc_conf_size = config::file_cache_max_size_per_disk;
     std::vector<GCContextPerDisk> contexts;
     // init for GC by disk size
     if (gc_conf_size > 0) {
