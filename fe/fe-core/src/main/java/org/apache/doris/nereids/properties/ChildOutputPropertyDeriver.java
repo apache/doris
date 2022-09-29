@@ -20,8 +20,6 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -42,7 +40,6 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * Used for property drive.
@@ -76,18 +73,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         // TODO: add distinct phase output properties
         switch (agg.getAggPhase()) {
             case LOCAL:
-                return new PhysicalProperties(childOutputProperty.getDistributionSpec());
             case GLOBAL:
             case DISTINCT_LOCAL:
-                List<ExprId> columns = agg.getPartitionExpressions().stream()
-                        .map(SlotReference.class::cast)
-                        .map(SlotReference::getExprId)
-                        .collect(Collectors.toList());
-                if (columns.isEmpty()) {
-                    return PhysicalProperties.GATHER;
+                DistributionSpec childSpec = childOutputProperty.getDistributionSpec();
+                if (childSpec instanceof DistributionSpecHash) {
+                    DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childSpec;
+                    return new PhysicalProperties(distributionSpecHash.withShuffleType(ShuffleType.BUCKETED));
                 }
-                // TODO: change ENFORCED back to bucketed, when coordinator could process bucket on agg correctly.
-                return PhysicalProperties.createHash(new DistributionSpecHash(columns, ShuffleType.BUCKETED));
+                return new PhysicalProperties(childOutputProperty.getDistributionSpec());
             case DISTINCT_GLOBAL:
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
