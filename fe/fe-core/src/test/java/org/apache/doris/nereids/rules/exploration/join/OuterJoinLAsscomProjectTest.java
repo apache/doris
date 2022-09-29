@@ -28,6 +28,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
@@ -111,5 +112,22 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
                                 ).when(project -> project.getProjects().size() == 1)
                         ).when(join -> join.getHashJoinConjuncts().size() == 2)
                 );
+    }
+
+    @Test
+    void testAliasTopMultiHashJoinLeftOuterInner() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
+                .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
+                // t1.id=t3.id t2.id = t3.id
+                .hashJoinUsing(scan3, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
+                .build();
+
+        // transform failed.
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
+                .checkMemo(memo -> {
+                    Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size());
+                });
     }
 }

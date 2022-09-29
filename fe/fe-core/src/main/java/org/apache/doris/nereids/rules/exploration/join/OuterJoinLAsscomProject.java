@@ -35,6 +35,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -168,7 +169,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         return newTopJoin;
                     }
 
-                    return newTopJoin;
+                    return PlanUtils.project(new ArrayList<>(topJoin.getOutput()), newTopJoin).get();
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);
     }
 }
