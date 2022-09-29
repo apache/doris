@@ -190,7 +190,7 @@ public class OutFileClause {
         return parquetSchemas;
     }
 
-    public void analyze(Analyzer analyzer, List<Expr> resultExprs) throws UserException {
+    public void analyze(Analyzer analyzer, List<Expr> resultExprs, List<String> colLabels) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,
@@ -229,13 +229,13 @@ public class OutFileClause {
         isAnalyzed = true;
 
         if (isParquetFormat()) {
-            analyzeForParquetFormat(resultExprs);
+            analyzeForParquetFormat(resultExprs, colLabels);
         }
     }
 
-    private void analyzeForParquetFormat(List<Expr> resultExprs) throws AnalysisException {
+    private void analyzeForParquetFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
         if (this.parquetSchemas.isEmpty()) {
-            genParquetSchema(resultExprs);
+            genParquetSchema(resultExprs, colLabels);
         }
 
         // check schema number
@@ -265,10 +265,8 @@ public class OutFileClause {
                 case BIGINT:
                 case DATE:
                 case DATETIME:
-                case DATETIMEV2:
-                case DATEV2:
                     if (!PARQUET_DATA_TYPE_MAP.get("int64").equals(type)) {
-                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME/DATEV2/DATETIMEV2,"
+                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME,"
                                 + "should use int64, but the definition type of column " + i + " is " + type);
                     }
                     break;
@@ -291,9 +289,12 @@ public class OutFileClause {
                 case DECIMAL64:
                 case DECIMAL128:
                 case DECIMALV2:
+                case DATETIMEV2:
+                case DATEV2:
                     if (!PARQUET_DATA_TYPE_MAP.get("byte_array").equals(type)) {
-                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL,"
-                                + " should use byte_array, but the definition type of column " + i + " is " + type);
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL/DATEV2"
+                                + "/DATETIMEV2, should use byte_array, but the definition type of column "
+                                + i + " is " + type);
                     }
                     break;
                 case HLL:
@@ -316,12 +317,16 @@ public class OutFileClause {
         }
     }
 
-    private void genParquetSchema(List<Expr> resultExprs) throws AnalysisException {
+    private void genParquetSchema(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
         Preconditions.checkState(this.parquetSchemas.isEmpty());
         for (int i = 0; i < resultExprs.size(); ++i) {
             Expr expr = resultExprs.get(i);
             TParquetSchema parquetSchema = new TParquetSchema();
-            parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get("required");
+            if (resultExprs.get(i).isNullable()) {
+                parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get("optional");
+            } else {
+                parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get("required");
+            }
             switch (expr.getType().getPrimitiveType()) {
                 case BOOLEAN:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("boolean");
@@ -334,8 +339,6 @@ public class OutFileClause {
                 case BIGINT:
                 case DATE:
                 case DATETIME:
-                case DATETIMEV2:
-                case DATEV2:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("int64");
                     break;
                 case FLOAT:
@@ -351,6 +354,8 @@ public class OutFileClause {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
+                case DATETIMEV2:
+                case DATEV2:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("byte_array");
                     break;
                 case HLL:
@@ -364,7 +369,7 @@ public class OutFileClause {
                     throw new AnalysisException("currently parquet do not support column type: "
                             + expr.getType().getPrimitiveType());
             }
-            parquetSchema.schema_column_name = "col" + i;
+            parquetSchema.schema_column_name = colLabels.get(i);
             parquetSchemas.add(parquetSchema);
         }
     }
