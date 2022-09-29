@@ -563,6 +563,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
                                : *dst);
 
+
     bool offsets_has_null = false;
     auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
     ssize_t start = column_offsets_ptr->size();
@@ -755,6 +756,7 @@ Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::Mutable
 Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                       bool* has_null) {
     size_t curr_size = dst->byte_size();
+    dst->reserve(*n);
     size_t remaining = *n;
     *has_null = false;
     while (remaining > 0) {
