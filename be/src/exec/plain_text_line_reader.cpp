@@ -200,9 +200,7 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
             // for multi bytes delimiter we cannot set offset to avoid incomplete
             // delimiter
             // read from file reader
-            if (_line_delimiter_length == 1) {
-                offset = output_buf_read_remaining();
-            }
+            offset = output_buf_read_remaining();
             extend_output_buf();
             if ((_input_buf_limit > _input_buf_pos) && _more_input_bytes == 0) {
                 // we still have data in input which is not decompressed.
