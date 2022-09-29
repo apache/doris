@@ -781,17 +781,6 @@ public:
         return val;
     }
 
-    uint64_t to_olap_datetime() const {
-        uint64_t date_val =
-                date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
-        uint64_t time_val = 0;
-        if constexpr (is_datetime) {
-            time_val = date_v2_value_.hour_ * 10000 + date_v2_value_.minute_ * 100 +
-                       date_v2_value_.second_;
-        }
-        return date_val * 1000000 + time_val;
-    }
-
     bool to_format_string(const char* format, int len, char* to) const;
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
