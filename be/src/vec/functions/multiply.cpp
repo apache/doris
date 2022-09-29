@@ -18,6 +18,8 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Multiply.cpp
 // and modified by Doris
 
+#include "runtime/decimalv2_value.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
@@ -36,8 +38,27 @@ struct MultiplyImpl {
 
     template <typename Result = DecimalV2Value>
     static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
-        return DecimalV2Value((a.value() * b.value() - 1) / DecimalV2Value::ONE_BILLION + 1);
+        return a * b;
     }
+
+    static void vector_vector(const ColumnDecimal128::Container& a,
+                              const ColumnDecimal128::Container& b,
+                              ColumnDecimal128::Container& c) {
+        size_t size = c.size();
+        int8 sgn[size];
+
+        for (int i = 0; i < size; i++) {
+            sgn[i] = (DecimalV2Value(a[i]).value() >= 0 == DecimalV2Value(b[i]).value() > 0) ? 1
+                                                                                             : -1;
+        }
+
+        for (int i = 0; i < size; i++) {
+            c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
+                           DecimalV2Value::ONE_BILLION +
+                   sgn[i];
+        }
+    }
+
     /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
     static inline bool apply(A a, B b, Result& c) {

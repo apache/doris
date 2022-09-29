@@ -244,15 +244,12 @@ struct DecimalBinaryOperation {
             }
         }
 
-        /// default: use it if no return before
-        for (size_t i = 0; i < size; i++) {
-            c[i] = apply(a[i], b[i]);
-        }
-        if constexpr (std::is_same_v<NativeResultType, DecimalV2Value>) {
+        if constexpr (OpTraits::is_multiply && std::is_same_v<A, Decimal128> &&
+                      std::is_same_v<B, Decimal128>) {
+            Op::vector_vector(a, b, c);
+        } else {
             for (size_t i = 0; i < size; i++) {
-                if (c[i].value() > DecimalV2Value::MAX_DECIMAL_VALUE) {
-                    c[i].value() = DecimalV2Value::MAX_DECIMAL_VALUE;
-                }
+                c[i] = apply(a[i], b[i]);
             }
         }
     }
