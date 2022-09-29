@@ -41,8 +41,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * normalize aggregate's group keys to SlotReference and generate a LogicalProject top on LogicalAggregate
- * to hold to order of aggregate output, since aggregate output's order could change when we do translate.
+ * normalize aggregate's group keys and AggregateFunction's child to SlotReference
+ * and generate a LogicalProject top on LogicalAggregate to hold to order of aggregate output,
+ * since aggregate output's order could change when we do translate.
  *
  * Apply this rule could simplify the processing of enforce and translate.
  *
