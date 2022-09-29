@@ -95,6 +95,8 @@ public:
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool record_rowids = false;
+    // flag for enable topn opt
+    bool use_topn_opt = false;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // columns for orderby keys

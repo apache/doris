@@ -28,6 +28,7 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -193,6 +194,9 @@ public class OriginalPlanner extends Planner {
          */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
+
+        // check and set flag for topn detail query opt
+        checkTopnOpt(singleNodePlan);
 
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
@@ -361,6 +365,26 @@ public class OriginalPlanner extends Planner {
             }
             scanNode.setSortInfo(sortNode.getSortInfo());
             scanNode.getSortInfo().setSortTupleSlotExprs(sortNode.resolvedTupleExprs);
+        }
+    }
+
+    /**
+     * optimize for topn query like: SELECT * FROM t1 WHERE a>100 ORDER BY b,c LIMIT 100
+     * the pre-requirement is as follows:
+     * 1. only contains SortNode + OlapScanNode
+     * 2. limit > 0
+     * 3. first expression of order by is a table column
+     */
+    private void checkTopnOpt(PlanNode node) {
+        if (node instanceof SortNode && node.getChildren().size() == 1) {
+            SortNode sortNode = (SortNode) node;
+            PlanNode child = sortNode.getChild(0);
+            if (child instanceof OlapScanNode && sortNode.getLimit() > 0
+                    && sortNode.getSortInfo().getOrderingExprs().get(0) instanceof SlotRef) {
+                OlapScanNode scanNode = (OlapScanNode) child;
+                sortNode.setUseTopnOpt(true);
+                scanNode.setUseTopnOpt(true);
+            }
         }
     }
 

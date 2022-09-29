@@ -319,7 +319,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_inverted_index());
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
-    if (_opts.runtime_state) {
+    if (_opts.use_topn_opt) {
         auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
     }
@@ -379,7 +379,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     }
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
-    if (_opts.runtime_state) {
+    if (_opts.use_topn_opt) {
         auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {
@@ -938,7 +938,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // add runtime predicate to _col_predicates
-    if (_opts.runtime_state && _opts.runtime_state->get_query_fragments_ctx()) {
+    if (_opts.use_topn_opt) {
         auto & runtime_predicate =
             _opts.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
         _runtime_predicate = runtime_predicate.get_predictate();

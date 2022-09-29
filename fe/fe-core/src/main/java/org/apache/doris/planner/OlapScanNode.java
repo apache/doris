@@ -156,6 +156,8 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
+    private boolean useTopnOpt = false;
+
     private TPushAggOp pushDownAggNoGroupingOp = null;
 
     // List of tablets will be scanned by current olap_scan_node
@@ -248,6 +250,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
+    }
+
+    public boolean getUseTopnOpt() {
+        return useTopnOpt;
+    }
+
+    public void setUseTopnOpt(boolean useTopnOpt) {
+        this.useTopnOpt = useTopnOpt;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -953,6 +963,9 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
+        if (useTopnOpt) {
+            output.append(prefix).append("TOPN OPT\n");
+        }
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
         }
@@ -1024,6 +1037,7 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
+        msg.olap_scan_node.setUseTopnOpt(useTopnOpt);
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());

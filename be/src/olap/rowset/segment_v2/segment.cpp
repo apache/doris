@@ -111,7 +111,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
         }
     }
 
-    if (read_options.runtime_state) {
+    if (read_options.use_topn_opt) {
         auto query_ctx = read_options.runtime_state->get_query_fragments_ctx();
         auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {

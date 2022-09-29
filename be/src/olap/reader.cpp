@@ -203,6 +203,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.version = read_params.version;
     _reader_context.tablet_schema = _tablet_schema;
     _reader_context.need_ordered_result = need_ordered_result;
+    _reader_context.use_topn_opt = read_params.use_topn_opt;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
@@ -522,7 +523,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
         }
     }
 
-    if (read_params.reader_type == READER_QUERY) {
+    if (read_params.use_topn_opt) {
         auto & runtime_predicate =
             read_params.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
         runtime_predicate.set_tablet_schema(_tablet_schema);

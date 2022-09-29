@@ -147,6 +147,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.use_page_cache = read_context->use_page_cache;
     _read_options.tablet_schema = read_context->tablet_schema;
     _read_options.record_rowids = read_context->record_rowids;
+    _read_options.use_topn_opt = read_context->use_topn_opt;
     _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
