@@ -74,6 +74,7 @@ PROPERTIES (
 mysql> INSERT INTO `array_test` VALUES (1, [1,2,3,4,5]);
 mysql> INSERT INTO `array_test` VALUES (2, array(6,7,8)), (3, array()), (4, null);
 ```
+注意：以上sql仅在非向量化场景下，支持array(）函数，向量化场景不支持。
 
 查询数据示例：
 
