@@ -628,8 +628,6 @@ public final class SparkDpp implements java.io.Serializable {
             parsers.add(ColumnParser.create(column));
         }
         char separator = (char) fileGroup.columnSeparator.getBytes(Charset.forName("UTF-8"))[0];
-        // now we first support csv file
-        // TODO: support parquet file and orc file
         JavaRDD<Row> rowRDD = sourceDataRdd.flatMap(
                 record -> {
                     scannedRowsAcc.add(1);
