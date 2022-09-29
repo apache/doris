@@ -88,7 +88,7 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                         continue;
                     }
 
-                    StringValue cell_value = nested_col_ptr->get_value(data_array[idx]);
+                    StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
                     unsigned char flag = 0;
                     (_state->function)(const_cast<vectorized::LikeSearchState*>(&_like_state),
                                        cell_value, pattern, &flag);
@@ -115,45 +115,78 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
             }
         } else {
             if (column.is_column_dictionary()) {
-                if (LIKELY(_like_state.search_string_sv.len > 0)) {
+                if (_state->function_vec_dict) {
+                    if (LIKELY(_like_state.search_string_sv.len > 0)) {
+                        auto* nested_col_ptr = vectorized::check_and_get_column<
+                                vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                        auto& data_array = nested_col_ptr->get_data();
+                        StringValue values[size];
+                        unsigned char flags[size];
+                        for (uint16_t i = 0; i != size; i++) {
+                            values[i] = nested_col_ptr->get_shrink_value(data_array[sel[i]]);
+                        }
+                        (_state->function_vec_dict)(
+                                const_cast<vectorized::LikeSearchState*>(&_like_state), pattern,
+                                values, size, flags);
+
+                        for (uint16_t i = 0; i != size; i++) {
+                            uint16_t idx = sel[i];
+                            sel[new_size] = idx;
+                            new_size += _opposite ^ flags[i];
+                        }
+                    } else {
+                        for (uint16_t i = 0; i != size; i++) {
+                            uint16_t idx = sel[i];
+                            sel[new_size] = idx;
+                            new_size += _opposite ^ true;
+                        }
+                    }
+                } else {
                     auto* nested_col_ptr = vectorized::check_and_get_column<
                             vectorized::ColumnDictionary<vectorized::Int32>>(column);
                     auto& data_array = nested_col_ptr->get_data();
-                    StringValue values[size];
-                    unsigned char flags[size];
-                    for (uint16_t i = 0; i != size; i++) {
-                        values[i] = nested_col_ptr->get_value(data_array[sel[i]]);
-                    }
-                    (_state->function_vec_dict)(
-                            const_cast<vectorized::LikeSearchState*>(&_like_state), pattern, values,
-                            size, flags);
-
                     for (uint16_t i = 0; i != size; i++) {
                         uint16_t idx = sel[i];
                         sel[new_size] = idx;
-                        new_size += _opposite ^ flags[i];
-                    }
-                } else {
-                    for (uint16_t i = 0; i != size; i++) {
-                        uint16_t idx = sel[i];
-                        sel[new_size] = idx;
-                        new_size += _opposite ^ true;
+                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
+                        unsigned char flag = 0;
+                        (_state->function)(const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                           cell_value, pattern, &flag);
+                        new_size += _opposite ^ flag;
                     }
                 }
             } else {
-                if (LIKELY(_like_state.search_string_sv.len > 0)) {
+                if (_state->function_vec) {
+                    if (LIKELY(_like_state.search_string_sv.len > 0)) {
+                        auto* data_array =
+                                vectorized::check_and_get_column<
+                                        vectorized::PredicateColumnType<TYPE_STRING>>(column)
+                                        ->get_data()
+                                        .data();
+
+                        (_state->function_vec)(
+                                const_cast<vectorized::LikeSearchState*>(&_like_state), pattern,
+                                data_array, sel, size, _opposite, &new_size);
+                    } else {
+                        for (uint16_t i = 0; i < size; i++) {
+                            uint16_t idx = sel[i];
+                            sel[new_size] = idx;
+                            new_size += _opposite ^ true;
+                        }
+                    }
+                } else {
                     auto* data_array = vectorized::check_and_get_column<
                                                vectorized::PredicateColumnType<TYPE_STRING>>(column)
                                                ->get_data()
                                                .data();
 
-                    (_state->function_vec)(const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                           pattern, data_array, sel, size, _opposite, &new_size);
-                } else {
-                    for (uint16_t i = 0; i < size; i++) {
+                    for (uint16_t i = 0; i != size; i++) {
                         uint16_t idx = sel[i];
                         sel[new_size] = idx;
-                        new_size += _opposite ^ true;
+                        unsigned char flag = 0;
+                        (_state->function)(const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                           data_array[idx], pattern, &flag);
+                        new_size += _opposite ^ flag;
                     }
                 }
             }

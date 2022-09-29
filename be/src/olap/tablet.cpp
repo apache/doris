@@ -1970,7 +1970,6 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
     for (auto& seg : segments) {
         seg->load_pk_index_and_bf(); // We need index blocks to iterate
         auto pk_idx = seg->get_primary_key_index();
-        int cnt = 0;
         int total = pk_idx->num_rows();
         uint32_t row_id = 0;
         int32_t remaining = total;
@@ -2010,12 +2009,10 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                     if (st.ok()) {
                         delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
                                            loc.row_id);
-                        cnt++;
                         ++row_id;
                         continue;
                     } else if (st.is_already_exist()) {
                         delete_bitmap->add({rowset_id, seg->id(), dummy_version.first}, row_id);
-                        cnt++;
                         ++row_id;
                         continue;
                     }
@@ -2034,7 +2031,6 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                     loc.row_id = row_id;
                 }
 
-                ++cnt;
                 ++row_id;
                 delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
                                    loc.row_id);

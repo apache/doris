@@ -397,7 +397,7 @@ suite("test_window_function") {
             assertTrue(exception != null)
         }
     }
-    qt_window_error1"""select ${k1}, first_value(${k2}) over (partition by ${k1}) from baseall"""
+    qt_window_error1"""select ${k1}, first_value(${k2}) over (partition by ${k1}) from baseall order by ${k1}"""
     qt_window_error2"""select ${k1}, first_value(${k2}) over (order by ${k3}) from baseall"""
     qt_window_error3"""select ${k1}, max(${k2}) over (order by ${k3}) from baseall"""
     test {

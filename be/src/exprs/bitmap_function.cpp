@@ -169,6 +169,16 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
     }
     return serialize(ctx, &bitmap);
 }
+StringVal BitmapFunctions::bitmap_hash64(doris_udf::FunctionContext* ctx,
+                                         const doris_udf::StringVal& src) {
+    BitmapValue bitmap;
+    if (!src.is_null) {
+        uint64_t hash_value = 0;
+        murmur_hash3_x64_64(src.ptr, src.len, 0, &hash_value);
+        bitmap.add(hash_value);
+    }
+    return serialize(ctx, &bitmap);
+}
 
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {

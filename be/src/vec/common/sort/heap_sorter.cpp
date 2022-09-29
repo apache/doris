@@ -29,7 +29,7 @@ HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
           _topn_filter_rows(0),
           _init_sort_descs(false) {}
 
-Status HeapSorter::append_block(Block* block, bool* mem_reuse) {
+Status HeapSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
     {
         SCOPED_TIMER(_materialize_timer);

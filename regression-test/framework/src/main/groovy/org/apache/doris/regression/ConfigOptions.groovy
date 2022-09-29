@@ -40,6 +40,7 @@ class ConfigOptions {
     static Option dataOpt
     static Option realDataOpt
     static Option sf1DataOpt
+    static Option cacheDataOpt
     static Option pluginOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
@@ -139,6 +140,15 @@ class ConfigOptions {
                 .longOpt("sf1DataPath")
                 .desc("the sf1 data path contains data file for ssb_sf1, tpcds_sf1 and tpch_sf1 cases")
                 .build()
+        cacheDataOpt = Option.builder("CD")
+                .argName("cacheDataPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("cacheDataPath")
+                .desc("the cache data path caches data for stream load from s3")
+                .build()
+
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
                 .required(false)

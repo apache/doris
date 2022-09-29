@@ -29,6 +29,7 @@ add_library(Geo STATIC
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp
     ${GENSRC_DIR}/geo/wkt_yacc.y.cpp
 )
+target_compile_options(Geo PRIVATE -Wno-unused-but-set-variable)
 
 add_custom_command(
     OUTPUT ${GENSRC_DIR}/geo/wkt_lex.l.cpp ${GENSRC_DIR}/geo/wkt_lex.l.h

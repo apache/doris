@@ -196,7 +196,12 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
 
 template <typename TabletWriterAddResult>
 Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
-    _try_to_wait_flushing();
+    if (_try_to_wait_flushing()) {
+        // `_try_to_wait_flushing()` returns true means other thread already
+        // reduced the mem usage, and current thread do not need to reduce again.
+        return Status::OK();
+    }
+
     std::vector<DeltaWriter*> writers_to_flush;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -335,11 +340,24 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     return Status::OK();
 }
 
-void TabletsChannel::_try_to_wait_flushing() {
+bool TabletsChannel::_try_to_wait_flushing() {
+    bool duplicate_work = false;
     std::unique_lock<std::mutex> l(_lock);
+    // NOTE: we call `reduce_mem_usage()` because we think it's necessary
+    // to reduce it's memory and should not write more data into this
+    // tablets channel. If there's already some other thead doing the
+    // reduce-memory work, the only choice for current thread is to wait
+    // here.
+    // If current thread do not wait, it has two options:
+    // 1. continue to write data to current channel.
+    // 2. pick another tablets channel to flush
+    // The first choice might cause OOM, the second choice might pick a
+    // channel that is not big enough.
     while (_reducing_mem_usage) {
+        duplicate_work = true;
         _reduce_memory_cond.wait(l);
     }
+    return duplicate_work;
 }
 
 Status TabletsChannel::cancel() {

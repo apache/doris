@@ -63,7 +63,7 @@ public:
         _materialize_timer = ADD_TIMER(runtime_profile, "MaterializeTime");
     }
 
-    Status append_block(Block* block, bool* mem_reuse) override;
+    Status append_block(Block* block) override;
 
     Status prepare_for_read() override;
 

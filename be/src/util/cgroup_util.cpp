@@ -66,7 +66,7 @@ Status CGroupUtil::find_global_cgroup(const string& subsystem, string* path) {
         std::vector<string> subsystems = Split(fields[1], ",");
         auto it = std::find(subsystems.begin(), subsystems.end(), subsystem);
         if (it != subsystems.end()) {
-            *path = move(fields[2]);
+            *path = std::move(fields[2]);
             return Status::OK();
         }
     }

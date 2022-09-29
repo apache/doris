@@ -128,9 +128,17 @@ public:
 
     CppType get_range_min_value() const { return _low_value; }
 
+    SQLFilterOp get_range_high_op() const { return _high_op; }
+
+    SQLFilterOp get_range_low_op() const { return _low_op; }
+
     bool is_low_value_mininum() const { return _low_value == TYPE_MIN; }
 
+    bool is_low_value_maximum() const { return _low_value == TYPE_MAX; }
+
     bool is_high_value_maximum() const { return _high_value == TYPE_MAX; }
+
+    bool is_high_value_mininum() const { return _high_value == TYPE_MIN; }
 
     bool is_begin_include() const { return _low_op == FILTER_LARGER_OR_EQUAL; }
 
@@ -246,7 +254,7 @@ public:
         _contain_null = contain_null;
     };
 
-    const int scale() { return _scale; }
+    int scale() const { return _scale; }
 
     static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
         range.add_fixed_value(*value);
@@ -963,5 +971,10 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
 
     return Status::OK();
 }
+
+struct ScanPredicate {
+    TCondition condition;
+    PrimitiveType primitiveType;
+};
 
 } // namespace doris

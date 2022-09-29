@@ -310,15 +310,12 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
 
 DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& arguments) const {
     if (use_default_implementation_for_low_cardinality_columns()) {
-        size_t num_full_ordinary_columns = 0;
-
         ColumnsWithTypeAndName args_without_low_cardinality(arguments);
 
         for (ColumnWithTypeAndName& arg : args_without_low_cardinality) {
             bool is_const = arg.column && is_column_const(*arg.column);
             if (is_const)
                 arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
-            if (!is_const) ++num_full_ordinary_columns;
         }
 
         auto type_without_low_cardinality =
