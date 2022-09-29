@@ -111,6 +111,24 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
         }
     }
 
+    if (read_options.runtime_state) {
+        auto query_ctx = read_options.runtime_state->get_query_fragments_ctx();
+        auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
+        if (runtime_predicate) {
+            int32_t uid = read_options.tablet_schema->column(
+                            runtime_predicate->column_id()).unique_id();
+            AndBlockColumnPredicate and_predicate;
+            auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
+            and_predicate.add_column_predicate(single_predicate);
+            if (!_column_readers.at(uid)->match_condition(&and_predicate)) {
+                // any condition not satisfied, return.
+                iter->reset(new EmptySegmentIterator(schema));
+                read_options.stats->filtered_segment_number++;
+                return Status::OK();
+            }
+        }
+    }
+
     RETURN_IF_ERROR(load_index());
     if (read_options.col_id_to_del_predicates.empty() &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
