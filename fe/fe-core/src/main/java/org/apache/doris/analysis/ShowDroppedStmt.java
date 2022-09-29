@@ -36,15 +36,15 @@ public class ShowDroppedStmt extends ShowStmt {
             .build();
 
     private Expr where;
-    private String labelValue;
+    private String nameValue;
     private boolean isAccurateMatch;
 
     public ShowDroppedStmt(Expr where) {
         this.where = where;
     }
 
-    public String getLabelValue() {
-        return labelValue;
+    public String getNameValue() {
+        return nameValue;
     }
 
     @Override
@@ -86,7 +86,7 @@ public class ShowDroppedStmt extends ShowStmt {
             return false;
         }
         String leftKey = ((SlotRef) where.getChild(0)).getColumnName();
-        if (!"name".equalsIgnoreCase(leftKey) && !"type".equalsIgnoreCase(leftKey)) {
+        if (!"name".equalsIgnoreCase(leftKey)) {
             return false;
         }
 
@@ -94,8 +94,8 @@ public class ShowDroppedStmt extends ShowStmt {
         if (!(where.getChild(1) instanceof StringLiteral)) {
             return false;
         }
-        labelValue = ((StringLiteral) where.getChild(1)).getStringValue();
-        if (Strings.isNullOrEmpty(labelValue)) {
+        nameValue = ((StringLiteral) where.getChild(1)).getStringValue();
+        if (Strings.isNullOrEmpty(nameValue)) {
             return false;
         }
 
@@ -138,16 +138,16 @@ public class ShowDroppedStmt extends ShowStmt {
         return where;
     }
 
-    public Predicate<String> getLabelPredicate() throws AnalysisException {
+    public Predicate<String> getNamePredicate() throws AnalysisException {
         if (null == where) {
-            return label -> true;
+            return name -> true;
         }
         if (isAccurateMatch) {
-            return CaseSensibility.LABEL.getCaseSensibility()
-                    ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
+            return CaseSensibility.PARTITION.getCaseSensibility()
+                    ? name -> name.equals(nameValue) : name -> name.equalsIgnoreCase(nameValue);
         } else {
             PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(
-                    labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                    nameValue, CaseSensibility.PARTITION.getCaseSensibility());
             return patternMatcher::match;
         }
     }

@@ -208,6 +208,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -2385,7 +2386,10 @@ public class ShowExecutor {
     private void handleShowDropped() throws AnalysisException {
         ShowDroppedStmt showStmt = (ShowDroppedStmt) stmt;
 
-        List<List<String>> infos = Env.getCurrentRecycleBin().getInfo();
+        Predicate<String> predicate = showStmt.getNamePredicate();
+        List<List<String>> infos = Env.getCurrentRecycleBin().getInfo().stream()
+                .filter(x -> predicate.test(x.get(1)))
+                .collect(Collectors.toList());
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
