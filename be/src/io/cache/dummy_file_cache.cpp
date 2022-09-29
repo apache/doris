@@ -44,6 +44,7 @@ void DummyFileCache::_add_file_cache(const Path& data_file) {
     size_t file_size = 0;
     if (io::global_local_filesystem()->file_size(cache_file, &file_size).ok()) {
         _file_sizes[cache_file] = file_size;
+        _cache_file_size += file_size;
     } else {
         _unfinished_files.push_back(cache_file);
     }
@@ -121,7 +122,7 @@ Status DummyFileCache::clean_all_cache() {
 Status DummyFileCache::_clean_cache_internal() {
     for (const auto& iter : _file_sizes) {
         const auto cache_file_path = iter.first;
-        Path done_file_path = cache_file_path / CACHE_DONE_FILE_SUFFIX;
+        Path done_file_path = cache_file_path.native() + CACHE_DONE_FILE_SUFFIX;
         LOG(INFO) << "Delete unused done_cache_path: " << done_file_path.native()
                   << ", cache_file_path: " << cache_file_path.native();
         if (!io::global_local_filesystem()->delete_file(done_file_path).ok()) {
