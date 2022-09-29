@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <type_traits>
+
+#include "runtime/decimalv2_value.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -242,8 +245,15 @@ struct DecimalBinaryOperation {
         }
 
         /// default: use it if no return before
-        for (size_t i = 0; i < size; ++i) {
+        for (size_t i = 0; i < size; i++) {
             c[i] = apply(a[i], b[i]);
+        }
+        if constexpr (std::is_same_v<NativeResultType, DecimalV2Value>) {
+            for (size_t i = 0; i < size; i++) {
+                if (c[i].value() > DecimalV2Value::MAX_DECIMAL_VALUE) {
+                    c[i].value() = DecimalV2Value::MAX_DECIMAL_VALUE;
+                }
+            }
         }
     }
 
