@@ -37,10 +37,9 @@ public class SlotReference extends Slot {
     // TODO: we should distinguish the name is alias or column name, and the column name should contains
     //       `cluster:db`.`table`.`column`
     private final String name;
-    private final List<String> qualifier;
     private final DataType dataType;
     private final boolean nullable;
-
+    private final List<String> qualifier;
     private final Column column;
 
     public SlotReference(String name, DataType dataType) {
