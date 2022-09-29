@@ -286,8 +286,7 @@ private:
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     static Status _change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
                                       const ChangeFixedValueRangeFunc& func,
-                                      const std::string& fn_name, bool cast_date_to_datetime = true,
-                                      int slot_ref_child = -1);
+                                      const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
     Status _start_scanners(const std::list<VScanner*>& scanners);
