@@ -34,6 +34,8 @@ public class PhysicalProperties {
 
     private final DistributionSpec distributionSpec;
 
+    private Integer hashCode = null;
+
     private PhysicalProperties() {
         this.orderSpec = new OrderSpec();
         this.distributionSpec = DistributionSpecAny.INSTANCE;
@@ -80,12 +82,18 @@ public class PhysicalProperties {
             return false;
         }
         PhysicalProperties that = (PhysicalProperties) o;
+        if (this.hashCode() != that.hashCode()) {
+            return false;
+        }
         return orderSpec.equals(that.orderSpec)
                 && distributionSpec.equals(that.distributionSpec);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderSpec, distributionSpec);
+        if (hashCode == null) {
+            hashCode = Objects.hash(orderSpec, distributionSpec);
+        }
+        return hashCode;
     }
 }

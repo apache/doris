@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -37,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -59,7 +59,7 @@ public class JoinUtils {
         return !(join.getJoinType().isReturnUnmatchedRightJoin());
     }
 
-    private static class JoinSlotCoverageChecker {
+    private static final class JoinSlotCoverageChecker {
         Set<ExprId> leftExprIds;
         Set<ExprId> rightExprIds;
 
@@ -68,16 +68,20 @@ public class JoinUtils {
             rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
         }
 
-        boolean isCoveredByLeftSlots(Set<Slot> slots) {
-            return slots.stream()
-                    .map(Slot::getExprId)
-                    .allMatch(leftExprIds::contains);
+        JoinSlotCoverageChecker(Set<ExprId> left, Set<ExprId> right) {
+            leftExprIds = left;
+            rightExprIds = right;
         }
 
-        boolean isCoveredByRightSlots(Set<Slot> slots) {
-            return slots.stream()
-                    .map(Slot::getExprId)
-                    .allMatch(rightExprIds::contains);
+        /**
+         * PushDownExpressionInHashConjuncts ensure the "slots" is only one slot.
+         */
+        boolean isCoveredByLeftSlots(ExprId slot) {
+            return leftExprIds.contains(slot);
+        }
+
+        boolean isCoveredByRightSlots(ExprId slot) {
+            return rightExprIds.contains(slot);
         }
 
         /**
@@ -116,10 +120,11 @@ public class JoinUtils {
      * @param join join node
      * @return pair of expressions, for hash table or not.
      */
-    public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(LogicalJoin join) {
+    public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(
+            LogicalJoin<GroupPlan, GroupPlan> join) {
         if (join.getOtherJoinCondition().isPresent()) {
             List<Expression> onExprs = ExpressionUtils.extractConjunction(
-                    (Expression) join.getOtherJoinCondition().get());
+                    join.getOtherJoinCondition().get());
             List<Slot> leftSlots = join.left().getOutput();
             List<Slot> rightSlots = join.right().getOutput();
             return extractExpressionForHashTable(leftSlots, rightSlots, onExprs);
@@ -152,37 +157,35 @@ public class JoinUtils {
      */
     public static Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
                 AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
-        Pair<List<ExprId>, List<ExprId>> childSlotsExprId =
-                Pair.of(Lists.newArrayList(), Lists.newArrayList());
 
-        List<Slot> leftSlots = join.left().getOutput();
-        List<Slot> rightSlots = join.right().getOutput();
-        List<EqualTo> equalToList = join.getHashJoinConjuncts().stream()
-                .map(e -> (EqualTo) e).collect(Collectors.toList());
-        JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
+        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
+        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
 
-        for (EqualTo equalTo : equalToList) {
-            Set<Slot> leftOnSlots = equalTo.left().collect(Slot.class::isInstance);
-            Set<Slot> rightOnSlots = equalTo.right().collect(Slot.class::isInstance);
-            List<ExprId> leftOnSlotsExprId = leftOnSlots.stream()
-                    .map(Slot::getExprId).collect(Collectors.toList());
-            List<ExprId> rightOnSlotsExprId = rightOnSlots.stream()
-                    .map(Slot::getExprId).collect(Collectors.toList());
-            if (checker.isCoveredByLeftSlots(leftOnSlots)
-                    && checker.isCoveredByRightSlots(rightOnSlots)) {
-                childSlotsExprId.first.addAll(leftOnSlotsExprId);
-                childSlotsExprId.second.addAll(rightOnSlotsExprId);
-            } else if (checker.isCoveredByLeftSlots(rightOnSlots)
-                    && checker.isCoveredByRightSlots(leftOnSlots)) {
-                childSlotsExprId.first.addAll(rightOnSlotsExprId);
-                childSlotsExprId.second.addAll(leftOnSlotsExprId);
+        JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(
+                join.left().getOutputExprIdSet(),
+                join.right().getOutputExprIdSet());
+
+        for (Expression expr : join.getHashJoinConjuncts()) {
+            EqualTo equalTo = (EqualTo) expr;
+            if (!(equalTo.left() instanceof Slot) || !(equalTo.right() instanceof Slot)) {
+                continue;
+            }
+            ExprId leftExprId = ((Slot) equalTo.left()).getExprId();
+            ExprId rightExprId = ((Slot) equalTo.right()).getExprId();
+
+            if (checker.isCoveredByLeftSlots(leftExprId)
+                    && checker.isCoveredByRightSlots(rightExprId)) {
+                exprIds1.add(leftExprId);
+                exprIds2.add(rightExprId);
+            } else if (checker.isCoveredByLeftSlots(rightExprId)
+                    && checker.isCoveredByRightSlots(leftExprId)) {
+                exprIds1.add(rightExprId);
+                exprIds2.add(leftExprId);
             } else {
                 throw new RuntimeException("Could not generate valid equal on clause slot pairs for join: " + join);
             }
         }
-
-        Preconditions.checkState(childSlotsExprId.first.size() == childSlotsExprId.second.size());
-        return childSlotsExprId;
+        return Pair.of(exprIds1, exprIds2);
     }
 
     public static boolean shouldNestedLoopJoin(Join join) {
