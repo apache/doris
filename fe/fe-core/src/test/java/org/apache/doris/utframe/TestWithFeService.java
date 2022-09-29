@@ -106,6 +106,7 @@ import java.util.UUID;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class TestWithFeService {
+    protected String dorisHome;
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
 
@@ -122,7 +123,7 @@ public abstract class TestWithFeService {
     public final void afterAll() throws Exception {
         runAfterAll();
         Env.getCurrentEnv().clear();
-        cleanDorisFeDir(runningDir);
+        cleanDorisFeDir();
         NamedExpressionUtil.clear();
     }
 
@@ -238,10 +239,11 @@ public abstract class TestWithFeService {
             throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
             InterruptedException {
         // get DORIS_HOME
-        String dorisHome = System.getenv("DORIS_HOME");
+        dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
             dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
+        System.out.println("CREATE DIR: " + dorisHome);
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
         Config.edit_log_type = "local";
@@ -352,9 +354,9 @@ public abstract class TestWithFeService {
         return be;
     }
 
-    protected void cleanDorisFeDir(String baseDir) {
+    protected void cleanDorisFeDir() {
         try {
-            FileUtils.deleteDirectory(new File(baseDir));
+            FileUtils.deleteDirectory(new File(dorisHome));
         } catch (IOException e) {
             e.printStackTrace();
         }
