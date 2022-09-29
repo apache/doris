@@ -444,7 +444,7 @@ public class FileSystemManager {
         String obsUgi = accessKey + "," + secretKey;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, obsUgi);
         cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
-        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity);
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
         fileSystem.getLock().lock();
         try {
             if (fileSystem.getDFSFileSystem() == null) {
