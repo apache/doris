@@ -48,8 +48,9 @@ struct MultiplyImpl {
         int8 sgn[size];
 
         for (int i = 0; i < size; i++) {
-            sgn[i] = (DecimalV2Value(a[i]).value() >= 0 == DecimalV2Value(b[i]).value() > 0) ? 1
-                                                                                             : -1;
+            sgn[i] = ((DecimalV2Value(a[i]).value() >= 0) == (DecimalV2Value(b[i]).value() >= 0))
+                             ? 1
+                             : -1;
         }
 
         for (int i = 0; i < size; i++) {
