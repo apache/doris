@@ -161,10 +161,10 @@ public class PasswordPolicy implements Writable {
         }
     }
 
-    public void lockOrUnlock(int accountLock) {
+    public void unlockAccount() {
         lock.writeLock().lock();
         try {
-            failedLoginPolicy.lockOrUnlock(accountLock);
+            failedLoginPolicy.unlock();
         } finally {
             lock.writeLock().unlock();
         }
@@ -294,7 +294,7 @@ public class PasswordPolicy implements Writable {
         }
 
         public void update(byte[] password, int historyNum) {
-            if (historyNum == PasswordOptions.UNSET) {
+            if (historyNum == PasswordOptions.UNSET || password == null) {
                 return;
             }
             this.historyNum = historyNum;
@@ -430,12 +430,6 @@ public class PasswordPolicy implements Writable {
         public void unlock() {
             this.failedLoginCounter.set(0);
             this.lockTime.set(0);
-        }
-
-        public void lockOrUnlock(int accountLock) {
-            if (accountLock == UNLOCK_ACCOUNT) {
-                unlock();
-            }
         }
 
         @Override

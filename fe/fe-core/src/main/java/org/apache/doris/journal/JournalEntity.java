@@ -50,6 +50,7 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -683,6 +684,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CLEAN_LABEL: {
                 data = CleanLabelOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_USER: {
+                data = AlterUserOperationLog.read(in);
                 isRead = true;
                 break;
             }

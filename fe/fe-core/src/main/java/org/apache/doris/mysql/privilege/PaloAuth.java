@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.AlterUserStmt;
+import org.apache.doris.analysis.AlterUserStmt.OpType;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
@@ -51,6 +52,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.ldap.LdapPrivsChecker;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -1831,13 +1833,48 @@ public class PaloAuth implements Writable {
         return passwdPolicyManager.getPolicyInfo(userIdent);
     }
 
-    public void alterUser(AlterUserStmt alterStmt) {
-        int accountLock = alterStmt.getPasswordOptions().getAccountUnlocked();
-        if (accountLock == -2) {
-            return;
+    public void alterUser(AlterUserStmt stmt) throws DdlException {
+        alterUserInternal(stmt.isIfExist(), stmt.getOpType(), stmt.getUserIdent(), stmt.getPassword(), stmt.getRole(),
+                stmt.getPasswordOptions(), false);
+    }
+
+    public void replayAlterUser(AlterUserOperationLog log) {
+        try {
+            alterUserInternal(true, log.getOp(), log.getUserIdent(), log.getPassword(), log.getRole(),
+                    log.getPasswordOptions(), true);
+        } catch (DdlException e) {
+            LOG.error("should not happen", e);
         }
-        UserIdentity userIdent = alterStmt.getUserIdent();
-        passwdPolicyManager.lockOrUnlockUser(userIdent, accountLock);
+    }
+
+    private void alterUserInternal(boolean ifExists, OpType opType, UserIdentity userIdent, byte[] password,
+            String role, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
+        if (!doesUserExist(userIdent)) {
+            if (ifExists) {
+                return;
+            }
+            throw new DdlException("User " + userIdent + " does not exist");
+        }
+        switch (opType) {
+            case SET_PASSWORD:
+                // TODO
+                break;
+            case SET_ROLE:
+                // TODO
+                break;
+            case SET_PASSWORD_POLICY:
+                passwdPolicyManager.updatePolicy(userIdent, null, passwordOptions);
+                break;
+            case UNLOCK_ACCOUNT:
+                passwdPolicyManager.unlockUser(userIdent);
+                break;
+            default:
+                throw new DdlException("Unknow alter user operation type: " + opType.name());
+        }
+        if (opType != AlterUserStmt.OpType.UNLOCK_ACCOUNT && !isReplay) {
+            AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role, passwordOptions);
+            Env.getCurrentEnv().getEditLog().logAlterUser(log);
+        }
     }
 
     public static PaloAuth read(DataInput in) throws IOException {

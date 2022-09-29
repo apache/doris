@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -26,35 +27,68 @@ import org.apache.doris.mysql.privilege.PasswordPolicy.FailedLoginPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.common.collect.Sets;
 
+import java.util.Set;
+
+// ALTER USER user@host [IDENTIFIED BY "password"] [DEFAULT ROLE role] [password_options]
+// password_options:
+//      PASSWORD_HISTORY
+//      ACCOUNT_LOCK[ACCOUNT_UNLOCK]
+//      FAILED_LOGIN_ATTEMPTS
+//      PASSWORD_LOCK_TIME
 public class AlterUserStmt extends DdlStmt {
-    private static final Logger LOG = LogManager.getLogger(AlterUserStmt.class);
-
-    private boolean ifNotExist;
+    private boolean ifExist;
     private UserDesc userDesc;
     private String role;
     private PasswordOptions passwordOptions;
 
-    public AlterUserStmt(boolean ifNotExist, UserDesc userDesc, String role, PasswordOptions passwordOptions) {
-        this.ifNotExist = ifNotExist;
+    // Only support doing one of these operation at one time.
+    public enum OpType {
+        SET_PASSWORD,
+        SET_ROLE,
+        SET_PASSWORD_POLICY,
+        LOCK_ACCOUNT,
+        UNLOCK_ACCOUNT
+    }
+
+    private Set<OpType> ops = Sets.newHashSet();
+
+    public AlterUserStmt(boolean ifExist, UserDesc userDesc, String role, PasswordOptions passwordOptions) {
+        this.ifExist = ifExist;
         this.userDesc = userDesc;
         this.role = role;
         this.passwordOptions = passwordOptions;
     }
 
-    public boolean isIfNotExist() {
-        return ifNotExist;
+    public boolean isIfExist() {
+        return ifExist;
     }
 
     public UserIdentity getUserIdent() {
         return userDesc.getUserIdent();
     }
 
+    public byte[] getPassword() {
+        if (userDesc.hasPassword()) {
+            return userDesc.getPassVar().getScrambled();
+        }
+        return null;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
     public PasswordOptions getPasswordOptions() {
         return passwordOptions;
+    }
+
+    public OpType getOpType() {
+        Preconditions.checkState(ops.size() == 1);
+        return ops.iterator().next();
     }
 
     @Override
@@ -63,17 +97,28 @@ public class AlterUserStmt extends DdlStmt {
         userDesc.getUserIdent().analyze(analyzer.getClusterName());
         userDesc.getPassVar().analyze();
 
-        if (!Strings.isNullOrEmpty(userDesc.getPassVar().getText())) {
-            throw new UserException("Not support setting password in alter stmt");
+        if (userDesc.hasPassword()) {
+            ops.add(OpType.SET_PASSWORD);
         }
 
         if (!Strings.isNullOrEmpty(role)) {
-            throw new UserException("Not support setting role in alter user stmt");
+            ops.add(OpType.SET_ROLE);
         }
 
         passwordOptions.analyze();
         if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.LOCK_ACCOUNT) {
-            throw new UserException("Not supprt locking account");
+            throw new AnalysisException("Not support lock account now");
+        } else if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.UNLOCK_ACCOUNT) {
+            ops.add(OpType.UNLOCK_ACCOUNT);
+        } else if (passwordOptions.getExpirePolicy() != PasswordOptions.UNSET
+                || passwordOptions.getHistoryPolicy() != PasswordOptions.UNSET
+                || passwordOptions.getPasswordLockTime() != PasswordOptions.UNSET
+                || passwordOptions.getLoginAttempts() != PasswordOptions.UNSET) {
+            ops.add(OpType.SET_PASSWORD_POLICY);
+        }
+
+        if (ops.size() != 1) {
+            throw new AnalysisException("Only support doing one type of operation at one time");
         }
 
         // check if current user has GRANT priv on GLOBAL or DATABASE level.
@@ -91,7 +136,13 @@ public class AlterUserStmt extends DdlStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        // TODO: currently we only support unlock acccount, which is executed on specific FE.
-        return RedirectStatus.NO_FORWARD;
+        Preconditions.checkState(ops.size() == 1);
+        OpType op = ops.iterator().next();
+        if (op == OpType.UNLOCK_ACCOUNT) {
+            // unlock account is executed on specific FE.
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
     }
 }

@@ -21,9 +21,11 @@ package org.apache.doris.analysis;
 public class UserDesc {
     private UserIdentity userIdent;
     private PassVar passVar;
+    private boolean hasPassword = true;
 
     public UserDesc(UserIdentity userIdent) {
         this(userIdent, new PassVar("", false));
+        hasPassword = false;
     }
 
     public UserDesc(UserIdentity userIdent, PassVar passVar) {
@@ -43,5 +45,9 @@ public class UserDesc {
 
     public PassVar getPassVar() {
         return passVar;
+    }
+
+    public boolean hasPassword() {
+        return hasPassword;
     }
 }
