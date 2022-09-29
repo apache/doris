@@ -152,7 +152,8 @@ private:
                                 vectorized::ColumnDictionary<vectorized::Int32>>(column);
                         auto& data_array = nested_col_ptr->get_data();
                         for (uint16_t i = 0; i < size; i++) {
-                            StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
+                            StringValue cell_value =
+                                    nested_col_ptr->get_shrink_value(data_array[i]);
                             if constexpr (is_and) {
                                 unsigned char flag = 0;
                                 (_state->function)(
