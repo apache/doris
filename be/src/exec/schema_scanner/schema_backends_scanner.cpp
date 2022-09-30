@@ -67,11 +67,6 @@ Status SchemaBackendsScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initialized.");
     }
     RETURN_IF_ERROR(_fetch_backends_info());
-    for (int i = 0; i < _backends_info.size(); ++i) {
-        for (int j = 0; j < _backends_info[i].size(); ++j) {
-            LOG(INFO) << j << " : " << _backends_info[i][j];
-        }
-    }
     return Status::OK();
 }
 
