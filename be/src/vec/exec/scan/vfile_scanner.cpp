@@ -454,13 +454,17 @@ Status VFileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _ranges[_next_range++];
 
         // 1. create file reader
+        // TODO: Each format requires its own FileReader to achieve a special access mode,
+        //  so create the FileReader inner the format.
         std::unique_ptr<FileReader> file_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
-                                                        range, file_reader));
-        RETURN_IF_ERROR(file_reader->open());
-        if (file_reader->size() == 0) {
-            file_reader->close();
-            continue;
+        if (_params.format_type != TFileFormatType::FORMAT_PARQUET) {
+            RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
+                                                            range, file_reader));
+            RETURN_IF_ERROR(file_reader->open());
+            if (file_reader->size() == 0) {
+                file_reader->close();
+                continue;
+            }
         }
 
         // 2. create reader for specific format
@@ -468,10 +472,9 @@ Status VFileScanner::_get_next_reader() {
         Status init_status;
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            _cur_reader.reset(
-                    new ParquetReader(_profile, file_reader.release(), _params, range,
-                                      _file_col_names, _state->query_options().batch_size,
-                                      const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+            _cur_reader.reset(new ParquetReader(
+                    _profile, _params, range, _file_col_names, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj())));
             init_status =
                     ((ParquetReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;

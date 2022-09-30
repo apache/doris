@@ -144,13 +144,22 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
         seek(position);
     }
 
-    *bytes_read = hdfsRead(_hdfs_fs, _hdfs_file, out, nbytes);
-    if (*bytes_read < 0) {
-        return Status::InternalError(
-                "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
+    int64_t has_read = 0;
+    while (has_read < nbytes) {
+        int64_t loop_read = hdfsRead(_hdfs_fs, _hdfs_file, reinterpret_cast<char*>(out) + has_read,
+                                     nbytes - has_read);
+        if (loop_read < 0) {
+            return Status::InternalError(
+                    "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                    BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
+        }
+        if (loop_read == 0) {
+            break;
+        }
+        has_read += loop_read;
     }
-    _current_offset += *bytes_read; // save offset with file
+    *bytes_read = has_read;
+    _current_offset += has_read; // save offset with file
     return Status::OK();
 }
 

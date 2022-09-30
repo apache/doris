@@ -91,46 +91,45 @@ TEST_F(ParquetReaderTest, normal) {
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     LocalFileReader* reader =
             new LocalFileReader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
-    reader->open();
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    //    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
     }
-    //    TFileScanRangeParams scan_params;
+    TFileScanRangeParams scan_params;
     TFileRangeDesc scan_range;
     {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    //    auto p_reader =
-    //            new ParquetReader(nullptr, reader, scan_params, scan_range, column_names, 992, &ctz);
+    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, column_names, 992, &ctz);
+    p_reader->set_file_reader(reader);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
     runtime_state.init_instance_mem_tracker();
 
-    //    std::vector<ExprContext*> conjunct_ctxs = std::vector<ExprContext*>();
-    // p_reader->init_reader(conjunct_ctxs);
-    //    Block* block = new Block();
-    //    for (const auto& slot_desc : tuple_desc->slots()) {
-    //        auto data_type =
-    //                vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
-    //        MutableColumnPtr data_column = data_type->create_column();
-    //        block->insert(
-    //                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
-    //    }
-    //    bool eof = false;
-    //    p_reader->get_next_block(block, &eof);
-    //    for (auto& col : block->get_columns_with_type_and_name()) {
-    //        ASSERT_EQ(col.column->size(), 10);
-    //    }
-    //    EXPECT_TRUE(eof);
-    //    delete block;
-    //    delete p_reader;
-    delete reader;
+    std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
+    p_reader->init_reader(&colname_to_value_range);
+    Block* block = new Block();
+    for (const auto& slot_desc : tuple_desc->slots()) {
+        auto data_type =
+                vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
+        MutableColumnPtr data_column = data_type->create_column();
+        block->insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+    }
+    bool eof = false;
+    p_reader->get_next_block(block, &eof);
+    for (auto& col : block->get_columns_with_type_and_name()) {
+        ASSERT_EQ(col.column->size(), 10);
+    }
+    EXPECT_TRUE(eof);
+    delete block;
+    delete p_reader;
 }
+
 } // namespace vectorized
 } // namespace doris
