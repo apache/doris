@@ -88,6 +88,16 @@ public class PhysicalHashJoin<
 
     @Override
     public String toString() {
+        if (statsDeriveResult != null) {
+            return Utils.toSqlString("PhysicalHashJoin",
+                    "type", joinType,
+                    "hashJoinCondition", hashJoinConjuncts,
+                    "otherJoinCondition", otherJoinCondition,
+                    "estimateRows", statsDeriveResult.getRowCount(),
+                    "isReduced", statsDeriveResult.isReduced,
+                    "width", statsDeriveResult.width
+            );
+        }
         return Utils.toSqlString("PhysicalHashJoin",
                 "type", joinType,
                 "hashJoinCondition", hashJoinConjuncts,
