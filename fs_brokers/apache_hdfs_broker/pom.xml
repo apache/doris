@@ -102,6 +102,11 @@ under the License.
                 </property>
             </activation>
             <repositories>
+                <repository>
+                    <id>Maven Central</id>
+                    <name>Maven Repository</name>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                </repository>
                 <!-- for java-cup -->
                 <repository>
                     <id>cloudera-thirdparty</id>
