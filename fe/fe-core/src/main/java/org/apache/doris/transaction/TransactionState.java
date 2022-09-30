@@ -287,11 +287,6 @@ public class TransactionState implements Writable {
         this.errorReplicas = newErrorReplicas;
     }
 
-    public boolean isRunning() {
-        return transactionStatus == TransactionStatus.PREPARE
-                || transactionStatus == TransactionStatus.COMMITTED;
-    }
-
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
         this.publishVersionTasks.put(backendId, task);
     }

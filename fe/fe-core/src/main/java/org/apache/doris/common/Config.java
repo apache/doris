@@ -753,6 +753,7 @@ public class Config extends ConfigBase {
      * this config has been replaced by async_loading_load_task_pool_size,
      * it will be removed in the future.
      */
+    @Deprecated
     @ConfField(mutable = false, masterOnly = true)
     public static int async_load_task_pool_size = 10;
 
