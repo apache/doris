@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Optional;
@@ -64,10 +63,11 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputSet()))
+                // TODO: handle otherJoinCondition
+                .whenNot(topJoin -> topJoin.getOtherJoinCondition().isPresent())
+                .whenNot(topJoin -> topJoin.left().getOtherJoinCondition().isPresent())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
-                    Preconditions.checkState(!topJoin.getOtherJoinCondition().isPresent());
-                    Preconditions.checkState(!bottomJoin.getOtherJoinCondition().isPresent());
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();

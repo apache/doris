@@ -63,13 +63,14 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                 .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
+                // TODO: handle otherJoinCondition
+                .whenNot(topJoin -> topJoin.getOtherJoinCondition().isPresent())
+                .whenNot(topJoin -> topJoin.left().child().getOtherJoinCondition().isPresent())
                 .then(topJoin -> {
 
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
-                    Preconditions.checkState(!topJoin.getOtherJoinCondition().isPresent());
-                    Preconditions.checkState(!bottomJoin.getOtherJoinCondition().isPresent());
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
