@@ -1600,7 +1600,7 @@ public class DatabaseTransactionMgr {
         try {
             for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
                 if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
-                        tableIdList) || !entry.getValue().isRunning()) {
+                        tableIdList) || entry.getValue().getTransactionStatus().isFinalStatus()) {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
