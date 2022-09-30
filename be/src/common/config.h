@@ -68,7 +68,7 @@ CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "90%");
+CONF_String(mem_limit, "80%");
 
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");

@@ -173,7 +173,7 @@ public:
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
         // for fast, expect MemInfo::initialized() to be true.
-        if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
+        if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit() && config::enable_cancel_query) {
             return Status::MemoryLimitExceeded(fmt::format(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
                     label_, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
@@ -186,7 +186,7 @@ public:
         for (i = all_trackers_.size() - 1; i >= 0; --i) {
             MemTracker* tracker = all_trackers_[i];
             const int64_t limit = tracker->GetLimit(mode);
-            if (limit < 0) {
+            if (limit < 0 || !config::enable_cancel_query) {
                 tracker->consumption_->add(bytes); // No limit at this tracker.
             } else {
                 // If TryConsume fails, we can try to GC, but we may need to try several times if
@@ -262,7 +262,7 @@ public:
     /// exceeded.
     bool AnyLimitExceeded(MemLimit mode) {
         for (const auto& tracker : limit_trackers_) {
-            if (tracker->LimitExceeded(mode)) {
+            if (tracker->LimitExceeded(mode) && config::enable_cancel_query) {
                 return true;
             }
         }
@@ -281,7 +281,7 @@ public:
     // Return limit exceeded tracker or null
     MemTracker* find_limit_exceeded_tracker() {
         for (const auto& tracker : limit_trackers_) {
-            if (tracker->limit_exceeded()) {
+            if (tracker->limit_exceeded() && config::enable_cancel_query) {
                 return tracker;
             }
         }
@@ -298,7 +298,7 @@ public:
     void RefreshConsumptionFromMetric();
 
     // TODO(yingchun): following functions are old style which have no MemLimit parameter
-    bool limit_exceeded() const { return limit_ >= 0 && limit_ < consumption(); }
+    bool limit_exceeded() const { return limit_ >= 0 && limit_ < consumption() && config::enable_cancel_query; }
 
     int64_t limit() const { return limit_; }
     bool has_limit() const { return limit_ >= 0; }
@@ -396,7 +396,7 @@ public:
 
     static bool limit_exceeded(const std::vector<std::shared_ptr<MemTracker>>& trackers) {
         for (const auto& tracker : trackers) {
-            if (tracker->limit_exceeded()) {
+            if (tracker->limit_exceeded() && config::enable_cancel_query) {
                 // TODO: remove logging
                 LOG(WARNING) << "exceeded limit: limit=" << tracker->limit()
                              << " consumption=" << tracker->consumption();
