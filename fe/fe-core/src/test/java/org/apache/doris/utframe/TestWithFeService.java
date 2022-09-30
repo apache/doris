@@ -356,7 +356,7 @@ public abstract class TestWithFeService {
 
     protected void cleanDorisFeDir() {
         try {
-            FileUtils.deleteDirectory(new File(dorisHome));
+            FileUtils.forceDelete(new File(dorisHome));
         } catch (IOException e) {
             e.printStackTrace();
         }
