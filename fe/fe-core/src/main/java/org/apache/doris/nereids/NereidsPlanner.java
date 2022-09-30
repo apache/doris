@@ -129,10 +129,12 @@ public class NereidsPlanner extends Planner {
 
         // resolve column, table and function
         analyze();
-
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
+        System.out.println();
         // rule-based optimize
         rewrite();
-
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
+        System.out.println();
         deriveStats();
 
         // We need to do join reorder before cascades and after deriving stats
@@ -144,7 +146,7 @@ public class NereidsPlanner extends Planner {
         optimize();
 
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
-
+        System.out.println(physicalPlan.treeString());
         // post-process physical plan out of memo, just for future use.
         return postProcess(physicalPlan);
     }

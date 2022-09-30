@@ -77,7 +77,7 @@ public class RegisterCTE extends PlanPreprocessor {
         if (withClause.getColumnAliases().isPresent()) {
             analyzedPlan = withColumnAliases(analyzedPlan, withClause);
         }
-        cteContext.addCTE(name, analyzedPlan);
+        cteContext.addCTE(name, withClause.getQuery());
     }
 
     private LogicalPlan withColumnAliases(LogicalPlan queryPlan, WithClause withClause) {
@@ -85,7 +85,6 @@ public class RegisterCTE extends PlanPreprocessor {
         List<String> columnAliases = withClause.getColumnAliases().get();
 
         checkColumnAlias(withClause, outputSlots);
-
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
                 .mapToObj(i -> i >= columnAliases.size()
                     ? outputSlots.get(i) : new Alias(outputSlots.get(i), columnAliases.get(i)))
