@@ -51,9 +51,9 @@ AGGREGATE KEY(siteid, city, username)
 DISTRIBUTED BY HASH(siteid) BUCKETS 10;
 ```
 
-1.1.2. KEY UNIQUE
+1.1.2. UNIQUE KEY
 
-When UNIQUE KEY is the same, the new record covers the old record. At present, UNIQUE KEY implements the same REPLACE aggregation method as AGGREGATE KEY, and they are essentially the same. Suitable for analytical business with updated requirements.
+When UNIQUE KEY is the same, the new record covers the old record. Befor version 1.2, UNIQUE KEY implements the same REPLACE aggregation method as AGGREGATE KEY, and they are essentially the same. We introduced a new merge-on-write implementation for UNIQUE KEY since version 1.2, which have better performance on many scenarios. Suitable for analytical business with updated requirements.
 
 ```
 CREATE TABLE sales_order
