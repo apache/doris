@@ -270,19 +270,10 @@ struct DateTrunc {
         auto& rdata = str_column->get_chars();
         auto& roffsets = str_column->get_offsets();
 
-        ColumnPtr res = nullptr;
-
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            res = ColumnVector<Int64>::create();
-            executeImpl(datetime_column->get_data(), rdata, roffsets,
-                        static_cast<ColumnVector<Int64>*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data(), input_rows_count);
-        } else {
-            res = ColumnVector<UInt64>::create();
-            executeImpl(datetime_column->get_data(), rdata, roffsets,
-                        static_cast<ColumnVector<UInt64>*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data(), input_rows_count);
-        }
+        ColumnPtr res = ColumnVector<ArgType>::create();
+        executeImpl(datetime_column->get_data(), rdata, roffsets,
+                    static_cast<ColumnVector<ArgType>*>(res->assume_mutable().get())->get_data(),
+                    null_map->get_data(), input_rows_count);
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
@@ -294,7 +285,7 @@ struct DateTrunc {
                             NullMap& null_map, size_t input_rows_count) {
         res.resize(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto& dt = (DateValueType&)ldata[i];
+            auto dt = binary_cast<ArgType, DateValueType>(ldata[i]);
             const char* str_data = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             if (std::strncmp("year", str_data, 4) == 0) {
                 null_map[i] = !dt.template datetime_trunc<YEAR>();
@@ -313,7 +304,7 @@ struct DateTrunc {
             } else {
                 null_map[i] = 1;
             }
-            *reinterpret_cast<DateValueType*>(&res[i]) = dt;
+            res[i] = binary_cast<DateValueType, ArgType>(dt);
         }
     }
 };
@@ -615,15 +606,15 @@ public:
 using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate>;
 using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
 using FunctionDateTrunc = FunctionOtherTypesToDateType<DateTrunc<VecDateTimeValue, Int64>>;
-using FunctionDateTruncV2 =
-        FunctionOtherTypesToDateType<DateTrunc<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+// using FunctionDateTruncV2 =
+//         FunctionOtherTypesToDateType<DateTrunc<DateV2Value<DateTimeV2ValueType>, UInt64>>;
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
     factory.register_function<FunctionMakeDate>();
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTrunc>();
-    factory.register_function<FunctionDateTruncV2>();
+    //factory.register_function<FunctionDateTruncV2>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();

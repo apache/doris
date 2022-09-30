@@ -33,10 +33,10 @@ under the License.
 
 将datetime按照指定的时间单位截断。
 
-date 参数是合法的日期表达式。
+datetime 参数是合法的日期表达式。
 
 unit 参数是您希望截断的时间间隔，可选的值如下：[`second`,`minute`,`hour`,`day`,`month`,`quarter`,`year`]。
-
+如果unit 不符合上述可选值，结果将返回NULL。 
 ### example
 
 ```

@@ -33,10 +33,10 @@ under the License.
 
 Truncates datetime in the specified time unit.
 
-date is a legal date expression.
+datetime is a legal date expression.
 
 unit is the time unit you want to truncate. The optional values are as follows: [`second`,`minute`,`hour`,`day`,`month`,`quarter`,`year`]。
-
+If unit does not meet the above optional values, the result will return NULL.
 ### example
 
 ```
