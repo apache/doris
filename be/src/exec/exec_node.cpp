@@ -736,8 +736,11 @@ void ExecNode::try_do_aggregate_serde_improve() {
     ExecNode* child0 = agg_node[0]->_children[0];
     if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
         typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewJdbcScanNode)) {
+        typeid(*child0) == typeid(vectorized::NewOdbcScanNode)
+#ifdef LIBJVM
+        || typeid(*child0) == typeid(vectorized::NewJdbcScanNode)
+#endif
+    ) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();
