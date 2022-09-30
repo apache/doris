@@ -90,6 +90,10 @@ protected:
 
     // the child of root, only track rowset writer mem
     std::shared_ptr<MemTracker> _writer_tracker;
+
+    // the root tracker for this compaction
+    std::shared_ptr<MemTrackerLimiter> _new_mem_tracker;
+
     TabletSharedPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;

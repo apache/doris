@@ -65,7 +65,7 @@ OLAPStatus BaseCompaction::execute_compact_impl() {
         return OLAP_ERR_BE_CLONE_OCCURRED;
     }
 
-    SCOPED_ATTACH_TASK(StorageEngine::instance()->new_compaction_mem_tracker(), ThreadContext::TaskType::COMPACTION);
+    SCOPED_ATTACH_TASK(_new_mem_tracker, ThreadContext::TaskType::COMPACTION);
 
     // 2. do base compaction, merge rowsets
     int64_t permits = get_compaction_permits();
