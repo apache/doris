@@ -125,8 +125,8 @@ public abstract class TestWithFeService {
     public final void afterAll() throws Exception {
         runAfterAll();
         Env.getCurrentEnv().clear();
-        cleanDorisFeDir();
         NamedExpressionUtil.clear();
+        cleanDorisFeDir();
     }
 
     @BeforeEach
