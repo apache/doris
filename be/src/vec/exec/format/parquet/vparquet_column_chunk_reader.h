@@ -138,7 +138,10 @@ public:
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
-    Statistics& statistics() { return _statistics; }
+    Statistics& statistics() {
+        _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
+        return _statistics;
+    }
 
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED };

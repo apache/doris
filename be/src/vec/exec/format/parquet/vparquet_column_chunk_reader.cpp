@@ -58,10 +58,7 @@ Status ColumnChunkReader::next_page() {
     if (UNLIKELY(_remaining_num_values != 0)) {
         return Status::Corruption("Should skip current page");
     }
-    {
-        SCOPED_RAW_TIMER(&_statistics.decode_header_time);
-        RETURN_IF_ERROR(_page_reader->next_page_header());
-    }
+    RETURN_IF_ERROR(_page_reader->next_page_header());
     if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
         // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
         // so we should parse the directory page in next_page()
