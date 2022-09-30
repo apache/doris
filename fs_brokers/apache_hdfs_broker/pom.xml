@@ -102,11 +102,6 @@ under the License.
                 </property>
             </activation>
             <repositories>
-                <repository>
-                    <id>Maven Central</id>
-                    <name>Maven Repository</name>
-                    <url>https://repo.maven.apache.org/maven2</url>
-                </repository>
                 <!-- for java-cup -->
                 <repository>
                     <id>cloudera-thirdparty</id>
@@ -210,11 +205,6 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
-            <version>${hadoop.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-huaweicloud</artifactId>
             <version>${hadoop.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.htrace/htrace-core -->
