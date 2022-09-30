@@ -174,6 +174,8 @@ struct ConvertImpl {
                         } else if constexpr (IsDateTimeV2Type<ToDataType> &&
                                              IsDateTimeV2Type<FromDataType>) {
                             DataTypeDateTimeV2::cast_to_date(vec_from[i], vec_to[i]);
+                        } else if constexpr (IsDateType<ToDataType> && IsDateV2Type<FromDataType>) {
+                            DataTypeDateV2::cast_to_date(vec_from[i], vec_to[i]);
                         }
                     } else {
                         if constexpr (IsDateTimeV2Type<FromDataType>) {
