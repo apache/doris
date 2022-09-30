@@ -216,4 +216,21 @@ suite("test_array_insert", "load") {
         try_sql("DROP TABLE IF EXISTS ${testTable01}")
         try_sql("DROP TABLE IF EXISTS ${testTable02}")
     }
+
+    // case5: test to insert 'array<boolean>'
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable02}"
+
+        create_test_table02.call(testTable02)
+        
+        sql """INSERT INTO ${testTable02} VALUES (200, [1, 2, 3], [32767, 32768, 32769], [65534, 65535, 65536], 
+                ['a', 'b', 'c'], ["hello", "world"], ['2022-07-13'], ['2022-07-13 12:30:00'], [0.33, 0.67], [3.1415926, 0.878787878],
+                [4, 5.5, 6.67], '[1, 0, 1, 0]', ['happy life'])
+            """
+        // select the table and check whether the data is correct
+        qt_select "select * from ${testTable02} order by k1"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable02}")
+    }
 }
