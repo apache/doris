@@ -164,10 +164,6 @@ Status RuntimePredicate::update(std::vector<Field>& values, const String& col_na
     condition.condition_values.push_back(str_value);
 
     _predictate.reset(parse_to_predicate(_tablet_schema, condition, _predicate_mem_pool.get(), false));
-    
-    LOG(INFO) << "xk debug reset predictate type=" << (_predictate->type() == PredicateType::GE)
-              << " " << (_predictate->type() == PredicateType::LE)
-              << " column_id=" << _predictate->column_id() << " condition=" << condition;
 
     return Status::OK();
 }
