@@ -151,16 +151,16 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     for (const shared_ptr<MemTracker>& tracker : trackers) {
         string parent = tracker->parent() == nullptr ? "none" : tracker->parent()->label();
         string limit_str = tracker->limit() == -1 ? "none" : ItoaKMGT(tracker->limit());
-        string current_consumption_str = ItoaKMGT(tracker->consumption());
-        string peak_consumption_str = ItoaKMGT(tracker->peak_consumption());
+        int64_t current_consumption = tracker->consumption();
+        int64_t peak_consumption = tracker->peak_consumption();
         int64_t use_count = tracker.use_count();
         string current_consumption_normalize = AccurateItoaKMGT(tracker->consumption());
         string peak_consumption_normalize = AccurateItoaKMGT(tracker->peak_consumption());
         (*output) << strings::Substitute(
                 "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</"
                 "td><td>$7</td><td>$8</td></tr>\n",
-                -1, tracker->label(), parent, limit_str, current_consumption_str,
-                current_consumption_normalize, peak_consumption_str, peak_consumption_normalize,
+                -1, tracker->label(), parent, limit_str, current_consumption,
+                current_consumption_normalize, peak_consumption, peak_consumption_normalize,
                 use_count);
     }
 
