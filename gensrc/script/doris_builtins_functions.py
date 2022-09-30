@@ -1101,7 +1101,7 @@ visible_functions = [
      '15FunctionContextENS2_18FunctionStateScopeE',
      '_ZN5doris18TimestampFunctions12format_closeEPN9doris_udf'
      '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
-    [['date', 'to_date'], 'DATEV2', ['DATETIMEV2'],
+    [['date', 'to_date', 'datev2', 'to_datev2'], 'DATEV2', ['DATETIMEV2'],
      '_ZN5doris18TimestampFunctions7to_dateEPN9doris_udf15FunctionContextERKNS1_11DateTimeV2ValE',
      '', '', 'vec', 'ALWAYS_NULLABLE'],
 
