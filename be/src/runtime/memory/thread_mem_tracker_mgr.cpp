@@ -45,7 +45,7 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
 }
 
 void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
-    if (_fragment_instance_id_stack.back() != TUniqueId()) {
+    if (_fragment_instance_id_stack.back() != TUniqueId() && config::enable_cancel_query) {
         ExecEnv::GetInstance()->fragment_mgr()->cancel(
                 _fragment_instance_id_stack.back(), PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
                 cancel_details);

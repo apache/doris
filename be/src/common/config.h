@@ -632,6 +632,8 @@ CONF_Int16(mem_tracker_level, "0");
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 CONF_Bool(enable_tcmalloc_hook, "true");
 
+CONF_Bool(enable_cancel_query, "false");
+
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
 //

@@ -326,7 +326,7 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
-    if (bytes <= 0) return Status::OK();
+    if (bytes <= 0 || !config::enable_cancel_query) return Status::OK();
     if (sys_mem_exceed_limit_check(bytes)) {
         return Status::MemoryLimitExceeded(limit_exceeded_errmsg_sys_str(bytes));
     }
