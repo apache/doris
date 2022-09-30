@@ -45,7 +45,8 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // `memcpy` operations. To ensure heap sort will not incur performance fallback, we should
     // exclude cases which incoming blocks has string column which is sensitive to operations like
     // `filter` and `memcpy`
-    if (_limit > 0 && _limit + _offset < HeapSorter::HEAP_SORT_THRESHOLD) {
+    if (_limit > 0 && _limit + _offset < HeapSorter::HEAP_SORT_THRESHOLD &&
+        (_use_topn_opt || !row_desc.has_varlen_slots())) {
         _sorter.reset(new HeapSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
                                      _nulls_first, row_desc));
         _reuse_mem = false;
