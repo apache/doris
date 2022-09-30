@@ -19,7 +19,11 @@ package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import org.apache.commons.lang3.StringUtils;
@@ -476,9 +480,12 @@ public final class SparkDpp implements java.io.Serializable {
                         }
                         valueColumns.add(columnObject);
                     }
-
-                    DppColumns key = new DppColumns(keyColumns);
-                    int pid = partitioner.getPartition(key);
+                    // For duplicate key table, the partition key may not be "key columns".
+                    // So here we add all columns and call partitioner.getPartition()
+                    List<Object> allColumns = new ArrayList<>(keyColumns);
+                    allColumns.addAll(valueColumns);
+                    DppColumns allCols = new DppColumns(allColumns);
+                    int pid = partitioner.getPartition(allCols);
                     if (!validPartitionIndex.contains(pid)) {
                         LOG.warn("invalid partition for row:" + row + ", pid:" + pid);
                         abnormalRowAcc.add(1);
@@ -596,10 +603,10 @@ public final class SparkDpp implements java.io.Serializable {
     }
 
     private Dataset<Row> loadDataFromPath(SparkSession spark,
-                                          EtlJobConfig.EtlFileGroup fileGroup,
-                                          String fileUrl,
-                                          EtlJobConfig.EtlIndex baseIndex,
-                                          List<EtlJobConfig.EtlColumn> columns) throws SparkDppException {
+            EtlJobConfig.EtlFileGroup fileGroup,
+            String fileUrl,
+            EtlJobConfig.EtlIndex baseIndex,
+            List<EtlJobConfig.EtlColumn> columns) throws SparkDppException {
         List<String> columnValueFromPath = DppUtils.parseColumnsFromPath(fileUrl, fileGroup.columnsFromPath);
         List<String> dataSrcColumns = fileGroup.fileFieldNames;
         if (dataSrcColumns == null) {
@@ -620,13 +627,131 @@ public final class SparkDpp implements java.io.Serializable {
         if (fileGroup.columnsFromPath != null) {
             srcColumnsWithColumnsFromPath.addAll(fileGroup.columnsFromPath);
         }
-        StructType srcSchema = createScrSchema(srcColumnsWithColumnsFromPath);
-        JavaRDD<String> sourceDataRdd = spark.read().textFile(fileUrl).toJavaRDD();
+        StructType srcSchema = createSrcSchema(srcColumnsWithColumnsFromPath);
         int columnSize = dataSrcColumns.size();
         List<ColumnParser> parsers = new ArrayList<>();
         for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
             parsers.add(ColumnParser.create(column));
         }
+
+        String fileFormat = fileGroup.fileFormat;
+        if (Strings.isNullOrEmpty(fileFormat)) {
+            fileFormat = "csv";
+        }
+
+        JavaRDD<Row> rowRDD = null;
+        switch (fileFormat) {
+            case "csv":
+                rowRDD = getRowsFromText(spark, fileGroup, fileUrl, baseIndex,
+                        columns, columnValueFromPath, dstColumnNameToIndex, srcSchema, columnSize, parsers);
+                break;
+            case "parquet":
+            case "orc":
+                rowRDD = getRowsFromParquetOrOrc(fileFormat, spark, fileGroup, fileUrl, baseIndex,
+                        columns, columnValueFromPath, dstColumnNameToIndex, srcSchema, columnSize, parsers);
+                break;
+            default:
+                throw new SparkDppException("Unsupport file format: " + fileFormat);
+        }
+
+        Dataset<Row> dataframe = spark.createDataFrame(rowRDD, srcSchema);
+        return dataframe;
+    }
+
+    private JavaRDD<Row> getRowsFromParquetOrOrc(String fileFormat, SparkSession spark, EtlFileGroup fileGroup,
+            String fileUrl,
+            EtlIndex baseIndex, List<EtlColumn> columns, List<String> columnValueFromPath,
+            Map<String, Integer> dstColumnNameToIndex, StructType srcSchema,
+            int columnSize, List<ColumnParser> parsers) throws SparkDppException {
+        JavaRDD<Row> rows = null;
+        if (fileFormat.equalsIgnoreCase("parquet")) {
+            rows = spark.read().parquet(fileUrl).toJavaRDD();
+        } else if (fileFormat.equalsIgnoreCase("orc")) {
+            rows = spark.read().orc(fileUrl).toJavaRDD();
+        } else {
+            throw new SparkDppException("Unknown file format: " + fileFormat);
+        }
+
+        JavaRDD<Row> rowRDD = rows.flatMap(
+                record -> {
+                    scannedRowsAcc.add(1);
+                    List<Row> result = new ArrayList<>();
+                    List<String> resStringCols = Lists.newArrayList();
+                    boolean validRow = true;
+                    if (record.length() != columnSize) {
+                        LOG.warn("invalid src schema, data columns:"
+                                + record.length() + ", file group columns:"
+                                + columnSize + ", row:" + record);
+                        validRow = false;
+                    } else {
+                        for (int i = 0; i < record.length(); ++i) {
+                            StructField field = srcSchema.apply(i);
+                            String srcColumnName = field.name();
+                            Object col = record.get(i);
+                            String strCol = null;
+                            if (col == null && dstColumnNameToIndex.containsKey(srcColumnName)) {
+                                if (!baseIndex.columns.get(dstColumnNameToIndex.get(srcColumnName)).isAllowNull) {
+                                    LOG.warn("column name:" + srcColumnName + ", attribute: " + i
+                                            + " can not be null. row:" + record);
+                                    validRow = false;
+                                    break;
+                                }
+                            } else {
+                                strCol = col.toString();
+                            }
+                            resStringCols.add(strCol);
+                            boolean isStrictMode = etlJobConfig.properties.strictMode;
+                            if (isStrictMode) {
+                                if (dstColumnNameToIndex.containsKey(srcColumnName)) {
+                                    int index = dstColumnNameToIndex.get(srcColumnName);
+                                    String type = columns.get(index).columnType;
+                                    if (type.equalsIgnoreCase("CHAR")
+                                            || type.equalsIgnoreCase("VARCHAR")
+                                            || fileGroup.columnMappings.containsKey(field.name())) {
+                                        continue;
+                                    }
+                                    ColumnParser parser = parsers.get(index);
+                                    boolean valid = parser.parse(strCol);
+                                    if (!valid) {
+                                        validRow = false;
+                                        LOG.warn("invalid row:" + record
+                                                + ", attribute " + i + ": " + strCol + " parsed failed");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (validRow) {
+                        Row row = null;
+                        if (fileGroup.columnsFromPath == null) {
+                            row = RowFactory.create(resStringCols);
+                        } else {
+                            // process columns from path
+                            // append columns from path to the tail
+                            List<String> columnAttributes = new ArrayList<>();
+                            columnAttributes.addAll(resStringCols);
+                            columnAttributes.addAll(columnValueFromPath);
+                            row = RowFactory.create(columnAttributes.toArray());
+                        }
+                        result.add(row);
+                    } else {
+                        abnormalRowAcc.add(1);
+                        // at most add 5 rows to invalidRows
+                        if (abnormalRowAcc.value() <= 5) {
+                            invalidRows.add(record.toString());
+                        }
+                    }
+                    return result.iterator();
+                }
+        );
+        return rowRDD;
+    }
+
+    private JavaRDD<Row> getRowsFromText(SparkSession spark, EtlFileGroup fileGroup, String fileUrl, EtlIndex baseIndex,
+            List<EtlColumn> columns, List<String> columnValueFromPath, Map<String, Integer> dstColumnNameToIndex,
+            StructType srcSchema, int columnSize, List<ColumnParser> parsers) {
+        JavaRDD<String> sourceDataRdd = spark.read().textFile(fileUrl).toJavaRDD();
         char separator = (char) fileGroup.columnSeparator.getBytes(Charset.forName("UTF-8"))[0];
         JavaRDD<Row> rowRDD = sourceDataRdd.flatMap(
                 record -> {
@@ -698,12 +823,10 @@ public final class SparkDpp implements java.io.Serializable {
                     return result.iterator();
                 }
         );
-
-        Dataset<Row> dataframe = spark.createDataFrame(rowRDD, srcSchema);
-        return dataframe;
+        return rowRDD;
     }
 
-    private StructType createScrSchema(List<String> srcColumns) {
+    private StructType createSrcSchema(List<String> srcColumns) {
         List<StructField> fields = new ArrayList<>();
         for (String srcColumn : srcColumns) {
             // user StringType to load source data

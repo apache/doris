@@ -134,7 +134,7 @@ public abstract class BulkLoadJob extends LoadJob {
                     throw new DdlException("Unknown load job type.");
             }
             bulkLoadJob.setJobProperties(stmt.getProperties());
-            bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
+            bulkLoadJob.checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
