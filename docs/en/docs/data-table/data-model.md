@@ -355,6 +355,11 @@ In this implementation, the table structure is completely different with aggrega
 
 On a Unique table with the merge-on-write option enabled, the data that is overwritten and updated will be marked for deletion during the load job, and new data will be written to a new file at the same time. When querying, all data marked for deletion will be filtered out at the file level, only the latest data would be readed, which eliminates the data aggregation cost while reading, and can support many predicates pushdown now. Therefore, it can bring a relatively large performance improvement in many scenarios, especially in the case of aggregation queries.
 
+[NOTE]
+1. The new Merge-on-write implementation is disabled by default, and can only be enabled by specifying a property when creating a new table.
+2. The old Merge-on-read implementation cannot be seamlessly upgraded to the new version (the data organization is completely different). If you need to use the merge-on-write implementation version, you need to manually execute `insert into unique-mow- table select * from source table` to load data to new table.
+3. The feature delete sign and sequence col on the Unique model can still be used normally in the new implementation, and the usage has not changed.
+
 ## Duplicate Model
 
 In some multidimensional analysis scenarios, data has neither primary keys nor aggregation requirements. Therefore, we introduce Duplicate data model to meet this kind of demand. Examples are given.
