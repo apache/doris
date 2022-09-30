@@ -316,7 +316,7 @@ distribution_desc
 
         Whether to use the Light Schema Change optimization.
         
-        If set to true, the addition and subtraction of value columns can be done more quickly and synchronously.
+        If set to true, the addition and deletion of value columns can be done more quickly and synchronously.
     
         `"light_schema_change"="true"`
     
