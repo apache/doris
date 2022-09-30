@@ -309,7 +309,7 @@ That is to say, the merge-on-read implementation of the Unique model can be comp
 
 ### Merge on write (introduced from version 1.2)
 
-The merge-on-write implementation of the Unqiue model is completely different from the aggregation model. The query performance is closer to the duplicate model. Compared with the aggregation model, it has a better query performance.
+The merge-on-write implementation of the Unique model is completely different from the aggregation model. The query performance is closer to the duplicate model. Compared with the aggregation model, it has a better query performance.
 
 In version 1.2, as a new feature, merge-on-write is disabled by default, and users can enable it by adding the following property
 
@@ -492,7 +492,7 @@ Another way is to **change the aggregation type of the count column above to REP
 
 ### Merge-on-write implementation of Unique model
 
-In Merge-on-write implementation, a delete bitmap is added to each  rowset during loading, to mark some data as overwritten or deleted. With the previous example, after the first batch of data is loaded, the status is as follows:
+In Merge-on-write implementation, a delete-bitmap is added to each rowset during loading, to mark some data as overwritten or deleted. With the previous example, after the first batch of data is loaded, the status is as follows:
 
 **batch 1**
 
@@ -518,7 +518,7 @@ After the batch2 is loaded, the duplicate rows in the first batch will be marked
 | 10001    | 2017-11-21 | 5    | false      |
 | 10003    | 2017-11-22 | 22   | false      |
 
-When querying, all data marked for deletion in the delete bitmap will not be read out, so there is no need to do any data aggregation. The number of valid rows in the above data is 4 rows, and the query result should also be 4 rows. 
+When querying, all data marked for deletion in the delete-bitmap will not be read out, so there is no need to do any data aggregation. The number of valid rows in the above data is 4 rows, and the query result should also be 4 rows. 
 
 It is also possible to obtain the result in the least expensive way, that is, the way of "scanning only a certain column of data to obtain the count value" mentioned above.
 
