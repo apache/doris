@@ -207,6 +207,11 @@ under the License.
             <artifactId>hadoop-hdfs</artifactId>
             <version>${hadoop.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-huaweicloud</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.htrace/htrace-core -->
         <dependency>
             <groupId>org.apache.htrace</groupId>
