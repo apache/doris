@@ -35,9 +35,7 @@ struct StrToDate {
 
     static bool is_variadic() { return false; }
 
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return make_nullable(std::make_shared<DataTypeDateTime>());
@@ -134,9 +132,7 @@ struct MakeDateImpl {
 
     static bool is_variadic() { return false; }
 
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return make_nullable(std::make_shared<DataTypeDateTime>());
@@ -581,9 +577,7 @@ public:
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override {
-        return get_variadic_argument_types_impl().size();
-    }
+    size_t get_number_of_arguments() const override { return 2; }
 
     bool is_variadic() const override { return Impl::is_variadic(); }
 
