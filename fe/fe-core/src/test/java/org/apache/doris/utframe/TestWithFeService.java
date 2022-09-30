@@ -89,6 +89,9 @@ import java.net.ServerSocket;
 import java.net.SocketException;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -356,7 +359,7 @@ public abstract class TestWithFeService {
 
     protected void cleanDorisFeDir() {
         try {
-            FileUtils.forceDelete(new File(dorisHome));
+            cleanDir(dorisHome);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -542,4 +545,12 @@ public abstract class TestWithFeService {
         }
     }
 
+    // clear the specified dir
+    private void cleanDir(String dir) throws IOException {
+        File localDir = new File(dir);
+        if (localDir.exists()) {
+            Files.walk(Paths.get(dir)).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+        }
+        System.out.println("Clean DIR: " + dir);
+    }
 }
