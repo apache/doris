@@ -28,7 +28,6 @@ public:
     NewJdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
     Status prepare(RuntimeState* state) override;
-
     std::string get_name() override;
 
 protected:

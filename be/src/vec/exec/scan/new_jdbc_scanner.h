@@ -30,7 +30,6 @@ public:
                    MemTracker* mem_tracker, TupleId tuple_id, std::string query_string);
 
     Status open(RuntimeState* state) override;
-
     Status close(RuntimeState* state) override;
 
 public:
