@@ -29,7 +29,6 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
-
 import org.json.simple.JSONObject;
 
 import java.util.List;
@@ -143,6 +142,9 @@ public class Diagnoser {
                 versionErr.append("Replica on backend " + replica.getBackendId() + "'s version (" +
                         replica.getVersion() + ") does not equal" +
                         " to partition visible version (" + partition.getVisibleVersion() + ")");
+            } else if (replica.getLastFailedVersion() != -1) {
+                versionErr.append("Replica on backend " + replica.getBackendId() + "'s last failed version is "
+                        + replica.getLastFailedVersion());
             }
             // status
             if (!replica.isAlive()) {

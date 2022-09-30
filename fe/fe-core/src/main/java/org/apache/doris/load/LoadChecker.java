@@ -53,7 +53,6 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -293,7 +292,7 @@ public class LoadChecker extends MasterDaemon {
         
         // yiguolei: for real time load we use full finished replicas
         Set<Long> fullTablets = job.getFullTablets();
-        if (state.isRunning()) {
+        if (!state.getTransactionStatus().isFinalStatus()) {
             job.setProgress(fullTablets.size() * 100 / jobTotalTablets.size());
         } else {
             job.setProgress(100);
