@@ -144,6 +144,9 @@ public class Diagnoser {
                 versionErr.append("Replica on backend " + replica.getBackendId() + "'s version ("
                         + replica.getVersion() + ") does not equal"
                         + " to partition visible version (" + partition.getVisibleVersion() + ")");
+            } else if (replica.getLastFailedVersion() != -1) {
+                versionErr.append("Replica on backend " + replica.getBackendId() + "'s last failed version is "
+                        + replica.getLastFailedVersion());
             }
             // status
             if (!replica.isAlive()) {
