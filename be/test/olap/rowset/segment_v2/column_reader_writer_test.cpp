@@ -468,7 +468,6 @@ void test_read_default_value(string value, void* result) {
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
-            int idx = 0;
             size_t rows_read = 1024;
             ColumnBlockView dst(&col);
             bool has_null;
@@ -487,7 +486,6 @@ void test_read_default_value(string value, void* result) {
                     ;
                     EXPECT_EQ(*(Type*)result, *(reinterpret_cast<const Type*>(col.cell_ptr(j))));
                 }
-                idx++;
             }
         }
 
@@ -502,7 +500,6 @@ void test_read_default_value(string value, void* result) {
                 st = iter.seek_to_ordinal(rowid);
                 EXPECT_TRUE(st.ok());
 
-                int idx = rowid;
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
                 bool has_null;
@@ -521,7 +518,6 @@ void test_read_default_value(string value, void* result) {
                         EXPECT_EQ(*(Type*)result,
                                   *(reinterpret_cast<const Type*>(col.cell_ptr(j))));
                     }
-                    idx++;
                 }
             }
         }
