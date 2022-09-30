@@ -118,8 +118,9 @@ illustrate:
    PROPERTIES
    (
    "type" = "s3",
-   "s3_endpoint" = "http://bj.s3.com",
+   "s3_endpoint" = "bj.s3.com",
    "s3_region" = "bj",
+   "s3_bucket" = "test-bucket",
    "s3_root_path" = "/path/to/root",
    "s3_access_key" = "bbb",
    "s3_secret_key" = "aaaa",
@@ -136,6 +137,7 @@ illustrate:
        - s3_root_path: s3 root directory
        - s3_access_key: s3 access key
        - s3_secret_key: s3 secret key
+       - s3_bucket: s3 bucket
    - optional parameter
        - s3_max_connections: the maximum number of s3 connections, the default is 50
        - s3_request_timeout_ms: s3 request timeout, in milliseconds, the default is 3000

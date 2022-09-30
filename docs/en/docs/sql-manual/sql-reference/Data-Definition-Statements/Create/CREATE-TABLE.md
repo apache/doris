@@ -570,6 +570,37 @@ distribution_desc
      );
     ```
 
+11. Set the table hot and cold separation policy through the `storage_policy` property.
+```
+        CREATE TABLE IF NOT EXISTS create_table_use_created_policy 
+        (
+            k1 BIGINT,
+            k2 LARGEINT,
+            v1 VARCHAR(2048)
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH (k1) BUCKETS 3
+        PROPERTIES(
+            "storage_policy" = "test_create_table_use_policy",
+            "replication_num" = "1"
+        );
+```
+NOTE: Need to create the s3 resource and storage policy before the table can be successfully associated with the migration policy 
+
+12. Add a hot and cold data migration strategy for the table partition
+```
+        CREATE TABLE create_table_partion_use_created_policy
+        (
+            k1 DATE,
+            k2 INT,
+            V1 VARCHAR(2048) REPLACE
+        ) PARTITION BY RANGE (k1) (
+            PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "test_create_table_partition_use_policy_1" ,"replication_num"="1"),
+            PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
+```
+NOTE: Need to create the s3 resource and storage policy before the table can be successfully associated with the migration policy 
+
 ### Keywords
 
     CREATE, TABLE
