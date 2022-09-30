@@ -89,6 +89,8 @@ user_id = to_bitmap(tmp_user_id)
 
 load数据时，对用户bitmap值range范围纵向切割，例如，用户id在1-5000000范围内的hid值相同，hid值相同的行会分配到一个分桶内，如此每个分桶内到的bitmap都是正交的。可以利用桶内bitmap值正交特性，进行交并集计算，计算结果会被shuffle至top节点聚合。
 
+注：正交bitmap函数不能用在分区表，因为分区表分区内正交，分区之间的数据是无法保证正交的，则计算结果也是无法预估的。
+
 #### bitmap_orthogonal_intersect
 
 求bitmap交集函数
