@@ -549,7 +549,9 @@ public abstract class TestWithFeService {
         File localDir = new File(dir);
         if (localDir.exists()) {
             Files.walk(Paths.get(dir)).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+            System.out.println("Clean DIR: " + dir);
+        } else {
+            System.out.println("No need clean DIR: " + dir);
         }
-        System.out.println("Clean DIR: " + dir);
     }
 }
