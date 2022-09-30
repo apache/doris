@@ -140,7 +140,7 @@ Status VSortNode::open(RuntimeState* state) {
                 if (!new_top.is_null() && new_top != old_top) {
                     auto & sort_description = _sorter->get_sort_description();
                     auto col = upstream_block->get_by_position(sort_description[0].column_number);
-                    auto type = get_primitive_type(remove_nullable(col.type)->get_type_id());
+                    auto type = remove_nullable(col.type)->get_type_id();
                     bool is_reverse = sort_description[0].direction < 0;
                     auto query_ctx = _runtime_state->get_query_fragments_ctx();
                     std::vector<vectorized::Field> values = {new_top};

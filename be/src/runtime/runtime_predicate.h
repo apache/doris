@@ -57,8 +57,8 @@ public:
         return _predictate;
     }
 
-    Status update(std::vector<vectorized::Field>& values, const String& col_name,
-                  const PrimitiveType type, bool is_reverse);
+    Status update(std::vector<Field>& values, const String& col_name,
+                  const TypeIndex type, bool is_reverse);
 
 private:
     mutable std::shared_mutex _rwlock;

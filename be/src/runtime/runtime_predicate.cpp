@@ -22,8 +22,8 @@ namespace doris {
 
 namespace vectorized {
 
-Status RuntimePredicate::update(std::vector<vectorized::Field>& values, const String& col_name,
-                const PrimitiveType type, bool is_reverse) {
+Status RuntimePredicate::update(std::vector<Field>& values, const String& col_name,
+                const TypeIndex type, bool is_reverse) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
 
     if (!_predicate_mem_pool) {
@@ -55,78 +55,113 @@ Status RuntimePredicate::update(std::vector<vectorized::Field>& values, const St
     condition.__set_column_unique_id(_tablet_schema->column(col_name).unique_id());
     condition.__set_condition_op(is_reverse ? ">=" : "<=");
 
+    Field& field = _orderby_extrems[0];
+    String str_value;
     int scale = 0;
-    String s;
 
     switch (type) {
-    case TYPE_DATEV2: {
+    case TypeIndex::UInt8: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType;
+        str_value = cast_to_string<TYPE_BOOLEAN, ValueType>(field.get<ValueType>(), scale);
+        break;
+    }
+    case TypeIndex::Int8: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType;
+        str_value = cast_to_string<TYPE_TINYINT, ValueType>(field.get<ValueType>(), scale);
+        break;
+    }
+    case TypeIndex::Int16: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType;
+        str_value = cast_to_string<TYPE_SMALLINT, ValueType>(field.get<ValueType>(), scale);
+        break;
+    }
+    case TypeIndex::Int32: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_INT>::CppType;
+        str_value = cast_to_string<TYPE_INT, ValueType>(field.get<ValueType>(), scale);
+        break;
+    }
+    case TypeIndex::Int64: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType;
+        str_value = cast_to_string<TYPE_BIGINT, ValueType>(field.get<ValueType>(), scale);
+        break;
+    }
+    case TypeIndex::Int128: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType;
+        str_value = cast_to_string<TYPE_LARGEINT, ValueType>(field.get<ValueType>(), scale);
+        break;
+    }
+    case TypeIndex::Float32: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType;
+        str_value = cast_to_string<TYPE_FLOAT, ValueType>(field.get<ValueType>(), scale);
+        break;
+    }
+    case TypeIndex::Float64: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType;
+        str_value = cast_to_string<TYPE_DOUBLE, ValueType>(field.get<ValueType>(), scale);
+        break;
+    }
+    case TypeIndex::String: {
+        str_value = field.get<String>();
+        break;
+    }
+    case TypeIndex::DateV2: {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType;
-        // ValueType value;
-        // value.from_olap_date(_orderby_extrems[0].get<UInt32>());
-        ValueType value =
-            binary_cast<UInt32, ValueType>(_orderby_extrems[0].get<UInt32>());
-        condition.condition_values.push_back(
-            cast_to_string<TYPE_DATEV2, ValueType>(value, scale));
+        str_value = cast_to_string<TYPE_DATEV2, ValueType>(
+            binary_cast<UInt32, ValueType>(field.get<UInt32>()), scale);
         break;
     }
-    case TYPE_DATETIMEV2: {
+    case TypeIndex::DateTimeV2: {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
-        // ValueType value;
-        // value.from_olap_datetime(_orderby_extrems[0].get<UInt64>());
-        ValueType value =
-            binary_cast<UInt64, ValueType>(_orderby_extrems[0].get<UInt64>());
-        condition.condition_values.push_back(
-            cast_to_string<TYPE_DATETIMEV2, ValueType>(value, scale));
+        str_value = cast_to_string<TYPE_DATETIMEV2, ValueType>(
+            binary_cast<UInt64, ValueType>(field.get<UInt64>()), scale);
         break;
     }
-    case TYPE_DATE: {
+    case TypeIndex::Date: {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
         ValueType value;
-        Int64 v = _orderby_extrems[0].get<Int64>();
+        Int64 v = field.get<Int64>();
         VecDateTimeValue* p = (VecDateTimeValue*)&v;
         value.from_olap_date(p->to_olap_date());
         value.cast_to_date();
-        condition.condition_values.push_back(
-            cast_to_string<TYPE_DATE, ValueType>(value, scale));
+        str_value = cast_to_string<TYPE_DATE, ValueType>(value, scale);
         break;
     }
-    case TYPE_DATETIME: {
+    case TypeIndex::DateTime: {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
         ValueType value;
-        Int64 v = _orderby_extrems[0].get<Int64>();
+        Int64 v = field.get<Int64>();
         VecDateTimeValue* p = (VecDateTimeValue*)&v;
         value.from_olap_datetime(p->to_olap_datetime());
         value.to_datetime();
-        condition.condition_values.push_back(
-            cast_to_string<TYPE_DATETIME, ValueType>(value, scale));
+        str_value = cast_to_string<TYPE_DATETIME, ValueType>(value, scale);
         break;
     }
-    case TYPE_DECIMALV2: {
+    case TypeIndex::Decimal128: {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
         ValueType value;
-        auto v = _orderby_extrems[0].get<DecimalField<Decimal128>>();
+        auto v = field.get<DecimalField<Decimal128>>();
         value.from_olap_decimal(v.get_value(), v.get_scale());
         scale = v.get_scale();
-        condition.condition_values.push_back(
-            cast_to_string<TYPE_DECIMALV2, ValueType>(value, scale));
+        str_value = cast_to_string<TYPE_DECIMALV2, ValueType>(value, scale);
         break;
     }
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        // using ValueType = typename PrimitiveTypeTraits<TYPE_STRING>::CppType;
-        // ValueType value;
-        // s = _orderby_extrems[0].get<String>();
-        // value.replace((char*)s.c_str(), s.length());
-        // condition.condition_values.push_back(
-        //     cast_to_string<TYPE_STRING, ValueType>(value, scale));
-        condition.condition_values.push_back(_orderby_extrems[0].get<String>());
+    case TypeIndex::Decimal32: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType;
+        ValueType value = field.get<ValueType>();
+        str_value = cast_to_string<TYPE_DECIMAL32, ValueType>(value, scale);
+        break;
+    }
+    case TypeIndex::Decimal64: {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType;
+        ValueType value = field.get<ValueType>();
+        str_value = cast_to_string<TYPE_DECIMAL64, ValueType>(value, scale);
         break;
     }
     default:
-        // value = _orderby_extrems[0].get<ValueType>();
-        break;
+        return Status::InvalidArgument("unsupported type {}", type);
     }
+
+    condition.condition_values.push_back(str_value);
 
     _predictate.reset(parse_to_predicate(_tablet_schema, condition, _predicate_mem_pool.get(), false));
     
