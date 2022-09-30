@@ -777,6 +777,14 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
+    // unique key table with merge-on-write also cann't do cumulative compaction under alter
+    // process. It may cause the delete bitmap calculation error, such as two
+    // rowsets have same key.
+    if (tablet_state() != TABLET_RUNNING && keys_type() == UNIQUE_KEYS &&
+        enable_unique_key_merge_on_write()) {
+        return false;
+    }
+
     if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
         return false;
     }

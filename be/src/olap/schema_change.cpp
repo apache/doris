@@ -1982,9 +1982,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         // data will calculate delete bitmap.
         if (new_tablet->keys_type() == UNIQUE_KEYS &&
             new_tablet->enable_unique_key_merge_on_write()) {
-            std::lock_guard<std::mutex> cumulative_compaction_lock(
-                    new_tablet->get_cumulative_compaction_lock());
-
             // step 2
             int64_t max_version = new_tablet->max_version().second;
             std::vector<RowsetSharedPtr> rowsets;
