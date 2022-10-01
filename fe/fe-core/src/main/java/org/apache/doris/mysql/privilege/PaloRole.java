@@ -133,6 +133,10 @@ public class PaloRole implements Writable {
         }
     }
 
+    public boolean containsUser(UserIdentity userIdent) {
+        return users.contains(userIdent);
+    }
+
     public static PaloRole read(DataInput in) throws IOException {
         PaloRole role = new PaloRole();
         role.readFields(in);

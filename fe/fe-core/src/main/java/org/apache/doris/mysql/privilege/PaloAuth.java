@@ -776,26 +776,49 @@ public class PaloAuth implements Writable {
     }
 
     private void grantPrivsByRole(UserIdentity userIdent, PaloRole role) throws DdlException {
+        if (role == null) {
+            return;
+        }
         writeLock();
         try {
-            if (role != null) {
-                for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-                    // use PrivBitSet copy to avoid same object being changed synchronously
-                    grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
-                            false /* err on non exist */, true /* is replay */);
-                }
-                for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
-                    // use PrivBitSet copy to avoid same object being changed synchronously
-                    grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
-                            false /* err on non exist */, true /* is replay */);
-                }
-                // add user to this role
-                role.addUser(userIdent);
+            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
+                // use PrivBitSet copy to avoid same object being changed synchronously
+                grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
+                        false /* err on non exist */, true /* is replay */);
             }
+            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
+                // use PrivBitSet copy to avoid same object being changed synchronously
+                grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
+                        false /* err on non exist */, true /* is replay */);
+            }
+            // add user to this role
+            role.addUser(userIdent);
         } finally {
             writeUnlock();
         }
     }
+
+    private void revokePrivsByRole(UserIdentity userIdent, PaloRole role) throws DdlException {
+        if (role == null) {
+            return;
+        }
+        writeLock();
+        try {
+            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
+                revokeInternal(userIdent, null, entry.getKey(), entry.getValue().copy(), false, true);
+            }
+
+            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
+                revokeInternal(userIdent, null, entry.getKey(), entry.getValue().copy(),
+                        false, true);
+            }
+            // drop user from this role
+            role.dropUser(userIdent);
+        } finally {
+            writeUnlock();
+        }
+    }
+
 
     // drop user
     public void dropUser(DropUserStmt stmt) throws DdlException {
@@ -883,6 +906,7 @@ public class PaloAuth implements Writable {
         }
     }
 
+    // grant for TablePattern
     private void grantInternal(UserIdentity userIdent, String role, TablePattern tblPattern,
             PrivBitSet privs, boolean errOnNonExist, boolean isReplay)
             throws DdlException {
@@ -914,8 +938,9 @@ public class PaloAuth implements Writable {
         }
     }
 
+    // grant for ResourcePattern
     private void grantInternal(UserIdentity userIdent, String role, ResourcePattern resourcePattern, PrivBitSet privs,
-                               boolean errOnNonExist, boolean isReplay) throws DdlException {
+            boolean errOnNonExist, boolean isReplay) throws DdlException {
         writeLock();
         try {
             if (role != null) {
@@ -1849,32 +1874,58 @@ public class PaloAuth implements Writable {
 
     private void alterUserInternal(boolean ifExists, OpType opType, UserIdentity userIdent, byte[] password,
             String role, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
-        if (!doesUserExist(userIdent)) {
-            if (ifExists) {
-                return;
+        writeLock();
+        try {
+            if (!doesUserExist(userIdent)) {
+                if (ifExists) {
+                    return;
+                }
+                throw new DdlException("User " + userIdent + " does not exist");
             }
-            throw new DdlException("User " + userIdent + " does not exist");
+            switch (opType) {
+                case SET_PASSWORD:
+                    setPasswordInternal(userIdent, password, null, false, false, isReplay);
+                    break;
+                case SET_ROLE:
+                    setRoleToUser(userIdent, role);
+                    break;
+                case SET_PASSWORD_POLICY:
+                    passwdPolicyManager.updatePolicy(userIdent, null, passwordOptions);
+                    break;
+                case UNLOCK_ACCOUNT:
+                    passwdPolicyManager.unlockUser(userIdent);
+                    break;
+                default:
+                    throw new DdlException("Unknown alter user operation type: " + opType.name());
+            }
+            if (opType != AlterUserStmt.OpType.UNLOCK_ACCOUNT && opType != OpType.SET_PASSWORD && !isReplay) {
+                // For UNLOCK_ACCOUNT:
+                //      no need to write edit log because the "locked" state is not persist and is saved in each FE's memory.
+                // For SET_PASSWORD:
+                //      the edit log is wrote in "setPasswordInternal"
+                AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,
+                        passwordOptions);
+                Env.getCurrentEnv().getEditLog().logAlterUser(log);
+            }
+        } finally {
+            writeUnlock();
         }
-        switch (opType) {
-            case SET_PASSWORD:
-                // TODO
-                break;
-            case SET_ROLE:
-                // TODO
-                break;
-            case SET_PASSWORD_POLICY:
-                passwdPolicyManager.updatePolicy(userIdent, null, passwordOptions);
-                break;
-            case UNLOCK_ACCOUNT:
-                passwdPolicyManager.unlockUser(userIdent);
-                break;
-            default:
-                throw new DdlException("Unknow alter user operation type: " + opType.name());
+    }
+
+    private void setRoleToUser(UserIdentity userIdent, String role) throws DdlException {
+        // 1. check if role exist
+        PaloRole newRole = roleManager.getRole(role);
+        if (newRole == null) {
+            throw new DdlException("Role " + role + " does not exist");
         }
-        if (opType != AlterUserStmt.OpType.UNLOCK_ACCOUNT && !isReplay) {
-            AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role, passwordOptions);
-            Env.getCurrentEnv().getEditLog().logAlterUser(log);
+        // 2. find the origin role which the user belongs to
+        PaloRole originRole = roleManager.findRoleForUser(userIdent);
+        if (originRole != null) {
+            // User belong to a role, first revoke privs of origin role from user.
+            revokePrivsByRole(userIdent, originRole);
         }
+        // 3. grant privs of new role to user
+        grantPrivsByRole(userIdent, newRole);
     }
 
     public static PaloAuth read(DataInput in) throws IOException {
