@@ -78,6 +78,7 @@ suite('load') {
     if (rowCount[0][0] != table_rows) {
         sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
         sql "set global query_timeout=3600"
+        sql "sync"
         def r = sql "select @@query_timeout"
         assertEquals(3600, r[0][0])
         year_cons = [
