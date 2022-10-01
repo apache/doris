@@ -516,6 +516,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // save table names for recycling
                 Set<String> tableNames = db.getTableNamesWithLock();
                 List<Table> tableList = db.getTablesOnIdOrder();
+                Set<Long> tableIds = Sets.newHashSet();
+                for (Table table : tableList) {
+                    tableIds.add(table.getId());
+                }
                 MetaLockUtils.writeLockTables(tableList);
                 try {
                     if (!stmt.isForceDrop()) {
@@ -538,7 +542,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
 
                 if (!stmt.isForceDrop()) {
-                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, false, 0);
+                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, 0);
                     recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
                 } else {
                     Env.getCurrentEnv().eraseDatabase(db.getId(), false);
@@ -595,6 +599,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             try {
                 Set<String> tableNames = db.getTableNamesWithLock();
                 List<Table> tableList = db.getTablesOnIdOrder();
+                Set<Long> tableIds = Sets.newHashSet();
+                for (Table table : tableList) {
+                    tableIds.add(table.getId());
+                }
                 MetaLockUtils.writeLockTables(tableList);
                 try {
                     unprotectDropDb(db, isForceDrop, true, recycleTime);
@@ -602,7 +610,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     MetaLockUtils.writeUnlockTables(tableList);
                 }
                 if (!isForceDrop) {
-                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, true, recycleTime);
+                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, true, recycleTime);
                 } else {
                     Env.getCurrentEnv().eraseDatabase(db.getId(), false);
                 }

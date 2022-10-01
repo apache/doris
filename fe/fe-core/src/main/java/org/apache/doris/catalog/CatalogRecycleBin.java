@@ -70,8 +70,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime = Maps.newHashMap();
     }
 
-    public synchronized boolean recycleDatabase(Database db, Set<String> tableNames, boolean isReplay,
-                                             long replayRecycleTime) {
+    public synchronized boolean recycleDatabase(Database db, Set<String> tableNames, Set<Long> tableIds,
+                                                boolean isReplay, long replayRecycleTime) {
         long recycleTime = 0;
         if (idToDatabase.containsKey(db.getId())) {
             LOG.error("db[{}] already in recycle bin.", db.getId());
@@ -83,10 +83,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // erase db with same id
         eraseDatabaseWithSameId(db.getId());
-        Set<Long> tableIds = Sets.newHashSet();
-        for (Table table : db.getTables()) {
-            tableIds.add(table.getId());
-        }
 
         // recycle db
         RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames, tableIds);
@@ -329,7 +325,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         if (dbInfo == null) {
-            throw new DdlException("Unknown database " + dbName + " or database id " + dbId);
+            throw new DdlException("Unknown database '" + dbName + "' or database id '" + dbId + "'");
         }
 
         // 1. recover all tables in this db
