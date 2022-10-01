@@ -36,7 +36,6 @@ private:
     static SchemaScanner::ColumnDesc _s_tbls_columns[];
 
     std::vector<std::vector<std::string>> _backends_info;
-    // used for traversing _backends_info
     size_t _row_idx;
 };
 } // namespace doris
