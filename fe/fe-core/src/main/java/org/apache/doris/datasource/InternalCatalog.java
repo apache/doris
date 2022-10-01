@@ -887,7 +887,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
                 unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
-                recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
+                if (!stmt.isForceDrop()) {
+                    recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
+                }
             } finally {
                 table.writeUnlock();
             }
@@ -1563,7 +1565,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop());
-            if (partition != null) {
+            if (!clause.isForceDrop() && partition != null) {
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
             }
         }
@@ -1587,7 +1589,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 Partition partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(),
                                 info.isForceDrop());
-                if (partition != null && info.getRecycleTime() != 0) {
+                if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }
             }
