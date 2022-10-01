@@ -204,12 +204,13 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
         }
     }
 
+    auto cumu_policy = _tablet->cumulative_compaction_policy();
     LOG(INFO) << "succeed to do " << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
               << ". elapsed time=" << watch.get_elapse_second() << "s. cumulative_compaction_policy="
-              << _tablet->cumulative_compaction_policy()->name() << ".";
+              << (cumu_policy == nullptr ? "quick" : cumu_policy->name());
 
     return OLAP_SUCCESS;
 }
