@@ -41,7 +41,6 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -77,7 +76,8 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsDebug()) {
+        if (ConnectContext.get().get
+        ().isEnableNereidsDebug()) {
             String tree = physicalPlan.treeString();
             System.out.println(tree);
             LOG.info(tree);
