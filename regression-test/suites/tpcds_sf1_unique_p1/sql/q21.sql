@@ -18,6 +18,6 @@ FROM
       AND (d_date BETWEEN (CAST('2000-03-11' AS DATE) - INTERVAL  '30' DAY) AND (CAST('2000-03-11' AS DATE) + INTERVAL  '30' DAY))
    GROUP BY w_warehouse_name, i_item_id
 )  x
-WHERE ((CASE WHEN (inv_before > 0) THEN (CAST(inv_after AS DECIMAL(7,2)) / inv_before) ELSE null END) BETWEEN (CAST('2.00' AS DECIMAL(5,2)) / CAST('3.00' AS DECIMAL(5,2))) AND (CAST('3.00' AS DECIMAL(5,2)) / CAST('2.00' AS DECIMAL(5,2))))
+WHERE ((CASE WHEN (inv_before > 0) THEN (CAST(inv_after AS DECIMAL(27,9)) / inv_before) ELSE null END) BETWEEN (CAST('2.00' AS DECIMAL(5,2)) / CAST('3.00' AS DECIMAL(5,2))) AND (CAST('3.00' AS DECIMAL(5,2)) / CAST('2.00' AS DECIMAL(5,2))))
 ORDER BY w_warehouse_name ASC, i_item_id ASC
 LIMIT 100
