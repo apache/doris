@@ -375,7 +375,7 @@ public class PasswordPolicy implements Writable {
         // Use atomic because it will be visited and updated by multi threads.
         public AtomicLong failedLoginCounter = new AtomicLong(0);
         // time when the account being locked.
-        @SerializedName(value = "lockTime")
+        // Same as failedLoginCounter, not persist
         public AtomicLong lockTime = new AtomicLong(0);
 
         // Return true if the account is being locked.

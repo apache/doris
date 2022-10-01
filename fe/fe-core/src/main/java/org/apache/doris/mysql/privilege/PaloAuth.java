@@ -1898,9 +1898,7 @@ public class PaloAuth implements Writable {
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
             }
-            if (opType != AlterUserStmt.OpType.UNLOCK_ACCOUNT && opType != OpType.SET_PASSWORD && !isReplay) {
-                // For UNLOCK_ACCOUNT:
-                //      no need to write edit log because the "locked" state is not persist and is saved in each FE's memory.
+            if (opType != OpType.SET_PASSWORD && !isReplay) {
                 // For SET_PASSWORD:
                 //      the edit log is wrote in "setPasswordInternal"
                 AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,

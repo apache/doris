@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -102,6 +103,7 @@ public class AlterUserStmt extends DdlStmt {
         }
 
         if (!Strings.isNullOrEmpty(role)) {
+            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
             ops.add(OpType.SET_ROLE);
         }
 
@@ -131,18 +133,22 @@ public class AlterUserStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        return sb.toString();
-    }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        Preconditions.checkState(ops.size() == 1);
-        OpType op = ops.iterator().next();
-        if (op == OpType.UNLOCK_ACCOUNT) {
-            // unlock account is executed on specific FE.
-            return RedirectStatus.NO_FORWARD;
-        } else {
-            return RedirectStatus.FORWARD_WITH_SYNC;
+        sb.append("ALTER USER ").append(userDesc.getUserIdent());
+        if (!Strings.isNullOrEmpty(userDesc.getPassVar().getText())) {
+            if (userDesc.getPassVar().isPlain()) {
+                sb.append(" IDENTIFIED BY '").append("*XXX").append("'");
+            } else {
+                sb.append(" IDENTIFIED BY PASSWORD '").append(userDesc.getPassVar().getText()).append("'");
+            }
         }
+
+        if (!Strings.isNullOrEmpty(role)) {
+            sb.append(" DEFAULT ROLE '").append(role).append("'");
+        }
+        if (passwordOptions != null) {
+            sb.append(passwordOptions.toSql());
+        }
+
+        return sb.toString();
     }
 }
