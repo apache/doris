@@ -412,7 +412,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         if (table == null) {
-            throw new DdlException("Unknown table " + tableName + " or table id " + tableId + " in "
+            throw new DdlException("Unknown table '" + tableName + "' or table id '" + tableId + "' in "
                 + db.getFullName());
         }
 
@@ -523,7 +523,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         if (recoverPartitionInfo == null) {
-            throw new DdlException("No partition named " + partitionName + " in table " + table.getName());
+            throw new DdlException("No partition named '" + partitionName + "' or partition id '" + partitionIdToRecover
+                    + "' in table " + table.getName());
         }
 
         PartitionInfo partitionInfo = table.getPartitionInfo();

@@ -45,7 +45,7 @@ public final class FeMetaVersion {
     // add row policy and add maxColUniqueId for olapTable
     public static final int VERSION_112 = 112;
     // add password options
-    public static final int VERSION_113 = 113
+    public static final int VERSION_113 = 113;
     // add new recover info for recover ddl
     public static final int VERSION_114 = 114;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
