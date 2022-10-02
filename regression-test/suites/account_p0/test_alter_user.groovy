@@ -164,22 +164,3 @@ suite("test_alter_user", "account") {
     sql """set global validate_password_policy=NONE"""
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

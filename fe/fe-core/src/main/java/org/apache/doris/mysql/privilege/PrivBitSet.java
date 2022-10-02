@@ -170,8 +170,4 @@ public class PrivBitSet implements Writable {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
-
-    public void readFields(DataInput in) throws IOException {
-        set = in.readLong();
-    }
 }
