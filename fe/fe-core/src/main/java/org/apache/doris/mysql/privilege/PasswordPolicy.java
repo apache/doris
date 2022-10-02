@@ -200,7 +200,7 @@ public class PasswordPolicy implements Writable {
             }
             return tmp - (System.currentTimeMillis() - passwordCreateTime) / 1000;
         }
-        
+
         public void update(long expirationSecond) {
             if (expirationSecond == PasswordOptions.UNSET) {
                 return;

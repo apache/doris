@@ -24,6 +24,7 @@ suite("test_alter_user", "account") {
     sql """drop user if exists test_auth_user3"""
 
     // 1. change user's default role
+    sql """set global validate_password_policy=NONE"""
     sql """create role test_auth_role1"""
     sql """grant select_priv on db1.* to role 'test_auth_role1'"""
     sql """create role test_auth_role2"""
@@ -75,7 +76,7 @@ suite("test_alter_user", "account") {
     sql """set global password_history=0""" // set to disabled
 
     // 3. test FAILED_LOGIN_ATTEMPTS and PASSWORD_LOCK_TIME
-    sql """create user test_auth_user3 identified by '12345' FAILED_LOGIN_ATTEMPTS 2 PASSWORD_LOCK_TIME 1"""
+    sql """create user test_auth_user3 identified by '12345' FAILED_LOGIN_ATTEMPTS 2 PASSWORD_LOCK_TIME 1 DAY"""
     sql """grant all on *.* to test_auth_user3"""
          
     // login success in multi times
@@ -106,17 +107,61 @@ suite("test_alter_user", "account") {
         connect(user = 'test_auth_user3', password = '12345', url = context.config.jdbcUrl) {}
         assertTrue(false. "should not be able to login")
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3'@'%'. Account is blocked for 1 day(s) (1 day(s) remaining) due to 2 consecutive failed logins."), e.getMessage())
+        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3'@'%'. Account is blocked for 86400 second(s) (86400 second(s) remaining) due to 2 consecutive failed logins."), e.getMessage())
     } 
 
-    // unlock user
+    // unlock user and login again
     sql """alter user test_auth_user3 account_unlock"""
     result1 = connect(user = 'test_auth_user3', password = '12345', url = context.config.jdbcUrl) {
         sql 'select 1'
     }
 
-    order_qt_show_proc """show proc "/auth/'default_cluster:test_auth_user3'@'%'";"""
+    // alter PASSWORD_LOCK_TIME
+    sql """alter user test_auth_user3 PASSWORD_LOCK_TIME 5 SECOND"""
+    // login failed in 2 times to lock the accout again
+    try {
+        connect(user = 'test_auth_user3', password = 'wrong', url = context.config.jdbcUrl) {}
+        assertTrue(false. "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3"), e.getMessage())
+    } 
+    try {
+        connect(user = 'test_auth_user3', password = 'wrong', url = context.config.jdbcUrl) {}
+        assertTrue(false. "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3"), e.getMessage())
+    } 
+    // login with correct password but also failed
+    try {
+        connect(user = 'test_auth_user3', password = '12345', url = context.config.jdbcUrl) {}
+        assertTrue(false. "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3'@'%'. Account is blocked for 5 second(s) (5 second(s) remaining) due to 2 consecutive failed logins."), e.getMessage())
+    } 
+    // sleep 5 second to unlock account
+    sleep(5000)
+    result1 = connect(user = 'test_auth_user3', password = '12345', url = context.config.jdbcUrl) {
+        sql 'select 1'
+    }
+
     order_qt_show_grants """show all grants"""
+
+    // 4. test password validation
+    sql """set global validate_password_policy=STRONG"""
+    test {
+        sql """set password for 'test_auth_user3' = password("12345")"""
+        exception "Violate password validation policy: STRONG. The password must be at least 8 characters";
+    }
+    test {
+        sql """set password for 'test_auth_user3' = password("12345678")"""
+        exception "Violate password validation policy: STRONG. The password must contain at least 3 types of numbers, uppercase letters, lowercase letters and special characters.";
+    }
+
+    sql """set password for 'test_auth_user3' = password('Ab1234567^')"""
+    result1 = connect(user = 'test_auth_user3', password = 'Ab1234567^', url = context.config.jdbcUrl) {
+        sql 'select 1'
+    }
+    sql """set global validate_password_policy=NONE"""
 }
 
 
