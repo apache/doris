@@ -25,7 +25,7 @@ For specific table structure and sample data, please refer to the documentation 
 
 ## Directory structure description
 
-![](/images/20210730144136.png)
+![](/docs/images/20210730144136.png)
 
 Package instruction:
 
@@ -52,10 +52,10 @@ Start Springboot, enter restful url in the browser address bar
 
 visit：[localhost:8080/rest/demo/skulist](http://localhost:8080/rest/demo/skulist)
 
-![](/images/20210730145555.png)
+![](/docs/images/20210730145555.png)
 
 ### Query by ID
 
 
 
-![](/images/20210730145906.png)
+![](/docs/images/20210730145906.png)

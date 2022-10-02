@@ -72,7 +72,7 @@ JDK1.8+, IntelliJ IDEA
 
 或者通过图形界面运行 maven 命令生成
 
-![](/images/gen_code.png)
+![](/docs/images/gen_code.png)
 
 如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
@@ -85,7 +85,7 @@ JDK1.8+, IntelliJ IDEA
 
 2. 在fe目录下创建下面红框标出的目录（在新版本中该目录可能存在，如存在则跳过，否则创建）
 
-![](/images/DEBUG4.png)
+![](/docs/images/DEBUG4.png)
 
 3. 编译`ui`项目，将 `ui/dist/`目录中的文件拷贝到`webroot`中（如果你不需要看`Doris` UI，这一步可以跳过）
 
@@ -172,13 +172,13 @@ mysql_service_nio_enabled = true
 
 在IDEA中设置运行环境变量
 
-![](/images/DEBUG5.png)
+![](/docs/images/DEBUG5.png)
 
 ## 5.配置options
 
 由于部分依赖使用了`provided`，idea需要做下特殊配置，在`Run/Debug Configurations`设置中点击右侧`Modify options`，勾选`Add dependencies with "provided" scope to classpath`选项
 
-![](/images/idea_options.png)
+![](/docs/images/idea_options.png)
 
 ## 6.启动fe
 

@@ -29,7 +29,7 @@ under the License.
 
 ## File format ##
 
-![](/images/segment_v2.png)
+![](/docs/images/segment_v2.png)
 <center>1. doris segment</center>
 
 Documents include:

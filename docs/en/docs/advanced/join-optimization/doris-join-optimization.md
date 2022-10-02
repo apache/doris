@@ -40,7 +40,7 @@ As a distributed MPP database, data shuffle needs to be performed during the Joi
 
         Its applicable scenarios are more general, and it can support Hash Join and Nest loop Join at the same time, and its network overhead is N \* T(R).
 
-    ![image-20220523152004731](/images/join/image-20220523152004731.png)
+    ![image-20220523152004731](/docs/images/join/image-20220523152004731.png)
 
     The data in the left table is not moved, and the data in the right table is sent to the scanning node of the data in the left table.
 
@@ -50,7 +50,7 @@ As a distributed MPP database, data shuffle needs to be performed during the Joi
 
     Its network overhead is: T(R) + T(N), but it can only support Hash Join, because it also calculates buckets according to the conditions of Join.
 
-    ![image-20220523151902368](/images/join/image-20220523151902368.png)
+    ![image-20220523151902368](/docs/images/join/image-20220523151902368.png)
 
     The left and right table data are sent to different partition nodes according to the partition, and the calculated demerits are sent.
 
@@ -60,7 +60,7 @@ As a distributed MPP database, data shuffle needs to be performed during the Joi
 
     Its network overhead is: T(R) is equivalent to only Shuffle the data in the right table.
 
-    ![image-20220523151653562](/images/join/image-20220523151653562.png)
+    ![image-20220523151653562](/docs/images/join/image-20220523151653562.png)
 
     The data in the left table does not move, and the data in the right table is sent to the node that scans the table in the left table according to the result of the partition calculation.
 
@@ -68,7 +68,7 @@ As a distributed MPP database, data shuffle needs to be performed during the Joi
 
     It is similar to Bucket Shuffle Join, which means that the data has been shuffled according to the preset Join column scenario when data is imported. Then the join calculation can be performed directly without considering the Shuffle problem of the data during the actual query.
 
-    ![image-20220523151619754](/images/join/image-20220523151619754.png)
+    ![image-20220523151619754](/docs/images/join/image-20220523151619754.png)
 
     The data has been pre-partitioned, and the Join calculation is performed directly locally
 
@@ -123,7 +123,7 @@ Once the database involves multi-table Join, the order of Join has a great impac
 
 Next, look at the picture on the right and adjust the order of Join. Join the a table with the c table first, the intermediate result generated is only 100, and then finally join with the b table for calculation. The final join result is the same, but the intermediate result it generates has a 20x difference, which results in a big performance diff.
 
-![image-20220523152639123](/images/join/image-20220523152639123.png)
+![image-20220523152639123](/docs/images/join/image-20220523152639123.png)
 
 -   Doris currently supports the rule-based Join Reorder algorithm. Its logic is:
     -   Make joins with large tables and small tables as much as possible, and the intermediate results it generates are as small as possible.
@@ -149,7 +149,7 @@ If the first 4 methods are connected in series, it still does not work. At this 
 
 A four-table join query, through Profile, found that the second join took a long time, taking 14 seconds.
 
-![image-20220523153600797](/images/join/image-20220523153600797.png)
+![image-20220523153600797](/docs/images/join/image-20220523153600797.png)
 
 After further analysis of Profile, it is found that BuildRows, that is, the data volume of the right table is about 25 million. And ProbeRows (ProbeRows is the amount of data in the left table) is only more than 10,000. In this scenario, the right table is much larger than the left table, which is obviously an unreasonable situation. This obviously shows that there is some problem with the order of Join. At this time, try to change the Session variable and enable Join Reorder.
 
@@ -161,17 +161,17 @@ This time, the time has been reduced from 14 seconds to 4 seconds, and the perfo
 
 At this time, when checking the profile again, the order of the left and right tables has been adjusted correctly, that is, the right table is a large table, and the left table is a small table. The overhead of building a hash table based on a small table is very small. This is a typical scenario of using Join Reorder to improve Join performance.
 
-![image-20220523153757607](/images/join/image-20220523153757607.png)
+![image-20220523153757607](/docs/images/join/image-20220523153757607.png)
 
 ### Case 2
 
 There is a slow query. After viewing the Profile, the entire Join node takes about 44 seconds. Its right table has 10 million, the left table has 60 million, and the final returned result is only 60 million.
 
-![image-20220523153913059](/images/join/image-20220523153913059.png)
+![image-20220523153913059](/docs/images/join/image-20220523153913059.png)
 
 It can be roughly estimated that the filtering rate is very high, so why does the Runtime Filter not take effect? Check it out through Query Plan and find that it only enables the Runtime Filter of IN.
 
-![image-20220523153958828](/images/join/image-20220523153958828.png)
+![image-20220523153958828](/docs/images/join/image-20220523153958828.png)
 
 When the right table exceeds 1024 rows, IN will not take effect, so there is no filtering effect at all, so try to adjust the type of RuntimeFilter.
 
@@ -196,13 +196,13 @@ where
 
 This Join query is very simple, a simple join of left and right tables. Of course, there are some filter conditions on it. When I opened the Profile, I found that the entire query Hash Join was executed for more than three minutes. It is a BroadCast Join, and its right table has 200 million entries, while the left table has only 700,000. In this case, it is unreasonable to choose Broadcast Join, which is equivalent to making a Hash Table of 200 million records, and then traversing the Hash Table of 200 million records with 700,000 records, which is obviously unreasonable.
 
-![image-20220523154712519](/images/join/image-20220523154712519.png)
+![image-20220523154712519](/docs/images/join/image-20220523154712519.png)
 
 Why is there an unreasonable Join order? In fact, the left table is a large table with a level of 1 billion records. Two filter conditions are added to it. After adding these two filter conditions, there are 700,000 records of 1 billion records. But Doris currently does not have a good framework for collecting statistics, so it does not know what the filtering rate of this filter condition is. Therefore, when the join order is arranged, the wrong left and right table order of the join is selected, resulting in extremely low performance.
 
 The following figure is an SQL statement after the rewrite is completed. A Join Hint is added after the Join, a square bracket is added after the Join, and then the required Join method is written. Here, Shuffle Join is selected. You can see in the actual query plan on the right that the data is indeed Partitioned. The original 3-minute time-consuming is only 7 seconds after the rewriting, and the performance is improved significantly.
 
-![image-20220523160915229](/images/join/image-20220523160915229.png)
+![image-20220523160915229](/docs/images/join/image-20220523160915229.png)
 
 ## Doris Join optimization suggestion
 

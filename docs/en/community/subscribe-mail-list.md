@@ -32,13 +32,13 @@ Mail List is the most recognized form of communication in Apache community. Gene
 
 Open your own email, create a new email, and send an email to `dev-subscribe@doris.apache.org` (subject and content are arbitrary)
 
-![step1](/images/subscribe-mail-list-step1.png)
+![step1](/docs/images/subscribe-mail-list-step1.png)
 
 ## 2. Receive confirmation emails from dev-help@doris.apache.org
 
 After the first step, you will receive a confirmation email from `dev-help@doris.apache.org`, which is shown below. (**If you fail to receive it for a long time, please confirm that the mail has been intercepted, or has been automatically grouped into "Subscribed Mail", "Spam Mail", "Promotional Mail" folders**)
 
-![step2](/images/subscribe-mail-list-step2.png)
+![step2](/docs/images/subscribe-mail-list-step2.png)
 
 ## 3. Reply to confirmation mail
 
@@ -52,14 +52,14 @@ For the mail received in the previous step,
 
 Every subject is acceptable.
 
-![step3](/images/subscribe-mail-list-step3.png)
+![step3](/docs/images/subscribe-mail-list-step3.png)
 
 
 ## 4. Receiving Welcome Emails
 
 After completing the third step, you will receive a welcome email entitled **WELCOME to dev@doris.apache.org**. So far, the work of subscribing to mailing lists has been completed, and community dynamics will be notified by mail.
 
-![step4](/images/subscribe-mail-list-step4.png)
+![step4](/docs/images/subscribe-mail-list-step4.png)
 
 
 ## 5. Initiate e-mail discussion (optional)

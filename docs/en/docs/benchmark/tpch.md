@@ -36,7 +36,7 @@ This document mainly introduces the performance of Doris on the TPC-H test set.
 
 On 22 queries on the TPC-H standard test dataset, we tested the upcoming Doris 1.1 version and Doris 0.15.0 RC04 version side by side, and the overall performance improved by 3-4 times. In individual scenarios, it can achieve a ten-fold improvement.
 
-![image-20220614114351241](/images/image-20220614114351241.png)
+![image-20220614114351241](/docs/images/image-20220614114351241.png)
 
 ## 1. Hardware Environment
 

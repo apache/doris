@@ -33,7 +33,7 @@ under the License.
 * bdbje：[Oracle Berkeley DB Java Edition](http://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html)。在 Doris 中，我们使用 bdbje 完成元数据操作日志的持久化、FE 高可用等功能。
 
 ## 整体架构
-![](/images/palo_architecture.jpg)
+![](/docs/images/palo_architecture.jpg)
 
 如上图，Doris 的整体架构分为两层。多个 FE 组成第一层，提供 FE 的横向扩展和高可用。多个 BE 组成第二层，负责数据存储与管理。本文主要介绍 FE 这一层中，元数据的设计与实现方式。
 
@@ -53,7 +53,7 @@ Doris 的元数据是全内存的。每个 FE 内存中，都维护一个完整�
 
 下图是 Doris 元信息所存储的内容。
 
-![](/images/metadata_contents.png)
+![](/docs/images/metadata_contents.png)
 
 如上图，Doris 的元数据主要存储4类数据：
 
@@ -64,7 +64,7 @@ Doris 的元数据是全内存的。每个 FE 内存中，都维护一个完整�
 
 ## 数据流
 
-![](/images/metadata_stream.png)
+![](/docs/images/metadata_stream.png)
 
 元数据的数据流具体过程如下：
 

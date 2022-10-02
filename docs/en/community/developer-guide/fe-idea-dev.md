@@ -79,7 +79,7 @@ under the License.
    
    You can also use IDE embedded GUI tools to run maven command to generate sources
 
-![](/images/gen_code.png)
+![](/docs/images/gen_code.png)
 
 If you are developing on the OS which lack of support to run `shell script` and `make` such as Windows, a workround here 
 is generate codes in Linux and copy them back. Using Docker should also be an option.
@@ -93,7 +93,7 @@ is generate codes in Linux and copy them back. Using Docker should also be an op
 
 2. Follow the picture to create the folders (The directory may exist in the new version. If it exists, skip it, otherwise create it.)
 
-![](/images/DEBUG4.png)
+![](/docs/images/DEBUG4.png)
 
 3. Build `ui` project , and copy files from directory `ui/dist` into directory `webroot` ( you can skip this step , if you don't need `Doris` UI )
 
@@ -178,13 +178,13 @@ mysql_service_nio_enabled = true
 
 Follow the picture to set runtime Environment Variables in IDEA
 
-![](/images/DEBUG5.png)
+![](/docs/images/DEBUG5.png)
 
 ## 5. Config options
 
 Because part of the dependency is `provided`, idea needs to do a special config. Click on the right `Modify Options` in the `Run/Debug Configurations` setting. Check the `Add Dependencies with "Provided" scope to classpath` option.
 
-![](/images/idea_options.png)
+![](/docs/images/idea_options.png)
 
 ## 6. Start FE
 

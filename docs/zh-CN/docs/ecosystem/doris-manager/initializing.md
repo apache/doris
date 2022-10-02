@@ -32,12 +32,12 @@ under the License.
 
 初始化第一步为管理用户，主要完成对认证方式的选择和配置。目前 Doris Manger 支持本地用户认证。
 
-![](/images/doris-manager/initializing-1.png)
+![](/docs/images/doris-manager/initializing-1.png)
 
 ### 本地用户认证
 
 本地用户认证是 Doris Manger 自带的用户系统。通过填入用户名、邮箱和密码可完成用户注册，用户的新增、信息修改、删除和权限关系均在本地内完成。
 
-![](/images/doris-manager/initializing-2.png)
+![](/docs/images/doris-manager/initializing-2.png)
 
 此时已经完成了本地初始化过程。超级管理员可以创建空间，空间管理员进入空间，进行空间管理，添加邀请用户进入空间进行数据分析等工作。

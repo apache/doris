@@ -303,7 +303,7 @@ pprof --svg --seconds=60 http://be_host:be_webport/pprof/profile > be.svg
 
 这样就能够生成一张BE执行的CPU消耗图。
 
-![CPU Pprof](/images/cpu-pprof-demo.png)
+![CPU Pprof](/docs/images/cpu-pprof-demo.png)
 
 #### perf + flamegragh
 
@@ -321,7 +321,7 @@ perf report
 
 分析得到如下的图片
 
-![Perf Report](/images/perf-report-demo.png)
+![Perf Report](/docs/images/perf-report-demo.png)
 
 来对生成的内容进行分析。当然也可以使用flamegragh完成可视化展示。
 
@@ -331,4 +331,4 @@ perf script | ./FlameGraph/stackcollapse-perf.pl | ./FlameGraph/flamegraph.pl > 
 
 这样也会生成一张当时运行的CPU消耗图。
 
-![CPU Flame](/images/cpu-flame-demo.svg)
+![CPU Flame](/docs/images/cpu-flame-demo.svg)

@@ -39,7 +39,7 @@ The current Doris SQL execution engine is based on the row-based memory format a
 3. Inability to use the vectorization capabilities of modern CPU to SIMD  computations.
 4. CPU branch prediction, prefetch memory is not friendly.
 
-![image.png](/images/vectorized-execution-engine1.png)
+![image.png](/docs/images/vectorized-execution-engine1.png)
 
 The resulting series of overheads makes the current Doris execution engine inefficient and does not adapt to the architecture of modern CPU.
 
@@ -47,7 +47,7 @@ The resulting series of overheads makes the current Doris execution engine ineff
 And as shown in the figure below (quoted from [Column-Oriented
 Database Systems](https://web.stanford.edu/class/cs346/2015/notes/old/column.pdf)）, the vectorized execution engine redesigns the SQL execution engine of the columnar storage system based on the characteristics of modern CPU and the execution characteristics of the volcano model:
 
-![image.png](/images/vectorized-execution-engine2.png)
+![image.png](/docs/images/vectorized-execution-engine2.png)
 
 1. Reorganize the data structure of the memory, replace **Tuple** with **Column**, improve the Cache affinity during calculation, the friendliness of branch prediction and prefetch memory.
 2. Type judgment is performed in batches, and the determined type is used in this single batch. Allocate the virtual function overhead of each row type judgment to the batch level.

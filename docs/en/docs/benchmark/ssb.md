@@ -36,7 +36,7 @@ This document mainly introduces the performance of Doris on the SSB test set.
 
 On 13 queries on the SSB standard test dataset, we tested the upcoming Doris 1.1 version and Doris 0.15.0 RC04 version peer-to-peer, and the overall performance improved by 2-3 times.
 
-![ssb_v11_v015_compare](/images/ssb_v11_v015_compare.png)
+![ssb_v11_v015_compare](/docs/images/ssb_v11_v015_compare.png)
 
 ## 1. Hardware Environment
 

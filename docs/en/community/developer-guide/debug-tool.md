@@ -302,7 +302,7 @@ pprof --svg --seconds=60 http://be_host:be_webport/pprof/profile > be.svg
 
 In this way, a CPU consumption graph of be execution can be generated.
 
-![CPU Pprof](/images/cpu-pprof-demo.png)
+![CPU Pprof](/docs/images/cpu-pprof-demo.png)
 
 #### perf + flamegragh
 
@@ -320,7 +320,7 @@ perf report
 
 The analysis results in the following pictures
 
-![Perf Report](/images/perf-report-demo.png)
+![Perf Report](/docs/images/perf-report-demo.png)
 
 To analyze the generated content. Of course, you can also use flash graph to complete the visual display.
 
@@ -330,4 +330,4 @@ perf script | ./FlameGraph/stackcollapse-perf.pl | ./FlameGraph/flamegraph.pl > 
 
 This will also generate a graph of CPU consumption at that time.
 
-![CPU Flame](/images/cpu-flame-demo.svg)
+![CPU Flame](/docs/images/cpu-flame-demo.svg)

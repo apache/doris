@@ -38,11 +38,11 @@ Doris 和很多其他的开源项目一样，可以使用 Gitter 作为技术交
     
 点击下方的 `SIGN IN TO START TALKING` 进行登录，可支持两种登录方式，Github 账号或 Twitter 账号，笔者使用 Github 账号进行登录，如下：
      
-![](/images/login-gitter1.png)
+![](/docs/images/login-gitter1.png)
     
 点击红圈处后，输入 Github 账号和密码既可登录进聊天室，从此开始进行技术或社区讨论：
       
-![](/images/login-gitter2.png) 
+![](/docs/images/login-gitter2.png) 
        
 可以像使用微信一样，使用Gitter，并获得比微信更加令开发者和技术人员舒服的功能，如，直接提及某个Activity进行讨论，直接搜索历史聊天记录等。
    

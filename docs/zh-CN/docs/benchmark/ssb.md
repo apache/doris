@@ -36,7 +36,7 @@ under the License.
 
 在 SSB 标准测试数据集上的 13 个查询上，我们对即将发布的 Doris 1.1 版本和 Doris 0.15.0 RC04 版本进行了对别测试，整体性能提升了 2-3 倍。
 
-![ssb_v11_v015_compare](/images/ssb_v11_v015_compare.png)
+![ssb_v11_v015_compare](/docs/images/ssb_v11_v015_compare.png)
 
 ## 1. 硬件环境
 

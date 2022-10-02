@@ -47,7 +47,7 @@ Doris 支持 4 种 Shuffle 方式
 
    它适用的场景是比较通用的，同时能够支持 Hash Join 和 Nest loop Join，它的网络开销 N * T(R)。
 
-   ![image-20220523152004731](/images/join/image-20220523152004731.png)
+   ![image-20220523152004731](/docs/images/join/image-20220523152004731.png)
 
    左表数据不移动，右表数据发送到左表数据的扫描节点。
 
@@ -57,7 +57,7 @@ Doris 支持 4 种 Shuffle 方式
 
    它的网络开销则是：T（R） + T（N），但它只能支持 Hash Join，因为它是根据 Join 的条件也去做计算分桶的。
 
-   ![image-20220523151902368](/images/join/image-20220523151902368.png)
+   ![image-20220523151902368](/docs/images/join/image-20220523151902368.png)
 
    左右表数据根据分区，计算的记过发送到不同的分区节点上。
 
@@ -67,7 +67,7 @@ Doris 支持 4 种 Shuffle 方式
 
    它的网络开销则是：T（R）相当于只 Shuffle 右表的数据就可以了。
 
-   ![image-20220523151653562](/images/join/image-20220523151653562.png)
+   ![image-20220523151653562](/docs/images/join/image-20220523151653562.png)
 
    左表数据不移动，右表数据根据分区计算的结果发送到左表扫表的节点
 
@@ -75,7 +75,7 @@ Doris 支持 4 种 Shuffle 方式
 
    它与 Bucket Shuffle Join 相似，相当于在数据导入的时候，根据预设的 Join 列的场景已经做好了数据的 Shuffle。那么实际查询的时候就可以直接进行 Join 计算而不需要考虑数据的 Shuffle 问题了。
 
-   ![image-20220523151619754](/images/join/image-20220523151619754.png)
+   ![image-20220523151619754](/docs/images/join/image-20220523151619754.png)
 
    数据已经预先分区，直接在本地进行 Join 计算
 
@@ -133,7 +133,7 @@ Doris 提供了三种不同的 Runtime Filter 类型：
 
 接下来看右图，把 Join 的顺序调整了一下。把 a 表先与 c 表 Join，生成的中间结果只有 100，然后最终再与 b 表 Join 计算。最终的 Join 结果是一样的，但是它生成的中间结果有 20 倍的差距，这就会产生一个很大的性能 Diff 了。
 
-![image-20220523152639123](/images/join/image-20220523152639123.png)
+![image-20220523152639123](/docs/images/join/image-20220523152639123.png)
 
 Doris 目前支持基于规则的 Join Reorder 算法。它的逻辑是：
 
@@ -160,7 +160,7 @@ Doris Join 调优的方法：
 
 一个四张表 Join 的查询，通过 Profile 的时候发现第二个 Join 耗时很高，耗时 14 秒。
 
-![image-20220523153600797](/images/join/image-20220523153600797.png)
+![image-20220523153600797](/docs/images/join/image-20220523153600797.png)
 
 进一步分析 Profile 之后，发现 BuildRows，就是右表的数据量是大概 2500 万。而 ProbeRows （ ProbeRows 是左表的数据量）只有 1 万多。这种场景下右表是远远大于左表，这显然是个不合理的情况。这显然说明 Join 的顺序出现了一些问题。这时候尝试改变 Session 变量，开启 Join Reorder。
 
@@ -172,17 +172,17 @@ set enable_cost_based_join_reorder = true
 
 此时再 Check Profile 的时候，左右表的顺序已经调整正确，即右表是大表，左表是小表。基于小表去构建哈希表，开销是很小的，这就是典型的一个利用 Join Reorder 去提升 Join 性能的一个场景
 
-![image-20220523153757607](/images/join/image-20220523153757607.png)
+![image-20220523153757607](/docs/images/join/image-20220523153757607.png)
 
 ### 案例二
 
 存在一个慢查询，查看 Profile 之后，整个 Join 节点耗时大概44秒。它的右表有 1000 万，左表有 6000 万，最终返回的结果也只有 6000 万。
 
-![image-20220523153913059](/images/join/image-20220523153913059.png)
+![image-20220523153913059](/docs/images/join/image-20220523153913059.png)
 
 这里可以大致的估算出过滤率是很高的，那为什么 Runtime Filter 没有生效呢？通过 Query Plan 去查看它，发现它只开启了 IN 的 Runtime Filter。
 
-![image-20220523153958828](/images/join/image-20220523153958828.png)
+![image-20220523153958828](/docs/images/join/image-20220523153958828.png)
 
 当右表超过1024行的话， IN 是不生效的，所以根本起不到什么过滤的效果，所以尝试调整 RuntimeFilter 的类型。
 
@@ -207,13 +207,13 @@ where
 
 这个 Join 查询是很简单的，单纯的一个左右表的 Join 。当然它上面有一些过滤条件，打开 Profile 的时候，发现整个查询 Hash Join 执行了三分多钟，它是一个 BroadCast 的 Join，它的右表有 2 亿条，左表只有 70 万。在这种情况下选择了 Broadcast Join 是不合理的，这相当于要把 2 亿条做一个 Hash Table，然后用 70 万条遍历两亿条的 Hash Table ，这显然是不合理的。
 
-![image-20220523154712519](/images/join/image-20220523154712519.png)
+![image-20220523154712519](/docs/images/join/image-20220523154712519.png)
 
 为什么会产生不合理的 Join 顺序呢？其实这个左表是一个 10 亿条级别的大表，它上面加了两个过滤条件，加完这两个过滤条件之后， 10 亿条的数据就剩 70 万条了。但 Doris 目前没有一个好的统计信息收集的框架，所以它不知道这个过滤条件的过滤率到底怎么样。所以这个 Join 顺序安排的时候，就选择了错误的 Join 的左右表顺序，导致它的性能是极其低下的。
 
 下图是改写完成之后的一个 SQL 语句，在 Join 后面添加了一个Join Hint，在Join 后面加一个方括号，然后把需要的 Join 方式写入。这里选择了 Shuffle Join，可以看到右边它实际查询计划里面看到这个数据确实是做了 Partition ，原先 3 分钟的耗时通过这样的改写完之后只剩下 7 秒，性能提升明显
 
-![image-20220523160915229](/images/join/image-20220523160915229.png)
+![image-20220523160915229](/docs/images/join/image-20220523160915229.png)
 
 ## Doris Join 调优建议
 

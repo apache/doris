@@ -39,7 +39,7 @@ under the License.
 3. 无法利用现代CPU的向量化能力将计算SIMD化
 4. CPU的分支预测，预取内存不友好 
 
-![image.png](/images/vectorized-execution-engine1.png)
+![image.png](/docs/images/vectorized-execution-engine1.png)
 
 由此带来的一系列开销导致当前Doris执行引擎效率低下，并不适应现代CPU的体系结构。
 
@@ -47,7 +47,7 @@ under the License.
 而如下图所示（引用自[Column-Oriented
 Database Systems](https://web.stanford.edu/class/cs346/2015/notes/old/column.pdf)），向量化执行引擎基于现代CPU的特点与火山模型的执行特点，重新设计列式存储系统的SQL执行引擎：
 
-![image.png](/images/vectorized-execution-engine2.png)
+![image.png](/docs/images/vectorized-execution-engine2.png)
 
 1. 重新组织内存的数据结构，用**Column**替换**Tuple**，提高了计算时Cache亲和度，分支预测与预取内存的友好度
 2. 分批进行类型判断，在本次批次中都使用类型判断时确定的类型。将每一行类型判断的虚函数开销分摊到批量级别。

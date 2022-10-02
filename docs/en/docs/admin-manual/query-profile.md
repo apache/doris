@@ -48,7 +48,7 @@ mysql> set enable_profile=true;
 ```
 
 After executing the corresponding SQL statement(`is_report_success` in old versions), we can see the report information of the corresponding SQL statement on the FE web page like the picture below.
-![image.png](/images/running_profile.png)
+![image.png](/docs/images/running_profile.png)
 
 The latest  **100 statements** executed will be listed here. We can view detailed statistics of RunningProfile.
 ```

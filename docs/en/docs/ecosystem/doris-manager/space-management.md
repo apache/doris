@@ -38,16 +38,16 @@ The space administrator can mainly perform the following operations under the sp
 
 If the space information is complete, space administrators can view and edit space-related information here, including space name, space introduction, space administrator, etc.
 
-![](/images/doris-manager/spacemanagement-1.png)
+![](/docs/images/doris-manager/spacemanagement-1.png)
 
 ## Members
 
 In the secondary navigation bar of the "Space Management" interface, select "Members" to enter the member management page. This page can view all users in the current space, and you can remove members.
 
-![](/images/doris-manager/spacemanagement-2.png)
+![](/docs/images/doris-manager/spacemanagement-2.png)
 
 ## Role
 
 Space administrators can view all roles and role members by clicking the "Roles" button in the navigation bar. New members by default belong to the "Space Member" role and the "Space Admin" role. The default roles are "Space Admin" and "Space Member" and cannot be changed by other administrators.
 
-![](/images/doris-manager/spacemanagement-3.png)
+![](/docs/images/doris-manager/spacemanagement-3.png)

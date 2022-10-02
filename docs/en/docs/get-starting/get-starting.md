@@ -103,7 +103,7 @@ http:// fe_ip:8030
 
 You can see the following screen, which indicates that the FE has started successfully
 
-![image-20220822091951739](/images/image-20220822091951739.png)
+![image-20220822091951739](/docs/images/image-20220822091951739.png)
 
 >Note: 
 >

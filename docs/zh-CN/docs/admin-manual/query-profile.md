@@ -50,7 +50,7 @@ mysql> set enable_profile=true;
 ```
 
 之后执行对应的SQL语句之后（旧版本为`is_report_success`），在FE的Web页面就可以看到对应SQL语句执行的Report信息：
-![image.png](/images/running_profile.png)
+![image.png](/docs/images/running_profile.png)
 
 这里会列出最新执行完成的**100条语句**，我们可以通过Profile查看详细的统计信息。
 ```

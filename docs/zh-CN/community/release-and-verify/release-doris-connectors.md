@@ -110,7 +110,7 @@ mvn release:perform
 
 执行成功后，在 [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) 里面可以找到刚刚发布的版本：
 
-![](/images/staging-repositories.png)
+![](/docs/images/staging-repositories.png)
 
 **注意需要包含 `.asc` 签名文件。**
 
