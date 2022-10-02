@@ -86,6 +86,8 @@ Status ColumnChunkReader::load_page_data() {
         // check decompressed buffer size
         _reserve_decompress_buf(uncompressed_size);
         _page_data = Slice(_decompress_buf.get(), uncompressed_size);
+        SCOPED_RAW_TIMER(&_statistics.decompress_time);
+        _statistics.decompress_cnt++;
         RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
     } else {
         RETURN_IF_ERROR(_page_reader->get_page_data(_page_data));
@@ -93,11 +95,13 @@ Status ColumnChunkReader::load_page_data() {
 
     // Initialize repetition level and definition level. Skip when level = 0, which means required field.
     if (_max_rep_level > 0) {
+        SCOPED_RAW_TIMER(&_statistics.decode_level_time);
         RETURN_IF_ERROR(_rep_level_decoder.init(&_page_data,
                                                 header.data_page_header.repetition_level_encoding,
                                                 _max_rep_level, _remaining_num_values));
     }
     if (_max_def_level > 0) {
+        SCOPED_RAW_TIMER(&_statistics.decode_level_time);
         RETURN_IF_ERROR(_def_level_decoder.init(&_page_data,
                                                 header.data_page_header.definition_level_encoding,
                                                 _max_def_level, _remaining_num_values));
@@ -132,6 +136,7 @@ Status ColumnChunkReader::load_page_data() {
 Status ColumnChunkReader::_decode_dict_page() {
     const tparquet::PageHeader& header = *_page_reader->get_page_header();
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header.type);
+    SCOPED_RAW_TIMER(&_statistics.decode_dict_time);
 
     // Using the PLAIN_DICTIONARY enum value is deprecated in the Parquet 2.0 specification.
     // Prefer using RLE_DICTIONARY in a data page and PLAIN in a dictionary page for Parquet 2.0+ files.
@@ -187,6 +192,7 @@ Status ColumnChunkReader::skip_values(size_t num_values, bool skip_data) {
     }
     _remaining_num_values -= num_values;
     if (skip_data) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         return _page_decoder->skip_values(num_values);
     } else {
         return Status::OK();
@@ -194,6 +200,7 @@ Status ColumnChunkReader::skip_values(size_t num_values, bool skip_data) {
 }
 
 void ColumnChunkReader::insert_null_values(ColumnPtr& doris_column, size_t num_values) {
+    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     DCHECK_GE(_remaining_num_values, num_values);
     CHECK(doris_column->is_nullable());
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
@@ -206,6 +213,7 @@ void ColumnChunkReader::insert_null_values(ColumnPtr& doris_column, size_t num_v
 }
 
 void ColumnChunkReader::insert_null_values(MutableColumnPtr& doris_column, size_t num_values) {
+    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     for (int i = 0; i < num_values; ++i) {
         doris_column->insert_default();
     }
@@ -227,6 +235,7 @@ Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, DataTypePtr& da
     if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
+    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     _remaining_num_values -= num_values;
     return _page_decoder->decode_values(doris_column, data_type, num_values);
 }
@@ -236,6 +245,7 @@ Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataType
     if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
+    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     _remaining_num_values -= num_values;
     return _page_decoder->decode_values(doris_column, data_type, num_values);
 }
