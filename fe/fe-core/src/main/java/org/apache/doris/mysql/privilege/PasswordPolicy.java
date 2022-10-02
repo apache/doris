@@ -58,12 +58,12 @@ public class PasswordPolicy implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-    private static final String EXPIRATION_DAYS = "password_policy.expiration_days";
+    private static final String EXPIRATION_SECONDS = "password_policy.expiration_seconds";
     private static final String PASSWORD_CREATION_TIME = "password_policy.password_creation_time";
     private static final String HISTORY_NUM = "password_policy.history_num";
     private static final String HISTORY_PASSWORDS = "password_policy.history_passwords";
     private static final String NUM_FAILED_LOGIN = "password_policy.num_failed_login";
-    private static final String PASSWORD_LOCK_DAYS = "password_policy.password_lock_days";
+    private static final String PASSWORD_LOCK_SECONDS = "password_policy.password_lock_seconds";
     private static final String FAILED_LOGIN_COUNTER = "password_policy.failed_login_counter";
     private static final String LOCK_TIME = "password_policy.lock_time";
 
@@ -91,7 +91,7 @@ public class PasswordPolicy implements Writable {
                 throw new AuthenticationException(
                         ErrorCode.ERR_USER_ACCESS_DENIED_FOR_USER_ACCOUNT_BLOCKED_BY_PASSWORD_LOCK,
                         curUser.getQualifiedUser(), curUser.getHost(),
-                        failedLoginPolicy.passwordLockDays,
+                        failedLoginPolicy.passwordLockSeconds,
                         failedLoginPolicy.leftDays(),
                         failedLoginPolicy.failedLoginCounter);
             }
@@ -121,10 +121,10 @@ public class PasswordPolicy implements Writable {
     public void update(byte[] password, PasswordOptions passwordOptions) {
         lock.writeLock().lock();
         try {
-            expirePolicy.update(passwordOptions.getExpirePolicy());
+            expirePolicy.update(passwordOptions.getExpirePolicySecond());
             historyPolicy.update(password, passwordOptions.getHistoryPolicy());
             failedLoginPolicy.updateNumFailedLogin(passwordOptions.getLoginAttempts());
-            failedLoginPolicy.updatePasswordLockDays(passwordOptions.getPasswordLockTime());
+            failedLoginPolicy.updatePasswordLockSeconds(passwordOptions.getPasswordLockSecond());
         } finally {
             lock.writeLock().unlock();
         }
@@ -177,12 +177,12 @@ public class PasswordPolicy implements Writable {
     public static class ExpirePolicy implements Writable {
         // -1: default, will use session variable: default_password_lifetime
         // 0: never
-        // > 0: days
+        // > 0: seconds
         public static final int DEFAULT = -1;
         public static final int NEVER = 0;
 
-        @SerializedName(value = "expirationDays")
-        public int expirationDays = NEVER;
+        @SerializedName(value = "expirationSecond")
+        public long expirationSecond = NEVER;
         @SerializedName(value = "passwordCreateTime")
         public long passwordCreateTime = 0;
 
@@ -190,44 +190,43 @@ public class PasswordPolicy implements Writable {
             return leftDays() <= 0;
         }
 
-        public int leftDays() {
-            int tmp = expirationDays;
+        public long leftDays() {
+            long tmp = expirationSecond;
             if (tmp == -1) {
-                tmp = GlobalVariable.defaultPasswordLifetime;
+                tmp = GlobalVariable.defaultPasswordLifetime * 86400;
             }
             if (tmp == 0) {
-                return Integer.MAX_VALUE;
+                return Long.MAX_VALUE;
             }
-            return tmp - (int) (System.currentTimeMillis() - passwordCreateTime) / 86400000;
+            return tmp - (System.currentTimeMillis() - passwordCreateTime) / 1000;
         }
 
         public void updatePasswordCreationTime() {
             this.passwordCreateTime = System.currentTimeMillis();
         }
 
-        public void update(int expirationDays) {
-            if (expirationDays == PasswordOptions.UNSET) {
+        public void update(long expirationSecond) {
+            if (expirationSecond == PasswordOptions.UNSET) {
                 return;
             }
-            this.expirationDays = expirationDays;
+            this.expirationSecond = expirationSecond;
             this.passwordCreateTime = System.currentTimeMillis();
         }
 
-        private String expirationDaysToString() {
-            switch (expirationDays) {
-                case -1:
-                    return "DEFAULT";
-                case 0:
-                    return "NEVER";
-                default:
-                    return String.valueOf(expirationDays);
+        private String expirationSecondsToString() {
+            if (expirationSecond == -1) {
+                return "DEFAULT";
+            } else if (expirationSecond == 0) {
+                return "NEVER";
+            } else {
+                return String.valueOf(expirationSecond);
             }
         }
 
         public void getInfo(List<List<String>> rows) {
             List<String> row1 = Lists.newArrayList();
-            row1.add(EXPIRATION_DAYS);
-            row1.add(expirationDaysToString());
+            row1.add(EXPIRATION_SECONDS);
+            row1.add(expirationSecondsToString());
             List<String> row2 = Lists.newArrayList();
             row2.add(PASSWORD_CREATION_TIME);
             row2.add(passwordCreateTime == 0 ? "" : TimeUtils.longToTimeString(passwordCreateTime));
@@ -367,9 +366,9 @@ public class PasswordPolicy implements Writable {
         public int numFailedLogin = DISABLED;
         // -1: unbounded
         // 0: disabled
-        // > 0: lock time (days)
-        @SerializedName(value = "passwordLockDays")
-        public int passwordLockDays = DISABLED;
+        // > 0: lock time (seconds)
+        @SerializedName(value = "passwordLockSeconds")
+        public long passwordLockSeconds = DISABLED;
         // num of current failed login
         // This field will not persist, so that each FE is independent.
         // And after a FE restart, it will be reset to 0.
@@ -382,7 +381,7 @@ public class PasswordPolicy implements Writable {
         // Return true if the account is being locked.
         // Return false if nothing happen.
         public boolean onFailedLogin() {
-            if (numFailedLogin == DISABLED || passwordLockDays == DISABLED) {
+            if (numFailedLogin == DISABLED || passwordLockSeconds == DISABLED) {
                 // This policy is disabled, nothing happen
                 return false;
             }
@@ -400,16 +399,16 @@ public class PasswordPolicy implements Writable {
             return leftDays() > 0;
         }
 
-        public int leftDays() {
-            if (numFailedLogin == DISABLED || passwordLockDays == DISABLED || lockTime.get() == 0) {
+        public long leftDays() {
+            if (numFailedLogin == DISABLED || passwordLockSeconds == DISABLED || lockTime.get() == 0) {
                 // This policy is disabled or not locked, return
                 return 0;
             }
-            if (lockTime.get() > 0 && passwordLockDays == UNBOUNDED) {
+            if (lockTime.get() > 0 && passwordLockSeconds == UNBOUNDED) {
                 // unbounded lock
                 return 0;
             }
-            return Math.max(0, passwordLockDays - (int) ((System.currentTimeMillis() - lockTime.get()) / 86400000));
+            return Math.max(0, passwordLockSeconds - ((System.currentTimeMillis() - lockTime.get()) / 1000));
         }
 
         public void updateNumFailedLogin(int numFailedLogin) {
@@ -420,11 +419,11 @@ public class PasswordPolicy implements Writable {
             unlock();
         }
 
-        public void updatePasswordLockDays(int passwordLockDays) {
-            if (passwordLockDays == PasswordOptions.UNSET) {
+        public void updatePasswordLockSeconds(long passwordLockSeconds) {
+            if (passwordLockSeconds == PasswordOptions.UNSET) {
                 return;
             }
-            this.passwordLockDays = passwordLockDays;
+            this.passwordLockSeconds = passwordLockSeconds;
             unlock();
         }
 
@@ -442,14 +441,13 @@ public class PasswordPolicy implements Writable {
             return GsonUtils.GSON.fromJson(Text.readString(in), FailedLoginPolicy.class);
         }
 
-        private String passwordLockDaysToString() {
-            switch (passwordLockDays) {
-                case -1:
-                    return "UNBOUNDED";
-                case 0:
-                    return "DISABLED";
-                default:
-                    return String.valueOf(passwordLockDays);
+        private String passwordLockSecondsToString() {
+            if (passwordLockSeconds == -1) {
+                return "UNBOUNDED";
+            } else if (passwordLockSeconds == 0) {
+                return "DISABLED";
+            } else {
+                return String.valueOf(passwordLockSeconds);
             }
         }
 
@@ -467,8 +465,8 @@ public class PasswordPolicy implements Writable {
             row1.add(NUM_FAILED_LOGIN);
             row1.add(numFailedLoginToString());
             List<String> row2 = Lists.newArrayList();
-            row2.add(PASSWORD_LOCK_DAYS);
-            row2.add(passwordLockDaysToString());
+            row2.add(PASSWORD_LOCK_SECONDS);
+            row2.add(passwordLockSecondsToString());
             List<String> row3 = Lists.newArrayList();
             row3.add(FAILED_LOGIN_COUNTER);
             row3.add(String.valueOf(failedLoginCounter.get()));

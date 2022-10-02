@@ -112,9 +112,9 @@ public class AlterUserStmt extends DdlStmt {
             throw new AnalysisException("Not support lock account now");
         } else if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.UNLOCK_ACCOUNT) {
             ops.add(OpType.UNLOCK_ACCOUNT);
-        } else if (passwordOptions.getExpirePolicy() != PasswordOptions.UNSET
+        } else if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET
                 || passwordOptions.getHistoryPolicy() != PasswordOptions.UNSET
-                || passwordOptions.getPasswordLockTime() != PasswordOptions.UNSET
+                || passwordOptions.getPasswordLockSecond() != PasswordOptions.UNSET
                 || passwordOptions.getLoginAttempts() != PasswordOptions.UNSET) {
             ops.add(OpType.SET_PASSWORD_POLICY);
         }

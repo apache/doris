@@ -800,9 +800,9 @@ nonterminal String ident_or_star;
 
 // password policy
 nonterminal PasswordOptions opt_password_option;
-nonterminal Integer opt_passwd_expire_policy, opt_passwd_history_policy, opt_passwd_reuse_policy;
-nonterminal Integer opt_failed_login_attempts, opt_password_lock_time, passwd_expire_opt, passwd_history_opt, passwd_reuse_opt,
-        passwd_lock_time_opt, opt_lock_account;
+nonterminal Integer opt_passwd_history_policy, opt_passwd_reuse_policy;
+nonterminal Integer opt_failed_login_attempts, passwd_history_opt, passwd_reuse_opt, opt_lock_account, passwd_time_unit;
+nonterminal Long opt_passwd_expire_policy, opt_password_lock_time, passwd_expire_opt, passwd_lock_time_opt;
 
 // Routine load
 nonterminal ParseNode load_property;
@@ -1999,7 +1999,7 @@ opt_password_option ::=
 
 opt_passwd_expire_policy ::=
     {:
-        RESULT = -2;
+        RESULT = -2L;
     :}
     | KW_PASSWORD_EXPIRE passwd_expire_opt:opt
     {:
@@ -2044,15 +2044,30 @@ opt_lock_account ::=
 passwd_expire_opt ::=
     KW_DEFAULT
     {:
-        RESULT = -1;
+        RESULT = -1L;
     :}
     | KW_NEVER
     {:
-        RESULT = 0;
+        RESULT = 0L;
     :}
-    | KW_INTERVAL INTEGER_LITERAL:n KW_DAY
+    | KW_INTERVAL INTEGER_LITERAL:n passwd_time_unit:unit
     {:
-        RESULT = n.intValue();
+        RESULT = n * unit;
+    :}
+    ;
+
+passwd_time_unit ::=
+    KW_DAY
+    {:
+        RESULT = 86400;
+    :}
+    | KW_HOUR
+    {:
+        RESULT = 3600;
+    :}
+    | KW_SECOND
+    {:
+        RESULT = 1;
     :}
     ;
 
@@ -2090,7 +2105,7 @@ opt_failed_login_attempts ::=
 
 opt_password_lock_time ::=
     {:
-        RESULT = -2;
+        RESULT = -2L;
     :}
     | KW_PASSWORD_LOCK_TIME passwd_lock_time_opt:opt
     {:
@@ -2099,13 +2114,13 @@ opt_password_lock_time ::=
     ;
 
 passwd_lock_time_opt ::=
-    INTEGER_LITERAL:n
+    INTEGER_LITERAL:n passwd_time_unit:unit
     {:
-        RESULT = n.intValue();
+        RESULT = n * unit;
     :}
     | KW_UNBOUNDED
     {:
-        RESULT = -1;
+        RESULT = -1L;
     :}
     ;
 

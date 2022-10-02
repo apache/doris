@@ -38,8 +38,8 @@ public class PasswordOptions implements Writable {
     // -1: default, use default_password_lifetime
     // 0: disabled
     // > 0: expire day
-    @SerializedName(value = "expirePolicy")
-    private int expirePolicy;
+    @SerializedName(value = "expirePolicySecond")
+    private long expirePolicySecond;
     // -2: not set
     // -1: default, use password_history
     // 0: disabled
@@ -58,8 +58,8 @@ public class PasswordOptions implements Writable {
     // -1: unbounded
     // 0: disabled
     // > 0: lock days
-    @SerializedName(value = "passwordLockTime")
-    private int passwordLockTime;
+    @SerializedName(value = "passwordLockSecond")
+    private long passwordLockSecond;
 
     // -2: not set
     // -1: lock the account
@@ -67,18 +67,18 @@ public class PasswordOptions implements Writable {
     @SerializedName(value = "accountUnlocked")
     private int accountUnlocked;
 
-    public PasswordOptions(int expirePolicy, int historyPolicy, int reusePolicy,
-            int loginAttempts, int passwdLockTime, int accountUnlocked) {
-        this.expirePolicy = expirePolicy;
+    public PasswordOptions(long expirePolicySecond, int historyPolicy, int reusePolicy,
+            int loginAttempts, long passwordLockSecond, int accountUnlocked) {
+        this.expirePolicySecond = expirePolicySecond;
         this.historyPolicy = historyPolicy;
         this.reusePolicy = reusePolicy;
         this.loginAttempts = loginAttempts;
-        this.passwordLockTime = passwdLockTime;
+        this.passwordLockSecond = passwordLockSecond;
         this.accountUnlocked = accountUnlocked;
     }
 
-    public int getExpirePolicy() {
-        return expirePolicy;
+    public long getExpirePolicySecond() {
+        return expirePolicySecond;
     }
 
     public int getHistoryPolicy() {
@@ -93,8 +93,8 @@ public class PasswordOptions implements Writable {
         return loginAttempts;
     }
 
-    public int getPasswordLockTime() {
-        return passwordLockTime;
+    public long getPasswordLockSecond() {
+        return passwordLockSecond;
     }
 
     public int getAccountUnlocked() {
@@ -102,7 +102,7 @@ public class PasswordOptions implements Writable {
     }
 
     public void analyze() throws AnalysisException {
-        if (expirePolicy < -2) {
+        if (expirePolicySecond < -2L) {
             throw new AnalysisException("The password expire time must be DAFAULT or >= 0");
         }
         if (historyPolicy < -2 || historyPolicy > HistoryPolicy.MAX_HISTORY_SIZE) {
@@ -114,7 +114,7 @@ public class PasswordOptions implements Writable {
         if (loginAttempts < -2 || loginAttempts == -1 || loginAttempts > 32767) {
             throw new AnalysisException("The failed login attempts must between 0 and 32767");
         }
-        if (passwordLockTime < -2 || passwordLockTime > 32767) {
+        if (passwordLockSecond < -2L || passwordLockSecond > 32767L * 86400) {
             throw new AnalysisException("The account lock time after consecutive failure login"
                     + " must be >= 0, or UNBOUNDED");
         }
@@ -125,8 +125,9 @@ public class PasswordOptions implements Writable {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        if (expirePolicy >= 0) {
-            sb.append(" PASSWORD EXPIRE ").append(expirePolicy == 0 ? "NEVER" : "INTERVAL " + expirePolicy + " DAY");
+        if (expirePolicySecond >= 0) {
+            sb.append(" PASSWORD EXPIRE ")
+                    .append(expirePolicySecond == 0 ? "NEVER" : "INTERVAL " + expirePolicySecond + " SECOND");
         }
         if (historyPolicy > 0) {
             sb.append(" PASSWORD HISTORY").append(historyPolicy);
@@ -134,8 +135,8 @@ public class PasswordOptions implements Writable {
         if (loginAttempts > 0) {
             sb.append(" FAILED_LOGIN_ATTEMPTS ").append(loginAttempts);
         }
-        if (passwordLockTime > 0) {
-            sb.append(" PASSWORD_LOCK_TIME").append(passwordLockTime);
+        if (passwordLockSecond > 0) {
+            sb.append(" PASSWORD_LOCK_TIME ").append(passwordLockSecond).append(" SECOND");
         }
         if (accountUnlocked != -2) {
             sb.append(accountUnlocked == -1 ? " ACCOUNT_LOCK" : " ACCOUNT_UNLOCK");

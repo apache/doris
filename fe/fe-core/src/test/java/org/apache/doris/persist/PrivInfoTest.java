@@ -64,8 +64,8 @@ public class PrivInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         PrivInfo anotherPrivInfo = PrivInfo.read(dis);
         Assert.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
-        Assert.assertEquals(privInfo.getPasswordOptions().getExpirePolicy(),  anotherPrivInfo.getPasswordOptions()
-                        .getExpirePolicy());
+        Assert.assertEquals(privInfo.getPasswordOptions().getExpirePolicySecond(), anotherPrivInfo.getPasswordOptions()
+                .getExpirePolicySecond());
         // 3. delete files
         dis.close();
         file.delete();
@@ -88,7 +88,7 @@ public class PrivInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         PrivInfo anotherPrivInfo = PrivInfo.read(dis);
         Assert.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
-        Assert.assertEquals(PasswordOptions.UNSET,  anotherPrivInfo.getPasswordOptions().getExpirePolicy());
+        Assert.assertEquals(PasswordOptions.UNSET, anotherPrivInfo.getPasswordOptions().getExpirePolicySecond());
         Assert.assertEquals(privInfo.getTblPattern().getTbl(), anotherPrivInfo.getTblPattern().getTbl());
 
         // 3. delete files
@@ -113,7 +113,7 @@ public class PrivInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         PrivInfo anotherPrivInfo = PrivInfo.read(dis);
         Assert.assertTrue(Arrays.equals(privInfo.getPasswd(), anotherPrivInfo.getPasswd()));
-        Assert.assertEquals(PasswordOptions.UNSET,  anotherPrivInfo.getPasswordOptions().getExpirePolicy());
+        Assert.assertEquals(PasswordOptions.UNSET, anotherPrivInfo.getPasswordOptions().getExpirePolicySecond());
         Assert.assertEquals(privInfo.getResourcePattern(), anotherPrivInfo.getResourcePattern());
 
         // 3. delete files
