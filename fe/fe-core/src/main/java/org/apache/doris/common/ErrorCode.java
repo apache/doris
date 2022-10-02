@@ -1530,7 +1530,7 @@ public enum ErrorCode {
     ERR_CREDENTIALS_CONTRADICT_TO_HISTORY(3638, new byte[] {'H', 'Y', '0', '0', '0'},
             "Cannot use these credentials for '%s'@'%s' because they contradict the password history policy"),
     ERR_USER_ACCESS_DENIED_FOR_USER_ACCOUNT_BLOCKED_BY_PASSWORD_LOCK(3955, new byte[] {'H', 'Y', '0', '0', '0'},
-            "Access denied for user '%s'@'%s'. Account is blocked for %s day(s) (%s day(s) remaining) due to %s consecutive failed logins."),
+            "Access denied for user '%s'@'%s'. Account is blocked for %s second(s) (%s second(s) remaining) due to %s consecutive failed logins."),
     // Following is Palo's error code, which start from 5000
     ERR_NOT_OLAP_TABLE(5000, new byte[] {'H', 'Y', '0', '0', '0'}, "Table '%s' is not a OLAP table"),
     ERR_WRONG_PROC_PATH(5001, new byte[] {'H', 'Y', '0', '0', '0'}, "Proc path '%s' doesn't exist"),

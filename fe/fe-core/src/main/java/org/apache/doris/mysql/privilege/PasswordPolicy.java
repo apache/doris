@@ -92,7 +92,7 @@ public class PasswordPolicy implements Writable {
                         ErrorCode.ERR_USER_ACCESS_DENIED_FOR_USER_ACCOUNT_BLOCKED_BY_PASSWORD_LOCK,
                         curUser.getQualifiedUser(), curUser.getHost(),
                         failedLoginPolicy.passwordLockSeconds,
-                        failedLoginPolicy.leftDays(),
+                        failedLoginPolicy.leftSeconds(),
                         failedLoginPolicy.failedLoginCounter);
             }
         } finally {
@@ -187,10 +187,10 @@ public class PasswordPolicy implements Writable {
         public long passwordCreateTime = 0;
 
         public boolean isExpire() {
-            return leftDays() <= 0;
+            return leftSeconds() <= 0;
         }
 
-        public long leftDays() {
+        public long leftSeconds() {
             long tmp = expirationSecond;
             if (tmp == -1) {
                 tmp = GlobalVariable.defaultPasswordLifetime * 86400;
@@ -200,11 +200,7 @@ public class PasswordPolicy implements Writable {
             }
             return tmp - (System.currentTimeMillis() - passwordCreateTime) / 1000;
         }
-
-        public void updatePasswordCreationTime() {
-            this.passwordCreateTime = System.currentTimeMillis();
-        }
-
+        
         public void update(long expirationSecond) {
             if (expirationSecond == PasswordOptions.UNSET) {
                 return;
@@ -396,10 +392,10 @@ public class PasswordPolicy implements Writable {
         }
 
         public boolean isLocked() {
-            return leftDays() > 0;
+            return leftSeconds() > 0;
         }
 
-        public long leftDays() {
+        public long leftSeconds() {
             if (numFailedLogin == DISABLED || passwordLockSeconds == DISABLED || lockTime.get() == 0) {
                 // This policy is disabled or not locked, return
                 return 0;
