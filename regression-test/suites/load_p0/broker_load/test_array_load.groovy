@@ -187,6 +187,7 @@ suite("test_array_load", "p0") {
         while(max_try_milli_secs) {
             result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
+                sql "sync"
                 qt_select "select * from ${testTablex} order by k1"
                 break
             } else {
@@ -208,6 +209,7 @@ suite("test_array_load", "p0") {
         load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
         
         // select the table and check whether the data is correct
+        sql "sync"
         qt_select "select * from ${testTable} order by k1"
 
     } finally {
@@ -223,6 +225,7 @@ suite("test_array_load", "p0") {
         load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
         
         // select the table and check whether the data is correct
+        sql "sync"
         qt_select "select * from ${testTable} order by k1"
 
     } finally {
@@ -238,6 +241,7 @@ suite("test_array_load", "p0") {
         load_array_data.call(testTable, 'true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
         
         // select the table and check whether the data is correct
+        sql "sync"
         qt_select "select * from ${testTable} order by k1"
 
     } finally {
@@ -253,6 +257,7 @@ suite("test_array_load", "p0") {
         load_array_data.call(testTable, 'true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
         
         // select the table and check whether the data is correct
+        sql "sync"
         qt_select "select * from ${testTable} order by k1"
 
     } finally {
@@ -268,6 +273,7 @@ suite("test_array_load", "p0") {
         load_array_data.call(testTable01, '', '', '', '', '', '', '', '', '/', 'simple_array.data')
         
         // select the table and check whether the data is correct
+        sql "sync"
         qt_select "select * from ${testTable01} order by k1"
 
     } finally {
