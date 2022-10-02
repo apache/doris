@@ -245,7 +245,7 @@ public abstract class TestWithFeService {
         if (Strings.isNullOrEmpty(dorisHome)) {
             dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
-        System.out.println("CREATE DIR: " + dorisHome);
+        System.out.println("CREATE FE SERVER DIR: " + dorisHome);
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
         Config.edit_log_type = "local";
@@ -253,6 +253,7 @@ public abstract class TestWithFeService {
         if (!file.exists()) {
             file.mkdir();
         }
+        System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
         int feHttpPort = findValidPort();
         int feRpcPort = findValidPort();
@@ -358,7 +359,9 @@ public abstract class TestWithFeService {
 
     protected void cleanDorisFeDir() {
         try {
-            cleanDir(dorisHome);
+            cleanDir(dorisHome + "/" + runningDir);
+            cleanDir(Config.plugin_dir);
+            cleanDir(Config.custom_config_dir);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -548,8 +551,13 @@ public abstract class TestWithFeService {
     private void cleanDir(String dir) throws IOException {
         File localDir = new File(dir);
         if (localDir.exists()) {
-            Files.walk(Paths.get(dir)).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
-            System.out.println("Clean DIR: " + dir);
+            Files.walk(Paths.get(dir))
+                    .sorted(Comparator.reverseOrder())
+                    .map(Path::toFile)
+                    .forEach(file -> {
+                        System.out.println("DELETE FE SERVER DIR: " + file.getAbsolutePath());
+                        file.delete();
+                    });
         } else {
             System.out.println("No need clean DIR: " + dir);
         }
