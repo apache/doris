@@ -11,13 +11,13 @@ FROM
    , warehouse
    , item
    , date_dim
-   WHERE (i_current_price BETWEEN CAST('0.99' AS DECIMAL(5,2)) AND CAST('1.49' AS DECIMAL(5,2)))
+   WHERE (i_current_price BETWEEN CAST('0.99' AS DECIMAL(27,9)) AND CAST('1.49' AS DECIMAL(27,9)))
       AND (i_item_sk = inv_item_sk)
       AND (inv_warehouse_sk = w_warehouse_sk)
       AND (inv_date_sk = d_date_sk)
       AND (d_date BETWEEN (CAST('2000-03-11' AS DATE) - INTERVAL  '30' DAY) AND (CAST('2000-03-11' AS DATE) + INTERVAL  '30' DAY))
    GROUP BY w_warehouse_name, i_item_id
 )  x
-WHERE ((CASE WHEN (inv_before > 0) THEN (CAST(inv_after AS DECIMAL(7,2)) / inv_before) ELSE null END) BETWEEN (CAST('2.00' AS DECIMAL(5,2)) / CAST('3.00' AS DECIMAL(5,2))) AND (CAST('3.00' AS DECIMAL(5,2)) / CAST('2.00' AS DECIMAL(5,2))))
+WHERE ((CASE WHEN (inv_before > 0) THEN (CAST(inv_after AS DECIMAL(7,2)) / inv_before) ELSE null END) BETWEEN (CAST('2.00' AS DECIMAL(27,9)) / CAST('3.00' AS DECIMAL(27,9))) AND (CAST('3.00' AS DECIMAL(27,9)) / CAST('2.00' AS DECIMAL(27,9))))
 ORDER BY w_warehouse_name ASC, i_item_id ASC
 LIMIT 100
