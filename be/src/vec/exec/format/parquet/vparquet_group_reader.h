@@ -17,17 +17,11 @@
 #pragma once
 #include <common/status.h>
 
-#include "exprs/expr_context.h"
 #include "io/file_reader.h"
 #include "vec/core/block.h"
 #include "vparquet_column_reader.h"
-#include "vparquet_file_metadata.h"
-#include "vparquet_reader.h"
 
 namespace doris::vectorized {
-class ParquetReadColumn;
-class ParquetColumnReader;
-struct RowRange;
 
 class RowGroupReader {
 public:
@@ -39,9 +33,7 @@ public:
                 std::unordered_map<int, tparquet::OffsetIndex>& col_offsets);
     Status next_batch(Block* block, size_t batch_size, bool* _batch_eof);
 
-private:
-    Status _init_column_readers(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
-                                std::unordered_map<int, tparquet::OffsetIndex>& col_offsets);
+    ParquetColumnReader::Statistics statistics();
 
 private:
     doris::FileReader* _file_reader;
