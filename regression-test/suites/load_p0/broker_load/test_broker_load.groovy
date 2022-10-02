@@ -60,8 +60,8 @@ suite("test_broker_load", "p0") {
     ]
     def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", ""]
 
-    String ak = context.config.otherConfigs.get("awsAccessKey")
-    String sk = context.config.otherConfigs.get("awsSecretKey")
+    String ak = getS3AK()
+    String sk = getS3SK()
     String enabled = context.config.otherConfigs.get("enableBrokerLoad")
 
     def do_load_job = {uuid, path, table, columns, column_in_path, preceding_filter,
@@ -109,7 +109,7 @@ suite("test_broker_load", "p0") {
         }
     }
 
-    if (enabled.equalsIgnoreCase("true")) {
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def uuids = []
         sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         set_be_config.call()
