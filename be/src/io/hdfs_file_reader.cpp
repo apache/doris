@@ -145,9 +145,9 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
     }
 
     int64_t has_read = 0;
+    char* cast_out = reinterpret_cast<char*>(out);
     while (has_read < nbytes) {
-        int64_t loop_read = hdfsRead(_hdfs_fs, _hdfs_file, reinterpret_cast<char*>(out) + has_read,
-                                     nbytes - has_read);
+        int64_t loop_read = hdfsRead(_hdfs_fs, _hdfs_file, cast_out + has_read, nbytes - has_read);
         if (loop_read < 0) {
             return Status::InternalError(
                     "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
