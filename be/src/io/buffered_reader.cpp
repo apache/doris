@@ -221,15 +221,21 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     int64_t buf_remaining = _buf_end_offset - _buf_start_offset;
     int64_t to_read = std::min(_buf_size - buf_remaining, _file_end_offset - _buf_end_offset);
     int64_t has_read = 0;
+    SCOPED_RAW_TIMER(&_statistics.read_time);
     while (has_read < to_read) {
         int64_t loop_read = 0;
         RETURN_IF_ERROR(_file->readat(_buf_end_offset + has_read, to_read - has_read, &loop_read,
                                       _buf.get() + buf_remaining + has_read));
+        _statistics.read_calls++;
+        if (loop_read <= 0) {
+            break;
+        }
         has_read += loop_read;
     }
     if (has_read != to_read) {
         return Status::Corruption("Try to read {} bytes, but received {} bytes", to_read, has_read);
     }
+    _statistics.read_bytes += to_read;
     _buf_end_offset += to_read;
     *buf = _buf.get();
     return Status::OK();
