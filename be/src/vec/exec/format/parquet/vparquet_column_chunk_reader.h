@@ -29,8 +29,6 @@
 #include "parquet_common.h"
 #include "schema_desc.h"
 #include "util/block_compression.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_nullable.h"
 #include "vparquet_page_reader.h"
 
 namespace doris::vectorized {
@@ -57,6 +55,15 @@ namespace doris::vectorized {
  */
 class ColumnChunkReader {
 public:
+    struct Statistics {
+        int64_t decompress_time = 0;
+        int64_t decompress_cnt = 0;
+        int64_t decode_header_time = 0;
+        int64_t decode_value_time = 0;
+        int64_t decode_dict_time = 0;
+        int64_t decode_level_time = 0;
+    };
+
     ColumnChunkReader(BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, cctz::time_zone* ctz);
     ~ColumnChunkReader() = default;
@@ -96,7 +103,7 @@ public:
     // Load page data into the underlying container,
     // and initialize the repetition and definition level decoder for current page data.
     Status load_page_data();
-    Status load_page_date_idempotent() {
+    Status load_page_data_idempotent() {
         if (_state == DATA_LOADED) {
             return Status::OK();
         }
@@ -131,6 +138,11 @@ public:
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
+    Statistics& statistics() {
+        _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
+        return _statistics;
+    }
+
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED };
 
@@ -161,6 +173,7 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
+    Statistics _statistics;
 };
 
 } // namespace doris::vectorized
