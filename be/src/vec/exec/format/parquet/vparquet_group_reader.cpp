@@ -38,14 +38,6 @@ RowGroupReader::~RowGroupReader() {
 
 Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
                             std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
-    VLOG_DEBUG << "Row group id: " << _row_group_id;
-    RETURN_IF_ERROR(_init_column_readers(schema, row_ranges, col_offsets));
-    return Status::OK();
-}
-
-Status RowGroupReader::_init_column_readers(
-        const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
-        std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
     const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
     size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
@@ -60,7 +52,7 @@ Status RowGroupReader::_init_column_readers(
             reader->add_offset_index(&oi);
         }
         if (reader == nullptr) {
-            VLOG_DEBUG << "Init row group reader failed";
+            VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
         }
         _column_readers[read_col._file_slot_name] = std::move(reader);
@@ -98,6 +90,15 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
     *_batch_eof = has_eof;
     // use data fill utils read column data to column ptr
     return Status::OK();
+}
+
+ParquetColumnReader::Statistics RowGroupReader::statistics() {
+    ParquetColumnReader::Statistics st;
+    for (auto& reader : _column_readers) {
+        auto ost = reader.second->statistics();
+        st.merge(ost);
+    }
+    return st;
 }
 
 } // namespace doris::vectorized
