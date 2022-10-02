@@ -294,12 +294,13 @@ public class PasswordPolicy implements Writable {
         }
 
         public void update(byte[] password, int historyNum) {
-            if (historyNum == PasswordOptions.UNSET || password == null) {
-                return;
+            if (historyNum != PasswordOptions.UNSET) {
+                this.historyNum = historyNum;
+                this.historyPasswords.clear();
             }
-            this.historyNum = historyNum;
-            this.historyPasswords.clear();
-            this.historyPasswords.add(password);
+            if (password != null) {
+                this.historyPasswords.add(password);
+            }
         }
 
         private String historyNumToString() {
@@ -481,3 +482,4 @@ public class PasswordPolicy implements Writable {
         }
     }
 }
+
