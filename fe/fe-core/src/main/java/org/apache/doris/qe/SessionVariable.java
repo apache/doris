@@ -399,9 +399,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
 
-    @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
-    public long loadMemLimit = 2 * 1024 * 1024 * 1024L; // 2GB as default
-
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
 
@@ -603,10 +600,6 @@ public class SessionVariable implements Serializable, Writable {
         return maxExecMemByte;
     }
 
-    public long getLoadMemLimit() {
-        return loadMemLimit;
-    }
-
     public int getQueryTimeoutS() {
         return queryTimeoutS;
     }
@@ -752,10 +745,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
         this.sqlQuoteShowCreate = sqlQuoteShowCreate;
-    }
-
-    public void setLoadMemLimit(long loadMemLimit) {
-        this.loadMemLimit = loadMemLimit;
     }
 
     public void setQueryTimeoutS(int queryTimeoutS) {
@@ -1196,7 +1185,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
-        tResult.setLoadMemLimit(loadMemLimit);
 
         if (maxScanKeyNum > -1) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
@@ -1394,9 +1382,6 @@ public class SessionVariable implements Serializable, Writable {
         if (queryOptions.isSetQueryTimeout()) {
             setQueryTimeoutS(queryOptions.getQueryTimeout());
         }
-        if (queryOptions.isSetLoadMemLimit()) {
-            setLoadMemLimit(queryOptions.getLoadMemLimit());
-        }
     }
 
     /**
@@ -1406,7 +1391,6 @@ public class SessionVariable implements Serializable, Writable {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
         queryOptions.setQueryTimeout(queryTimeoutS);
-        queryOptions.setLoadMemLimit(loadMemLimit);
         return queryOptions;
     }
 
