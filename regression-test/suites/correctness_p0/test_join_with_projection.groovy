@@ -17,15 +17,15 @@
 
 suite("test_join_with_projection") {
     sql """
-        drop table if exists outerjoin_A;
+        drop table if exists test_join_with_projection_outerjoin_A;
     """
 
     sql """
-        drop table if exists outerjoin_B;
+        drop table if exists test_join_with_projection_outerjoin_B;
     """
 
     sql """
-        create table outerjoin_A ( a int not null )
+        create table test_join_with_projection_outerjoin_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -36,7 +36,7 @@ suite("test_join_with_projection") {
     """
 
     sql """
-        create table outerjoin_B ( a int not null )
+        create table test_join_with_projection_outerjoin_B ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -47,11 +47,11 @@ suite("test_join_with_projection") {
     """
 
     sql """
-        insert into outerjoin_A values( 1 );
+        insert into test_join_with_projection_outerjoin_A values( 1 );
     """
 
     sql """
-        insert into outerjoin_B values( 1 );
+        insert into test_join_with_projection_outerjoin_B values( 1 );
     """
 
     qt_select """
@@ -63,20 +63,20 @@ suite("test_join_with_projection") {
             END AS c0
         FROM 
             (SELECT a AS c0
-            FROM outerjoin_A
+            FROM test_join_with_projection_outerjoin_A
             ) AS subq_1
         RIGHT JOIN 
             (SELECT a AS c0
-            FROM outerjoin_B
+            FROM test_join_with_projection_outerjoin_B
             ) AS subq_2
             ON (subq_1.c0 = subq_2.c0 );
     """
 
     sql """
-        drop table if exists outerjoin_A;
+        drop table if exists test_join_with_projection_outerjoin_A;
     """
 
     sql """
-        drop table if exists outerjoin_B;
+        drop table if exists test_join_with_projection_outerjoin_B;
     """
 }

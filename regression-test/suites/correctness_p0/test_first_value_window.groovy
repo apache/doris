@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_first_value_window") {
-    def tableName = "state"
+    def tableName = "test_first_value_window_state"
 
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
