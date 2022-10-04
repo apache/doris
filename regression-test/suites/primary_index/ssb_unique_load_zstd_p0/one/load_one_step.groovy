@@ -16,22 +16,21 @@
 // under the License.
 
 
-suite("load_two_step") {
-    def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 3000, "c_custkey"], "lineorder": ["""lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 
+suite("load_one_step") {
+    def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 3000], "lineorder": ["""lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 
                     lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
-                    lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy""", 600572, "lo_orderkey"], "part": ["""p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy""", 20000, "p_partkey"], "date": ["""d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,
+                    lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy""", 600572], "part": ["""p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy""", 20000], "date": ["""d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,
                     d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,
-                    d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""", 255, "d_datekey"], "supplier": ["""s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy""", 200, "s_suppkey"]]
+                    d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""", 255], "supplier": ["""s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy""", 200]]
 
     tables.each { tableName, rows ->
         sql """ DROP TABLE IF EXISTS $tableName """
-        sql new File("""${context.file.parent}/ddl/${tableName}_sequence_create.sql""").text
+        sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_create.sql""").text
         streamLoad {
-            table tableName
+            table "${tableName}"
             set 'column_separator', '|'
             set 'compress_type', 'GZ'
-            set 'columns', rows[0]
-            set 'function_column.sequence_col', rows[2]
+            set 'columns', "${rows[0]}"
             file """${context.sf1DataPath}/ssb/sf0.1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
@@ -56,12 +55,6 @@ suite("load_two_step") {
             def loadRowCount = sql "select count(1) from ${tableName}"
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
             assertTrue(loadRowCount[0][0] == rows[1])
-        }
-        sql new File("""${context.file.parent}/ddl/${tableName}_delete.sql""").text
-        for (int i = 1; i <= 5; i++) {
-            def loadRowCount = sql "select count(1) from ${tableName}"
-            logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
-            assertTrue(loadRowCount[0][0] == 0)
         }
     }
 }
