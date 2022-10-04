@@ -85,6 +85,7 @@ public class JdbcTableSink extends DataSink {
         jdbcTableSink.jdbc_table.setJdbcDriverChecksum(checkSum);
         jdbcTableSink.jdbc_table.setJdbcResourceName(resourceName);
         jdbcTableSink.setUseTransaction(useTransaction);
+        jdbcTableSink.setTableType(jdbcType);
 
         tDataSink.setJdbcTableSink(jdbcTableSink);
         return tDataSink;
