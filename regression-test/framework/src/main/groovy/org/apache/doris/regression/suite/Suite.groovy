@@ -286,7 +286,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableHdfs() {
-        String enableHdfs =  context.config.otherConfigs.get("enableHdfs");
+        String enableHdfs = context.config.otherConfigs.get("enableHdfs");
         return enableHdfs.equals("true");
     }
 
@@ -298,6 +298,11 @@ class Suite implements GroovyInterceptable {
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         String remotePath = hdfs.upload(localFile)
         return remotePath;
+    }
+
+    boolean enableBrokerLoad() {
+        String enableBrokerLoad = context.config.otherConfigs.get("enableBrokerLoad");
+        return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
     }
 
     String getS3Region() {
