@@ -100,7 +100,7 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         _timezone = timezone;
 
         RETURN_IF_ERROR(column_indices());
-        if (config::parquet_predicate_push_down) {
+        if (config::parquet_predicate_push_down && tuple_desc != nullptr) {
             int64_t file_size = 0;
             size(&file_size);
             _row_group_reader.reset(new RowGroupReader(_range_start_offset, _range_size,
