@@ -154,6 +154,7 @@ struct TOdbcTableSink {
 struct TJdbcTableSink {
     1: optional Descriptors.TJdbcTable jdbc_table
     2: optional bool use_transaction
+    3: optional Types.TOdbcTableType table_type
 }
 
 struct TExportSink {
