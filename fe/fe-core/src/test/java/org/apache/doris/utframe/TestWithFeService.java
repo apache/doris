@@ -73,7 +73,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.io.FileUtils;
 import org.junit.Assert;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -89,6 +88,9 @@ import java.net.ServerSocket;
 import java.net.SocketException;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -106,6 +108,7 @@ import java.util.UUID;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class TestWithFeService {
+    protected String dorisHome;
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
 
@@ -122,8 +125,8 @@ public abstract class TestWithFeService {
     public final void afterAll() throws Exception {
         runAfterAll();
         Env.getCurrentEnv().clear();
-        cleanDorisFeDir(runningDir);
         NamedExpressionUtil.clear();
+        cleanDorisFeDir();
     }
 
     @BeforeEach
@@ -238,10 +241,11 @@ public abstract class TestWithFeService {
             throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
             InterruptedException {
         // get DORIS_HOME
-        String dorisHome = System.getenv("DORIS_HOME");
+        dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
             dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
+        System.out.println("CREATE FE SERVER DIR: " + dorisHome);
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
         Config.edit_log_type = "local";
@@ -249,6 +253,7 @@ public abstract class TestWithFeService {
         if (!file.exists()) {
             file.mkdir();
         }
+        System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
         int feHttpPort = findValidPort();
         int feRpcPort = findValidPort();
@@ -352,9 +357,11 @@ public abstract class TestWithFeService {
         return be;
     }
 
-    protected void cleanDorisFeDir(String baseDir) {
+    protected void cleanDorisFeDir() {
         try {
-            FileUtils.deleteDirectory(new File(baseDir));
+            cleanDir(dorisHome + "/" + runningDir);
+            cleanDir(Config.plugin_dir);
+            cleanDir(Config.custom_config_dir);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -540,4 +547,19 @@ public abstract class TestWithFeService {
         }
     }
 
+    // clear the specified dir
+    private void cleanDir(String dir) throws IOException {
+        File localDir = new File(dir);
+        if (localDir.exists()) {
+            Files.walk(Paths.get(dir))
+                    .sorted(Comparator.reverseOrder())
+                    .map(Path::toFile)
+                    .forEach(file -> {
+                        System.out.println("DELETE FE SERVER DIR: " + file.getAbsolutePath());
+                        file.delete();
+                    });
+        } else {
+            System.out.println("No need clean DIR: " + dir);
+        }
+    }
 }
