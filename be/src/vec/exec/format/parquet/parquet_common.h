@@ -180,7 +180,8 @@ public:
     void set_data(Slice* data) override;
 
 protected:
-    Status _decode_short_int(MutableColumnPtr& doris_column, size_t num_values, size_t real_length);
+    template <typename ShortIntType>
+    Status _decode_short_int(MutableColumnPtr& doris_column, size_t num_values);
 
     template <typename Numeric>
     Status _decode_numeric(MutableColumnPtr& doris_column, size_t num_values);
@@ -219,15 +220,33 @@ protected:
     std::vector<uint32_t> _indexes;
 };
 
+template <typename ShortIntType>
+Status FixLengthDecoder::_decode_short_int(MutableColumnPtr& doris_column, size_t num_values) {
+    if (UNLIKELY(_physical_type != tparquet::Type::INT32)) {
+        return Status::InternalError("Short int can only be decoded from INT32");
+    }
+    auto& column_data = static_cast<ColumnVector<ShortIntType>&>(*doris_column).get_data();
+    auto origin_size = column_data.size();
+    column_data.resize(origin_size + num_values);
+    for (int i = 0; i < num_values; ++i) {
+        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
+        column_data[origin_size + i] = *(ShortIntType*)buf_start;
+        _FIXED_SHIFT_DATA_OFFSET();
+    }
+    return Status::OK();
+}
+
 template <typename Numeric>
 Status FixLengthDecoder::_decode_numeric(MutableColumnPtr& doris_column, size_t num_values) {
+    auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
     if (_has_dict) {
+        auto origin_size = column_data.size();
+        column_data.resize(origin_size + num_values);
         for (int i = 0; i < num_values; ++i) {
             char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-            doris_column->insert_data(buf_start, _type_length);
+            column_data[origin_size + i] = *(Numeric*)buf_start;
         }
     } else {
-        auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
         const auto* raw_data = reinterpret_cast<const Numeric*>(_data->data + _offset);
         column_data.insert(raw_data, raw_data + num_values);
         _offset += _type_length * num_values;
@@ -239,17 +258,17 @@ template <typename CppType, typename ColumnType>
 Status FixLengthDecoder::_decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type,
                                       size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
+    auto origin_size = column_data.size();
+    column_data.resize(origin_size + num_values);
     for (int i = 0; i < num_values; ++i) {
         char* buf_start = _FIXED_GET_DATA_OFFSET(i);
         int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start));
-        CppType v;
+        auto& v = reinterpret_cast<CppType&>(column_data[origin_size + i]);
         v.from_unixtime(date_value * 24 * 60 * 60, *_decode_params->ctz); // day to seconds
         if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
             // we should cast to date if using date v1.
             v.cast_to_date();
         }
-        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
-        column_data.emplace_back(cast_value);
         _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
@@ -259,18 +278,18 @@ template <typename CppType, typename ColumnType>
 Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
                                             size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
+    auto origin_size = column_data.size();
+    column_data.resize(origin_size + num_values);
     for (int i = 0; i < num_values; i++) {
         char* buf_start = _FIXED_GET_DATA_OFFSET(i);
         int64_t& date_value = *reinterpret_cast<int64_t*>(buf_start);
-        CppType v;
+        auto& v = reinterpret_cast<CppType&>(column_data[origin_size + i]);
         v.from_unixtime(date_value / _decode_params->second_mask, *_decode_params->ctz);
         if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
             // nanoseconds will be ignored.
             v.set_microsecond((date_value % _decode_params->second_mask) *
                               _decode_params->scale_to_nano_factor / 1000);
         }
-        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
-        column_data.emplace_back(cast_value);
         _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
@@ -280,10 +299,12 @@ template <typename CppType, typename ColumnType>
 Status FixLengthDecoder::_decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
                                             size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
+    auto origin_size = column_data.size();
+    column_data.resize(origin_size + num_values);
     for (int i = 0; i < num_values; ++i) {
         char* buf_start = _FIXED_GET_DATA_OFFSET(i);
         ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(buf_start);
-        CppType v;
+        auto& v = reinterpret_cast<CppType&>(column_data[origin_size + i]);
         int64_t micros = datetime96.to_timestamp_micros();
         v.from_unixtime(micros / 1000000, *_decode_params->ctz);
         if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
@@ -291,8 +312,6 @@ Status FixLengthDecoder::_decode_datetime96(MutableColumnPtr& doris_column, Type
             // only keep microseconds.
             v.set_microsecond(micros % 1000000);
         }
-        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
-        column_data.emplace_back(cast_value);
         _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
@@ -304,6 +323,8 @@ Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    auto origin_size = column_data.size();
+    column_data.resize(origin_size + num_values);
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     for (int i = 0; i < num_values; ++i) {
         char* buf_start = _FIXED_GET_DATA_OFFSET(i);
@@ -318,8 +339,8 @@ Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value /= scale_params.scale_factor;
         }
-        DecimalPrimitiveType cast_value(value);
-        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
+        auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
+        v = (DecimalPrimitiveType)value;
         _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
@@ -331,6 +352,8 @@ Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_colum
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    auto origin_size = column_data.size();
+    column_data.resize(origin_size + num_values);
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     for (int i = 0; i < num_values; ++i) {
         char* buf_start = _FIXED_GET_DATA_OFFSET(i);
@@ -341,8 +364,8 @@ Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_colum
         } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value /= scale_params.scale_factor;
         }
-        DecimalPrimitiveType cast_value(value);
-        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
+        auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
+        v = (DecimalPrimitiveType)value;
         _FIXED_SHIFT_DATA_OFFSET();
     }
     return Status::OK();
@@ -381,6 +404,8 @@ Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    auto origin_size = column_data.size();
+    column_data.resize(origin_size + num_values);
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
     for (int i = 0; i < num_values; ++i) {
         char* buf_start;
@@ -409,8 +434,8 @@ Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value /= scale_params.scale_factor;
         }
-        DecimalPrimitiveType cast_value(value);
-        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
+        auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
+        v = (DecimalPrimitiveType)value;
     }
     return Status::OK();
 }

@@ -40,6 +40,12 @@ inline uint64_t ParquetInt96::to_timestamp_micros() const {
     M(TypeIndex::Float32, Float32)   \
     M(TypeIndex::Float64, Float64)
 
+#define FOR_SHORT_INT_TYPES(M) \
+    M(TypeIndex::Int8, Int8)   \
+    M(TypeIndex::UInt8, UInt8) \
+    M(TypeIndex::Int16, Int16) \
+    M(TypeIndex::UInt16, UInt16)
+
 Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type encoding,
                             std::unique_ptr<Decoder>& decoder) {
     switch (encoding) {
@@ -155,19 +161,6 @@ Status FixLengthDecoder::skip_values(size_t num_values) {
     return Status::OK();
 }
 
-Status FixLengthDecoder::_decode_short_int(MutableColumnPtr& doris_column, size_t num_values,
-                                           size_t real_length) {
-    if (UNLIKELY(_physical_type != tparquet::Type::INT32)) {
-        return Status::InternalError("Short int can only be decoded from INT32");
-    }
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        doris_column->insert_data(buf_start, real_length);
-        _FIXED_SHIFT_DATA_OFFSET();
-    }
-    return Status::OK();
-}
-
 Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                        size_t num_values) {
     if (_has_dict) {
@@ -178,12 +171,11 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
     }
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
-    case TypeIndex::Int8:
-    case TypeIndex::UInt8:
-        return _decode_short_int(doris_column, num_values, 1);
-    case TypeIndex::Int16:
-    case TypeIndex::UInt16:
-        return _decode_short_int(doris_column, num_values, 2);
+#define DISPATCH(SHORT_INT_TYPE, CPP_SHORT_INT_TYPE) \
+    case SHORT_INT_TYPE:                             \
+        return _decode_short_int<CPP_SHORT_INT_TYPE>(doris_column, num_values);
+        FOR_SHORT_INT_TYPES(DISPATCH)
+#undef DISPATCH
 #define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE) \
     case NUMERIC_TYPE:                           \
         return _decode_numeric<CPP_NUMERIC_TYPE>(doris_column, num_values);
@@ -329,13 +321,15 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
     case TypeIndex::String:
-    case TypeIndex::FixedString:
+    case TypeIndex::FixedString: {
+        std::vector<StringRef> string_values;
+        string_values.reserve(num_values);
         for (int i = 0; i < num_values; ++i) {
             if (_has_dict) {
                 uint32_t idx = _indexes[i];
                 uint32_t idx_cursor = _dict_offsets[idx];
                 char* buff_start = reinterpret_cast<char*>(_dict.get() + idx_cursor);
-                doris_column->insert_data(buff_start, _dict_offsets[idx + 1] - idx_cursor - 4);
+                string_values.emplace_back(buff_start, _dict_offsets[idx + 1] - idx_cursor - 4);
             } else {
                 if (UNLIKELY(_offset + 4 > _data->size)) {
                     return Status::IOError("Can't read byte array length from plain decoder");
@@ -346,11 +340,13 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
                 if (UNLIKELY(_offset + length) > _data->size) {
                     return Status::IOError("Can't read enough bytes in plain decoder");
                 }
-                doris_column->insert_data(_data->data + _offset, length);
+                string_values.emplace_back(_data->data + _offset, length);
                 _offset += length;
             }
         }
+        doris_column->insert_many_strings(&string_values[0], num_values);
         return Status::OK();
+    }
     case TypeIndex::Decimal32:
         return _decode_binary_decimal<Int32>(doris_column, data_type, num_values);
     case TypeIndex::Decimal64:
@@ -392,12 +388,14 @@ Status BoolPlainDecoder::skip_values(size_t num_values) {
 Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                        size_t num_values) {
     auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
+    auto origin_size = column_data.size();
+    column_data.resize(origin_size + num_values);
     bool value;
     for (int i = 0; i < num_values; ++i) {
         if (UNLIKELY(!_decode_value(&value))) {
             return Status::IOError("Can't read enough booleans in plain decoder");
         }
-        column_data.emplace_back(value);
+        column_data[origin_size + i] = (UInt8)value;
     }
     return Status::OK();
 }
