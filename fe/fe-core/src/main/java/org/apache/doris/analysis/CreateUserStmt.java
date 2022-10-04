@@ -61,6 +61,9 @@ public class CreateUserStmt extends DdlStmt {
     public CreateUserStmt(UserDesc userDesc) {
         userIdent = userDesc.getUserIdent();
         passVar = userDesc.getPassVar();
+        if (this.passwordOptions == null) {
+            this.passwordOptions = PasswordOptions.UNSET_OPTION;
+        }
     }
 
     public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role) {

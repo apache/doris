@@ -1234,8 +1234,10 @@ public class PaloAuth implements Writable {
                 }
                 userPrivTable.setPassword(passwdEntry, errOnNonExist);
             }
-            // save password to password history
-            passwdPolicyManager.updatePassword(userIdent, password);
+            if (password != null) {
+                // save password to password history
+                passwdPolicyManager.updatePassword(userIdent, password);
+            }
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, null, password, null, null);

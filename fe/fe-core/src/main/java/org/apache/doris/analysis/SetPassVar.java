@@ -66,7 +66,9 @@ public class SetPassVar extends SetVar {
         }
 
         // Check password
-        passVar.analyze();
+        if (passVar != null) {
+            passVar.analyze();
+        }
 
         // check privs.
         // 1. this is user itself

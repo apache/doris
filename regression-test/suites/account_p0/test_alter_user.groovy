@@ -144,8 +144,6 @@ suite("test_alter_user", "account") {
         sql 'select 1'
     }
 
-    order_qt_show_grants """show all grants"""
-
     // 4. test password validation
     sql """set global validate_password_policy=STRONG"""
     test {

@@ -8,11 +8,3 @@
 -- !show_grants3 --
 'default_cluster:test_auth_user1'@'%'	Yes	 (false)	\N	internal.default_cluster:db1: Select_priv  (false); internal.default_cluster:information_schema: Select_priv  (false)	\N	\N
 
--- !show_grants --
-'admin'@'%'	No	Admin_priv  (false)	\N	\N	\N	\N
-'default_cluster:test_auth_user1'@'%'	Yes	 (false)	\N	internal.default_cluster:db1: Select_priv  (false); internal.default_cluster:information_schema: Select_priv  (false)	\N	\N
-'default_cluster:test_auth_user2'@'%'	Yes	 (false)	internal: Select_priv Load_priv Alter_priv Create_priv Drop_priv  (false)	internal.default_cluster:information_schema: Select_priv  (false)	\N	\N
-'default_cluster:test_auth_user3'@'%'	Yes	 (false)	internal: Select_priv Load_priv Alter_priv Create_priv Drop_priv  (false)	internal.default_cluster:information_schema: Select_priv  (false)	\N	\N
-'default_cluster:user1'@'%'	Yes	 (false)	\N	internal.default_cluster:db1: Select_priv  (false); internal.default_cluster:information_schema: Select_priv  (false)	\N	\N
-'root'@'%'	No	Node_priv Admin_priv  (false)	\N	\N	\N	\N
-
