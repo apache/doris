@@ -139,10 +139,12 @@ suite("load") {
     }
 
     // CREATE-TABLE-AS-SELECT
+    sql "drop table if exists t;"
     sql "create table t properties('replication_num'='1') as select * from item;"
     def origin_count = sql "select count(*) from item"
     def new_count = sql "select count(*) from t"
     assertEquals(origin_count, new_count)
+    sql "drop table if exists tt;"
     sql "create table tt like item"
     sql "insert into tt select * from t"
     new_count = sql "select count(*) from tt"

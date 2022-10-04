@@ -17,11 +17,11 @@
 
 suite("test_no_grouping_window") {
     sql """
-        drop table if exists outerjoin_A;
+        drop table if exists test_no_grouping_window_outerjoin_A;
     """
 
     sql """
-        create table outerjoin_A ( a int not null )
+        create table test_no_grouping_window_outerjoin_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -32,14 +32,14 @@ suite("test_no_grouping_window") {
     """
 
     sql """
-        insert into outerjoin_A values( 1 );
+        insert into test_no_grouping_window_outerjoin_A values( 1 );
     """
 
     qt_select """
-        select avg( a ) over ( partition by a order by a ) * 23 from outerjoin_A;
+        select avg( a ) over ( partition by a order by a ) * 23 from test_no_grouping_window_outerjoin_A;
     """
 
     sql """
-        drop table if exists outerjoin_A;
+        drop table if exists test_no_grouping_window_outerjoin_A;
     """
 }

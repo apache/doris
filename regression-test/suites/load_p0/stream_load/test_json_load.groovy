@@ -162,6 +162,7 @@ suite("test_json_load", "p0") {
         while(max_try_milli_secs) {
             result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
+                sql "sync"
                 qt_select "select * from ${testTablex} order by id"
                 break
             } else {
@@ -182,6 +183,7 @@ suite("test_json_load", "p0") {
 
         load_json_data.call('true', '', 'json', '', '', '', '', '', 'simple_json.json')
 
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -196,6 +198,7 @@ suite("test_json_load", "p0") {
 
         load_json_data.call('true', '', 'json', 'id= id * 10', '', '', '', '', 'simple_json.json')
 
+        sql "sync" 
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -211,6 +214,7 @@ suite("test_json_load", "p0") {
         load_json_data.call('true', '', 'json', '', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'simple_json.json')
 
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -226,6 +230,7 @@ suite("test_json_load", "p0") {
         load_json_data.call('true', '', 'json', 'code = id * 10 + 200', '[\"$.id\"]',
                             '', '', '', 'simple_json.json')
 
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -241,6 +246,7 @@ suite("test_json_load", "p0") {
         load_json_data.call('true', 'true', 'json', '', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'multi_line_json.json')
         
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -256,6 +262,7 @@ suite("test_json_load", "p0") {
         load_json_data.call('true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', '', '', 'multi_line_json.json')
 
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -271,6 +278,7 @@ suite("test_json_load", "p0") {
         load_json_data.call('true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', 'id > 50', '', 'multi_line_json.json')
 
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -286,6 +294,7 @@ suite("test_json_load", "p0") {
         load_json_data.call('true', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '', 'id > 50', 'true', 'multi_line_json.json')
 
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -301,6 +310,7 @@ suite("test_json_load", "p0") {
         load_json_data.call('', 'true', 'json', 'id= id * 10', '',
                             '$.item', '', 'true', 'nest_json.json')
 
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -315,6 +325,7 @@ suite("test_json_load", "p0") {
         load_json_data.call('', 'true', 'json', 'id= id * 10', '',
                             '$.item', '', 'true', 'invalid_json.json', true)
 
+        sql "sync"
         qt_select "select * from ${testTable} order by id"
 
     } finally {
@@ -368,6 +379,7 @@ suite("test_json_load", "p0") {
             load_json_data.call('true', '', 'json', '', '',
                     '', '', '', 'invalid_json_array.json', true)
 
+            sql "sync"
             qt_select "select * from ${testTable}"
 
         } finally {

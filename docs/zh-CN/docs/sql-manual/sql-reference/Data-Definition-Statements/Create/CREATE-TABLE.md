@@ -315,7 +315,9 @@ distribution_desc
     
     * `light_schema_change`
 
-        Doris默认不使用light schema change优化。如果想使用该优化需要指定为true。
+        是否使用light schema change优化。
+
+        如果设置成 `true`, 对于值列的加减操作，可以更快地，同步地完成。
     
         `"light_schema_change" = 'true'`
     

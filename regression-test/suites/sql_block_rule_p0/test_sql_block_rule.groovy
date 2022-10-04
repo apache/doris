@@ -55,7 +55,7 @@ suite("test_sql_block_rule") {
     sql """
                 SELECT * FROM table_2
               """
-
+/*
     sql """
                 CREATE SQL_BLOCK_RULE if not exists test_rule_num
                 PROPERTIES("tablet_num"="1", "global"= "true", "enable"= "true")
@@ -65,7 +65,7 @@ suite("test_sql_block_rule") {
         sql "SELECT * FROM table_2"
         exception "sql hits sql block rule: test_rule_num, reach tablet_num : 1"
     }
-
+*/
     qt_select """
                 SHOW SQL_BLOCK_RULE
               """
