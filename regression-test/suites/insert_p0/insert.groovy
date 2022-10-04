@@ -81,6 +81,6 @@ suite("insert") {
     sql """ insert into mutable_datatype values(5 * 10, cast(4.1 + 5 as double), 'abc', cast('2014-01-01' as date), cast('2015-01-01 03:15:16' as datetime), TRUE, '123.22', '123456789012345678.012345678') """
 
     sql "sync"
-    qt_insert """ select * from mutable_datatype """
+    qt_insert """ select * from mutable_datatype order by c_bigint, c_double, c_string, c_date, c_timestamp, c_boolean, c_short_decimal"""
 
 }
