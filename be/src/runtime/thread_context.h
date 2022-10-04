@@ -306,6 +306,6 @@ public:
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
 #define RETURN_LIMIT_EXCEEDED(state, msg, ...) (void)0
 #define MEM_MALLOC_HOOK(size) (void)0
-#define MEM_FREE_HOOK(size) (void)0   
+#define MEM_FREE_HOOK(size) (void)0
 #endif
 } // namespace doris
