@@ -37,7 +37,7 @@ suite("load") {
         sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
         sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     }
-    i = 0
+    def i = 0
     for (String tableName in tables) {   
         streamLoad {
             // a default db 'regression_test' is specified in
