@@ -64,11 +64,11 @@ BE 的配置项有两种方式进行配置：
 
 ## 应用举例
 
-1. 静态方式修改 `max_base_compaction_concurrency`
+1. 静态方式修改 `max_base_compaction_threads`
 
   通过在 `be.conf` 文件中添加：
 
-  ```max_base_compaction_concurrency=5```
+  ```max_base_compaction_threads=5```
 
   之后重启 BE 进程以生效该配置。
 
