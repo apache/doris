@@ -194,7 +194,7 @@ under the License.
         <netty-all.version>4.1.42.Final</netty-all.version>
         <objenesis.version>2.1</objenesis.version>
         <grpc.version>1.30.0</grpc.version>
-        <protobuf.version>3.14.0</protobuf.version>
+        <protobuf.version>3.16.3</protobuf.version>
         <protoparser.version>3.1.5</protoparser.version>
         <snappy-java.version>1.1.7.2</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
