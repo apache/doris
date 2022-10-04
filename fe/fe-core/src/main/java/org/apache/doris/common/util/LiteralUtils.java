@@ -38,7 +38,7 @@ public class LiteralUtils {
             String timeStr = literal.getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
-            return BigDecimal.valueOf(literal.getValue()).stripTrailingZeros().toPlainString();
+            return BigDecimal.valueOf(literal.getValue()).toPlainString();
         }
     }
 
@@ -48,7 +48,7 @@ public class LiteralUtils {
             if (v instanceof FloatLiteral) {
                 list.add(getStringValue((FloatLiteral) v));
             } else if (v instanceof DecimalLiteral) {
-                list.add(((DecimalLiteral) v).getValue().stripTrailingZeros().toPlainString());
+                list.add(((DecimalLiteral) v).getValue().toPlainString());
             } else if (v instanceof StringLiteral) {
                 list.add("'" + v.getStringValue() + "'");
             } else if (v instanceof ArrayLiteral) {
