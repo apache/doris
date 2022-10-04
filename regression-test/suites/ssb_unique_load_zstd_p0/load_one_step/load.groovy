@@ -25,12 +25,12 @@ suite("load_one_step") {
 
     tables.each { tableName, rows ->
         sql """ DROP TABLE IF EXISTS $tableName """
-        sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+        sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_create.sql""").text
         streamLoad {
-            table "${tableName}"
+            table tableName
             set 'column_separator', '|'
             set 'compress_type', 'GZ'
-            set 'columns', "${rows[0]}"
+            set 'columns', rows[0]
             file """${context.sf1DataPath}/ssb/sf0.1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s

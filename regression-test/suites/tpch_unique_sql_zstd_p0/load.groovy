@@ -50,7 +50,7 @@ suite("load") {
             // this line change to ','
             set 'column_separator', '|'
             set 'compress_type', 'GZ'
-            set 'columns', "$columns[0]"
+            set 'columns', "${columns[0]}"
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv

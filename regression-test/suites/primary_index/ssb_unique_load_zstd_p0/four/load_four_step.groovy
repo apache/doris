@@ -28,7 +28,7 @@ suite("load_four_step") {
 
     tables.each { tableName, rows ->
         sql """ DROP TABLE IF EXISTS $tableName """
-        sql new File("""${context.file.parent}/ddl/${tableName}_sequence_create.sql""").text
+        sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_sequence_create.sql""").text
         for (j in 0..<2) {
             streamLoad {
                 table tableName
@@ -63,7 +63,7 @@ suite("load_four_step") {
             }
         }
         sql """ set delete_without_partition = true; """
-        sql new File("""${context.file.parent}/ddl/${tableName}_part_delete.sql""").text
+        sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_part_delete.sql""").text
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())

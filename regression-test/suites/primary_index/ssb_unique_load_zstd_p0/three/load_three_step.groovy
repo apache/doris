@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("load_two_step") {
+suite("load_three_step") {
     def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 3000, "c_custkey"], "lineorder": ["""lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 
                     lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
                     lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy""", 600572, "lo_orderkey"], "part": ["""p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy""", 20000, "p_partkey"], "date": ["""d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,
@@ -25,39 +25,41 @@ suite("load_two_step") {
 
     tables.each { tableName, rows ->
         sql """ DROP TABLE IF EXISTS $tableName """
-        sql new File("""${context.file.parent}/ddl/${tableName}_sequence_create.sql""").text
-        streamLoad {
-            table tableName
-            set 'column_separator', '|'
-            set 'compress_type', 'GZ'
-            set 'columns', rows[0]
-            set 'function_column.sequence_col', rows[2]
-            file """${context.sf1DataPath}/ssb/sf0.1/${tableName}.tbl.gz"""
+        sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_sequence_create.sql""").text
+        for (j in 0..<2) {
+            streamLoad {
+                table tableName
+                set 'column_separator', '|'
+                set 'compress_type', 'GZ'
+                set 'columns', rows[0]
+                set 'function_column.sequence_col', rows[2]
+                file """${context.sf1DataPath}/ssb/sf0.1/${tableName}.tbl.gz"""
 
-            time 10000 // limit inflight 10s
+                time 10000 // limit inflight 10s
 
-            // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
+                // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 
-            // if declared a check callback, the default check condition will ignore.
-            // So you must check all condition
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
+                // if declared a check callback, the default check condition will ignore.
+                // So you must check all condition
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+                    assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
                 }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            }
+            sql 'sync'
+            for (int i = 1; i <= 5; i++) {
+                def loadRowCount = sql "select count(1) from ${tableName}"
+                logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
+                assertTrue(loadRowCount[0][0] == rows[1])
             }
         }
-        sql 'sync'
-        for (int i = 1; i <= 5; i++) {
-            def loadRowCount = sql "select count(1) from ${tableName}"
-            logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
-            assertTrue(loadRowCount[0][0] == rows[1])
-        }
-        sql new File("""${context.file.parent}/ddl/${tableName}_delete.sql""").text
+        sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_delete.sql""").text
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
