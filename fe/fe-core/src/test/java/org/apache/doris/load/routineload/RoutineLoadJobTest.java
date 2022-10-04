@@ -345,7 +345,7 @@ public class RoutineLoadJobTest {
                 "\"fuzzy_parse\" = \"false\",\n" +
                 "\"strict_mode\" = \"false\",\n" +
                 "\"timezone\" = \"Asia/Shanghai\",\n" +
-                "\"exec_mem_limit\" = \"2147483648\"\n" +
+                "\"exec_mem_limit\" = \"4294967296\"\n" +
                 ")\n" +
                 "FROM KAFKA\n" +
                 "(\n" +

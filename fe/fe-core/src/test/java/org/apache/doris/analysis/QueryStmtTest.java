@@ -124,7 +124,7 @@ public class QueryStmtTest {
         Assert.assertEquals(8, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
-        Assert.assertEquals(4, constMap.size());
+        Assert.assertEquals(3, constMap.size());
 
         sql = "select\n" +
                 "   avg(t1.k4)\n" +
@@ -242,10 +242,11 @@ public class QueryStmtTest {
                 "FROM bb\n" +
                 "LEFT JOIN cc ON cc.mon = bb.mon\n" +
                 "ORDER BY mon;";
+        ctx.getSessionVariable().setEnableVectorizedEngine(false);
         stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
-        Assert.assertEquals(18, exprsMap.size());
+        Assert.assertEquals(17, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
         Assert.assertEquals(4, constMap.size());

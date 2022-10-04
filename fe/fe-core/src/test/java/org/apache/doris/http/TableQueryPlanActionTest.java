@@ -17,6 +17,7 @@
 
 package org.apache.doris.http;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TQueryPlanInfo;
 
 import org.apache.thrift.TDeserializer;
@@ -44,7 +45,7 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
     @Before
     public void setUp() {
         super.setUp();
-        ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/es_table";
+        ES_TABLE_URL = "http://localhost:" + Config.http_port + "/api/" + DB_NAME + "/es_table";
     }
     @Test
     public void testQueryPlanAction() throws IOException, TException {
@@ -56,8 +57,7 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        System.out.println(respStr);
+        JSONObject jsonObject = (JSONObject) ((JSONObject) JSONValue.parse(respStr)).get("data");
         Assert.assertEquals(200, (long) jsonObject.get("status"));
 
         JSONObject partitionsObject = (JSONObject) jsonObject.get("partitions");
@@ -76,7 +76,6 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         TQueryPlanInfo tQueryPlanInfo = new TQueryPlanInfo();
         deserializer.deserialize(tQueryPlanInfo, binaryPlanInfo);
         expectThrowsNoException(() -> deserializer.deserialize(tQueryPlanInfo, binaryPlanInfo));
-        System.out.println(tQueryPlanInfo);
     }
 
     @Test
@@ -89,11 +88,10 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
-        System.out.println(respStr);
         Assert.assertNotNull(respStr);
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        Assert.assertEquals(400, (long) jsonObject.get("status"));
-        String exception = (String) jsonObject.get("exception");
+        JSONObject jsonObject = (JSONObject) (JSONValue.parse(respStr));
+        Assert.assertEquals(403, (long) jsonObject.get("code"));
+        String exception = (String) jsonObject.get("data");
         Assert.assertNotNull(exception);
         Assert.assertEquals("POST body must contains [sql] root object", exception);
     }
@@ -108,11 +106,10 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
-        System.out.println(respStr);
         Assert.assertNotNull(respStr);
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        Assert.assertEquals(400, (long) jsonObject.get("status"));
-        String exception = (String) jsonObject.get("exception");
+        JSONObject jsonObject = (JSONObject) (JSONValue.parse(respStr));
+        Assert.assertEquals(403, (long) jsonObject.get("code"));
+        String exception = (String) jsonObject.get("data");
         Assert.assertNotNull(exception);
         Assert.assertEquals("POST body must contains [sql] root object", exception);
     }
@@ -127,11 +124,10 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
                 .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
-        System.out.println(respStr);
         Assert.assertNotNull(respStr);
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        Assert.assertEquals(400, (long) jsonObject.get("status"));
-        String exception = (String) jsonObject.get("exception");
+        JSONObject jsonObject = (JSONObject) (JSONValue.parse(respStr));
+        Assert.assertEquals(0, (long) jsonObject.get("code"));
+        String exception = (String) ((JSONObject) jsonObject.get("data")).get("exception");
         Assert.assertNotNull(exception);
         Assert.assertTrue(exception.startsWith("requested database and table must consistent with sql"));
     }
@@ -147,9 +143,9 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
         Assert.assertNotNull(respStr);
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        Assert.assertEquals(400, (long) jsonObject.get("status"));
-        String exception = (String) jsonObject.get("exception");
+        JSONObject jsonObject = (JSONObject) (JSONValue.parse(respStr));
+        Assert.assertEquals(403, (long) jsonObject.get("code"));
+        String exception = (String) jsonObject.get("data");
         Assert.assertNotNull(exception);
         Assert.assertTrue(exception.startsWith("malformed json"));
     }
@@ -165,9 +161,10 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
         Assert.assertNotNull(respStr);
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
-        Assert.assertEquals(403, (long) jsonObject.get("status"));
-        String exception = (String) jsonObject.get("exception");
+        JSONObject jsonObject = (JSONObject) (JSONValue.parse(respStr));
+        Assert.assertEquals(1, (long) jsonObject.get("code"));
+        String exception = (String) jsonObject.get("data");
+        Assert.assertNotNull(exception);
         Assert.assertTrue(exception.contains("table type is not OLAP"));
     }
 }

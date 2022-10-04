@@ -79,7 +79,7 @@ public class ExplainTest {
         String sql = "explain insert into test_explain.explain_t1 select * from test_explain.explain_t2";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("CAST"));
+        Assert.assertFalse(explainString.contains("CAST"));
     }
 
     public void testExplainSelect() throws Exception {

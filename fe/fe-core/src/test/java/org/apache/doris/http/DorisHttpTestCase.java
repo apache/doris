@@ -41,6 +41,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
@@ -106,8 +107,6 @@ abstract public class DorisHttpTestCase {
 
     public static long testStartVersion = 12;
     public static int testSchemaHash = 93423942;
-
-    public static int HTTP_PORT;
 
     protected static String URI;
 
@@ -278,13 +277,13 @@ abstract public class DorisHttpTestCase {
     }
 
     @BeforeClass
-    public static void initHttpServer() throws IllegalArgException, InterruptedException {
+    public static void initHttpServer() {
+        FeConstants.runningUnitTest = true;
         ServerSocket socket = null;
         try {
-            socket = new ServerSocket(0);
+            socket = new ServerSocket(Config.http_port);
             socket.setReuseAddress(true);
-            HTTP_PORT = socket.getLocalPort();
-            URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+            URI = "http://localhost:" + Config.http_port + "/api/" + DB_NAME + "/" + TABLE_NAME;
         } catch (Exception e) {
             throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
         } finally {
