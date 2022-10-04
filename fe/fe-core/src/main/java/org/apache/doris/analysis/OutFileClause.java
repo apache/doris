@@ -144,7 +144,7 @@ public class OutFileClause {
     private static final String PARQUET_COMPRESSION = "compression";
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.UNCOMPRESSED;
     private static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
-    private boolean parquetDisableDictionary = true;
+    private boolean parquetDisableDictionary = false;
     private static final String PARQUET_VERSION = "version";
     private static TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
 
