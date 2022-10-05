@@ -71,7 +71,8 @@ Status VOlapScanner::prepare(
             return Status::InternalError(ss.str());
         }
         _tablet_schema->copy_from(*_tablet->tablet_schema());
-        if (!_parent->_olap_scan_node.columns_desc.empty() &&
+        if (_parent->_olap_scan_node.__isset.columns_desc &&
+            !_parent->_olap_scan_node.columns_desc.empty() &&
             _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             // Originally scanner get TabletSchema from tablet object in BE.
             // To support lightweight schema change for adding / dropping columns,
