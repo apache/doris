@@ -187,7 +187,8 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     bool _batch_eof = false;
     {
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
-        RETURN_IF_ERROR(_current_group_reader->next_batch(block, _batch_size, read_rows, &_batch_eof));
+        RETURN_IF_ERROR(
+                _current_group_reader->next_batch(block, _batch_size, read_rows, &_batch_eof));
     }
     if (_batch_eof) {
         auto column_st = _current_group_reader->statistics();

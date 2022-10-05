@@ -136,10 +136,11 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             SCOPED_TIMER(_get_block_timer);
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
-            RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+            RETURN_IF_ERROR(
+                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
 
-        if (read_rows  > 0) {
+        if (read_rows > 0) {
             // Convert the src block columns type to string in-place.
             RETURN_IF_ERROR(_cast_to_input_block(block));
             // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)

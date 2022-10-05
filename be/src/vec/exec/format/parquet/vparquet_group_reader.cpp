@@ -60,7 +60,8 @@ Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>
     return Status::OK();
 }
 
-Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_rows, bool* _batch_eof) {
+Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_rows,
+                                  bool* _batch_eof) {
     size_t batch_read_rows = 0;
     bool has_eof = false;
     int col_idx = 0;
