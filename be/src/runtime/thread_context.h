@@ -29,6 +29,7 @@
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
 
+#ifdef USE_MEM_TRACKER
 // Add thread mem tracker consumer during query execution.
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
@@ -38,6 +39,11 @@
     auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, ##__VA_ARGS__)
 
 #define SCOPED_SWITCH_BTHREAD_TLS() auto VARNAME_LINENUM(switch_bthread) = SwitchBthread()
+#else
+#define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
+#define SCOPED_ATTACH_TASK(arg1, ...) (void)0
+#define SCOPED_SWITCH_BTHREAD_TLS() (void)0
+#endif
 
 namespace doris {
 
@@ -229,9 +235,7 @@ public:
     ~SwitchBthread();
 
 private:
-#ifdef USE_MEM_TRACKER
     ThreadContext* _bthread_context;
-#endif
 };
 
 class StopCheckThreadMemTrackerLimit {
@@ -246,6 +250,7 @@ public:
 };
 
 // The following macros are used to fix the tracking accuracy of caches etc.
+#ifdef USE_MEM_TRACKER
 #define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() \
     auto VARNAME_LINENUM(stop_check_limit) = StopCheckThreadMemTrackerLimit()
 #define CONSUME_THREAD_MEM_TRACKER(size) \
@@ -293,5 +298,14 @@ public:
             doris::ThreadMemTrackerMgr::consume_no_attach(-size);                            \
         }                                                                                    \
     } while (0)
-
+#else
+#define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() (void)0
+#define CONSUME_THREAD_MEM_TRACKER(size) (void)0
+#define RELEASE_THREAD_MEM_TRACKER(size) (void)0
+#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
+#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...) (void)0
+#define MEM_MALLOC_HOOK(size) (void)0
+#define MEM_FREE_HOOK(size) (void)0
+#endif
 } // namespace doris
