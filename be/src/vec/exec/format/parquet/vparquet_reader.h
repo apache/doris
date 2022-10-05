@@ -61,7 +61,7 @@ public:
     Status init_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
-    Status get_next_block(Block* block, bool* eof) override;
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     void close();
 

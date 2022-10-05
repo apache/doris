@@ -819,7 +819,6 @@ CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
-CONF_Bool(parquet_predicate_push_down, "true");
 // Max size of parquet page header in bytes
 CONF_mInt32(parquet_header_max_size_mb, "1");
 // Max buffer size for parquet row group
