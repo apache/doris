@@ -479,7 +479,7 @@ struct TOlapScanNode {
   5: optional string sort_column
   6: optional Types.TKeysType keyType
   7: optional string table_name
-  8: required list<Descriptors.TColumn> columns_desc
+  8: optional list<Descriptors.TColumn> columns_desc
   9: optional TSortInfo sort_info
   // When scan match sort_info, we can push limit into OlapScanNode.
   // It's limit for scanner instead of scanNode so we add a new limit.
