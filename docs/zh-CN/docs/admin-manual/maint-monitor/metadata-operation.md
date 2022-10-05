@@ -28,11 +28,11 @@ under the License.
 
 本文档主要介绍在实际生产环境中，如何对 Doris 的元数据进行管理。包括 FE 节点建议的部署方式、一些常用的操作方法、以及常见错误的解决方法。
 
-在阅读本文当前，请先阅读 [Doris 元数据设计文档](../../design/metadata-design.md) 了解 Doris 元数据的工作原理。
+在阅读本文当前，请先阅读 [Doris 元数据设计文档](/community/design/metadata-design) 了解 Doris 元数据的工作原理。
 
 ## 重要提示
 
-* 当前元数据的设计是无法向后兼容的。即如果新版本有新增的元数据结构变动（可以查看 FE 代码中的 `FeMetaVersion.java` 文件中是否有新增的 VERSION），那么在升级到新版本后，通常是无法再回滚到旧版本的。所以，在升级 FE 之前，请务必按照 [升级文档](../../admin-manual/cluster-management/upgrade.md) 中的操作，测试元数据兼容性。
+* 当前元数据的设计是无法向后兼容的。即如果新版本有新增的元数据结构变动（可以查看 FE 代码中的 `FeMetaVersion.java` 文件中是否有新增的 VERSION），那么在升级到新版本后，通常是无法再回滚到旧版本的。所以，在升级 FE 之前，请务必按照 [升级文档](../../admin-manual/cluster-management/upgrade) 中的操作，测试元数据兼容性。
 
 ## 元数据目录结构
 
