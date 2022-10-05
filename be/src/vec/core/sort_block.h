@@ -223,6 +223,7 @@ public:
             column.get_nested_column().sort_column(this, flags, perms, range, last_column);
         } else {
             const auto& null_map = column.get_null_map_data();
+            std::vector<std::pair<size_t, size_t>> is_null_ranges;
             EqualRangeIterator iterator(flags, range.first, range.second);
             while (iterator.next()) {
                 int range_begin = iterator.range_begin;
@@ -259,15 +260,21 @@ public:
                         flags[not_null_range.first] = 0;
                     }
                     if (is_null_range.first < is_null_range.second) {
+                        // do not sort null values
                         std::fill(flags.begin() + is_null_range.first,
-                                  flags.begin() + is_null_range.second, 1);
+                                  flags.begin() + is_null_range.second, 0);
 
-                        flags[is_null_range.first] = 0;
+                        is_null_ranges.push_back(std::move(is_null_range));
                     }
                 }
             }
 
             column.get_nested_column().sort_column(this, flags, perms, range, last_column);
+            if (!last_column) {
+                for (const auto& nr : is_null_ranges) {
+                    std::fill(flags.begin() + nr.first + 1, flags.begin() + nr.second, 1);
+                }
+            }
         }
     }
 
