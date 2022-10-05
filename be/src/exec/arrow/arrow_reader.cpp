@@ -98,7 +98,7 @@ int ArrowReaderWrap::get_column_index(std::string column_name) {
     }
 }
 
-Status ArrowReaderWrap::get_next_block(vectorized::Block* block, bool* eof) {
+Status ArrowReaderWrap::get_next_block(vectorized::Block* block, size_t* read_row, bool* eof) {
     size_t rows = 0;
     bool tmp_eof = false;
     do {
@@ -107,7 +107,7 @@ Status ArrowReaderWrap::get_next_block(vectorized::Block* block, bool* eof) {
             // We need to make sure the eof is set to true iff block is empty.
             if (tmp_eof) {
                 *eof = (rows == 0);
-                return Status::OK();
+                break;
             }
         }
 
@@ -129,6 +129,7 @@ Status ArrowReaderWrap::get_next_block(vectorized::Block* block, bool* eof) {
         rows += num_elements;
         _arrow_batch_cur_idx += num_elements;
     } while (!tmp_eof && rows < _state->batch_size());
+    *read_row = rows;
     return Status::OK();
 }
 
