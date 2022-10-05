@@ -97,9 +97,7 @@ static bool _eval_in_val(PrimitiveType conjunct_type, std::vector<void*> in_pred
     }
     case TYPE_STRING:
     case TYPE_VARCHAR:
-    case TYPE_CHAR:
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
+    case TYPE_CHAR: {
         std::vector<const char*> in_values;
         for (auto val : in_pred_values) {
             const char* value = ((std::string*)val)->data();
@@ -157,9 +155,7 @@ static bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_b
     }
     case TYPE_STRING:
     case TYPE_VARCHAR:
-    case TYPE_CHAR:
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
+    case TYPE_CHAR: {
         const char* conjunct_value = ((std::string*)value)->data();
         if (strcmp(conjunct_value, min_bytes) < 0 || strcmp(conjunct_value, max_bytes) > 0) {
             return true;
@@ -206,10 +202,7 @@ static bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_b
     }
     case TYPE_STRING:
     case TYPE_VARCHAR:
-    case TYPE_CHAR:
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        //            case TYPE_TIME:
+    case TYPE_CHAR: {
         const char* conjunct_value = ((std::string*)value)->data();
         if (strcmp(max_bytes, conjunct_value) <= 0) {
             return true;
@@ -256,10 +249,7 @@ static bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_b
     }
     case TYPE_STRING:
     case TYPE_VARCHAR:
-    case TYPE_CHAR:
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        //            case TYPE_TIME:
+    case TYPE_CHAR: {
         const char* conjunct_value = ((std::string*)value)->data();
         if (strcmp(max_bytes, conjunct_value) < 0) {
             return true;
@@ -306,10 +296,7 @@ static bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_b
     }
     case TYPE_STRING:
     case TYPE_VARCHAR:
-    case TYPE_CHAR:
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        //            case TYPE_TIME:
+    case TYPE_CHAR: {
         const char* conjunct_value = ((std::string*)value)->data();
         if (strcmp(min_bytes, conjunct_value) >= 0) {
             return true;
@@ -356,10 +343,7 @@ static bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_b
     }
     case TYPE_STRING:
     case TYPE_VARCHAR:
-    case TYPE_CHAR:
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        //            case TYPE_TIME:
+    case TYPE_CHAR: {
         const char* conjunct_value = ((std::string*)value)->data();
         if (strcmp(min_bytes, conjunct_value) > 0) {
             return true;
