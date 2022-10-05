@@ -60,6 +60,20 @@ suite("test_broker_load", "p0") {
     ]
     def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", ""]
 
+    def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=163703; dpp.abnorm.ALL=0; dpp.norm.ALL=36294",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000"]
+
     String ak = getS3AK()
     String sk = getS3SK()
     String enabled = context.config.otherConfigs.get("enableBrokerLoad")
@@ -126,12 +140,14 @@ suite("test_broker_load", "p0") {
                 i++
             }
 
+            i = 0
             for (String label in uuids) {
                 max_try_milli_secs = 600000
                 while (max_try_milli_secs > 0) {
-                    String[][] result = sql """ show load where label="$label"; """
+                    String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
+                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5])
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
@@ -143,6 +159,7 @@ suite("test_broker_load", "p0") {
                         assertTrue(1 == 2, "Load Timeout.")
                     }
                 }
+                i++
             }
         } finally {
             for (String table in tables) {
