@@ -175,7 +175,7 @@ struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
     3: required i32 schema_hash
-    4: required list<TColumn> columns_desc
+    4: optional list<TColumn> columns_desc
 }
 
 struct TOlapTableSchemaParam {

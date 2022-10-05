@@ -98,10 +98,12 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             }
             index->slots.emplace_back(it->second);
         }
-        for (auto& tcolumn_desc : t_index.columns_desc) {
-            TabletColumn* tc = _obj_pool.add(new TabletColumn());
-            tc->init_from_thrift(tcolumn_desc);
-            index->columns.emplace_back(tc);
+        if (t_index.__isset.columns_desc) {
+            for (auto& tcolumn_desc : t_index.columns_desc) {
+                TabletColumn* tc = _obj_pool.add(new TabletColumn());
+                tc->init_from_thrift(tcolumn_desc);
+                index->columns.emplace_back(tc);
+            }
         }
         _indexes.emplace_back(index);
     }
