@@ -60,7 +60,7 @@ Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>
     return Status::OK();
 }
 
-Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_eof) {
+Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_rows, bool* _batch_eof) {
     size_t batch_read_rows = 0;
     bool has_eof = false;
     int col_idx = 0;
@@ -86,6 +86,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
         has_eof = col_eof;
         col_idx++;
     }
+    *read_rows = batch_read_rows;
     _read_rows += batch_read_rows;
     *_batch_eof = has_eof;
     // use data fill utils read column data to column ptr

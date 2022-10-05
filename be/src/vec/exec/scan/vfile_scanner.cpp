@@ -99,7 +99,7 @@ Status VFileScanner::open(RuntimeState* state) {
 }
 
 // For query:
-//                              [exist cols]  [non-exist cols]  [col from path]  input  ouput
+//                              [exist cols]  [non-exist cols]  [col from path]  input  output
 //                              A     B    C  D                 E
 // _init_src_block              x     x    x  x                 x                -      x
 // get_next_block               x     x    x  -                 -                -      x
@@ -109,7 +109,7 @@ Status VFileScanner::open(RuntimeState* state) {
 // _convert_to_output_block     -     -    -  -                 -                -      -
 //
 // For load:
-//                              [exist cols]  [non-exist cols]  [col from path]  input  ouput
+//                              [exist cols]  [non-exist cols]  [col from path]  input  output
 //                              A     B    C  D                 E
 // _init_src_block              x     x    x  x                 x                x      -
 // get_next_block               x     x    x  -                 -                x      -
@@ -130,15 +130,16 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 
         // Init src block for load job based on the data file schema (e.g. parquet)
         // For query job, simply set _src_block_ptr to block.
+        size_t read_rows = 0;
         RETURN_IF_ERROR(_init_src_block(block));
         {
             SCOPED_TIMER(_get_block_timer);
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
-            RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &_cur_reader_eof));
+            RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
 
-        if (_src_block_ptr->rows() > 0) {
+        if (read_rows  > 0) {
             // Convert the src block columns type to string in-place.
             RETURN_IF_ERROR(_cast_to_input_block(block));
             // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
