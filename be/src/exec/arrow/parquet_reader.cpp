@@ -100,7 +100,8 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         _timezone = timezone;
 
         RETURN_IF_ERROR(column_indices());
-        if (config::parquet_predicate_push_down) {
+        _need_filter_row_group = (tuple_desc != nullptr);
+        if (_need_filter_row_group) {
             int64_t file_size = 0;
             size(&file_size);
             _row_group_reader.reset(new RowGroupReader(_range_start_offset, _range_size,
@@ -551,7 +552,7 @@ void ParquetReaderWrap::read_batches(arrow::RecordBatchVector& batches, int curr
 }
 
 bool ParquetReaderWrap::filter_row_group(int current_group) {
-    if (config::parquet_predicate_push_down) {
+    if (_need_filter_row_group) {
         auto filter_group_set = _row_group_reader->filter_groups();
         if (filter_group_set.end() != filter_group_set.find(current_group)) {
             // find filter group, skip

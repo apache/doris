@@ -122,7 +122,8 @@ TEST_F(ParquetReaderTest, normal) {
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
     bool eof = false;
-    p_reader->get_next_block(block, &eof);
+    size_t read_row = 0;
+    p_reader->get_next_block(block, &read_row, &eof);
     for (auto& col : block->get_columns_with_type_and_name()) {
         ASSERT_EQ(col.column->size(), 10);
     }
