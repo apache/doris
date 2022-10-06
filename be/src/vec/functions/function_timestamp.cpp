@@ -479,6 +479,150 @@ public:
 };
 
 template <typename Impl>
+class FirstMonthDay : public IFunction {
+public:
+    static constexpr auto name = "first_month_day";
+    static FunctionPtr create() { return std::make_shared<FirstMonthDay<Impl>>(); }
+
+    String get_name() const override { return name; }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return Impl::get_return_type_impl(arguments);
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+template <typename DateType>
+struct FirstMonthDayImpl {
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+            return {std::make_shared<DataTypeDate>()};
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            return {std::make_shared<DataTypeDateV2>()};
+        } else {
+            return {std::make_shared<DataTypeDateTimeV2>()};
+        }
+    }
+
+    // input DateTime and Date, return Date
+    // input DateTimeV2 and DateV2, return DateV2
+    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+            return make_nullable(std::make_shared<DataTypeDate>());
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            return make_nullable(std::make_shared<DataTypeDateV2>());
+        } else {
+            return make_nullable(std::make_shared<DataTypeDateV2>());
+        }
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        ColumnPtr res_column;
+        ColumnPtr argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+            auto data_col = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
+            res_column = ColumnInt64::create(input_rows_count);
+            execute_straight<VecDateTimeValue, Int64, Int64>(
+                    input_rows_count, null_map->get_data(), data_col->get_data(),
+                    static_cast<ColumnVector<Int64>*>(res_column->assume_mutable().get())
+                            ->get_data());
+
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
+            res_column = ColumnVector<UInt32>::create(input_rows_count);
+            execute_straight<DateV2Value<DateV2ValueType>, UInt32, UInt32>(
+                    input_rows_count, null_map->get_data(), data_col->get_data(),
+                    static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                            ->get_data());
+
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+            auto data_col = assert_cast<const ColumnVector<UInt64>*>(argument_column.get());
+            res_column = ColumnVector<UInt32>::create(input_rows_count);
+            execute_straight<DateV2Value<DateTimeV2ValueType>, UInt32, UInt64>(
+                    input_rows_count, null_map->get_data(), data_col->get_data(),
+                    static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
+                            ->get_data());
+        } else {
+            // neither DateTime nor DateTimeV2/DateV2, return null
+            if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+                res_column = ColumnInt64::create(input_rows_count);
+            } else {
+                res_column = ColumnVector<UInt32>::create(input_rows_count);
+            }
+
+            null_map = ColumnUInt8::create(input_rows_count, 1);
+            block.replace_by_position(
+                result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
+            return Status::OK();
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
+        return Status::OK();
+    }
+
+    template <typename DateValueType, typename ReturnType, typename InputDateType>
+    static void execute_straight(size_t input_rows_count, NullMap& null_map,
+                          const PaddedPODArray<InputDateType>& data_col,
+                          PaddedPODArray<ReturnType>& res_data) {
+        for (int i = 0; i < input_rows_count; i++) {
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                const auto& cur_data = data_col[i];
+                auto ts_value = binary_cast<Int64, VecDateTimeValue> (cur_data);
+                ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0);
+                ts_value.set_type(TIME_DATE);
+                if (!ts_value.is_valid_date()) {
+                    null_map[i] = 1;
+                    continue;
+                }
+                res_data[i] = binary_cast<VecDateTimeValue, Int64> (ts_value);
+
+            } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
+                const auto& cur_data = data_col[i];
+                auto ts_value = binary_cast<UInt32, DateValueType> (cur_data);
+                ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                if (!ts_value.is_valid_date()) {
+                    null_map[i] = 1;
+                    continue;
+                }
+                res_data[i] = binary_cast<DateValueType, UInt32> (ts_value);
+
+            } else {
+                const auto& cur_data = data_col[i];
+                auto ts_value = binary_cast<UInt64, DateValueType> (cur_data);
+                ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+                if (!ts_value.is_valid_date()) {
+                    null_map[i] = 1;
+                    continue;
+                }
+                UInt64 cast_value = binary_cast<DateValueType, UInt64> (ts_value);
+                DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
+            }
+        }
+    }
+};
+
+template <typename Impl>
 class FunctionOtherTypesToDateType : public IFunction {
 public:
     static constexpr auto name = Impl::name;
@@ -515,6 +659,10 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTimeV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDate>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDateV2>>>();
+    factory.register_function<FirstMonthDay<FirstMonthDayImpl<DataTypeDateTime>>>();
+    factory.register_function<FirstMonthDay<FirstMonthDayImpl<DataTypeDate>>>();
+    factory.register_function<FirstMonthDay<FirstMonthDayImpl<DataTypeDateV2>>>();
+    factory.register_function<FirstMonthDay<FirstMonthDayImpl<DataTypeDateTimeV2>>>();
     factory.register_function<
             FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDateTimeV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl>>();
