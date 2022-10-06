@@ -30,14 +30,14 @@ suite("test_broker_load", "p0") {
                   "null_default",
                   "filter",
                   "path_column",
-                  "parquet_s3_case1",
-                  "parquet_s3_case2",
-                  "parquet_s3_case3",
-                  "parquet_s3_case4",
-                  "parquet_s3_case5",
-                  "parquet_s3_case6",
-                  "parquet_s3_case7",
-                  "parquet_s3_case8"
+                  "parquet_s3_case1", // col1 not in file but in table, will load default value for it.
+                  "parquet_s3_case2", // x1 not in file, not in table, will throw "col not found" error.
+                  "parquet_s3_case3", // p_comment not in table but in file, load normally.
+                  "parquet_s3_case4", // all tables are in table but not in file, will throw "no column found" error.
+                  "parquet_s3_case5", // x1 not in file, not in table, will throw "col not found" error.
+                  "parquet_s3_case6", // normal
+                  "parquet_s3_case7", // col5 will be ignored, load normally
+                  "parquet_s3_case8"  // first column in table is not specified, will load default value for it.
                  ]
     def paths = ["s3://doris-community-test-1308700295/load/data/part*",
                  "s3://doris-community-test-1308700295/load/data/part*",
