@@ -707,6 +707,23 @@ DateTimeVal TimestampFunctions::from_days(FunctionContext* ctx, const IntVal& da
     return ts_val;
 }
 
+DateTimeVal TimestampFunctions::first_month_day(FunctionContext* ctx, const DateTimeVal& ts_val) {
+    if (ts_val.is_null) {
+        return DateTimeVal::null();
+    }
+
+    DateTimeValue ts_value = DateTimeValue::from_datetime_val(ts_val);
+    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+    ts_value.set_type(TIME_DATE);
+    if (!ts_value.is_valid_date()) {
+        return DateTimeVal::null();
+    }
+
+    DateTimeVal result_ts_val;
+    ts_value.to_datetime_val(&result_ts_val);
+    return result_ts_val;
+}
+
 IntVal TimestampFunctions::to_days(FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();

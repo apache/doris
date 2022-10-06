@@ -287,6 +287,7 @@
                                 "sql-manual/sql-functions/date-time-functions/minute",
                                 "sql-manual/sql-functions/date-time-functions/second",
                                 "sql-manual/sql-functions/date-time-functions/from_days",
+				"sql-manual/sql-functions/date-time-functions/first_month_day",
                                 "sql-manual/sql-functions/date-time-functions/from_unixtime",
                                 "sql-manual/sql-functions/date-time-functions/unix_timestamp",
                                 "sql-manual/sql-functions/date-time-functions/utc_timestamp",
