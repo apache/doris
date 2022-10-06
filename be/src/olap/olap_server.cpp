@@ -542,7 +542,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                 max_compaction_score = std::max(max_compaction_score, disk_max_score);
             } else if (tablet != nullptr &&
                        tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-                LOG_EVERY_N(INFO, 20)
+                LOG_EVERY_N(INFO, 500)
                         << "Tablet " << tablet->full_name()
                         << " will be ignored by automatic compaction tasks since it's "
                         << "set to disabled automatic compaction.";
