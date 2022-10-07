@@ -20,8 +20,22 @@
 # This script will restart all thirdparty containers
 ################################################################
 
-################################################################
-# restart elasticsearch containers
-################################################################
-docker compose -f docker-compose/elasticsearch.yaml down
-docker compose -f docker-compose/elasticsearch.yaml up -d
+set -eo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+# elasticsearch
+docker compose -f ${ROOT}/docker-compose/elasticsearch/elasticsearch.yaml down
+docker compose -f ${ROOT}/docker-compose/elasticsearch/elasticsearch.yaml up -d
+
+# mysql 5.7
+mkdir -p ${ROOT}/docker-compose/mysql/data/
+rm ${ROOT}/docker-compose/mysql/data/* -rf
+docker compose -f ${ROOT}/docker-compose/mysql/mysql-5.7.yaml --env-file ${ROOT}/docker-compose/mysql/mysql-5.7-env.sh down
+docker compose -f ${ROOT}/docker-compose/mysql/mysql-5.7.yaml --env-file ${ROOT}/docker-compose/mysql/mysql-5.7-env.sh up -d
+
+# pg 14
+mkdir -p ${ROOT}/docker-compose/postgresql/data/data
+rm ${ROOT}/docker-compose/postgresql/data/data/* -rf
+docker compose -f ${ROOT}/docker-compose/postgresql/postgresql-14.yaml --env-file ${ROOT}/docker-compose/postgresql/postgresql-14-env.sh down
+docker compose -f ${ROOT}/docker-compose/postgresql/postgresql-14.yaml --env-file ${ROOT}/docker-compose/postgresql/postgresql-14-env.sh up -d

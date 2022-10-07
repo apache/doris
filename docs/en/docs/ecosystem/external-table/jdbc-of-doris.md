@@ -115,6 +115,27 @@ Transactions ensure the atomicity of JDBC external table writing, but it will re
 | ------------------ | ------------------------------ |
 | 14.5               | postgresql-42.5.0.jar          |
 
+```sql
+CREATE EXTERNAL RESOURCE jdbc_pg
+properties (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url"="jdbc:postgresql://127.0.0.1:5442/db1",
+    "driver_url"="http://127.0.0.1:8881/postgresql-42.5.0.jar",
+    "driver_class"="org.postgresql.Driver"
+);
+
+CREATE EXTERNAL TABLE `ext_pg` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+"resource" = "jdbc_pg",
+"table" = "pg_tbl",
+"table_type"="postgresql"
+);
+```
+
 #### 3.SQLServer
 | SQLserver Version | SQLserver JDBC Driver Version     |
 | ------------- | -------------------------- |
