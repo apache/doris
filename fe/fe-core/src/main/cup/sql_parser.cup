@@ -1827,14 +1827,14 @@ create_stmt ::=
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, comment), false)));
     :}
     /* resource */
-    | KW_CREATE opt_external:isExternal KW_RESOURCE ident_or_text:resourceName opt_properties:properties
+    | KW_CREATE opt_external:isExternal KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
     {:
-        RESULT = new CreateResourceStmt(isExternal, resourceName, properties);
+        RESULT = new CreateResourceStmt(isExternal, ifNotExists, resourceName, properties);
     :}
     /* encryptkey */
-    | KW_CREATE KW_ENCRYPTKEY encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
+    | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
     {:
-        RESULT = new CreateEncryptKeyStmt(keyName, keyString);
+        RESULT = new CreateEncryptKeyStmt(ifNotExists, keyName, keyString);
     :}
     /* sync job */
     | KW_CREATE KW_SYNC ident:db DOT ident_or_text:jobName LPAREN channel_desc_list:channelDescList RPAREN binlog_desc:binlog opt_properties:properties
@@ -2710,13 +2710,13 @@ drop_stmt ::=
     {:
         RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
     :}
-    | KW_DROP KW_RESOURCE ident_or_text:resourceName
+    | KW_DROP KW_RESOURCE opt_if_exists:ifExists ident_or_text:resourceName
     {:
-        RESULT = new DropResourceStmt(resourceName);
+        RESULT = new DropResourceStmt(ifExists, resourceName);
     :}
-    | KW_DROP KW_ENCRYPTKEY encryptkey_name:keyName
+    | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
     {:
-        RESULT = new DropEncryptKeyStmt(keyName);
+        RESULT = new DropEncryptKeyStmt(ifExists, keyName);
     :}
     | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
     {:

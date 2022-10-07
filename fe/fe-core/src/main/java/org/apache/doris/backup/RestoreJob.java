@@ -943,7 +943,7 @@ public class RestoreJob extends AbstractJob {
             } else {
                 try {
                     // restore resource
-                    resourceMgr.createResource(remoteOdbcResource);
+                    resourceMgr.createResource(remoteOdbcResource, false);
                 } catch (DdlException e) {
                     status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
                     return;

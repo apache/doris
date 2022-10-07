@@ -27,10 +27,16 @@ import org.apache.doris.qe.ConnectContext;
 
 // DROP RESOURCE resource_name
 public class DropResourceStmt extends DdlStmt {
+    private boolean ifExists;
     private String resourceName;
 
-    public DropResourceStmt(String resourceName) {
+    public DropResourceStmt(boolean ifExists, String resourceName) {
+        this.ifExists = ifExists;
         this.resourceName = resourceName;
+    }
+
+    public boolean isIfExists() {
+        return ifExists;
     }
 
     public String getResourceName() {
