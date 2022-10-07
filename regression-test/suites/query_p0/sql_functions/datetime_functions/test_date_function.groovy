@@ -424,4 +424,30 @@ suite("test_date_function") {
     qt_sql """ select minutes_sub(test_time2,1) result from ${tableName}; """
     //seconds_sub
     qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
+
+    // test last_month_day
+    sql """ SET enable_vectorized_engine = TRUE; """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth date,    
+                birth1 datev2, 
+                birth2 datetime, 
+                birth3 datetimev2)
+            UNIQUE KEY(birth, birth1, birth2, birth3)
+            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values 
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
+        ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59');"""
+    qt_sql """
+        select last_month_day(birth), last_month_day(birth1), 
+                last_month_day(birth2), last_month_day(birth3) 
+                from ${tableName};
+    """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
 }
