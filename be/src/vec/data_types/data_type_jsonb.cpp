@@ -62,8 +62,20 @@ void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, si
     const StringRef& s =
             reinterpret_cast<const ColumnJsonb&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
-    std::string str = toStr.jsonb_to_string(s.data, s.size);
-    ostr.write(str.c_str(), str.size());
+    if (s.size > 0) {
+        std::string str = toStr.jsonb_to_string(s.data, s.size);
+        ostr.write(str.c_str(), str.size());
+    }
+}
+
+Status DataTypeJsonb::from_string(ReadBuffer& rb, IColumn* column) const {
+    JsonBinaryValue value(rb.position(), rb.count());
+    Field field = JsonbField(value.value(), value.size());
+
+    auto* column_jsonb = static_cast<ColumnJsonb*>(column);
+    column_jsonb->insert(field);
+
+    return Status::OK();
 }
 
 MutableColumnPtr DataTypeJsonb::create_column() const {

@@ -1,0 +1,50 @@
+diff --git a/be/src/vec/functions/function_jsonb.cpp b/be/src/vec/functions/function_jsonb.cpp
+index 3ed2da077..b3b1fac1d 100644
+--- a/be/src/vec/functions/function_jsonb.cpp
++++ b/be/src/vec/functions/function_jsonb.cpp
+@@ -351,21 +351,30 @@ struct JsonbExtractStringImpl {
+             String path(r_raw, r_size);
+ 
+             if (null_map[i]) {
+-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
++                // StringOP::push_null_string(i, res_data, res_offsets, null_map);
++                null_map[i] = 1;
++                res_data.push_back('\0');
++                res_offsets[i] = res_data.size();
+                 continue;
+             }
+ 
+             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
+             JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+             if (UNLIKELY(!doc || !doc->getValue())) {
+-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
++                // StringOP::push_null_string(i, res_data, res_offsets, null_map);
++                null_map[i] = 1;
++                res_data.push_back('\0');
++                res_offsets[i] = res_data.size();
+                 continue;
+             }
+ 
+             // value is NOT necessary to be deleted since JsonbValue will not allocate memory
+             JsonbValue* value = doc->getValue()->findPath(r_raw, r_size, ".", nullptr);
+             if (UNLIKELY(!value)) {
+-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
++                // StringOP::push_null_string(i, res_data, res_offsets, null_map);
++                null_map[i] = 1;
++                res_data.push_back('\0');
++                res_offsets[i] = res_data.size();
+                 continue;
+             }
+ 
+@@ -391,7 +400,10 @@ struct JsonbExtractStringImpl {
+                     StringOP::push_value_string(std::string_view(str_value->getBlob(), str_value->length()),
+                                                 i, res_data, res_offsets);
+                 } else {
+-                    StringOP::push_null_string(i, res_data, res_offsets, null_map);
++                    // StringOP::push_null_string(i, res_data, res_offsets, null_map);
++                    null_map[i] = 1;
++                    res_data.push_back('\0');
++                    res_offsets[i] = res_data.size();
+                     continue;
+                 }
+             }
