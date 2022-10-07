@@ -132,7 +132,7 @@
                 },
                 {
                     "type": "category",
-                    "label": "Date Cache",
+                    "label": "Data Cache",
                     "items": [
                         "advanced/cache/partition-cache"
                     ]
