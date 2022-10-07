@@ -254,7 +254,7 @@ TODO
 | timestamp| datetime| |
 | float| float| |
 | double| double| |
-| array<type> | array<type>| 支持array嵌套，如 `array<array<int>>` |
+| `array<type>` | `array<type>`| 支持array嵌套，如 `array<array<int>>` |
 | char| char | |
 | varchar| varchar| |
 | decimal| decimal | |
@@ -288,23 +288,4 @@ TODO
 使用 Doris 对 External Catalog 中库表进行访问，并不受外部数据目录自身的权限控制，而是依赖 Doris 自身的权限访问管理功能。
 
 Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参阅 [权限管理](../../admin-manual/privilege-ldap/user-privilege.md) 文档。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

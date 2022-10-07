@@ -254,7 +254,7 @@ For Hive/Iceberge/Hudi
 | timestamp| datetime| |
 | float| float| |
 | double| double| |
-| array<type> | array<type>| Supprot nested array, such as `array<array<int>>` |
+| `array<type>` | `array<type>`| Supprot nested array, such as `array<array<int>>` |
 | char| char | |
 | varchar| varchar| |
 | decimal| decimal | |
@@ -280,7 +280,7 @@ For Hive/Iceberge/Hudi
 | ip |string | |
 | nested |string | |
 | object |string | |
-| array | | 开发中 |
+| array | | Comming soon |
 |other| string ||
 
 ## Privilege Management
