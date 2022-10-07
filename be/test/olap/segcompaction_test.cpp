@@ -55,7 +55,7 @@ public:
         _data_dir->update_capacity();
     }
 
-    static void SetUpTestSuite() {
+    void SetUp() {
         config::enable_segcompaction = true;
         config::enable_storage_vectorization = true;
         config::tablet_map_shard_size = 1;
@@ -85,7 +85,7 @@ public:
         l_engine->start_bg_threads();
     }
 
-    static void TearDownTestSuite() {
+    void TearDown() {
         if (l_engine != nullptr) {
             l_engine->stop();
             delete l_engine;
@@ -167,10 +167,10 @@ protected:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void create_rowset_writer_context(TabletSchemaSPtr tablet_schema,
+    void create_rowset_writer_context(int64_t id, TabletSchemaSPtr tablet_schema,
                                       RowsetWriterContext* rowset_writer_context) {
         RowsetId rowset_id;
-        rowset_id.init(10000);
+        rowset_id.init(id);
         // rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_id = rowset_id;
         rowset_writer_context->tablet_id = 12345;
@@ -213,7 +213,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
-        create_rowset_writer_context(tablet_schema, &writer_context);
+        create_rowset_writer_context(10047, tablet_schema, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
@@ -229,7 +229,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         for (int i = 0; i < num_segments; ++i) {
             MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 10 + i;
+                uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
                 uint32_t k3 = rid;
                 input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
@@ -244,18 +244,20 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
 
         rowset = rowset_writer->build();
         std::vector<std::string> ls;
-        ls.push_back("10000_0.dat");
-        ls.push_back("10000_1.dat");
-        ls.push_back("10000_2.dat");
-        ls.push_back("10000_3.dat");
-        ls.push_back("10000_4.dat");
-        ls.push_back("10000_5.dat");
+        ls.push_back("10047_0.dat");
+        ls.push_back("10047_1.dat");
+        ls.push_back("10047_2.dat");
+        ls.push_back("10047_3.dat");
+        ls.push_back("10047_4.dat");
+        ls.push_back("10047_5.dat");
         EXPECT_TRUE(check_dir(ls));
     }
 
     { // read
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = tablet_schema;
+        // use this type to avoid cache from other ut
+        reader_context.reader_type = READER_CUMULATIVE_COMPACTION;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
         reader_context.return_columns = &return_columns;
@@ -285,7 +287,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                     uint32_t k1 = *reinterpret_cast<uint32_t*>(field1 + 1);
                     uint32_t k2 = *reinterpret_cast<uint32_t*>(field2 + 1);
                     uint32_t k3 = *reinterpret_cast<uint32_t*>(field3 + 1);
-                    EXPECT_EQ(10 * k3 + k2, k1);
+                    EXPECT_EQ(100 * k3 + k2, k1);
 
                     num_rows_read++;
                 }
@@ -317,7 +319,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
-        create_rowset_writer_context(tablet_schema, &writer_context);
+        create_rowset_writer_context(10048, tablet_schema, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
@@ -335,9 +337,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         for (int i = 0; i < num_segments; ++i) {
             MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 10 + i;
-                uint32_t k2 = k1 * 10;
-                uint32_t k3 = rows_per_segment * i + rid;
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
                 input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
                 input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
                 input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
@@ -352,9 +354,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         for (int i = 0; i < num_segments; ++i) {
             MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 10 + i;
-                uint32_t k2 = k1 * 10;
-                uint32_t k3 = rows_per_segment * i + rid;
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
                 input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
                 input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
                 input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
@@ -369,9 +371,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         for (int i = 0; i < num_segments; ++i) {
             MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 10 + i;
-                uint32_t k2 = k1 * 10;
-                uint32_t k3 = rows_per_segment * i + rid;
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
                 input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
                 input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
                 input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
@@ -386,9 +388,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         for (int i = 0; i < num_segments; ++i) {
             MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 10 + i;
-                uint32_t k2 = k1 * 10;
-                uint32_t k3 = rows_per_segment * i + rid;
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
                 input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
                 input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
                 input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
@@ -403,9 +405,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         for (int i = 0; i < num_segments; ++i) {
             MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 10 + i;
-                uint32_t k2 = k1 * 10;
-                uint32_t k3 = rows_per_segment * i + rid;
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
                 input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
                 input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
                 input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
@@ -420,9 +422,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         for (int i = 0; i < num_segments; ++i) {
             MemPool mem_pool;
             for (int rid = 0; rid < rows_per_segment; ++rid) {
-                uint32_t k1 = rid * 10 + i;
-                uint32_t k2 = k1 * 10;
-                uint32_t k3 = rows_per_segment * i + rid;
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
                 input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
                 input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
                 input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
@@ -436,67 +438,15 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         rowset = rowset_writer->build();
         std::vector<std::string> ls;
         // ooooOOoOooooooooO
-        ls.push_back("10000_0.dat"); // oooo
-        ls.push_back("10000_1.dat"); // O
-        ls.push_back("10000_2.dat"); // O
-        ls.push_back("10000_3.dat"); // o
-        ls.push_back("10000_4.dat"); // O
-        ls.push_back("10000_5.dat"); // oooooooo
-        ls.push_back("10000_6.dat"); // O
+        ls.push_back("10048_0.dat"); // oooo
+        ls.push_back("10048_1.dat"); // O
+        ls.push_back("10048_2.dat"); // O
+        ls.push_back("10048_3.dat"); // o
+        ls.push_back("10048_4.dat"); // O
+        ls.push_back("10048_5.dat"); // oooooooo
+        ls.push_back("10048_6.dat"); // O
         EXPECT_TRUE(check_dir(ls));
     }
-
-#if 0
-    { // read
-        RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema;
-        reader_context.need_ordered_result = true;
-        std::vector<uint32_t> return_columns = {0, 1, 2};
-        reader_context.return_columns = &return_columns;
-        reader_context.stats = &_stats;
-
-        // without predicates
-        {
-            RowsetReaderSharedPtr rowset_reader;
-            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
-            RowBlock* output_block;
-            uint32_t num_rows_read = 0;
-            while ((s = rowset_reader->next_block(&output_block)) == Status::OK()) {
-                EXPECT_TRUE(output_block != nullptr);
-                EXPECT_GT(output_block->row_num(), 0);
-                EXPECT_EQ(0, output_block->pos());
-                EXPECT_EQ(output_block->row_num(), output_block->limit());
-                EXPECT_EQ(return_columns, output_block->row_block_info().column_ids);
-                // after sort merge segments, k1 will be 0, 1, 2, 10, 11, 12, 20, 21, 22, ..., 40950, 40951, 40952
-                for (int i = 0; i < output_block->row_num(); ++i) {
-                    char* field1 = output_block->field_ptr(i, 0);
-                    char* field2 = output_block->field_ptr(i, 1);
-                    char* field3 = output_block->field_ptr(i, 2);
-                    // test null bit
-                    EXPECT_FALSE(*reinterpret_cast<bool*>(field1));
-                    EXPECT_FALSE(*reinterpret_cast<bool*>(field2));
-                    EXPECT_FALSE(*reinterpret_cast<bool*>(field3));
-                    uint32_t k1 = *reinterpret_cast<uint32_t*>(field1 + 1);
-                    uint32_t k2 = *reinterpret_cast<uint32_t*>(field2 + 1);
-                    uint32_t k3 = *reinterpret_cast<uint32_t*>(field3 + 1);
-                    EXPECT_EQ(10 * k3 + k2, k1);
-
-                    num_rows_read++;
-                }
-            }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
-            EXPECT_TRUE(output_block == nullptr);
-            EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
-            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
-            size_t total_num_rows = 0;
-            //EXPECT_EQ(segment_num_rows.size(), num_segments);
-            for (const auto& i : segment_num_rows) {
-                total_num_rows += i;
-            }
-            EXPECT_EQ(total_num_rows, num_rows_read);
-        }
-    }
-#endif
 }
 
 } // namespace doris

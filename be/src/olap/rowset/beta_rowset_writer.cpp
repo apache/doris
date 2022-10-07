@@ -35,6 +35,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 //#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
 
@@ -49,6 +50,7 @@ BetaRowsetWriter::BetaRowsetWriter()
           _num_rows_written(0),
           _total_data_size(0),
           _total_index_size(0),
+          _raw_num_rows_written(0),
           _is_doing_segcompaction(false) {
     _segcompaction_status.store(OLAP_SUCCESS);
 }
@@ -264,6 +266,13 @@ Status BetaRowsetWriter::_check_correctness(std::unique_ptr<OlapReaderStatistics
 }
 
 Status BetaRowsetWriter::_do_segcompaction(SegCompactionCandidatesSharedPtr segments) {
+    SCOPED_ATTACH_TASK(StorageEngine::instance()->segcompaction_mem_tracker(),
+                       ThreadContext::TaskType::COMPACTION);
+    // throttle segcompaction task if memory depleted.
+    if (MemTrackerLimiter::sys_mem_exceed_limit_check(GB_EXCHANGE_BYTE)) {
+        LOG(WARNING) << "skip segcompaction due to memory shortage";
+        return Status::MemoryLimitExceeded("skip segcompaction due to memory shortage");
+    }
     uint64_t begin = (*(segments->begin()))->id();
     uint64_t end = (*(segments->end() - 1))->id();
     LOG(INFO) << "BetaRowsetWriter:" << this << " do segcompaction at " << segments->size()
@@ -280,6 +289,8 @@ Status BetaRowsetWriter::_do_segcompaction(SegCompactionCandidatesSharedPtr segm
         LOG(WARNING) << "failed to get segcompaction reader";
         return Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_INIT_READER);
     }
+    std::unique_ptr<vectorized::VMergeIterator> reader_ptr;
+    reader_ptr.reset(reader);
     auto writer = _create_segcompaction_writer(begin, end);
     if (UNLIKELY(writer == nullptr)) {
         LOG(WARNING) << "failed to get segcompaction writer";
@@ -288,10 +299,12 @@ Status BetaRowsetWriter::_do_segcompaction(SegCompactionCandidatesSharedPtr segm
     uint64_t row_count = 0;
     vectorized::Block block = _context.tablet_schema->create_block();
     while (true) {
-        auto status = reader->next_batch(&block);
+        auto status = reader_ptr->next_batch(&block);
         row_count += block.rows();
         if (status != Status::OK()) {
             if (LIKELY(status.is_end_of_file())) {
+                RETURN_NOT_OK_LOG(_add_block_for_segcompaction(&block, &writer),
+                                  "write block failed");
                 break;
             } else {
                 LOG(WARNING) << "read block failed: " << status.to_string();
@@ -536,7 +549,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
         row_offset += input_row_num;
     } while (row_offset < block_row_num);
 
-    //_num_rows_written += block_row_num;
+    _raw_num_rows_written += block_row_num;
     return Status::OK();
 }
 
@@ -566,6 +579,7 @@ Status BetaRowsetWriter::_add_row(const RowType& row) {
                       _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
         RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
     }
+    ++_raw_num_rows_written;
     return Status::OK();
 }
 
@@ -602,7 +616,8 @@ Status BetaRowsetWriter::flush() {
 }
 
 Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
-    int64_t current_flush_size = _total_data_size + _total_index_size;
+    int64_t size = 0;
+    int64_t sum_size = 0;
     // Create segment writer for each memtable, so that
     // all memtables can be flushed in parallel.
     std::unique_ptr<segment_v2::SegmentWriter> writer;
@@ -622,15 +637,24 @@ Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flus
 
         if (PREDICT_FALSE(writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
                           writer->num_rows_written() >= _context.max_rows_per_segment)) {
-            RETURN_NOT_OK(_flush_segment_writer(&writer));
+            auto s = _flush_segment_writer(&writer, &size);
+            sum_size += size;
+            if (OLAP_UNLIKELY(!s.ok())) {
+                *flush_size = sum_size;
+                return s;
+            }
         }
     }
 
     if (writer != nullptr) {
-        RETURN_NOT_OK(_flush_segment_writer(&writer));
+        auto s = _flush_segment_writer(&writer, &size);
+        sum_size += size;
+        *flush_size = sum_size;
+        if (OLAP_UNLIKELY(!s.ok())) {
+            return s;
+        }
     }
 
-    *flush_size = (_total_data_size + _total_index_size) - current_flush_size;
     return Status::OK();
 }
 
@@ -719,27 +743,39 @@ RowsetSharedPtr BetaRowsetWriter::build() {
 
 void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta) {
     int64_t num_seg = _is_segcompacted() ? _num_segcompacted : _num_segment;
+    int64_t num_rows_written = 0;
+    int64_t total_data_size = 0;
+    int64_t total_index_size = 0;
+    std::vector<uint32_t> segment_num_rows;
+    std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         for (const auto& itr : _segid_statistics_map) {
-            _num_rows_written += itr.second.row_num;
-            _segment_num_rows.push_back(itr.second.row_num);
-            _total_data_size += itr.second.data_size;
-            _total_index_size += itr.second.index_size;
-            _segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+            num_rows_written += itr.second.row_num;
+            segment_num_rows.push_back(itr.second.row_num);
+            total_data_size += itr.second.data_size;
+            total_index_size += itr.second.index_size;
+            segments_encoded_key_bounds.push_back(itr.second.key_bounds);
         }
     }
     rowset_meta->set_num_segments(num_seg);
     if (num_seg <= 1) {
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
-    rowset_meta->set_num_rows(_num_rows_written);
-    rowset_meta->set_total_disk_size(_total_data_size);
-    rowset_meta->set_data_disk_size(_total_data_size);
-    rowset_meta->set_index_disk_size(_total_index_size);
-    rowset_meta->set_segments_key_bounds(_segments_encoded_key_bounds);
+    _segment_num_rows = segment_num_rows;
+    for (auto itr = _segments_encoded_key_bounds.begin(); itr != _segments_encoded_key_bounds.end();
+         ++itr) {
+        segments_encoded_key_bounds.push_back(*itr);
+    }
+
+    CHECK_EQ(segments_encoded_key_bounds.size(), num_seg);
+    rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
+    rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
+    rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
+    rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
+    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
     // TODO write zonemap to meta
-    rowset_meta->set_empty(_num_rows_written == 0);
+    rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));
 
     if (_is_pending) {
@@ -840,7 +876,8 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     return _do_create_segment_writer(writer, true, begin, end);
 }
 
-Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                                               int64_t* flush_size) {
     uint32_t segid = (*writer)->get_segment_id();
     uint32_t row_num = (*writer)->num_rows_written();
 
@@ -875,6 +912,9 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
               << " data_size:" << segment_size << " index_size:" << index_size;
 
     writer->reset();
+    if (flush_size) {
+        *flush_size = segment_size + index_size;
+    }
     return Status::OK();
 }
 

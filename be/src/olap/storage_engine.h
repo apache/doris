@@ -180,6 +180,9 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
+    std::shared_ptr<MemTrackerLimiter> segcompaction_mem_tracker() {
+        return _segcompaction_mem_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> compaction_mem_tracker() { return _compaction_mem_tracker; }
     MemTracker* segment_meta_mem_tracker() { return _segment_meta_mem_tracker.get(); }
     std::shared_ptr<MemTrackerLimiter> schema_change_mem_tracker() {
@@ -332,6 +335,8 @@ private:
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
+    // Count the memory consumption of segment compaction tasks.
+    std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
     // Count the memory consumption of all Base and Cumulative tasks.
     std::shared_ptr<MemTrackerLimiter> _compaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.

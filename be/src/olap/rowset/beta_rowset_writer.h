@@ -66,7 +66,7 @@ public:
 
     Version version() override { return _context.version; }
 
-    int64_t num_rows() const override { return _num_rows_written; }
+    int64_t num_rows() const override { return _raw_num_rows_written; }
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
@@ -94,7 +94,8 @@ private:
     Status _create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
 
-    Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
+    Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                                 int64_t* flush_size = nullptr);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
@@ -141,11 +142,14 @@ private:
 
     io::FileWriterPtr _segcompaction_file_writer;
 
-    // counters and statistics maintained during data write
+    // counters and statistics maintained during add_rowset
     std::atomic<int64_t> _num_rows_written;
     std::atomic<int64_t> _total_data_size;
     std::atomic<int64_t> _total_index_size;
     // TODO rowset Zonemap
+
+    // written rows by add_block/add_row (not effected by segcompaction)
+    std::atomic<int64_t> _raw_num_rows_written;
 
     struct Statistics {
         int64_t row_num;
