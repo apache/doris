@@ -21,7 +21,6 @@
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -188,7 +187,7 @@ public:
                                         col_from.get_name());
         }
 
-        auto col_to = ColumnJsonb::create();
+        auto col_to = ColumnString::create();
 
         //IColumn & col_to = *res;
         size_t size = col_from.size();
@@ -323,7 +322,7 @@ public:
 
         auto res = Impl::ColumnType::create();
 
-        auto jsonb_data_column = assert_cast<const ColumnJsonb*>(argument_columns[0].get());
+        auto jsonb_data_column = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto jsonb_path_column = assert_cast<const ColumnString*>(argument_columns[1].get());
 
         auto& ldata = jsonb_data_column->get_chars();
@@ -580,7 +579,7 @@ struct JsonbTypeString {
 struct JsonbTypeJson {
     using T = std::string;
     using ReturnType = DataTypeJsonb;
-    using ColumnType = ColumnJsonb;
+    using ColumnType = ColumnString;
     static const bool only_check_exists = false;
     static const bool only_get_type = false;
 };

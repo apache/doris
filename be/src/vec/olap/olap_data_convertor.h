@@ -19,7 +19,6 @@
 
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"

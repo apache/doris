@@ -24,7 +24,6 @@
 #include "util/proto_util.h"
 #include "util/time.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -711,11 +710,11 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         break;
     }
     case TYPE_JSONB: {
-        const auto column_jsonb =
-                assert_cast<const vectorized::ColumnJsonb*>(real_column_ptr.get());
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
         for (size_t j = 0; j < column->size(); ++j) {
             if (!filter_bitmap->Get(j)) {
-                auto str_val = column_jsonb->get_data_at(j);
+                auto str_val = column_string->get_data_at(j);
                 bool invalid = str_val.size == 0;
                 if (invalid) {
                     error_msg.clear();

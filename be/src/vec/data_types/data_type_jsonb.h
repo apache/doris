@@ -19,7 +19,8 @@
 
 #include <ostream>
 
-#include "vec/columns/column_jsonb.h"
+#include "runtime/jsonb_value.h"
+#include "vec/columns/column_string.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -27,7 +28,7 @@
 namespace doris::vectorized {
 class DataTypeJsonb final : public IDataType {
 public:
-    using ColumnType = ColumnJsonb;
+    using ColumnType = ColumnString;
     using FieldType = JsonbField;
     static constexpr bool is_parametric = false;
 

@@ -559,21 +559,21 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::get_data_at(si
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::convert_to_olap() {
     assert(_typed_column.column);
-    const vectorized::ColumnJsonb* column_json = nullptr;
+    const vectorized::ColumnString* column_string = nullptr;
     if (_nullmap) {
         auto nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_json = assert_cast<const vectorized::ColumnJsonb*>(
+        column_string = assert_cast<const vectorized::ColumnString*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_json = assert_cast<const vectorized::ColumnJsonb*>(_typed_column.column.get());
+        column_string = assert_cast<const vectorized::ColumnString*>(_typed_column.column.get());
     }
 
-    assert(column_json);
+    assert(column_string);
 
-    const char* char_data = (const char*)(column_json->get_chars().data());
-    const ColumnJsonb::Offset* offset_cur = column_json->get_offsets().data() + _row_pos;
-    const ColumnJsonb::Offset* offset_end = offset_cur + _num_rows;
+    const char* char_data = (const char*)(column_string->get_chars().data());
+    const ColumnString::Offset* offset_cur = column_string->get_offsets().data() + _row_pos;
+    const ColumnString::Offset* offset_end = offset_cur + _num_rows;
 
     Slice* slice = _slice.data();
     size_t string_offset = *(offset_cur - 1);
