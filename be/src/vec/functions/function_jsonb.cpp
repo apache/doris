@@ -370,7 +370,7 @@ struct JsonbExtractStringImpl {
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            int l_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_size = loffsets[i] - loffsets[i - 1];
             const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
             int r_size = roffsets[i] - roffsets[i - 1];
@@ -405,13 +405,13 @@ struct JsonbExtractStringImpl {
             if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
                 writer->reset();
                 writer->writeValue(value);
-                // StringOP::push_value_string(
-                //     std::string_view(writer->getOutput()->getBuffer(), writer->getOutput()->getSize()),
-                //     i, res_data, res_offsets);
-                res_data.insert(writer->getOutput()->getBuffer(),
-                                writer->getOutput()->getBuffer() + writer->getOutput()->getSize());
-                res_data.push_back('\0');
-                res_offsets[i] = res_data.size();
+                StringOP::push_value_string(
+                    std::string_view(writer->getOutput()->getBuffer(), writer->getOutput()->getSize()),
+                    i, res_data, res_offsets);
+                // res_data.insert(writer->getOutput()->getBuffer(),
+                //                 writer->getOutput()->getBuffer() + writer->getOutput()->getSize());
+                // res_data.push_back('\0');
+                // res_offsets[i] = res_data.size();
             } else {
                 if (LIKELY(value->isString())) {
                     auto str_value = (JsonbStringVal*)value;
@@ -449,7 +449,7 @@ struct JsonbExtractImpl {
             }
 
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            int l_str_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_str_size = loffsets[i] - loffsets[i - 1];
 
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];

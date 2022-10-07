@@ -34,19 +34,14 @@
 namespace doris::vectorized {
 class ColumnJsonb final : public COWHelper<IColumn, ColumnJsonb> {
 public:
-    using Char = UInt8;
-    using Chars = PaddedPODArray<UInt8>;
+    using Char = ColumnString::Char;
+    using Chars = ColumnString::Chars;
+    using ColumnStringPtr = ColumnString::MutablePtr;
 
 private:
     friend class COWHelper<IColumn, ColumnJsonb>;
 
-    Offsets offsets;
-
-    Chars chars;
-
-    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
-
-    size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
+    WrappedPtr column_string;
 
     template <bool positive>
     struct less;
@@ -54,21 +49,20 @@ private:
     template <bool positive>
     struct lessWithCollation;
 
-    ColumnJsonb() = default;
+    ColumnJsonb() : column_string(std::move(ColumnString::create())) {}
 
     ColumnJsonb(const ColumnJsonb& src)
-            : offsets(src.offsets.begin(), src.offsets.end()),
-              chars(src.chars.begin(), src.chars.end()) {}
+            : column_string(std::move(src.column_string->clone_resized(src.column_string->size()))) {}
 
 public:
     const char* get_family_name() const override { return "JSONB"; }
 
-    size_t size() const override { return offsets.size(); }
+    size_t size() const override { return column_string->size(); }
 
-    size_t byte_size() const override { return chars.size() + offsets.size() * sizeof(offsets[0]); }
+    size_t byte_size() const override { return column_string->byte_size(); }
 
     size_t allocated_bytes() const override {
-        return chars.allocated_bytes() + offsets.allocated_bytes();
+        return column_string->allocated_bytes();
     }
 
     void protect() override;
@@ -77,17 +71,21 @@ public:
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return Field(&chars[offset_at(n)], size_at(n) - 1);
+        StringRef s = column_string->get_data_at(n);
+        // TODO check
+        Field field = JsonbField(s.data, s.size);
+        return field;
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
-        res.assign_jsonb(&chars[offset_at(n)], size_at(n) - 1);
+        StringRef s = column_string->get_data_at(n);
+        // TODO check
+        res.assign_jsonb(s.data, s.size);
     }
 
     StringRef get_data_at(size_t n) const override {
-        assert(n < size());
-        return StringRef(&chars[offset_at(n)], size_at(n) - 1);
+        return column_string->get_data_at(n);
     }
 
 /// Suppress gcc 7.3.1 warning: '*((void*)&<anonymous> +8)' may be used uninitialized in this function
@@ -97,17 +95,8 @@ public:
 #endif
 
     void insert(const Field& x) override {
-        const JsonbField& s = doris::vectorized::get<const JsonbField&>(x);
-
-        const size_t old_size = chars.size();
-        const size_t size_to_append = s.get_size() + 1;
-        const size_t new_size = old_size + size_to_append;
-
-        chars.resize(new_size);
-
-        memcpy(chars.data() + old_size, s.get_value(), size_to_append - 1);
-        chars.data()[new_size - 1] = 0;
-        offsets.push_back(new_size);
+        const JsonbField& j = doris::vectorized::get<const JsonbField&>(x);
+        column_string->insert_data(j.get_value(), j.get_size());
     }
 
 #if !__clang__
@@ -116,33 +105,11 @@ public:
 
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnJsonb& src = assert_cast<const ColumnJsonb&>(src_);
-        const size_t size_to_append =
-                src.offsets[n] - src.offsets[n - 1]; /// -1th index is Ok, see PaddedPODArray.
-
-        if (size_to_append == 1) {
-            /// shortcut for empty jsonb
-            chars.push_back(0);
-            offsets.push_back(chars.size());
-        } else {
-            const size_t old_size = chars.size();
-            const size_t offset = src.offsets[n - 1];
-            const size_t new_size = old_size + size_to_append;
-
-            chars.resize(new_size);
-            memcpy_small_allow_read_write_overflow15(chars.data() + old_size, &src.chars[offset],
-                                                     size_to_append);
-            offsets.push_back(new_size);
-        }
+        column_string->insert_from(*src.column_string, n);
     }
 
     void insert_data(const char* pos, size_t length) override {
-        const size_t old_size = chars.size();
-        const size_t new_size = old_size + length + 1;
-
-        chars.resize(new_size);
-        if (length) memcpy(chars.data() + old_size, pos, length);
-        chars[old_size + length] = 0;
-        offsets.push_back(new_size);
+        column_string->insert_data(pos, length);
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets_,
@@ -173,38 +140,16 @@ public:
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
-        size_t new_size = 0;
-        for (size_t i = 0; i < num; i++) {
-            new_size += len_array[i] + 1;
-        }
-
-        const size_t old_size = chars.size();
-        chars.resize(old_size + new_size);
-
-        Char* data = chars.data();
-        size_t offset = old_size;
-        for (size_t i = 0; i < num; i++) {
-            uint32_t len = len_array[i];
-            uint32_t start_offset = start_offset_array[i];
-            if (len) memcpy(data + offset, data_array + start_offset, len);
-            data[offset + len] = 0;
-            offset += len + 1;
-            offsets.push_back(offset);
-        }
+        column_string->insert_many_binary_data(data_array, len_array, start_offset_array, num);
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t num, uint32_t /*dict_num*/) override {
-        for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
-            int32_t codeword = data_array[start_index];
-            insert_data(dict[codeword].data, dict[codeword].size);
-        }
+                               size_t num, uint32_t dict_num) override {
+        column_string->insert_many_dict_data(data_array, start_index, dict, num, dict_num);
     }
 
     void pop_back(size_t n) override {
-        size_t nested_n = offsets.back() - offset_at(offsets.size() - n);
-        chars.resize(chars.size() - nested_n);
-        offsets.resize_assume_reserved(offsets.size() - n);
+        column_string->pop_back(n);
     }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
@@ -221,11 +166,7 @@ public:
                                      size_t max_row_byte_size) const override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
-        size_t string_size = size_at(n);
-        size_t offset = offset_at(n);
-
-        hash.update(reinterpret_cast<const char*>(&string_size), sizeof(string_size));
-        hash.update(reinterpret_cast<const char*>(&chars[offset]), string_size);
+        column_string->update_hash_with_value(n, hash);
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -249,22 +190,8 @@ public:
 
     void insert_many_defaults(size_t length) override {
         JsonBinaryValue empty_jsonb("{}");
-        size_t new_size = 0;
         for (size_t i = 0; i < length; i++) {
-            new_size += empty_jsonb.size() + 1;
-        }
-
-        const size_t old_size = chars.size();
-        chars.resize(old_size + new_size);
-
-        Char* data = chars.data();
-        size_t offset = old_size;
-        for (size_t i = 0; i < length; i++) {
-            uint32_t len = empty_jsonb.size();
-            if (len) memcpy(data + offset, empty_jsonb.value(), len);
-            data[offset + len] = 0;
-            offset += len + empty_jsonb.size();
-            offsets.push_back(offset);
+            insert_default();
         }
     }
 
@@ -305,46 +232,27 @@ public:
         return typeid(rhs) == typeid(ColumnJsonb);
     }
 
-    Chars& get_chars() { return chars; }
+    ColumnString* get_column_string() const { return (ColumnString*)column_string.get(); }
 
-    const Chars& get_chars() const { return chars; }
+    Chars& get_chars() { return get_column_string()->get_chars(); }
 
-    Offsets& get_offsets() { return offsets; }
+    const Chars& get_chars() const { return get_column_string()->get_chars(); }
 
-    const Offsets& get_offsets() const { return offsets; }
+    Offsets& get_offsets() { return get_column_string()->get_offsets(); }
+
+    const Offsets& get_offsets() const { return get_column_string()->get_offsets(); }
 
     void clear() override {
-        chars.clear();
-        offsets.clear();
+        column_string->clear();
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnJsonb&>(rhs);
-        auto data = r.get_data_at(row);
-
-        if (!self_row) {
-            chars.clear();
-            offsets[self_row] = data.size + 1;
-        } else {
-            offsets[self_row] = offsets[self_row - 1] + data.size + 1;
-        }
-
-        chars.insert(data.data, data.data + data.size + 1);
+        column_string->replace_column_data(rhs, row, self_row);
     }
 
     // should replace according to 0,1,2... ,size,0,1,2...
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-
-        if (!self_row) {
-            chars.clear();
-            offsets[self_row] = 1;
-        } else {
-            offsets[self_row] = offsets[self_row - 1] + 1;
-        }
-
-        chars.emplace_back(0);
+        column_string->replace_column_data_default(self_row);
     }
 
     MutableColumnPtr get_shrinked_column() override;

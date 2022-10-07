@@ -582,7 +582,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::convert_to_olap() {
         while (offset_cur != offset_end) {
             if (!*nullmap_cur) {
                 slice->data = const_cast<char*>(char_data + string_offset);
-                slice->size = *offset_cur - string_offset - 1;
+                slice->size = *offset_cur - string_offset;
             } else {
                 // TODO: this may not be necessary, check and remove later
                 slice->data = nullptr;
@@ -597,7 +597,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorJsonb::convert_to_olap() {
     } else {
         while (offset_cur != offset_end) {
             slice->data = const_cast<char*>(char_data + string_offset);
-            slice->size = *offset_cur - string_offset - 1;
+            slice->size = *offset_cur - string_offset;
             string_offset = *offset_cur;
             ++slice;
             ++offset_cur;

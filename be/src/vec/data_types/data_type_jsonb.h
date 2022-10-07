@@ -21,6 +21,8 @@
 
 #include "vec/columns/column_jsonb.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_string.h"
+
 
 namespace doris::vectorized {
 class DataTypeJsonb final : public IDataType {
@@ -60,5 +62,8 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+
+private:
+    DataTypeString data_type_string;
 };
 } // namespace doris::vectorized
