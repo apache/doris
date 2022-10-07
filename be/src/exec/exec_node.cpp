@@ -62,6 +62,7 @@
 #include "vec/exec/file_scan_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/vaggregation_node.h"
@@ -462,7 +463,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::JDBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
 #ifdef LIBJVM
-            *node = pool->add(new vectorized::VJdbcScanNode(pool, tnode, descs));
+            if (config::enable_new_scan_node) {
+                *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
+            } else {
+                *node = pool->add(new vectorized::VJdbcScanNode(pool, tnode, descs));
+            }
 #else
             return Status::InternalError("Jdbc scan node is disabled since no libjvm is found!");
 #endif
@@ -731,7 +736,11 @@ void ExecNode::try_do_aggregate_serde_improve() {
     ExecNode* child0 = agg_node[0]->_children[0];
     if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
         typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewOdbcScanNode)) {
+        typeid(*child0) == typeid(vectorized::NewOdbcScanNode)
+#ifdef LIBJVM
+        || typeid(*child0) == typeid(vectorized::NewJdbcScanNode)
+#endif
+    ) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();
