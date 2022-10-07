@@ -1,7 +1,7 @@
 ---
 {
-"title": "first_month_day",
-"language": "zh-CN"
+    "title": "first_month_day",
+    "language": "zh-CN"
 }
 ---
 
