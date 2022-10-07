@@ -135,7 +135,7 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
             throw new DdlException(errorMsg + taskState + " to " + newState);
         }
 
-        LOG.info("Statistics job(id={}) state changed from {} to {}", id, taskState, newState);
+        LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
         taskState = newState;
     }
 

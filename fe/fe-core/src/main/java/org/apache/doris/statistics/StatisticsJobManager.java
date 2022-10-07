@@ -158,6 +158,9 @@ public class StatisticsJobManager {
                 }
                 if (jobState == null || jobState == statisticsJob.getJobState()) {
                     List<Comparable> showInfo = statisticsJob.getShowInfo(null);
+                    if (showInfo == null || showInfo.isEmpty()) {
+                        continue;
+                    }
                     results.add(showInfo);
                 }
             }
@@ -176,6 +179,9 @@ public class StatisticsJobManager {
                         set.retainAll(tblIds);
                         for (long tblId : set) {
                             List<Comparable> showInfo = statisticsJob.getShowInfo(tblId);
+                            if (showInfo == null || showInfo.isEmpty()) {
+                                continue;
+                            }
                             results.add(showInfo);
                         }
                     }

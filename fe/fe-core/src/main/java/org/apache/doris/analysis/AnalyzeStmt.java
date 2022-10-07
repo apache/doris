@@ -43,6 +43,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -150,11 +151,11 @@ public class AnalyzeStmt extends DdlStmt {
             try {
                 OlapTable olapTable = (OlapTable) table;
                 List<String> partitionNames = getPartitionNames();
-                if (partitionNames.isEmpty() && olapTable.isPartitioned()) {
-                    partitionNames.addAll(olapTable.getPartitionNames());
+                List<String> newPartitionNames = new ArrayList<>(partitionNames);
+                if (newPartitionNames.isEmpty() && olapTable.isPartitioned()) {
+                    newPartitionNames.addAll(olapTable.getPartitionNames());
                 }
-                List<String> notEmptyPartition = getNotEmptyPartition(olapTable, partitionNames);
-                tableIdToPartitionName.put(table.getId(), notEmptyPartition);
+                tableIdToPartitionName.put(table.getId(), newPartitionNames);
             } finally {
                 table.readUnlock();
             }
@@ -330,17 +331,6 @@ public class AnalyzeStmt extends DdlStmt {
                 Config.max_cbo_statistics_task_timeout_sec, DESIRED_TASK_TIMEOUT_SEC,
                 CBO_STATISTICS_TASK_TIMEOUT_SEC + " should > 0")).intValue();
         optProperties.put(CBO_STATISTICS_TASK_TIMEOUT_SEC, String.valueOf(taskTimeout));
-    }
-
-    private List<String> getNotEmptyPartition(OlapTable olapTable, List<String> partitionNames) {
-        List<String> notEmptyPartition = Lists.newArrayList();
-        for (String partitionName : partitionNames) {
-            Partition partition = olapTable.getPartition(partitionName);
-            if (partition != null && partition.getDataSize() > 0) {
-                notEmptyPartition.add(partitionName);
-            }
-        }
-        return notEmptyPartition;
     }
 
     @Override

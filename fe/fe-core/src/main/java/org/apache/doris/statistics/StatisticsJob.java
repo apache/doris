@@ -35,6 +35,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -338,10 +339,15 @@ public class StatisticsJob {
             }
         }
 
+        // exclude invalid info
+        if (scope.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         result.add(StringUtils.join(scope.toArray(), ","));
         result.add(finishedTaskNum + "/" + totalTaskNum);
 
-        if (totalTaskNum == finishedTaskNum) {
+        if (totalTaskNum > 0 && totalTaskNum == finishedTaskNum) {
             result.add("FINISHED");
         } else {
             result.add(jobState.toString());
