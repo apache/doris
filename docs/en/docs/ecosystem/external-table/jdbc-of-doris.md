@@ -121,7 +121,7 @@ properties (
     "type"="jdbc",
     "user"="postgres",
     "password"="123456",
-    "jdbc_url"="jdbc:postgresql://127.0.0.1:5442/db1",
+    "jdbc_url"="jdbc:postgresql://127.0.0.1:5442/postgres?currentSchema=doris_test",
     "driver_url"="http://127.0.0.1:8881/postgresql-42.5.0.jar",
     "driver_class"="org.postgresql.Driver"
 );
