@@ -106,7 +106,7 @@ You can also view the BE node through the front-end page connection: ``http://fe
 
 All of the above methods require Doris's root user rights.
 
-The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../maint-monitor/tablet-meta-tool.md).
+The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../maint-monitor/tablet-repair-and-balance.md).
 
 ### Add BE nodes
 
