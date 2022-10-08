@@ -34,6 +34,7 @@ void GCContextPerDisk::init(const std::string& path, int64_t max_size) {
     _conf_max_size = max_size;
     _used_size = 0;
 }
+
 bool GCContextPerDisk::try_add_file_cache(FileCachePtr cache, int64_t file_size) {
     if (cache->cache_dir().string().substr(0, _disk_path.size()) == _disk_path) {
         _lru_queue.push(cache);
@@ -42,6 +43,7 @@ bool GCContextPerDisk::try_add_file_cache(FileCachePtr cache, int64_t file_size)
     }
     return false;
 }
+
 void GCContextPerDisk::gc_by_disk_size() {
     while (!_lru_queue.empty() && _used_size > _conf_max_size) {
         auto file_cache = _lru_queue.top();
@@ -95,6 +97,7 @@ void FileCacheManager::_add_file_cache_for_gc_by_disk(std::vector<GCContextPerDi
         }
     }
 }
+
 void FileCacheManager::gc_file_caches() {
     int64_t gc_conf_size = config::file_cache_max_size_per_disk;
     std::vector<GCContextPerDisk> contexts;

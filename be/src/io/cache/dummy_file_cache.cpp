@@ -25,8 +25,6 @@
 namespace doris {
 namespace io {
 
-const static std::string WHOLE_FILE_CACHE_NAME = "WHOLE_FILE_CACHE";
-
 DummyFileCache::DummyFileCache(const Path& cache_dir, int64_t alive_time_sec)
         : _cache_dir(cache_dir), _alive_time_sec(alive_time_sec) {}
 
@@ -39,6 +37,7 @@ void DummyFileCache::_update_last_mtime(const Path& done_file) {
         _last_match_time = m_time;
     }
 }
+
 void DummyFileCache::_add_file_cache(const Path& data_file) {
     Path cache_file = _cache_dir / data_file;
     size_t file_size = 0;
@@ -49,6 +48,7 @@ void DummyFileCache::_add_file_cache(const Path& data_file) {
         _unfinished_files.push_back(cache_file);
     }
 }
+
 void DummyFileCache::_load() {
     // list all files
     std::vector<Path> cache_file_names;
@@ -84,6 +84,7 @@ void DummyFileCache::_load() {
         _unfinished_files.push_back(file);
     }
 }
+
 Status DummyFileCache::_clean_unfinished_cache() {
     // remove cache file without done file
     for (auto iter = _unfinished_files.begin(); iter != _unfinished_files.end(); ++iter) {
