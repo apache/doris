@@ -24,6 +24,7 @@
 namespace doris {
 
 TEST(MemTrackerTest, SingleTrackerNoLimit) {
+    config::enable_cancel_query = true;
     auto t = MemTracker::CreateTracker();
     EXPECT_FALSE(t->has_limit());
     t->Consume(10);
@@ -37,6 +38,7 @@ TEST(MemTrackerTest, SingleTrackerNoLimit) {
 }
 
 TEST(MemTestTest, SingleTrackerWithLimit) {
+    config::enable_cancel_query = true;
     auto t = MemTracker::CreateTracker(11, "limit tracker");
     EXPECT_TRUE(t->has_limit());
     t->Consume(10);
@@ -52,6 +54,7 @@ TEST(MemTestTest, SingleTrackerWithLimit) {
 }
 
 TEST(MemTestTest, TrackerHierarchy) {
+    config::enable_cancel_query = true;
     auto p = MemTracker::CreateTracker(100);
     auto c1 = MemTracker::CreateTracker(80, "c1", p);
     auto c2 = MemTracker::CreateTracker(50, "c2", p);
@@ -95,6 +98,7 @@ TEST(MemTestTest, TrackerHierarchy) {
 }
 
 TEST(MemTestTest, TrackerHierarchyTryConsume) {
+    config::enable_cancel_query = true;
     auto p = MemTracker::CreateTracker(100);
     auto c1 = MemTracker::CreateTracker(80, "c1", p);
     auto c2 = MemTracker::CreateTracker(50, "c2", p);
