@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("load_two_step") {
+suite("load_one_step") {
 
-    // Import once, use unique key, use seq and delete
+    // Import once, use unique key, do not use seq and delete
     // Map[tableName, rowCount]
     def tables = [nation: 25, customer: 15000000, lineitem: 600037902, orders: 150000000, part: 20000000, partsupp: 80000000, region: 5, supplier: 1000000]
     def s3BucketName = getS3BucketName()
@@ -36,11 +36,10 @@ suite("load_two_step") {
     tables.each { table, rows ->
         sql """ DROP TABLE IF EXISTS $table """
         // create table if not exists
-        sql new File("""${context.file.parent}/ddl/${table}_sequence.sql""").text
-
+        sql new File("""${context.parentFile.parent}/ddl/${table}.sql""").text
         def loadLabel = table + "_" + uniqueID
         // load data from cos
-        def loadSql = new File("""${context.file.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+        def loadSql = new File("""${context.parentFile.parent}/ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
         loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
         sql loadSql
 
@@ -57,8 +56,7 @@ suite("load_two_step") {
                     logger.info("select ${table} numbers: ${loadRowCount[0][0]}".toString())
                     assertTrue(loadRowCount[0][0] == rows)
                 }
-                sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
-                sql 'sync'
+                sql new File("""${context.parentFile.parent}/ddl/${table}_delete.sql""").text
                 for (int i = 1; i <= 5; i++) {
                     def loadRowCount = sql "select count(1) from ${table}"
                     logger.info("select ${table} numbers: ${loadRowCount[0][0]}".toString())
