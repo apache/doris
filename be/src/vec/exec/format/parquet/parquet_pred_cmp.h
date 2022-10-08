@@ -145,16 +145,6 @@ static bool _eval_eq(PrimitiveType conjunct_type, void* value, const char* min_b
         _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
         break;
     }
-    case TYPE_DOUBLE: {
-        _PLAIN_DECODE(double, value, min_bytes, max_bytes, conjunct_value, min, max)
-        _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
-        break;
-    }
-    case TYPE_FLOAT: {
-        _PLAIN_DECODE(float, value, min_bytes, max_bytes, conjunct_value, min, max)
-        _FILTER_GROUP_BY_EQ_PRED(conjunct_value, min, max)
-        break;
-    }
     case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
@@ -191,16 +181,6 @@ static bool _eval_gt(PrimitiveType conjunct_type, void* value, const char* max_b
     }
     case TYPE_BIGINT: {
         _PLAIN_DECODE_SINGLE(int64_t, value, max_bytes, conjunct_value, max)
-        _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
-        break;
-    }
-    case TYPE_DOUBLE: {
-        _PLAIN_DECODE_SINGLE(double, value, max_bytes, conjunct_value, max)
-        _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
-        break;
-    }
-    case TYPE_FLOAT: {
-        _PLAIN_DECODE_SINGLE(float, value, max_bytes, conjunct_value, max)
         _FILTER_GROUP_BY_GT_PRED(conjunct_value, max)
         break;
     }
@@ -244,16 +224,6 @@ static bool _eval_ge(PrimitiveType conjunct_type, void* value, const char* max_b
         _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
         break;
     }
-    case TYPE_DOUBLE: {
-        _PLAIN_DECODE_SINGLE(double, value, max_bytes, conjunct_value, max)
-        _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
-        break;
-    }
-    case TYPE_FLOAT: {
-        _PLAIN_DECODE_SINGLE(float, value, max_bytes, conjunct_value, max)
-        _FILTER_GROUP_BY_GE_PRED(conjunct_value, max)
-        break;
-    }
     case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
@@ -294,16 +264,6 @@ static bool _eval_lt(PrimitiveType conjunct_type, void* value, const char* min_b
         _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
         break;
     }
-    case TYPE_DOUBLE: {
-        _PLAIN_DECODE_SINGLE(double, value, min_bytes, conjunct_value, min)
-        _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
-        break;
-    }
-    case TYPE_FLOAT: {
-        _PLAIN_DECODE_SINGLE(float, value, min_bytes, conjunct_value, min)
-        _FILTER_GROUP_BY_LT_PRED(conjunct_value, min)
-        break;
-    }
     case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
@@ -341,16 +301,6 @@ static bool _eval_le(PrimitiveType conjunct_type, void* value, const char* min_b
     }
     case TYPE_BIGINT: {
         _PLAIN_DECODE_SINGLE(int64_t, value, min_bytes, conjunct_value, min)
-        _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
-        break;
-    }
-    case TYPE_DOUBLE: {
-        _PLAIN_DECODE_SINGLE(double, value, min_bytes, conjunct_value, min)
-        _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
-        break;
-    }
-    case TYPE_FLOAT: {
-        _PLAIN_DECODE_SINGLE(float, value, min_bytes, conjunct_value, min)
         _FILTER_GROUP_BY_LE_PRED(conjunct_value, min)
         break;
     }
