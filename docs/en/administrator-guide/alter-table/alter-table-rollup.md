@@ -27,7 +27,7 @@ under the License.
 # Rollup
 
 Users can speed up queries by creating rollup tables. For the concept and usage of Rollup, please refer to [Data
- Model, ROLLUP and Prefix Index](../../getting-started/data-model-rollup_EN.md) and 
+ Model, ROLLUP and Prefix Index](../../getting-started/data-model-rollup) and 
  [Rollup and query](../../getting-started/hit-the-rollup_EN.md).
 
 This document focuses on how to create a Rollup job, as well as some considerations and frequently asked questions about creating a Rollup.

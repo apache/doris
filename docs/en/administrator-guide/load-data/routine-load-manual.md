@@ -243,7 +243,7 @@ You can only view tasks that are currently running, and tasks that have ended an
 
 ### Alter job
 
-Users can modify jobs that have been created. Specific instructions can be viewed through the `HELP ALTER ROUTINE LOAD;` command. Or refer to [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data%20Manipulation/alter-routine-load.md).
+Users can modify jobs that have been created. Specific instructions can be viewed through the `HELP ALTER ROUTINE LOAD;` command. Or refer to [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data%20Manipulation/alter-routine-load).
 
 ### Job Control
 

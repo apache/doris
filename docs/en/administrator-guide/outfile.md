@@ -63,7 +63,7 @@ INTO OUTFILE "file_path"
 
     Specify the relevant attributes. Currently it supports exporting through the Broker process, or through the S3, HDFS protocol.
 
-    + Broker related attributes need to be prefixed with `broker.`. For details, please refer to [Broker Document](./broker.html).
+    + Broker related attributes need to be prefixed with `broker.`. For details, please refer to [Broker Document](./broker).
     + HDFS protocal can directly execute HDFS protocal configuration.
     + S3 protocol can directly execute S3 protocol configuration.
 
