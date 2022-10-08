@@ -17,8 +17,28 @@
 
 suite("test_broker_load", "p0") {
 
-    def tables = ["part", "upper_case", "reverse", "set1", "set2", "set3", "set4", "set5", "set6",
-                  "set7", "null_default", "filter", "path_column"]
+    def tables = ["part",
+                  "upper_case",
+                  "reverse",
+                  "set1",
+                  "set2",
+                  "set3",
+                  "set4",
+                  "set5",
+                  "set6",
+                  "set7",
+                  "null_default",
+                  "filter",
+                  "path_column",
+                  "parquet_s3_case1", // col1 not in file but in table, will load default value for it.
+                  "parquet_s3_case2", // x1 not in file, not in table, will throw "col not found" error.
+                  "parquet_s3_case3", // p_comment not in table but in file, load normally.
+                  "parquet_s3_case4", // all tables are in table but not in file, will throw "no column found" error.
+                  "parquet_s3_case5", // x1 not in file, not in table, will throw "col not found" error.
+                  "parquet_s3_case6", // normal
+                  "parquet_s3_case7", // col5 will be ignored, load normally
+                  "parquet_s3_case8"  // first column in table is not specified, will load default value for it.
+                 ]
     def paths = ["s3://doris-community-test-1308700295/load/data/part*",
                  "s3://doris-community-test-1308700295/load/data/part*",
                  "s3://doris-community-test-1308700295/load/data/part*",
@@ -31,7 +51,15 @@ suite("test_broker_load", "p0") {
                  "s3://doris-community-test-1308700295/load/data/part*",
                  "s3://doris-community-test-1308700295/load/data/part*",
                  "s3://doris-community-test-1308700295/load/data/part*",
-                 "s3://doris-community-test-1308700295/load/data/path/*/part*"
+                 "s3://doris-community-test-1308700295/load/data/path/*/part*",
+                 "s3://doris-community-test-1308700295/load/data/part*",
+                 "s3://doris-community-test-1308700295/load/data/part*",
+                 "s3://doris-community-test-1308700295/load/data/part*",
+                 "s3://doris-community-test-1308700295/load/data/part*",
+                 "s3://doris-community-test-1308700295/load/data/part*",
+                 "s3://doris-community-test-1308700295/load/data/part*",
+                 "s3://doris-community-test-1308700295/load/data/part*",
+                 "s3://doris-community-test-1308700295/load/data/part*",
     ]
     def columns_list = ["""p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
                    """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
@@ -45,10 +73,20 @@ suite("test_broker_load", "p0") {
                    """p_partkey,  p_size""",
                    """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
                    """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
-                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment"""]
-    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)"]
-    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", ""]
-    def set_values = ["", "",
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, col1""",
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, x1""",
+                   """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
+                   """col1, col2, col3, col4""",
+                   """p_partkey, p_name, p_mfgr, x1""",
+                   """p_partkey, p_name, p_mfgr, p_brand""",
+                   """p_partkey, p_name, p_mfgr, p_brand""",
+                   """p_name, p_mfgr"""
+                   ]
+    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", ""]
+    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", ""]
+    def set_values = ["",
+                      "",
                       "SET(comment=p_comment, retailprice=p_retailprice, container=p_container, size=p_size, type=p_type, brand=p_brand, mfgr=p_mfgr, name=p_name, partkey=p_partkey)",
                       "set(p_name=upper(p_name),p_greatest=greatest(cast(p_partkey as int), cast(p_size as int)))",
                       "set(p_partkey = p_partkey + 100)",
@@ -56,9 +94,20 @@ suite("test_broker_load", "p0") {
                       "set(partkey = p_partkey + p_size)",
                       "set(tmpk = p_partkey + 1, partkey = tmpk*2)",
                       "set(partkey = p_partkey + 1, partsize = p_size*2)",
-                      "set(partsize = p_partkey + p_size)", "", "", ""
+                      "set(partsize = p_partkey + p_size)",
+                      "",
+                      "",
+                      "",
+                      "",
+                      "",
+                      "",
+                      "",
+                      "set(col4 = x1)",
+                      "set(col4 = p_brand)",
+                      "set(col5 = p_brand)",
+                      ""
     ]
-    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", ""]
+    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", ""]
 
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
@@ -72,7 +121,39 @@ suite("test_broker_load", "p0") {
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=163703; dpp.abnorm.ALL=0; dpp.norm.ALL=36294",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000"]
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "\\N",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "\\N",
+                    "\\N",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000"
+                    ]
+
+    def error_msg = ["",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
+                    "",
+                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to init reader for file s3://doris-community-test-1308700295/load/data/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet, err: No columns found in file",
+                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
+                    "",
+                    "",
+                    ""
+                    ]
 
     String ak = getS3AK()
     String sk = getS3SK()
@@ -151,7 +232,8 @@ suite("test_broker_load", "p0") {
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
-                        assertTrue(1 == 2, "Load failed.")
+                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7])
+                        break;
                     }
                     Thread.sleep(1000)
                     max_try_milli_secs -= 1000
@@ -161,6 +243,13 @@ suite("test_broker_load", "p0") {
                 }
                 i++
             }
+
+            order_qt_parquet_s3_case1 """select count(*) from parquet_s3_case1 where col1=10"""
+            order_qt_parquet_s3_case3 """select count(*) from parquet_s3_case3 where p_partkey < 100000"""
+            order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
+            order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
+            order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
+
         } finally {
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
