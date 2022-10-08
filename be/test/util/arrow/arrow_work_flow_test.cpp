@@ -30,6 +30,7 @@
 #include "olap/row.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -89,6 +90,8 @@ void ArrowWorkFlowTest::init() {
 void ArrowWorkFlowTest::init_runtime_state() {
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     _exec_env->_thread_mgr = new ThreadResourceMgr();
+    _exec_env->_mem_tracker = std::make_shared<doris::MemTracker>(-1, "OldProcess");
+    _exec_env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     TUniqueId query_id;

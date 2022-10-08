@@ -119,12 +119,9 @@ struct StConstructState {
 
 struct StContainsState {
     StContainsState() : is_null(false), shapes{nullptr, nullptr} {}
-    ~StContainsState() {
-        delete shapes[0];
-        delete shapes[1];
-    }
+    ~StContainsState() {}
     bool is_null;
-    GeoShape* shapes[2];
+    std::vector<std::shared_ptr<GeoShape>> shapes;
 };
 
 } // namespace doris

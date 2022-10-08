@@ -329,9 +329,8 @@ struct StContains {
             return Status::OK();
         }
 
-        StContainsState local_state;
         int i;
-        GeoShape* shapes[2] = {nullptr, nullptr};
+        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
         for (int row = 0; row < size; ++row) {
             auto lhs_value = shape1->get_data_at(row);
             auto rhs_value = shape2->get_data_at(row);
@@ -340,7 +339,8 @@ struct StContains {
                 if (state != nullptr && state->shapes[i] != nullptr) {
                     shapes[i] = state->shapes[i];
                 } else {
-                    shapes[i] = local_state.shapes[i] = GeoShape::from_encoded(strs[i]->data, strs[i]->size);
+                    shapes[i] = std::shared_ptr<GeoShape>(
+                        GeoShape::from_encoded(strs[i]->data, strs[i]->size));
                     if (shapes[i] == nullptr) {
                         res->insert_data(nullptr, 0);
                         break;
@@ -349,7 +349,7 @@ struct StContains {
             }
 
             if (i == 2) {
-                auto contains_value = shapes[0]->contains(shapes[1]);
+                auto contains_value = shapes[0]->contains(shapes[1].get());
                 res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
             }
         }
@@ -373,7 +373,7 @@ struct StContains {
                 if (str->is_null) {
                     contains_ctx->is_null = true;
                 } else {
-                    contains_ctx->shapes[i] = GeoShape::from_encoded(str->ptr, str->len);
+                    contains_ctx->shapes[i] = std::shared_ptr<GeoShape>(GeoShape::from_encoded(str->ptr, str->len));
                     if (contains_ctx->shapes[i] == nullptr) {
                         contains_ctx->is_null = true;
                     }

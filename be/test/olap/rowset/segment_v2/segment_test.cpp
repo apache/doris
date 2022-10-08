@@ -26,6 +26,7 @@
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "olap/comparison_predicate.h"
+#include "olap/data_dir.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
@@ -114,7 +115,9 @@ protected:
         fs::CreateBlockOptions block_opts(filename);
         Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(block_opts, &wblock);
         ASSERT_TRUE(st.ok());
-        SegmentWriter writer(wblock.get(), 0, &build_schema, opts);
+        DataDir data_dir(kSegmentDir);
+        data_dir.init();
+        SegmentWriter writer(wblock.get(), 0, &build_schema, &data_dir, opts);
         st = writer.init(10);
         ASSERT_TRUE(st.ok());
 
@@ -618,7 +621,10 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     fs::CreateBlockOptions wblock_opts(fname);
     Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
+
+    DataDir data_dir(kSegmentDir);
+    data_dir.init();
+    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, opts);
     st = writer.init(10);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
@@ -788,7 +794,10 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     fs::CreateBlockOptions wblock_opts(fname);
     Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok());
-    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
+
+    DataDir data_dir(kSegmentDir);
+    data_dir.init();
+    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, opts);
     st = writer.init(10);
     ASSERT_TRUE(st.ok());
 

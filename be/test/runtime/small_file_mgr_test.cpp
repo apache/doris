@@ -29,6 +29,7 @@
 #include "http/http_handler.h"
 #include "http/http_request.h"
 #include "runtime/exec_env.h"
+#include "util/mem_info.h"
 
 int main(int argc, char* argv[]);
 

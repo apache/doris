@@ -226,7 +226,10 @@ static void deleter(const CacheKey& key, void* v) {
 static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
                             CachePriority priority) {
     uint32_t hash = key.hash(key.data(), key.size(), 0);
-    cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter, priority));
+    static std::unique_ptr<MemTrackerLimiter> lru_cache_tracker =
+        std::make_unique<MemTrackerLimiter>(-1, "TestLruCache");
+    cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter,
+                               lru_cache_tracker.get(), priority));
 }
 
 TEST_F(CacheTest, Usage) {

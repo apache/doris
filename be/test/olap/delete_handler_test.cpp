@@ -58,6 +58,7 @@ void set_up() {
     config::tablet_map_shard_size = 1;
     config::txn_map_shard_size = 1;
     config::txn_shard_size = 1;
+    config::default_rowset_type = "BETA";
 
     doris::EngineOptions options;
     options.store_paths = paths;

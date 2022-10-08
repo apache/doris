@@ -221,7 +221,8 @@ TEST_F(MathFunctionsTest, hex_string) {
 }
 
 TEST_F(MathFunctionsTest, unhex) {
-    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    MemPool mem_pool("test");
+    doris_udf::FunctionContext* context = doris_udf::FunctionContext::create_test_context(&mem_pool);
 
     ASSERT_EQ(StringVal::null(), MathFunctions::unhex(context, StringVal::null()));
 

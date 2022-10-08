@@ -149,7 +149,8 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(inputs, MemTracker::CreateTracker(-1, "VMergeIterator", nullptr, false), -1, false);
+    uint64_t merged_rows = 0;
+    auto iter = vectorized::new_merge_iterator(inputs, MemTracker::CreateTracker(-1, "VMergeIterator", nullptr, false), -1, false, &merged_rows);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());
@@ -198,7 +199,7 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
     inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(inputs, -1, true);
+    auto iter = vectorized::new_merge_iterator(inputs, nullptr, -1, true, nullptr);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -316,8 +317,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
         int seq_id_in_every_file = i;
         inputs.push_back(new SeqColumnUtIterator(schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
     }
-
-    auto iter = vectorized::new_merge_iterator(inputs, MemTracker::CreateTracker(-1, "VMergeIterator", nullptr, false), seq_column_id, true);
+    uint64_t merged_rows = 0;
+    auto iter = vectorized::new_merge_iterator(inputs, MemTracker::CreateTracker(-1, "VMergeIterator", nullptr, false), seq_column_id, true, &merged_rows);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     ASSERT_TRUE(st.ok());

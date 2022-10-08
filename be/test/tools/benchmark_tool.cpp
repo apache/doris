@@ -34,6 +34,7 @@
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
 #include "olap/comparison_predicate.h"
+#include "olap/data_dir.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
@@ -343,8 +344,11 @@ public:
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions block_opts({filename});
         fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(block_opts, &wblock);
+
         SegmentWriterOptions opts;
-        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, opts);
+        DataDir data_dir(kSegmentDir);
+        data_dir.init();
+        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, &data_dir, opts);
         writer.init(1024);
 
         RowCursor row;

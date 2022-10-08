@@ -31,23 +31,34 @@ ThreadContextPtr::ThreadContextPtr() {
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                        const ThreadContext::TaskType& type, const std::string& task_id,
                        const TUniqueId& fragment_instance_id) {
+#ifndef BE_TEST
     DCHECK(mem_tracker);
 #ifdef USE_MEM_TRACKER
     thread_context()->attach_task(type, task_id, fragment_instance_id, mem_tracker);
-#endif
+#endif // USE_MEM_TRACKER
+#else
+    if (ExecEnv::GetInstance()->new_process_mem_tracker() == nullptr) {
+        std::shared_ptr<MemTrackerLimiter> process_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(-1, "Process");
+        std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Orphan", process_mem_tracker);
+        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, _orphan_mem_tracker);
+    }
+    thread_context()->attach_task(type, task_id, fragment_instance_id, ExecEnv::GetInstance()->orphan_mem_tracker());
+#endif // BE_TEST
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
 #ifndef BE_TEST
     DCHECK(print_id(runtime_state->query_id()) != "");
     DCHECK(runtime_state->fragment_instance_id() != TUniqueId());
-#endif // BE_TEST
-    DCHECK(runtime_state->new_instance_mem_tracker());
 #ifdef USE_MEM_TRACKER
+    DCHECK(runtime_state->new_instance_mem_tracker());
     thread_context()->attach_task(
             query_to_task_type(runtime_state->query_type()), print_id(runtime_state->query_id()),
             runtime_state->fragment_instance_id(), runtime_state->new_instance_mem_tracker());
 #endif // USE_MEM_TRACKER
+#endif // BE_TEST
 }
 
 AttachTask::~AttachTask() {
