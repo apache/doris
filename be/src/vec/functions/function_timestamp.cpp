@@ -508,7 +508,6 @@ public:
 
 template <typename DateType>
 struct FirstMonthDayImpl {
-
     static DataTypes get_variadic_argument_types() {
         if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
             return {std::make_shared<DataTypeDate>()};
@@ -571,7 +570,7 @@ struct FirstMonthDayImpl {
 
             null_map = ColumnUInt8::create(input_rows_count, 1);
             block.replace_by_position(
-                result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
+                    result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
             return Status::OK();
         }
 
@@ -582,40 +581,40 @@ struct FirstMonthDayImpl {
 
     template <typename DateValueType, typename ReturnType, typename InputDateType>
     static void execute_straight(size_t input_rows_count, NullMap& null_map,
-                          const PaddedPODArray<InputDateType>& data_col,
-                          PaddedPODArray<ReturnType>& res_data) {
+                                 const PaddedPODArray<InputDateType>& data_col,
+                                 PaddedPODArray<ReturnType>& res_data) {
         for (int i = 0; i < input_rows_count; i++) {
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                 const auto& cur_data = data_col[i];
-                auto ts_value = binary_cast<Int64, VecDateTimeValue> (cur_data);
+                auto ts_value = binary_cast<Int64, VecDateTimeValue>(cur_data);
                 ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0);
                 ts_value.set_type(TIME_DATE);
                 if (!ts_value.is_valid_date()) {
                     null_map[i] = 1;
                     continue;
                 }
-                res_data[i] = binary_cast<VecDateTimeValue, Int64> (ts_value);
+                res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
 
             } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
                 const auto& cur_data = data_col[i];
-                auto ts_value = binary_cast<UInt32, DateValueType> (cur_data);
+                auto ts_value = binary_cast<UInt32, DateValueType>(cur_data);
                 ts_value.template set_time_unit<TimeUnit::DAY>(1);
                 if (!ts_value.is_valid_date()) {
                     null_map[i] = 1;
                     continue;
                 }
-                res_data[i] = binary_cast<DateValueType, UInt32> (ts_value);
+                res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
 
             } else {
                 const auto& cur_data = data_col[i];
-                auto ts_value = binary_cast<UInt64, DateValueType> (cur_data);
+                auto ts_value = binary_cast<UInt64, DateValueType>(cur_data);
                 ts_value.template set_time_unit<TimeUnit::DAY>(1);
                 ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                 if (!ts_value.is_valid_date()) {
                     null_map[i] = 1;
                     continue;
                 }
-                UInt64 cast_value = binary_cast<DateValueType, UInt64> (ts_value);
+                UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
         }
