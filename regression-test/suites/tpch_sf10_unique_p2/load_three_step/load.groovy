@@ -38,10 +38,10 @@ suite("load_three_step") {
     tables.each { table, rows ->
         // create table if not exists
         try{
-            sql new File("""${context.file.parent}/ddl/${table}_sequence.sql""").text
+            sql new File("""${context.parentFile.parent}/ddl/${table}_sequence.sql""").text
             def loadLabel1 = table + "_" + uniqueID1
             // load data from cos
-            def loadSql1 = new File("""${context.file.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+            def loadSql1 = new File("""${context.parentFile.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
             loadSql1 = loadSql1.replaceAll("\\\$\\{loadLabel\\}", loadLabel1) + s3WithProperties
             sql loadSql1
             // check load state
@@ -58,7 +58,7 @@ suite("load_three_step") {
                         assertTrue(loadRowCount[0][0] == rows)
                     }
                     def loadLabel2 = table + "_" + uniqueID2
-                    def loadSql2 = new File("""${context.file.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+                    def loadSql2 = new File("""${context.parentFile.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
                     loadSql2 = loadSql2.replaceAll("\\\$\\{loadLabel\\}", loadLabel2) + s3WithProperties
                     sql loadSql2
 
@@ -79,7 +79,7 @@ suite("load_three_step") {
                         sleep(5000)
                     }
 
-                    sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
+                    sql new File("""${context.parentFile.parent}/ddl/${table}_delete.sql""").text
                     for (int i = 1; i <= 5; i++) {
                         sql 'sync'
                         def loadRowCount = sql "select count(1) from ${table}"

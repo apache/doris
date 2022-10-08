@@ -36,11 +36,11 @@ suite("load_two_step") {
     tables.each { table, rows ->
         // create table if not exists
         try{
-            sql new File("""${context.file.parent}/ddl/${table}_sequence.sql""").text
+            sql new File("""${context.parentFile.parent}/ddl/${table}_sequence.sql""").text
 
             def loadLabel = table + "_" + uniqueID
             // load data from cos
-            def loadSql = new File("""${context.file.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+            def loadSql = new File("""${context.parentFile.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
             loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
             sql loadSql
 
@@ -57,7 +57,7 @@ suite("load_two_step") {
                         logger.info("select ${table} numbers: ${loadRowCount[0][0]}".toString())
                         assertTrue(loadRowCount[0][0] == rows)
                     }
-                    sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
+                    sql new File("""${context.parentFile.parent}/ddl/${table}_delete.sql""").text
                     for (int i = 1; i <= 5; i++) {
                         def loadRowCount = sql "select count(1) from ${table}"
                         logger.info("select ${table} numbers: ${loadRowCount[0][0]}".toString())
