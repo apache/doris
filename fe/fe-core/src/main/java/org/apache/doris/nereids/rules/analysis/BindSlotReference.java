@@ -237,21 +237,21 @@ public class BindSlotReference implements AnalysisRuleFactory {
                         .get()
                         .getSlots()));
             }
-            if (!boundedOpt.isPresent()) {
-                throw new AnalysisException("Cannot resolve " + unboundSlot.toString());
-            }
             List<Slot> bounded = boundedOpt.get();
             switch (bounded.size()) {
+                case 0:
+                    throw new AnalysisException(String.format("Cannot find column %s.", unboundSlot.toSql()));
                 case 1:
                     if (!foundInThisScope) {
                         getScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
                     }
                     return bounded.get(0);
                 default:
-                    throw new AnalysisException(unboundSlot + " is ambiguous： "
-                            + bounded.stream()
-                            .map(Slot::toString)
-                            .collect(Collectors.joining(", ")));
+                    throw new AnalysisException(String.format("%s is ambiguous: %s.",
+                            unboundSlot.toSql(),
+                            bounded.stream()
+                                    .map(Slot::toString)
+                                    .collect(Collectors.joining(", "))));
             }
         }
 

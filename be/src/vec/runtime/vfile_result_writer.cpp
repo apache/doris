@@ -210,6 +210,7 @@ Status VFileResultWriter::append_block(Block& block) {
 Status VFileResultWriter::_write_parquet_file(const Block& block) {
     RETURN_IF_ERROR(_vparquet_writer->write(block));
     // split file if exceed limit
+    _current_written_bytes = _vparquet_writer->written_len();
     return _create_new_file_if_exceed_size();
 }
 
@@ -416,7 +417,6 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
 Status VFileResultWriter::_close_file_writer(bool done) {
     if (_vparquet_writer) {
         _vparquet_writer->close();
-        _current_written_bytes = _vparquet_writer->written_len();
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         _vparquet_writer.reset(nullptr);
     } else if (_file_writer_impl) {

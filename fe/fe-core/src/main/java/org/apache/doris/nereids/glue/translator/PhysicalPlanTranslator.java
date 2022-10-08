@@ -699,6 +699,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             crossJoinNode.setChild(0, leftFragment.getPlanRoot());
             connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);
             leftFragment.setPlanRoot(crossJoinNode);
+            if (nestedLoopJoin.getOtherJoinCondition().isPresent()) {
+                ExpressionUtils.extractConjunction(nestedLoopJoin.getOtherJoinCondition().get()).stream()
+                        .map(e -> ExpressionTranslator.translate(e, context)).forEach(crossJoinNode::addConjunct);
+            }
 
             return leftFragment;
         } else {

@@ -30,6 +30,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -99,7 +100,7 @@ Status VFileScanner::open(RuntimeState* state) {
 }
 
 // For query:
-//                              [exist cols]  [non-exist cols]  [col from path]  input  ouput
+//                              [exist cols]  [non-exist cols]  [col from path]  input  output
 //                              A     B    C  D                 E
 // _init_src_block              x     x    x  x                 x                -      x
 // get_next_block               x     x    x  -                 -                -      x
@@ -109,7 +110,7 @@ Status VFileScanner::open(RuntimeState* state) {
 // _convert_to_output_block     -     -    -  -                 -                -      -
 //
 // For load:
-//                              [exist cols]  [non-exist cols]  [col from path]  input  ouput
+//                              [exist cols]  [non-exist cols]  [col from path]  input  output
 //                              A     B    C  D                 E
 // _init_src_block              x     x    x  x                 x                x      -
 // get_next_block               x     x    x  -                 -                x      -
@@ -130,21 +131,25 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 
         // Init src block for load job based on the data file schema (e.g. parquet)
         // For query job, simply set _src_block_ptr to block.
+        size_t read_rows = 0;
         RETURN_IF_ERROR(_init_src_block(block));
         {
             SCOPED_TIMER(_get_block_timer);
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
-            RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &_cur_reader_eof));
+            RETURN_IF_ERROR(
+                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
 
-        if (_src_block_ptr->rows() > 0) {
+        // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
+        // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
+        if (read_rows > 0) {
             // Convert the src block columns type to string in-place.
             RETURN_IF_ERROR(_cast_to_input_block(block));
             // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
-            RETURN_IF_ERROR(_fill_columns_from_path());
+            RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
             // Fill columns not exist in file with null or default value
-            RETURN_IF_ERROR(_fill_missing_columns());
+            RETURN_IF_ERROR(_fill_missing_columns(read_rows));
             // Apply _pre_conjunct_ctx_ptr to filter src block.
             RETURN_IF_ERROR(_pre_filter_src_block());
             // Convert src block to output block (dest block), string to dest data type and apply filters.
@@ -235,8 +240,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
     return Status::OK();
 }
 
-Status VFileScanner::_fill_columns_from_path() {
-    size_t rows = _src_block_ptr->rows();
+Status VFileScanner::_fill_columns_from_path(size_t rows) {
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
         SCOPED_TIMER(_fill_path_columns_timer);
@@ -263,13 +267,12 @@ Status VFileScanner::_fill_columns_from_path() {
     return Status::OK();
 }
 
-Status VFileScanner::_fill_missing_columns() {
+Status VFileScanner::_fill_missing_columns(size_t rows) {
     if (_missing_cols.empty()) {
         return Status::OK();
     }
 
     SCOPED_TIMER(_fill_missing_columns_timer);
-    int rows = _src_block_ptr->rows();
     for (auto slot_desc : _real_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -299,6 +302,12 @@ Status VFileScanner::_fill_missing_columns() {
             RETURN_IF_ERROR(ctx->execute(_src_block_ptr, &result_column_id));
             bool is_origin_column = result_column_id < origin_column_num;
             if (!is_origin_column) {
+                // call resize because the first column of _src_block_ptr may not be filled by reader,
+                // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
+                // has only one row.
+                std::move(*_src_block_ptr->get_by_position(result_column_id).column)
+                        .mutate()
+                        ->resize(rows);
                 auto result_column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
@@ -454,13 +463,17 @@ Status VFileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _ranges[_next_range++];
 
         // 1. create file reader
+        // TODO: Each format requires its own FileReader to achieve a special access mode,
+        //  so create the FileReader inner the format.
         std::unique_ptr<FileReader> file_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
-                                                        range, file_reader));
-        RETURN_IF_ERROR(file_reader->open());
-        if (file_reader->size() == 0) {
-            file_reader->close();
-            continue;
+        if (_params.format_type != TFileFormatType::FORMAT_PARQUET) {
+            RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
+                                                            range, file_reader));
+            RETURN_IF_ERROR(file_reader->open());
+            if (file_reader->size() == 0) {
+                file_reader->close();
+                continue;
+            }
         }
 
         // 2. create reader for specific format
@@ -468,10 +481,9 @@ Status VFileScanner::_get_next_reader() {
         Status init_status;
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            _cur_reader.reset(
-                    new ParquetReader(_profile, file_reader.release(), _params, range,
-                                      _file_col_names, _state->query_options().batch_size,
-                                      const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+            _cur_reader.reset(new ParquetReader(
+                    _profile, _params, range, _file_col_names, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj())));
             init_status =
                     ((ParquetReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
@@ -496,7 +508,17 @@ Status VFileScanner::_get_next_reader() {
                                          init_status.get_error_msg());
         }
 
+        _name_to_col_type.clear();
+        _missing_cols.clear();
         _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
+        if (!_missing_cols.empty() && _is_load && VLOG_NOTICE_IS_ON) {
+            fmt::memory_buffer col_buf;
+            for (auto& col : _missing_cols) {
+                fmt::format_to(col_buf, " {}", col);
+            }
+            VLOG_NOTICE << fmt::format("Unknown columns:{} in file {}", fmt::to_string(col_buf),
+                                       range.path);
+        }
         _cur_reader_eof = false;
         break;
     }
@@ -583,14 +605,16 @@ Status VFileScanner::_init_expr_ctxes() {
             }
             vectorized::VExprContext* ctx = nullptr;
             auto it = _params.default_value_of_src_slot.find(slot_desc->id());
-            // if does not exist or is empty, the default value will be null
-            if (it != std::end(_params.default_value_of_src_slot) && !it->second.nodes.empty()) {
-                RETURN_IF_ERROR(
-                        vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-                RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
-                RETURN_IF_ERROR(ctx->open(_state));
+            if (it != std::end(_params.default_value_of_src_slot)) {
+                if (!it->second.nodes.empty()) {
+                    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_state->obj_pool(),
+                                                                        it->second, &ctx));
+                    RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
+                    RETURN_IF_ERROR(ctx->open(_state));
+                }
+                // if expr is empty, the default value will be null
+                _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
             }
-            _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
         }
     }
     return Status::OK();
