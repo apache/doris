@@ -62,42 +62,42 @@ void ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_fixed_value() {
 template <>
 bool ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        int step_size) {
+        size_t step_size) {
     return false;
 }
 
 template <>
 bool ColumnValueRange<PrimitiveType::TYPE_CHAR>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        int step_size) {
+        size_t step_size) {
     return false;
 }
 
 template <>
 bool ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        int step_size) {
+        size_t step_size) {
     return false;
 }
 
 template <>
 bool ColumnValueRange<PrimitiveType::TYPE_HLL>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        int step_size) {
+        size_t step_size) {
     return false;
 }
 
 template <>
 bool ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        int step_size) {
+        size_t step_size) {
     return false;
 }
 
 template <>
 bool ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        int step_size) {
+        size_t step_size) {
     return false;
 }
 
