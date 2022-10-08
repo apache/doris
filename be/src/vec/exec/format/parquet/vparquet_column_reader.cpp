@@ -65,6 +65,7 @@ void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end
                                                 std::list<RowRange>& read_ranges) {
     if (_row_ranges.size() == 0) {
         read_ranges.emplace_back(start_index, end_index);
+        return;
     }
     int index = _row_range_index;
     while (index < _row_ranges.size()) {
