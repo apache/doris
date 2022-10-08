@@ -107,7 +107,7 @@ CREATE DATABASE example_db;
 >
 > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
 
-After the database is created, you can view the database information through [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.html#show-databases).
+After the database is created, you can view the database information through [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.md#show-databases).
 
 ```sql
 MySQL> SHOW DATABASES;
