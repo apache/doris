@@ -106,7 +106,7 @@ Planning example for concurrent export:
 
 ## Usage example
 
-For details, please refer to [OUTFILE Document](../sql-reference/sql-statements/Data%20Manipulation/OUTFILE.md).
+For details, please refer to [OUTFILE Document](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md).
 
 ## Return result
 
