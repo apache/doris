@@ -47,17 +47,25 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_task_mem_tracker
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_query_mem_tracker(
         const std::string& query_id, int64_t mem_limit) {
+#ifndef BE_TEST
     return register_task_mem_tracker_impl(query_id, mem_limit,
                                           fmt::format("Query#queryId={}", query_id),
                                           ExecEnv::GetInstance()->query_pool_mem_tracker());
+#else
+    return std::make_shared<doris::MemTrackerLimiter>(mem_limit, query_id);
+#endif // BE_TEST
 }
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_load_mem_tracker(
         const std::string& load_id, int64_t mem_limit) {
+#ifndef BE_TEST
     // In load, the query id of the fragment is executed, which is the same as the load id of the load channel.
     return register_task_mem_tracker_impl(load_id, mem_limit,
                                           fmt::format("Load#queryId={}", load_id),
                                           ExecEnv::GetInstance()->load_pool_mem_tracker());
+#else
+    return std::make_shared<doris::MemTrackerLimiter>(mem_limit, load_id);
+#endif // BE_TEST
 }
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::get_task_mem_tracker(
