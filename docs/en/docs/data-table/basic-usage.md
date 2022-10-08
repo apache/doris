@@ -142,7 +142,7 @@ mysql> USE example_db;
 Database changed
 ```
 
-Doris supports [composite partition and single partition](data-partition)  two table building methods. The following takes the aggregation model as an example to demonstrate how to create two partitioned data tables.
+Doris supports [composite partition and single partition](./data-partition)  two table building methods. The following takes the aggregation model as an example to demonstrate how to create two partitioned data tables.
 
 #### Single partition
 
@@ -406,7 +406,7 @@ MySQL> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHE
 
 ## Table Structure Change
 
-Use the [ALTER TABLE COLUMN](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) command to modify the table Schema, including the following changes.
+Use the [ALTER TABLE COLUMN](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN) command to modify the table Schema, including the following changes.
 
 - Adding columns
 - Deleting columns
@@ -470,7 +470,7 @@ For more help, see ``HELP ALTER TABLE``.
 
 Rollup can be understood as a materialized index structure for a Table. **Materialized** because its data is physically stored independently, and **Indexed** in the sense that Rollup can reorder columns to increase the hit rate of prefix indexes, and can reduce key columns to increase the aggregation of data.
 
-Use [ALTER TABLE ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.md) to perform various changes to Rollup.
+Use [ALTER TABLE ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP) to perform various changes to Rollup.
 
 The following examples are given
 
