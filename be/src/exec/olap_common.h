@@ -111,6 +111,9 @@ public:
 
     void convert_to_range_value();
 
+    bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
+                                    std::vector<OlapTuple>& end_scan_keys, int step_size);
+
     bool has_intersection(ColumnValueRange<primitive_type>& range);
 
     void intersection(ColumnValueRange<primitive_type>& range);
@@ -550,6 +553,59 @@ void ColumnValueRange<primitive_type>::convert_to_fixed_value() {
     }
 }
 
+template <>
+bool ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_avg_range_value(
+        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
+        int step_size);
+
+template <>
+bool ColumnValueRange<PrimitiveType::TYPE_CHAR>::convert_to_avg_range_value(
+        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
+        int step_size);
+
+template <>
+bool ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::convert_to_avg_range_value(
+        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
+        int step_size);
+
+template <>
+bool ColumnValueRange<PrimitiveType::TYPE_HLL>::convert_to_avg_range_value(
+        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
+        int step_size);
+
+template <>
+bool ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_avg_range_value(
+        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
+        int step_size);
+
+template <>
+bool ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_avg_range_value(
+        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
+        int step_size);
+
+template <PrimitiveType primitive_type>
+bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
+        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
+        int step_size) {
+    // Incrementing boolean is denied in C++17, So we use int as bool type
+    using type = std::conditional_t<std::is_same<bool, CppType>::value, int, CppType>;
+    type current = get_range_min_value();
+    while (current < get_range_max_value()) {
+        begin_scan_keys.emplace_back();
+        end_scan_keys.emplace_back();
+        begin_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(current, scale()),
+                                         contain_null());
+        int advance = step_size;
+        while (advance > 0 && current < get_range_max_value()) {
+            ++current;
+            --advance;
+        }
+        end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(current, scale()));
+    }
+
+    return true;
+}
+
 template <PrimitiveType primitive_type>
 void ColumnValueRange<primitive_type>::convert_to_range_value() {
     if (!is_range_value_convertible()) {
@@ -945,13 +1001,19 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         _has_range_value = true;
 
         if (_begin_scan_keys.empty()) {
-            _begin_scan_keys.emplace_back();
-            _begin_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
-                                                      range.get_range_min_value(), range.scale()),
-                                              range.contain_null());
-            _end_scan_keys.emplace_back();
-            _end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
-                    range.get_range_max_value(), range.scale()));
+            int step_size = std::max(((int)range.get_convertible_fixed_value_size() + max_scan_key_num -
+                                      1) / max_scan_key_num,
+                                     1);
+            if (!range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, step_size)) {
+                _begin_scan_keys.emplace_back();
+                _end_scan_keys.emplace_back();
+                _begin_scan_keys.back().add_value(
+                        cast_to_string<primitive_type, CppType>(range.get_range_min_value(),
+                                                                range.scale()),
+                        range.contain_null());
+                _end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
+                        range.get_range_max_value(), range.scale()));
+            }
         } else {
             for (int i = 0; i < _begin_scan_keys.size(); ++i) {
                 _begin_scan_keys[i].add_value(cast_to_string<primitive_type, CppType>(

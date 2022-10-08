@@ -183,7 +183,7 @@ CONF_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 CONF_mInt32(doris_scanner_row_bytes, "10485760");
 // number of max scan keys
-CONF_mInt32(doris_max_scan_key_num, "1024");
+CONF_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 CONF_mInt32(max_pushdown_conditions_per_column, "1024");
