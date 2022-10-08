@@ -200,7 +200,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
     public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
-    public static final String ENABLE_NEREIDS_DEBUG = "enable_nereids_debug";
+    public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
 
@@ -526,8 +526,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DEBUG)
-    private boolean enableNereidsDebug = true;
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
+    private boolean enableNereidsTrace = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
     private boolean enableNereidsRuntimeFilter = true;
@@ -1119,8 +1119,8 @@ public class SessionVariable implements Serializable, Writable {
         return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
     }
 
-    public boolean isEnableNereidsDebug() {
-        return isEnableNereidsPlanner() && enableNereidsDebug;
+    public boolean isEnableNereidsTrace() {
+        return isEnableNereidsPlanner() && enableNereidsTrace;
     }
 
     public boolean isEnableNereidsRuntimeFilter() {

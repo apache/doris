@@ -76,7 +76,7 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsDebug()) {
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
             String tree = physicalPlan.treeString();
             System.out.println(tree);
             LOG.info(tree);
