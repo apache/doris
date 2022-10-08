@@ -71,7 +71,7 @@ public:
     // there is 16 shards in ShardedLRUCache
     // And the LRUHandle size is about 100B. So the cache size should big enough
     // to run the UT.
-    static const int kCacheSize = 1000 * 16;
+    static const int kCacheSize = 1000 * 1024l;
     std::vector<int> _deleted_keys;
     std::vector<int> _deleted_values;
     Cache* _cache;
@@ -231,37 +231,37 @@ static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
 
 TEST_F(CacheTest, Usage) {
     LRUCache cache(LRUCacheType::SIZE);
-    cache.set_capacity(1050);
+    cache.set_capacity(1200);
 
-    // The lru usage is handle_size + charge = 96 - 1 = 95
-    // 95 + 3 means handle_size + key size
+    // The lru usage is handle_size + charge = 104 - 1 = 103
+    // 103 + 3 means handle_size + key size
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(198, cache.get_usage()); // 100 + 95 + 3
+    ASSERT_EQ(206, cache.get_usage());
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(496, cache.get_usage()); // 198 + 200 + 95 + 3
+    ASSERT_EQ(512, cache.get_usage());
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(894, cache.get_usage()); // 496 + 300 + 95 + 3
+    ASSERT_EQ(918, cache.get_usage());
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(796, cache.get_usage()); // 894 + 400 + 95 + 3 - (300 + 100 + (95 + 3) * 2)
+    ASSERT_EQ(812, cache.get_usage());
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(896, cache.get_usage()); // 796 + 500 + 95 + 3 - (400 + 95 +3)
+    ASSERT_EQ(912, cache.get_usage());
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(996, cache.get_usage()); // 896 + 600 + 95 +3 - (500 + 95 + 3)
+    ASSERT_EQ(1012, cache.get_usage());
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(1048, cache.get_usage()); // 996 + 950 + 95 +3 - (200 + 600 + (95 + 3) * 2)
+    ASSERT_EQ(1056, cache.get_usage());
 }
 
 TEST_F(CacheTest, Prune) {
