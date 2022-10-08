@@ -58,6 +58,15 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
             query_to_task_type(runtime_state->query_type()), print_id(runtime_state->query_id()),
             runtime_state->fragment_instance_id(), runtime_state->new_instance_mem_tracker());
 #endif // USE_MEM_TRACKER
+#else
+    if (ExecEnv::GetInstance()->new_process_mem_tracker() == nullptr) {
+        std::shared_ptr<MemTrackerLimiter> process_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(-1, "Process");
+        std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Orphan", process_mem_tracker);
+        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, _orphan_mem_tracker);
+    }
+    thread_context()->attach_task(ThreadContext::TaskType::QUERY, "", TUniqueId(), ExecEnv::GetInstance()->orphan_mem_tracker());
 #endif // BE_TEST
 }
 
