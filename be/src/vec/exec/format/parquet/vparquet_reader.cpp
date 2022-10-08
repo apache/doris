@@ -140,6 +140,9 @@ Status ParquetReader::_init_read_columns() {
             _missing_cols.push_back(file_col_name);
         }
     }
+    if (include_column_ids.empty()) {
+        return Status::InternalError("No columns found in file");
+    }
     // The same order as physical columns
     std::sort(include_column_ids.begin(), include_column_ids.end());
     _read_columns.clear();
