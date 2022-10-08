@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -85,12 +86,13 @@ public class JoinUtils {
         }
 
         /**
-         *  consider following cases:
-         *  1# A=1 => not for hash table
-         *  2# t1.a=t2.a + t2.b => hash table
-         *  3# t1.a=t1.a + t2.b => not for hash table
-         *  4# t1.a=t2.a or t1.b=t2.b not for hash table
-         *  5# t1.a > 1 not for hash table
+         * consider following cases:
+         * 1# A=1 => not for hash table
+         * 2# t1.a=t2.a + t2.b => hash table
+         * 3# t1.a=t1.a + t2.b => not for hash table
+         * 4# t1.a=t2.a or t1.b=t2.b not for hash table
+         * 5# t1.a > 1 not for hash table
+         *
          * @param equalTo a conjunct in on clause condition
          * @return true if the equal can be used as hash join condition
          */
@@ -299,5 +301,54 @@ public class JoinUtils {
             return true;
         }
         return false;
+    }
+
+    /**
+     * replace hashJoinConjuncts by using slots map.
+     * TODO: just support `col1=col2`
+     */
+    public static List<Expression> replaceHashConjuncts(List<Expression> hashJoinConjuncts,
+            Map<Slot, Slot> replaceMaps) {
+        List<Expression> newHashJoinConjuncts = Lists.newArrayList();
+        for (Expression hashJoinConjunct : hashJoinConjuncts) {
+            if (!(hashJoinConjunct instanceof EqualTo)) {
+                return null;
+            }
+            EqualTo equalTo = (EqualTo) hashJoinConjunct;
+            if (!(equalTo.left() instanceof Slot) || !(equalTo.right() instanceof Slot)) {
+                return null;
+            }
+
+            Slot leftSlot = (Slot) equalTo.left();
+            leftSlot = replaceMaps.getOrDefault(leftSlot, leftSlot);
+
+            Slot rightSlot = (Slot) equalTo.right();
+            rightSlot = replaceMaps.getOrDefault(rightSlot, rightSlot);
+
+            if (leftSlot != equalTo.left() || rightSlot != equalTo.right()) {
+                newHashJoinConjuncts.add(new EqualTo(leftSlot, rightSlot));
+            } else {
+                newHashJoinConjuncts.add(hashJoinConjunct);
+            }
+        }
+
+        return newHashJoinConjuncts;
+    }
+
+    /**
+     * When project not empty, we add all slots used by hashOnCondition into projects.
+     */
+    public static void addSlotsUsedByOn(Set<Slot> usedSlots, List<NamedExpression> projects) {
+        if (projects.isEmpty()) {
+            return;
+        }
+        Set<ExprId> projectExprIdSet = projects.stream()
+                .map(project -> project.getExprId())
+                .collect(Collectors.toSet());
+        usedSlots.forEach(slot -> {
+            if (!projectExprIdSet.contains(slot.getExprId())) {
+                projects.add(slot);
+            }
+        });
     }
 }
