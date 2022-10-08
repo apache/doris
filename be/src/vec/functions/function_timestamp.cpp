@@ -600,15 +600,15 @@ public:
 using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate>;
 using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
 using FunctionDateTrunc = FunctionOtherTypesToDateType<DateTrunc<VecDateTimeValue, Int64>>;
-// using FunctionDateTruncV2 =
-//         FunctionOtherTypesToDateType<DateTrunc<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+using FunctionDateTruncV2 =
+        FunctionOtherTypesToDateType<DateTrunc<DateV2Value<DateTimeV2ValueType>, UInt64>>;
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
     factory.register_function<FunctionMakeDate>();
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTrunc>();
-    //factory.register_function<FunctionDateTruncV2>();
+    factory.register_function<FunctionDateTruncV2>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();

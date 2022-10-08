@@ -2665,24 +2665,29 @@ bool DateV2Value<T>::datetime_trunc() {
         }
         switch (unit) {
         case SECOND: {
+            date_v2_value_.microsecond_ = 0;
             break;
         }
         case MINUTE: {
+            date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             break;
         }
         case HOUR: {
+            date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             break;
         }
         case DAY: {
+            date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
             break;
         }
         case MONTH: {
+            date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
@@ -2690,6 +2695,7 @@ bool DateV2Value<T>::datetime_trunc() {
             break;
         }
         case QUARTER: {
+            date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
@@ -2706,6 +2712,7 @@ bool DateV2Value<T>::datetime_trunc() {
             break;
         }
         case YEAR: {
+            date_v2_value_.microsecond_ = 0;
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
