@@ -100,6 +100,7 @@ struct TResultFileSinkOptions {
     12: optional TParquetCompressionType parquet_compression_type
     13: optional bool parquet_disable_dictionary
     14: optional TParquetVersion parquet_version
+    15: optional string orc_schema
 }
 
 struct TMemoryScratchSink {
