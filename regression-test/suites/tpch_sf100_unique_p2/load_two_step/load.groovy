@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("load_three_step") {
+suite("load_two_step") {
 
-    // Import multiple times,  use unique key, use seq and delete
+    // Import once, use unique key, use seq and delete
     // Map[tableName, rowCount]
     def tables = [nation: 25, customer: 15000000, lineitem: 600037902, orders: 150000000, part: 20000000, partsupp: 80000000, region: 5, supplier: 1000000]
     def s3BucketName = getS3BucketName()
@@ -32,54 +32,32 @@ suite("load_three_step") {
     // set fe configuration
     sql "ADMIN SET FRONTEND CONFIG ('max_bytes_per_broker_scanner' = '161061273600')"
 
-
-    def uniqueID1 = Math.abs(UUID.randomUUID().hashCode()).toString()
-    def uniqueID2 = Math.abs(UUID.randomUUID().hashCode()).toString()
+    def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
     tables.each { table, rows ->
         sql """ DROP TABLE IF EXISTS $table """
         // create table if not exists
-        sql new File("""${context.file.parent}/ddl/${table}_sequence.sql""").text
-        def loadLabel1 = table + "_" + uniqueID1
+        sql new File("""${context.parentFile.parent}/ddl/${table}_sequence.sql""").text
+
+        def loadLabel = table + "_" + uniqueID
         // load data from cos
-        def loadSql1 = new File("""${context.file.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
-        loadSql1 = loadSql1.replaceAll("\\\$\\{loadLabel\\}", loadLabel1) + s3WithProperties
-        sql loadSql1
+        def loadSql = new File("""${context.parentFile.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+        loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
+        sql loadSql
+
         // check load state
         while (true) {
-            def stateResult1 = sql "show load where Label = '${loadLabel1}'"
-            def loadState1 = stateResult1[stateResult1.size() - 1][2].toString()
-            if ("CANCELLED".equalsIgnoreCase(loadState1)) {
-                throw new IllegalStateException("load ${loadLabel1} failed.")
-            } else if ("FINISHED".equalsIgnoreCase(loadState1)) {
+            def stateResult = sql "show load where Label = '${loadLabel}'"
+            def loadState = stateResult[stateResult.size() - 1][2].toString()
+            if ("CANCELLED".equalsIgnoreCase(loadState)) {
+                throw new IllegalStateException("load ${loadLabel} failed.")
+            } else if ("FINISHED".equalsIgnoreCase(loadState)) {
                 sql 'sync'
                 for (int i = 1; i <= 5; i++) {
                     def loadRowCount = sql "select count(1) from ${table}"
                     logger.info("select ${table} numbers: ${loadRowCount[0][0]}".toString())
                     assertTrue(loadRowCount[0][0] == rows)
                 }
-                def loadLabel2 = table + "_" + uniqueID2
-                def loadSql2 = new File("""${context.file.parent}/ddl/${table}_load_sequence.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
-                loadSql2 = loadSql2.replaceAll("\\\$\\{loadLabel\\}", loadLabel2) + s3WithProperties
-                sql loadSql2
-
-                while (true) {
-                    def stateResult2 = sql "show load where Label = '${loadLabel2}'"
-                    def loadState2 = stateResult2[stateResult2.size() - 1][2].toString()
-                    if ("CANCELLED".equalsIgnoreCase(loadState2)) {
-                        throw new IllegalStateException("load ${loadLabel2} failed.")
-                    } else if ("FINISHED".equalsIgnoreCase(loadState2)) {
-                        sql 'sync'
-                        for (int i = 1; i <= 5; i++) {
-                            def loadRowCount = sql "select count(1) from ${table}"
-                            logger.info("select ${table} numbers: ${loadRowCount[0][0]}".toString())
-                            assertTrue(loadRowCount[0][0] == rows)
-                        }
-                        break;
-                    }
-                    sleep(5000)
-                }
-
-                sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
+                sql new File("""${context.parentFile.parent}/ddl/${table}_delete.sql""").text
                 sql 'sync'
                 for (int i = 1; i <= 5; i++) {
                     def loadRowCount = sql "select count(1) from ${table}"
