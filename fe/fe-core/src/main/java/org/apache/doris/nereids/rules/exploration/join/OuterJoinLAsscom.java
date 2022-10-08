@@ -21,17 +21,24 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Optional;
 import java.util.Set;
 
 /**
  * Rule for change inner join LAsscom (associative and commutive).
+ * TODO Future:
+ * LeftOuter-LeftOuter can allow topHashConjunct (A B) and (AC)
  */
 public class OuterJoinLAsscom extends OneExplorationRuleFactory {
     public static final OuterJoinLAsscom INSTANCE = new OuterJoinLAsscom();
@@ -53,18 +60,53 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(logicalJoin(), group())
-                .when(topJoin -> check(topJoin, topJoin.left()))
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
+                .when(topJoin -> checkReorder(topJoin, topJoin.left()))
+                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputSet()))
+                // TODO: handle otherJoinCondition
+                .whenNot(topJoin -> topJoin.getOtherJoinCondition().isPresent())
+                .whenNot(topJoin -> topJoin.left().getOtherJoinCondition().isPresent())
                 .then(topJoin -> {
-                    JoinLAsscomHelper helper = new JoinLAsscomHelper(topJoin, topJoin.left());
-                    return helper.newTopJoin();
+                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
+                    GroupPlan a = bottomJoin.left();
+                    GroupPlan b = bottomJoin.right();
+                    GroupPlan c = topJoin.right();
+
+                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
+                            topJoin.getHashJoinConjuncts(), Optional.empty(),
+                            a, c, bottomJoin.getJoinReorderContext());
+                    newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
+                    newBottomJoin.getJoinReorderContext().setHasCommute(false);
+
+                    LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
+                            bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(), Optional.empty(),
+                            newBottomJoin, b, topJoin.getJoinReorderContext());
+                    newTopJoin.getJoinReorderContext().setHasLAsscom(true);
+
+                    return newTopJoin;
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM);
     }
 
     /**
-     * check.
+     * topHashConjunct possiblity: (A B) (A C) (B C) (A B C).
+     * (A B) is forbidden, because it should in bottom join.
+     * (B C) (A B C) check failed, because it contains B.
+     * So, just allow: top (A C), bottom (A B), we can exchange HashConjunct directly.
      */
-    public static boolean check(LogicalJoin<? extends Plan, GroupPlan> topJoin,
+    private boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<Slot> bOutputSet) {
+        for (Expression topHashConjunct : topJoin.getHashJoinConjuncts()) {
+            Set<Slot> usedSlot = topHashConjunct.collect(SlotReference.class::isInstance);
+            if (ExpressionUtils.isIntersecting(usedSlot, bOutputSet)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * check join reorder masks.
+     */
+    public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         // hasCommute will cause to lack of OuterJoinAssocRule:Left
         return !topJoin.getJoinReorderContext().hasLAsscom()
