@@ -369,6 +369,7 @@ int main(int argc, char** argv) {
     // add logger for thrift internal
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
 
+    Status status = Status::OK();
 #ifdef LIBJVM
     // Init jni
     status = doris::JniUtil::Init();
@@ -418,7 +419,7 @@ int main(int argc, char** argv) {
     doris::ThriftServer* be_server = nullptr;
     EXIT_IF_ERROR(
             doris::BackendService::create_service(exec_env, doris::config::be_port, &be_server));
-    Status status = be_server->start();
+    status = be_server->start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris Be server did not start correctly, exiting";
         doris::shutdown_logging();
