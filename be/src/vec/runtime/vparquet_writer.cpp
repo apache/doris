@@ -43,10 +43,7 @@ VParquetWriterWrapper::VParquetWriterWrapper(doris::FileWriter* file_writer,
                                              const bool& parquet_disable_dictionary,
                                              const TParquetVersion::type& parquet_version,
                                              bool output_object_data)
-        : _output_vexpr_ctxs(output_vexpr_ctxs),
-          _cur_written_rows(0),
-          _rg_writer(nullptr),
-          _output_object_data(output_object_data) {
+        : VFileWriterWrapper(output_vexpr_ctxs, output_object_data), _rg_writer(nullptr) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
     parse_properties(compression_type, parquet_disable_dictionary, parquet_version);
     parse_schema(parquet_schemas);
@@ -480,7 +477,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
     return Status::OK();
 }
 
-Status VParquetWriterWrapper::init_parquet_writer() {
+Status VParquetWriterWrapper::prepare() {
     _writer = parquet::ParquetFileWriter::Open(_outstream, _schema, _properties);
     if (_writer == nullptr) {
         return Status::InternalError("Failed to create file writer");
