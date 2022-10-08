@@ -34,7 +34,7 @@ CREATE MATERIALIZED VIEW
 
 This statement is used to create a materialized view.
 
-This operation is an asynchronous operation. After the submission is successful, you need to view the job progress through [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW.md). After displaying FINISHED, you can use the `desc [table_name] all` command to view the schema of the materialized view.
+This operation is an asynchronous operation. After the submission is successful, you need to view the job progress through [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW). After displaying FINISHED, you can use the `desc [table_name] all` command to view the schema of the materialized view.
 
 grammar:
 
