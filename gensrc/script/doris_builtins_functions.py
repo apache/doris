@@ -2030,6 +2030,8 @@ visible_functions = [
             '_ZN5doris15StringFunctions5lowerEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5upperEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
+    [['initcap'], 'VARCHAR', ['VARCHAR'],
+            '_ZN5doris15StringFunctions7initcapEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['trim'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions4trimEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
     [['ltrim'], 'VARCHAR', ['VARCHAR'],
