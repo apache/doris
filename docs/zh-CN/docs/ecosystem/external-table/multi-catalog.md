@@ -289,3 +289,10 @@ TODO
 
 Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参阅 [权限管理](../../admin-manual/privilege-ldap/user-privilege.md) 文档。
 
+## 元数据更新
+
+外部数据源的元数据变动，如创建、删除表，加减列等操作，不会同步给 Doris。
+
+目前需要用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG.md) 命令手动刷新元数据。
+
+后续会支持元数据的自动同步。

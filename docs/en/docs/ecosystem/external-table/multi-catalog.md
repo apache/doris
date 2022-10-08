@@ -289,4 +289,10 @@ Using Doris to access the databases and tables in the External Catalog is not co
 
 The privilege management of Doris provides an extension to the Cataloig level. For details, please refer to the [privilege management](../../admin-manual/privilege-ldap/user-privilege.md) document.
 
+## Metadata Refresh
 
+Metadata changes of external data sources, such as creating, dropping tables, adding or dropping columns, etc., will not be synchronized to Doris.
+
+Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG.md) command.
+
+Automatic synchronization of metadata will be supported soon.
