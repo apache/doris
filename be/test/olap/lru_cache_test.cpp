@@ -71,7 +71,7 @@ public:
     // there is 16 shards in ShardedLRUCache
     // And the LRUHandle size is about 100B. So the cache size should big enough
     // to run the UT.
-    static const int kCacheSize = 1000 * 1024l;
+    static const int kCacheSize = 1000 * 16;
     std::vector<int> _deleted_keys;
     std::vector<int> _deleted_values;
     Cache* _cache;
