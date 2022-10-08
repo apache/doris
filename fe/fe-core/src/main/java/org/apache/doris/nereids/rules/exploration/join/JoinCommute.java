@@ -20,9 +20,11 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.rules.exploration.join.JoinCommuteHelper.SwapType;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+
+import java.util.List;
 
 /**
  * Join Commute
@@ -42,7 +44,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> JoinCommuteHelper.check(swapType, join))
+                .when(join -> check(swapType, join))
                 .then(join -> {
                     LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                             join.getJoinType().swap(),
@@ -51,11 +53,34 @@ public class JoinCommute extends OneExplorationRuleFactory {
                             join.right(), join.left(),
                             join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
-                    if (swapType == SwapType.ZIG_ZAG && JoinCommuteHelper.isNotBottomJoin(join)) {
+                    if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
                     }
 
                     return newJoin;
                 }).toRule(RuleType.LOGICAL_JOIN_COMMUTATE);
+    }
+
+    enum SwapType {
+        LEFT_DEEP, ZIG_ZAG, BUSHY
+    }
+
+    public static boolean check(SwapType swapType, LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (swapType == SwapType.LEFT_DEEP && isNotBottomJoin(join)) {
+            return false;
+        }
+
+        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
+    }
+
+    public static boolean isNotBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {
+        // TODO: tmp way to judge bottomJoin
+        return containJoin(join.left()) || containJoin(join.right());
+    }
+
+    private static boolean containJoin(GroupPlan groupPlan) {
+        // TODO: tmp way to judge containJoin
+        List<Slot> output = groupPlan.getOutput();
+        return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
     }
 }
