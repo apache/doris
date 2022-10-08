@@ -19,11 +19,10 @@
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
 
-#include "vparquet_reader.h"
+#include "exec/olap_common.h"
+#include "parquet_common.h"
 
 namespace doris::vectorized {
-class ParquetReader;
-struct RowRange;
 
 class PageIndex {
 public:

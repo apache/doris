@@ -418,8 +418,12 @@ class Config {
         // e.g.
         // suites/tpcds_sf1/load.groovy
         // suites/tpcds_sf1/sql/q01.sql
+        // suites/tpcds_sf1/sql/dir/q01.sql
         if (dir.indexOf(File.separator + "sql", dir.length() - 4) > 0 && dir.endsWith("sql")) {
             dir = dir.substring(0, dir.indexOf(File.separator + "sql", dir.length() - 4))
+        }
+        if (dir.indexOf(File.separator + "sql" + File.separator) > 0) {
+            dir = dir.substring(0, dir.indexOf(File.separator + "sql" + File.separator))
         }
 
         dir = dir.replace('-', '_')

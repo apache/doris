@@ -99,7 +99,7 @@ Status VFileScanner::open(RuntimeState* state) {
 }
 
 // For query:
-//                              [exist cols]  [non-exist cols]  [col from path]  input  ouput
+//                              [exist cols]  [non-exist cols]  [col from path]  input  output
 //                              A     B    C  D                 E
 // _init_src_block              x     x    x  x                 x                -      x
 // get_next_block               x     x    x  -                 -                -      x
@@ -109,7 +109,7 @@ Status VFileScanner::open(RuntimeState* state) {
 // _convert_to_output_block     -     -    -  -                 -                -      -
 //
 // For load:
-//                              [exist cols]  [non-exist cols]  [col from path]  input  ouput
+//                              [exist cols]  [non-exist cols]  [col from path]  input  output
 //                              A     B    C  D                 E
 // _init_src_block              x     x    x  x                 x                x      -
 // get_next_block               x     x    x  -                 -                x      -
@@ -130,15 +130,17 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 
         // Init src block for load job based on the data file schema (e.g. parquet)
         // For query job, simply set _src_block_ptr to block.
+        size_t read_rows = 0;
         RETURN_IF_ERROR(_init_src_block(block));
         {
             SCOPED_TIMER(_get_block_timer);
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
-            RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &_cur_reader_eof));
+            RETURN_IF_ERROR(
+                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
 
-        if (_src_block_ptr->rows() > 0) {
+        if (read_rows > 0) {
             // Convert the src block columns type to string in-place.
             RETURN_IF_ERROR(_cast_to_input_block(block));
             // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
@@ -454,13 +456,17 @@ Status VFileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _ranges[_next_range++];
 
         // 1. create file reader
+        // TODO: Each format requires its own FileReader to achieve a special access mode,
+        //  so create the FileReader inner the format.
         std::unique_ptr<FileReader> file_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
-                                                        range, file_reader));
-        RETURN_IF_ERROR(file_reader->open());
-        if (file_reader->size() == 0) {
-            file_reader->close();
-            continue;
+        if (_params.format_type != TFileFormatType::FORMAT_PARQUET) {
+            RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
+                                                            range, file_reader));
+            RETURN_IF_ERROR(file_reader->open());
+            if (file_reader->size() == 0) {
+                file_reader->close();
+                continue;
+            }
         }
 
         // 2. create reader for specific format
@@ -468,10 +474,9 @@ Status VFileScanner::_get_next_reader() {
         Status init_status;
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            _cur_reader.reset(
-                    new ParquetReader(_profile, file_reader.release(), _params, range,
-                                      _file_col_names, _state->query_options().batch_size,
-                                      const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+            _cur_reader.reset(new ParquetReader(
+                    _profile, _params, range, _file_col_names, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj())));
             init_status =
                     ((ParquetReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;

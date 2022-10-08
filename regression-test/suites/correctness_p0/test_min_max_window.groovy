@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_min_max_window") {
-    def tableName = "state"
+    def tableName = "test_min_max_window_state"
 
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

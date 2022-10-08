@@ -17,8 +17,7 @@
 
 suite("test_load_json_column_exclude_schema_without_jsonpath", "p0") {
     // define a sql table
-    def testTable = "tbl_test_json_load"
-    def dbName = "test_query_db"
+    def testTable = "tbl_test_load_json_column_exclude_schema_without_jsonpath"
     
     def create_test_table = {enable_vectorized_flag ->
         if (enable_vectorized_flag) {

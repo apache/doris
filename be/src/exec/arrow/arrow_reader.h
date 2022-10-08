@@ -92,7 +92,7 @@ public:
         return Status::NotSupported("Not Implemented read");
     }
     // for vec
-    Status get_next_block(vectorized::Block* block, bool* eof) override;
+    Status get_next_block(vectorized::Block* block, size_t* read_row, bool* eof) override;
     // This method should be deprecated once the old scanner is removed.
     // And user should use "get_next_block" instead.
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof);

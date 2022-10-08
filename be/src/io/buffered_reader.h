@@ -87,6 +87,12 @@ private:
  */
 class BufferedStreamReader {
 public:
+    struct Statistics {
+        int64_t read_time = 0;
+        int64_t read_calls = 0;
+        int64_t read_bytes = 0;
+    };
+
     /**
      * Return the address of underlying buffer that locates the start of data between [offset, offset + bytes_to_read)
      * @param buf the buffer address to save the start address of data
@@ -98,7 +104,11 @@ public:
      * Save the data address to slice.data, and the slice.size is the bytes to read.
      */
     virtual Status read_bytes(Slice& slice, uint64_t offset) = 0;
+    Statistics& statistics() { return _statistics; }
     virtual ~BufferedStreamReader() = default;
+
+protected:
+    Statistics _statistics;
 };
 
 class BufferedFileStreamReader : public BufferedStreamReader {

@@ -29,60 +29,39 @@
 #include "io/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vparquet_column_reader.h"
 #include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
 #include "vparquet_page_index.h"
 
 namespace doris::vectorized {
 
-struct ParquetStatistics {
-    int32_t filtered_row_groups = 0;
-    int32_t read_row_groups = 0;
-    int64_t filtered_group_rows = 0;
-    int64_t filtered_page_rows = 0;
-    int64_t read_rows = 0;
-    int64_t filtered_bytes = 0;
-    int64_t read_bytes = 0;
-};
-
-class RowGroupReader;
-class PageIndex;
-
-struct RowRange {
-    RowRange() {}
-    RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
-    int64_t first_row;
-    int64_t last_row;
-};
-
-class ParquetReadColumn {
-public:
-    ParquetReadColumn(int parquet_col_id, const std::string& file_slot_name)
-            : _parquet_col_id(parquet_col_id), _file_slot_name(file_slot_name) {};
-    ~ParquetReadColumn() = default;
-
-private:
-    friend class ParquetReader;
-    friend class RowGroupReader;
-    int _parquet_col_id;
-    const std::string& _file_slot_name;
-};
-
 class ParquetReader : public GenericReader {
 public:
-    ParquetReader(RuntimeProfile* profile, FileReader* file_reader,
-                  const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  const std::vector<std::string>& column_names, size_t batch_size,
-                  cctz::time_zone* ctz);
+    struct Statistics {
+        int32_t filtered_row_groups = 0;
+        int32_t read_row_groups = 0;
+        int64_t filtered_group_rows = 0;
+        int64_t filtered_page_rows = 0;
+        int64_t read_rows = 0;
+        int64_t filtered_bytes = 0;
+        int64_t read_bytes = 0;
+        int64_t column_read_time = 0;
+        int64_t parse_meta_time = 0;
+    };
+
+    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, const std::vector<std::string>& column_names,
+                  size_t batch_size, cctz::time_zone* ctz);
 
     virtual ~ParquetReader();
     // for test
-    void set_file_reader(FileReader* file_reader) { _file_reader = file_reader; }
+    void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
     Status init_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
-    Status get_next_block(Block* block, bool* eof) override;
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     void close();
 
@@ -92,9 +71,31 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-    ParquetStatistics& statistics() { return _statistics; }
+    Statistics& statistics() { return _statistics; }
 
 private:
+    struct ParquetProfile {
+        RuntimeProfile::Counter* filtered_row_groups;
+        RuntimeProfile::Counter* to_read_row_groups;
+        RuntimeProfile::Counter* filtered_group_rows;
+        RuntimeProfile::Counter* filtered_page_rows;
+        RuntimeProfile::Counter* filtered_bytes;
+        RuntimeProfile::Counter* to_read_bytes;
+        RuntimeProfile::Counter* column_read_time;
+        RuntimeProfile::Counter* parse_meta_time;
+
+        RuntimeProfile::Counter* file_read_time;
+        RuntimeProfile::Counter* file_read_calls;
+        RuntimeProfile::Counter* file_read_bytes;
+        RuntimeProfile::Counter* decompress_time;
+        RuntimeProfile::Counter* decompress_cnt;
+        RuntimeProfile::Counter* decode_header_time;
+        RuntimeProfile::Counter* decode_value_time;
+        RuntimeProfile::Counter* decode_dict_time;
+        RuntimeProfile::Counter* decode_level_time;
+    };
+
+    void _init_profile();
     bool _next_row_group_reader();
     Status _init_read_columns();
     Status _init_row_group_readers();
@@ -117,10 +118,9 @@ private:
 
 private:
     RuntimeProfile* _profile;
-    // file reader is passed from file scanner, and owned by this parquet reader.
-    FileReader* _file_reader = nullptr;
-    //    const TFileScanRangeParams& _scan_params;
-    //    const TFileRangeDesc& _scan_range;
+    const TFileScanRangeParams& _scan_params;
+    const TFileRangeDesc& _scan_range;
+    std::unique_ptr<FileReader> _file_reader = nullptr;
 
     std::shared_ptr<FileMetaData> _file_metadata;
     const tparquet::FileMetaData* _t_metadata;
@@ -141,15 +141,9 @@ private:
     const std::vector<std::string> _column_names;
 
     std::vector<std::string> _missing_cols;
-    ParquetStatistics _statistics;
+    Statistics _statistics;
+    ParquetColumnReader::Statistics _column_statistics;
+    ParquetProfile _parquet_profile;
     bool _closed = false;
-
-    // parquet profile
-    RuntimeProfile::Counter* _filtered_row_groups;
-    RuntimeProfile::Counter* _to_read_row_groups;
-    RuntimeProfile::Counter* _filtered_group_rows;
-    RuntimeProfile::Counter* _filtered_page_rows;
-    RuntimeProfile::Counter* _filtered_bytes;
-    RuntimeProfile::Counter* _to_read_bytes;
 };
 } // namespace doris::vectorized

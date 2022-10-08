@@ -17,15 +17,17 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -35,7 +37,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
-public class InnerJoinLAsscomTest {
+public class InnerJoinLAsscomTest implements PatternMatchSupported {
 
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -58,35 +60,22 @@ public class InnerJoinLAsscomTest {
          * t1      t2               t1      t3
          */
 
-        Expression bottomJoinOnCondition = new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0));
-        Expression topJoinOnCondition = new EqualTo(scan1.getOutput().get(1), scan3.getOutput().get(1));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .build();
 
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                Lists.newArrayList(bottomJoinOnCondition),
-                Optional.empty(), scan1, scan2);
-        LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> topJoin = new LogicalJoin<>(
-                JoinType.INNER_JOIN, Lists.newArrayList(topJoinOnCondition),
-                Optional.empty(), bottomJoin, scan3);
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyExploration(InnerJoinLAsscom.INSTANCE.build())
-                .checkMemo(memo -> {
-                    Group root = memo.getRoot();
-                    Assertions.assertEquals(2, root.getLogicalExpressions().size());
-
-                    Assertions.assertTrue(root.logicalExpressionsAt(0).getPlan() instanceof LogicalJoin);
-                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalJoin);
-
-                    GroupExpression newTopJoinGroupExpr = root.logicalExpressionsAt(1);
-                    GroupExpression newBottomJoinGroupExpr = newTopJoinGroupExpr.child(0).getLogicalExpression();
-                    Plan bottomLeft = newBottomJoinGroupExpr.child(0).getLogicalExpression().getPlan();
-                    Plan bottomRight = newBottomJoinGroupExpr.child(1).getLogicalExpression().getPlan();
-                    Plan right = newTopJoinGroupExpr.child(1).getLogicalExpression().getPlan();
-
-                    Assertions.assertEquals("t1", ((LogicalOlapScan) bottomLeft).getTable().getName());
-                    Assertions.assertEquals("t3", ((LogicalOlapScan) bottomRight).getTable().getName());
-                    Assertions.assertEquals("t2", ((LogicalOlapScan) right).getTable().getName());
-                });
+                .matchesExploration(
+                        logicalJoin(
+                                logicalJoin(
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                ),
+                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
+                        )
+                );
     }
 
     @Test

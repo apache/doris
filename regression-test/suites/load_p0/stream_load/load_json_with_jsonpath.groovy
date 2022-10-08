@@ -17,8 +17,7 @@
 
 suite("test_load_json_with_jsonpath", "p0") {
     // define a sql table
-    def testTable = "tbl_test_json_load"
-    def dbName = "test_query_db"
+    def testTable = "tbl_test_load_json_with_jsonpath"
 
     def create_test_table = {enable_vectorized_flag ->
         if (enable_vectorized_flag) {
@@ -86,6 +85,7 @@ suite("test_load_json_with_jsonpath", "p0") {
         load_array_data.call(testTable, 'true', '', 'json', '', '["$.k1", "$.v1"]', '', '', '', '', 'test_load_with_jsonpath.json')
 
         // select the table and check whether the data is correct
+        sql "sync"
         qt_select "select * from ${testTable} order by k1"
 
     } finally {
@@ -100,6 +100,7 @@ suite("test_load_json_with_jsonpath", "p0") {
 
         load_array_data.call(testTable, 'true', '', 'json', '', '["$.k1", "$.v1"]', '', '', '', '', 'test_load_with_jsonpath.json')
 
+        sql "sync"
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
 

@@ -176,7 +176,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         *read_rows = 0;
     } else {
         // load page data to decode or skip values
-        RETURN_IF_ERROR(_chunk_reader->load_page_date_idempotent());
+        RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
         size_t has_read = 0;
         for (auto& range : read_ranges) {
             // generate the skipped values

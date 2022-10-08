@@ -236,7 +236,9 @@ Data may be aggregated to varying degrees at different times. For example, when 
 
 ## Uniq Model
 
-In some multi-dimensional analysis scenarios, users are more concerned with how to ensure the uniqueness of Key, that is, how to obtain the Primary Key uniqueness constraint. Therefore, we introduce Uniq's data model. This model is essentially a special case of aggregation model and a simplified representation of table structure. Let's give an example.
+In some multi-dimensional analysis scenarios, users are more concerned about how to ensure the uniqueness of the Key, that is, how to obtain the uniqueness constraint of the Primary Key. Therefore, we introduced the Unique data model. Prior to version 1.2, the model was essentially a special case of the Aggregate Model and a simplified representation of the table structure. The implementation of the aggregation model is merge on read, it has poor performance on some aggregation queries (refer to the description in the subsequent chapter [Limitations of aggregation models] (#Limitations of aggregation models)), In version 1.2, we have introduced a new implementation of the Unique model, merge on write, which achieves optimal query performance by doing some extra work when loading. Merge-on-write will replace merge-on-read as the default implementation of the Unique model in the future, they will coexist for a short period of time. The following will illustrate the two implementation manners with examples.
+
+### Merge on read (same implementation as aggregate model)
 
 |ColumnName|Type|IsKey|Comment|
 |---|---|---|---|
@@ -303,7 +305,60 @@ PROPERTIES (
 );
 ```
 
-That is to say, Uniq model can be completely replaced by REPLACE in aggregation model. Its internal implementation and data storage are exactly the same. No further examples will be given here.
+That is to say, the merge-on-read implementation of the Unique model can be completely replaced by REPLACE in aggregation model. Its internal implementation and data storage are exactly the same. No further examples will be given here.
+
+### Merge on write (introduced from version 1.2)
+
+The merge-on-write implementation of the Unique model is completely different from the aggregation model. The query performance is closer to the duplicate model. Compared with the aggregation model, it has a better query performance.
+
+In version 1.2, as a new feature, merge-on-write is disabled by default, and users can enable it by adding the following property
+
+```
+"enable_unique_key_merge_on_write" = "true"
+```
+
+Let's continue to use the previous table as an example, the create table statement:
+
+```
+CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+(
+`user_id` LARGEINT NOT NULL COMMENT "user id",
+`username` VARCHAR (50) NOT NULL COMMENT "username",
+`city` VARCHAR (20) COMMENT "user city",
+`age` SMALLINT COMMENT "age",
+`sex` TINYINT COMMENT "sex",
+`phone` LARGEINT COMMENT "phone",
+`address` VARCHAR (500) COMMENT "address",
+`register_time` DATETIME COMMENT "register time"
+)
+Unique Key (`user_id`, `username`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+"enable_unique_key_merge_on_write" = "true"
+);
+```
+
+In this implementation, the table structure is completely different with aggregate model:
+
+
+|ColumnName|Type|AggregationType|Comment|
+|---|---|---|---|
+| user_id | BIGINT | | user id|
+| username | VARCHAR (50) | | User nickname|
+| city | VARCHAR (20) | NONE | User City|
+| age | SMALLINT | NONE | User Age|
+| sex | TINYINT | NONE | User Gender|
+| phone | LARGEINT | NONE | User Phone|
+| address | VARCHAR (500) | NONE | User Address|
+| register_time | DATETIME | NONE | User registration time|
+
+On a Unique table with the merge-on-write option enabled, the data that is overwritten and updated will be marked for deletion during the load job, and new data will be written to a new file at the same time. When querying, all data marked for deletion will be filtered out at the file level, only the latest data would be readed, which eliminates the data aggregation cost while reading, and can support many predicates pushdown now. Therefore, it can bring a relatively large performance improvement in many scenarios, especially in the case of aggregation queries.
+
+[NOTE]
+1. The new Merge-on-write implementation is disabled by default, and can only be enabled by specifying a property when creating a new table.
+2. The old Merge-on-read implementation cannot be seamlessly upgraded to the new version (the data organization is completely different). If you need to use the merge-on-write implementation version, you need to manually execute `insert into unique-mow- table select * from source table` to load data to new table.
+3. The feature delete sign and sequence col on the Unique model can still be used normally in the new implementation, and the usage has not changed.
 
 ## Duplicate Model
 
@@ -343,7 +398,7 @@ This data model is suitable for storing raw data without aggregation requirement
 
 ## Limitations of aggregation model
 
-Here we introduce the limitations of Aggregate model (including Uniq model).
+Here we introduce the limitations of Aggregate model.
 
 In the aggregation model, what the model presents is the aggregated data. That is to say, any data that has not yet been aggregated (for example, two different imported batches) must be presented in some way to ensure consistency. Let's give an example.
 
@@ -440,6 +495,40 @@ Add a count column and import the data with the column value **equal to 1**. The
 
 Another way is to **change the aggregation type of the count column above to REPLACE, and still weigh 1**. Then`select sum (count) from table;` and `select count (*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
 
+### Merge-on-write implementation of Unique model
+
+In Merge-on-write implementation, a delete-bitmap is added to each rowset during loading, to mark some data as overwritten or deleted. With the previous example, after the first batch of data is loaded, the status is as follows:
+
+**batch 1**
+
+| user_id | date       | cost | delete bit |
+| ------- | ---------- | ---- | ---------- |
+| 10001   | 2017-11-20 | 50   | false      |
+| 10002   | 2017-11-21 | 39   | false      |
+
+After the batch2 is loaded, the duplicate rows in the first batch will be marked as deleted, and the status of the two batches of data is as follows
+
+**batch 1**
+
+| user_id | date       | cost | delete bit |
+| ------- | ---------- | ---- | ---------- |
+| 10001   | 2017-11-20 | 50   | **true**   |
+| 10002   | 2017-11-21 | 39   | false      |
+
+**batch 2**
+
+| user\_id | date       | cost | delete bit |
+| -------- | ---------- | ---- | ---------- |
+| 10001    | 2017-11-20 | 1    | false      |
+| 10001    | 2017-11-21 | 5    | false      |
+| 10003    | 2017-11-22 | 22   | false      |
+
+When querying, all data marked for deletion in the delete-bitmap will not be read out, so there is no need to do any data aggregation. The number of valid rows in the above data is 4 rows, and the query result should also be 4 rows. 
+
+It is also possible to obtain the result in the least expensive way, that is, the way of "scanning only a certain column of data to obtain the count value" mentioned above.
+
+In the test environment, the performance of the count(*) query in the merge-on-write implementation of the Unique model is more than 10 times faster than that of the aggregation model.
+
 ### Duplicate Model
 
 Duplicate model has no limitation of aggregation model. Because the model does not involve aggregate semantics, when doing count (*) query, we can get the correct semantics by choosing a column of queries arbitrarily.
@@ -453,5 +542,6 @@ Because the data model was established when the table was built, and **could not
 
 1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
 2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
-   - \[Note\] The Unique model only supports the entire row update. If the user needs unique key with partial update (such as loading multiple source tables into one doris table), you can consider using the Aggregate model, setting the aggregate type of the non-primary key columns to REPLACE_IF_NOT_NULL. For detail, please refer to [CREATE TABLE Manual](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
+   1. For users who have high performance requirements for aggregate queries, it is recommended to use the merge-on-write implementation added since version 1.2.
+   2. \[Note\] The Unique model only supports the entire row update. If the user needs unique key with partial update (such as loading multiple source tables into one doris table), you can consider using the Aggregate model, setting the aggregate type of the non-primary key columns to REPLACE_IF_NOT_NULL. For detail, please refer to [CREATE TABLE Manual](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 3. Duplicate is suitable for ad-hoc queries of any dimension. Although it is also impossible to take advantage of the pre-aggregation feature, it is not constrained by the aggregation model and can take advantage of the queue-store model (only reading related columns, but not all Key columns).
