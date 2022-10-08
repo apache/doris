@@ -327,16 +327,6 @@ struct BloomFilterTypeTraits<TYPE_DATE> {
 };
 
 template <>
-struct BloomFilterTypeTraits<TYPE_DATEV2> {
-    using FindOp = DateV2FindOp;
-};
-
-template <>
-struct BloomFilterTypeTraits<TYPE_DATETIMEV2> {
-    using FindOp = DateTimeV2FindOp;
-};
-
-template <>
 struct BloomFilterTypeTraits<TYPE_DATETIME> {
     using FindOp = DateTimeFindOp;
 };
