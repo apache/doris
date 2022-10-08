@@ -437,14 +437,6 @@ CONF_Int32(max_free_io_buffers, "128");
 // including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
-// Whether to allocate chunk using mmap. If you enable this, you'd better to
-// increase vm.max_map_count's value whose default value is 65530.
-// you can do it as root via "sysctl -w vm.max_map_count=262144" or
-// "echo 262144 > /proc/sys/vm/max_map_count"
-// NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
-// to a relative large number or the performance is very very bad.
-CONF_Bool(use_mmap_allocate_chunk, "false");
-
 // The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
 // defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.

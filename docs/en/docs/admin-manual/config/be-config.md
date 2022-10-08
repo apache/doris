@@ -1452,12 +1452,6 @@ Default: 1
 
 Maximum number of threads for uploading files
 
-### `use_mmap_allocate_chunk`
-
-Default: false
-
-Whether to use mmap to allocate blocks. If you enable this feature, it is best to increase the value of vm.max_map_count, its default value is 65530. You can use "sysctl -w vm.max_map_count=262144" or "echo 262144> /proc/sys/vm/" to operate max_map_count as root. When this setting is true, you must set chunk_reserved_bytes_limit to a relatively low Big number, otherwise the performance is very very bad
-
 ### `user_function_dir`
 
 ${DORIS_HOME}/lib/udf

@@ -30,26 +30,11 @@ namespace doris {
 #define PAGE_SIZE (4 * 1024) // 4K
 
 uint8_t* SystemAllocator::allocate(size_t length) {
-    if (config::use_mmap_allocate_chunk) {
-        return allocate_via_mmap(length);
-    } else {
-        return allocate_via_malloc(length);
-    }
+    return allocate_via_malloc(length);
 }
 
 void SystemAllocator::free(uint8_t* ptr, size_t length) {
-    if (config::use_mmap_allocate_chunk) {
-        auto res = munmap(ptr, length);
-        if (res != 0) {
-            char buf[64];
-            LOG(ERROR) << "fail to free memory via munmap, errno=" << errno
-                       << ", errmsg=" << strerror_r(errno, buf, 64);
-        } else {
-            RELEASE_THREAD_MEM_TRACKER(length);
-        }
-    } else {
-        ::free(ptr);
-    }
+    ::free(ptr);
 }
 
 uint8_t* SystemAllocator::allocate_via_malloc(size_t length) {
@@ -63,20 +48,6 @@ uint8_t* SystemAllocator::allocate_via_malloc(size_t length) {
         return nullptr;
     }
     return (uint8_t*)ptr;
-}
-
-uint8_t* SystemAllocator::allocate_via_mmap(size_t length) {
-    CONSUME_THREAD_MEM_TRACKER(length);
-    auto ptr = (uint8_t*)mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE,
-                              -1, 0);
-    if (ptr == MAP_FAILED) {
-        char buf[64];
-        LOG(ERROR) << "fail to allocate memory via mmap, errno=" << errno
-                   << ", errmsg=" << strerror_r(errno, buf, 64);
-        RELEASE_THREAD_MEM_TRACKER(length);
-        return nullptr;
-    }
-    return ptr;
 }
 
 } // namespace doris
