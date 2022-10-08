@@ -258,6 +258,17 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker matchesExploration(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        Supplier<Boolean> asserter = () -> new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpressions().get(1)).iterator().hasNext();
+        Assertions.assertTrue(asserter.get(),
+                () -> "pattern not match, plan :\n"
+                        + memo.getRoot().getLogicalExpressions().get(1).getPlan().treeString()
+                        + "\n");
+        return this;
+    }
+
     private PlanChecker assertMatches(Memo memo, Supplier<Boolean> asserter) {
         Assertions.assertTrue(asserter.get(),
                 () -> "pattern not match, plan :\n"
@@ -352,6 +363,20 @@ public class PlanChecker {
 
     public PlanChecker printlnTree() {
         System.out.println(cascadesContext.getMemo().copyOut().treeString());
+        return this;
+    }
+
+    public PlanChecker printlnExploration() {
+        System.out.println(
+                cascadesContext.getMemo().copyOut(cascadesContext.getMemo().getRoot().logicalExpressionsAt(1), false)
+                        .treeString());
+        return this;
+    }
+
+    public PlanChecker printlnOrigin() {
+        System.out.println(
+                cascadesContext.getMemo().copyOut(cascadesContext.getMemo().getRoot().logicalExpressionsAt(0), false)
+                        .treeString());
         return this;
     }
 

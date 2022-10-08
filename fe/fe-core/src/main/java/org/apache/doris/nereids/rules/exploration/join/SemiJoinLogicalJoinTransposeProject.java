@@ -36,16 +36,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Planner rule that pushes a SemoJoin down in a tree past a LogicalJoin
- * in order to trigger other rules that will convert {@code SemiJoin}s.
- *
  * <ul>
  * <li>SemiJoin(LogicalJoin(X, Y), Z) -> LogicalJoin(SemiJoin(X, Z), Y)
  * <li>SemiJoin(LogicalJoin(X, Y), Z) -> LogicalJoin(X, SemiJoin(Y, Z))
  * </ul>
- * <p>
- * Whether this first or second conversion is applied depends on
- * which operands actually participate in the semi-join.
  */
 public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFactory {
     public static final SemiJoinLogicalJoinTransposeProject LEFT_DEEP = new SemiJoinLogicalJoinTransposeProject(true);

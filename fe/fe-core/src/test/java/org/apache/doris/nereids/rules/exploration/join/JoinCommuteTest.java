@@ -18,22 +18,18 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class JoinCommuteTest {
+public class JoinCommuteTest implements PatternMatchSupported {
     @Test
     public void testInnerJoinCommute() {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -45,21 +41,14 @@ public class JoinCommuteTest {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)
                 .applyExploration(JoinCommute.LEFT_DEEP.build())
-                .checkMemo(memo -> {
-                    Group root = memo.getRoot();
-                    Assertions.assertEquals(2, root.getLogicalExpressions().size());
-
-                    Assertions.assertTrue(root.logicalExpressionsAt(0).getPlan() instanceof LogicalJoin);
-                    Assertions.assertTrue(root.logicalExpressionsAt(1).getPlan() instanceof LogicalJoin);
-
-                    GroupExpression newJoinGroupExpr = root.logicalExpressionsAt(1);
-                    Plan left = newJoinGroupExpr.child(0).getLogicalExpression().getPlan();
-                    Plan right = newJoinGroupExpr.child(1).getLogicalExpression().getPlan();
-                    Assertions.assertTrue(left instanceof LogicalOlapScan);
-                    Assertions.assertTrue(right instanceof LogicalOlapScan);
-
-                    Assertions.assertEquals("t2", ((LogicalOlapScan) left).getTable().getName());
-                    Assertions.assertEquals("t1", ((LogicalOlapScan) right).getTable().getName());
-                });
+                .printlnOrigin()
+                .printlnExploration()
+                .matchesExploration(
+                        logicalJoin(
+                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
+                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))
+                        )
+                )
+        ;
     }
 }
