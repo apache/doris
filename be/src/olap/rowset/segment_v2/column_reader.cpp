@@ -562,7 +562,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     const auto* column_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
                                : *dst);
-    
+
     bool offsets_has_null = false;
     auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
     ssize_t start = column_offsets_ptr->size();
