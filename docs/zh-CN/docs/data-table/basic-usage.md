@@ -130,7 +130,7 @@ CREATE DATABASE example_db;
 >    SHOW CREATE ROUTINE LOAD
 > ```
 
-数据库创建完成之后，可以通过 [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.html#show-databases) 查看数据库信息。
+数据库创建完成之后，可以通过 [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES) 查看数据库信息。
 
 ```sql
 mysql> SHOW DATABASES;
@@ -165,7 +165,7 @@ mysql> USE example_db;
 Database changed
 ```
 
-Doris支持[复合分区和单分区](data-partition.html#复合分区与单分区)两种建表方式。下面以聚合模型为例，分别演示如何创建两种分区的数据表。
+Doris支持[复合分区和单分区](data-partition)两种建表方式。下面以聚合模型为例，分别演示如何创建两种分区的数据表。
 
 #### 单分区
 
