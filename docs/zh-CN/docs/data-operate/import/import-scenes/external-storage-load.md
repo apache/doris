@@ -86,7 +86,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
   
 3. 查看导入状态
    
-   Broker load 是一个异步的导入方式，具体导入结果可以通过[SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.html#show-load)命令查看
+   Broker load 是一个异步的导入方式，具体导入结果可以通过[SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.md#show-load)命令查看
    
    ```
    mysql> show load order by createtime desc limit 1\G;
