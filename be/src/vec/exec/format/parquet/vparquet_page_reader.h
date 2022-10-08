@@ -29,7 +29,7 @@ namespace doris::vectorized {
 class PageReader {
 public:
     struct Statistics {
-        int64_t decode_header_time;
+        int64_t decode_header_time = 0;
     };
 
     PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length);

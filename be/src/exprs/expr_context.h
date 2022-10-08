@@ -27,7 +27,6 @@
 #include "exprs/expr_value.h"
 #include "exprs/slot_ref.h"
 #include "udf/udf.h"
-#include "vec/exec/format/parquet/vparquet_reader.h"
 
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf
