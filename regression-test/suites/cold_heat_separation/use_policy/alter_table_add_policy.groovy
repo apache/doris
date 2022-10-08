@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
 // and modified by Doris.
 
-suite("add_table_policy_by_alter_table", "policy") {
+suite("add_table_policy_by_alter_table") {
     def create_table_not_have_policy_result = try_sql """
         CREATE TABLE IF NOT EXISTS create_table_not_have_policy
         (

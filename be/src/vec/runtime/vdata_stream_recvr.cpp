@@ -125,6 +125,8 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     {
         SCOPED_TIMER(_recvr->_deserialize_row_batch_timer);
         block = new Block(pblock);
+        COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
+        COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
     }
 
     VLOG_ROW << "added #rows=" << block->rows() << " batch_size=" << block_byte_size << "\n";
@@ -150,7 +152,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         return;
     }
     Block* nblock = new Block(block->get_columns_with_type_and_name());
-    nblock->info = block->info;
 
     // local exchange should copy the block contented if use move == false
     if (use_move) {
@@ -284,6 +285,8 @@ VDataStreamRecvr::VDataStreamRecvr(
     _data_arrival_timer = ADD_TIMER(_profile, "DataArrivalWaitTime");
     _buffer_full_total_timer = ADD_TIMER(_profile, "SendersBlockedTotalTimer(*)");
     _first_batch_wait_total_timer = ADD_TIMER(_profile, "FirstBatchArrivalWaitTime");
+    _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
+    _decompress_bytes = ADD_COUNTER(_profile, "DecompressBytes", TUnit::BYTES);
 }
 
 VDataStreamRecvr::~VDataStreamRecvr() {

@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -37,7 +37,7 @@ import java.util.Map;
 
 public class AlterTableStmtTest {
     private Analyzer analyzer;
-    private String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Mocked
     private PaloAuth auth;

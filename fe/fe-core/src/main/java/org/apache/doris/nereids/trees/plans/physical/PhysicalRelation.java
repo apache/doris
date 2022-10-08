@@ -19,10 +19,13 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
 
@@ -37,16 +40,27 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
 
     protected final List<String> qualifier;
 
+    protected final RelationId id;
+
     /**
-     * Constructor for PhysicalScan.
-     *
-     * @param type node type
-     * @param qualifier table's name
+     * Constructor for PhysicalRelation.
      */
-    public PhysicalRelation(PlanType type, List<String> qualifier, Optional<GroupExpression> groupExpression,
-                            LogicalProperties logicalProperties) {
+    public PhysicalRelation(RelationId id, PlanType type, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(type, groupExpression, logicalProperties);
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+        this.id = id;
+    }
+
+    /**
+     * Constructor for PhysicalRelation.
+     */
+    public PhysicalRelation(RelationId id, PlanType type, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult);
+        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+        this.id = id;
     }
 
     public List<String> getQualifier() {
@@ -62,7 +76,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
             return false;
         }
         PhysicalRelation that = (PhysicalRelation) o;
-        return Objects.equals(qualifier, that.qualifier);
+        return this.id.equals(that.id) && Objects.equals(qualifier, that.qualifier);
     }
 
     @Override
@@ -76,7 +90,11 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
+    }
+
+    public RelationId getId() {
+        return id;
     }
 }

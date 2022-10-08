@@ -37,18 +37,13 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
 #ifndef BE_TEST
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, label, StorageEngine::instance()->compaction_mem_tracker());
+    _mem_tracker->enable_reset_zero();
 #else
     _mem_tracker = std::make_shared<MemTrackerLimiter>(-1, label);
 #endif
 }
 
-Compaction::~Compaction() {
-#ifndef BE_TEST
-    // Compaction tracker cannot be completely accurate, offset the global impact.
-    StorageEngine::instance()->compaction_mem_tracker()->consumption_revise(
-            -_mem_tracker->consumption());
-#endif
-}
+Compaction::~Compaction() {}
 
 Status Compaction::compact() {
     RETURN_NOT_OK(prepare_compact());
@@ -227,13 +222,17 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         }
     }
 
+    auto cumu_policy = _tablet->cumulative_compaction_policy();
     LOG(INFO) << "succeed to do " << merge_type << compaction_name()
               << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
+              << ", input_row_num=" << _input_row_num
+              << ", output_row_num=" << _output_rowset->num_rows()
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy="
-              << _tablet->cumulative_compaction_policy()->name() << ".";
+              << (cumu_policy == nullptr ? "quick" : cumu_policy->name())
+              << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second());
 
     return Status::OK();
 }
@@ -256,17 +255,23 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+    {
+        std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
 
-    // update dst rowset delete bitmap
-    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write()) {
-        _tablet->tablet_meta()->update_delete_bitmap(_input_rowsets, _output_rs_writer->version(),
-                                                     _rowid_conversion);
+        // update dst rowset delete bitmap
+        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write()) {
+            _tablet->tablet_meta()->update_delete_bitmap(
+                    _input_rowsets, _output_rs_writer->version(), _rowid_conversion);
+        }
+
+        RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
-
-    RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-    _tablet->save_meta();
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        _tablet->save_meta();
+    }
     return Status::OK();
 }
 
@@ -327,7 +332,7 @@ Status Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
         LOG(WARNING) << "row_num does not match between cumulative input and output! "
-                     << "input_row_num=" << _input_row_num
+                     << "tablet=" << _tablet->full_name() << ", input_row_num=" << _input_row_num
                      << ", merged_row_num=" << stats.merged_rows
                      << ", filtered_row_num=" << stats.filtered_rows
                      << ", output_row_num=" << _output_rowset->num_rows();

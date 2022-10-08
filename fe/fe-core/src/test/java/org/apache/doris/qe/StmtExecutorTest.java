@@ -34,7 +34,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -197,7 +197,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = false;
 
-                queryStmt.getTables((Analyzer) any, (SortedMap) any, Sets.newHashSet());
+                queryStmt.getTables((Analyzer) any, anyBoolean, (SortedMap) any, Sets.newHashSet());
                 minTimes = 0;
 
                 queryStmt.getRedirectStatus();
@@ -759,7 +759,7 @@ public class StmtExecutorTest {
 
                 useStmt.getCatalogName();
                 minTimes = 0;
-                result = InternalDataSource.INTERNAL_DS_NAME;
+                result = InternalCatalog.INTERNAL_CATALOG_NAME;
 
                 Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();

@@ -435,6 +435,7 @@ struct TMasterOpRequest {
     18: optional i64 insert_visible_timeout_ms // deprecated, move into session_variables
     19: optional map<string, string> session_variables
     20: optional bool foldConstantByBe
+    21: optional map<string, string> trace_carrier
 }
 
 struct TColumnDefinition {
@@ -458,6 +459,7 @@ struct TMasterOpResult {
     2: required binary packet;
     3: optional TShowResultSet resultSet;
     4: optional Types.TUniqueId queryId;
+    5: optional string status;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -540,6 +542,7 @@ struct TStreamLoadPutRequest {
     36: optional double max_filter_ratio
     37: optional bool load_to_single_tablet
     38: optional string header_type
+    39: optional string hidden_columns
 }
 
 struct TStreamLoadPutResult {

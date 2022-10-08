@@ -151,7 +151,8 @@ enum FieldType {
     OLAP_FIELD_TYPE_TIMEV2 = 30,
     OLAP_FIELD_TYPE_DECIMAL32 = 31,
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
-    OLAP_FIELD_TYPE_DECIMAL128 = 33
+    OLAP_FIELD_TYPE_DECIMAL128 = 33,
+    OLAP_FIELD_TYPE_JSONB = 34,
 };
 
 // Define all aggregation methods supported by Field
@@ -222,12 +223,14 @@ struct Version {
     bool contains(const Version& other) const {
         return first <= other.first && second >= other.second;
     }
+
+    std::string to_string() const { return fmt::format("[{}-{}]", first, second); }
 };
 
 using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
-    return os << "[" << version.first << "-" << version.second << "]";
+    return os << version.to_string();
 }
 
 // used for hash-struct of hash_map<Version, Rowset*>.

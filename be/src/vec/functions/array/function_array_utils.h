@@ -35,7 +35,7 @@ public:
 public:
     const UInt8* array_nullmap_data = nullptr;
     const ColumnArray* array_col = nullptr;
-    const ColumnArray::Offsets* offsets_ptr = nullptr;
+    const ColumnArray::Offsets64* offsets_ptr = nullptr;
     const UInt8* nested_nullmap_data = nullptr;
     const IColumn* nested_col = nullptr;
 };
@@ -45,7 +45,7 @@ public:
     MutableColumnPtr array_nested_col = nullptr;
     ColumnUInt8::Container* nested_nullmap_data = nullptr;
     MutableColumnPtr offsets_col = nullptr;
-    ColumnArray::Offsets* offsets_ptr = nullptr;
+    ColumnArray::Offsets64* offsets_ptr = nullptr;
     IColumn* nested_col = nullptr;
 };
 

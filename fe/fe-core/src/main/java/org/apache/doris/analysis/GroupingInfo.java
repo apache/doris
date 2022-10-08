@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
@@ -270,20 +269,6 @@ public class GroupingInfo {
 
     public void substituteGroupingFn(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (expr instanceof GroupingFunctionCallExpr) {
-            // TODO(yangzhengguo) support expression in grouping functions
-            for (Expr child : expr.getChildren()) {
-                if (!(child instanceof SlotRef)) {
-                    throw new AnalysisException("grouping functions only support column in current version.");
-                    // expr from inline view
-                } else if (((SlotRef) child).getDesc().getParent().getTable().getType()
-                        == Table.TableType.INLINE_VIEW) {
-                    InlineViewRef ref = (InlineViewRef) ((SlotRef) child).getDesc().getParent().getRef();
-                    int colIndex = ref.getColLabels().indexOf(((SlotRef) child).getColumnName());
-                    if (colIndex != -1 && !(ref.getViewStmt().getResultExprs().get(colIndex) instanceof SlotRef)) {
-                        throw new AnalysisException("grouping functions only support column in current version.");
-                    }
-                }
-            }
             // if is substituted skip
             if (expr.getChildren().size() == 1 && expr.getChild(0) instanceof VirtualSlotRef) {
                 return;

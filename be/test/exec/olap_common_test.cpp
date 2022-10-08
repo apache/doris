@@ -29,7 +29,6 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
 #include "util/cpu_info.h"
-#include "util/logging.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

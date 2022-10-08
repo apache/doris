@@ -138,7 +138,7 @@ Indicates whether a specified column expression in a `GROUP BY` list is aggregat
 
 `GROUPING_ID` describes which of a list of expressions are grouped in a row produced by a `GROUP BY` query. The `GROUPING_ID` function simply returns the decimal equivalent of the binary value formed as a result of the concatenation of the values returned by the `GROUPING` functions.
 
-Each `GROUPING_ID` argument must be an element of the `GROUP BY` list. `GROUPING_ID ()` returns an **integer** bitmap whose lowest N bits may be lit. A lit **bit** indicates the corresponding argument is not a grouping column for the given output row. The lowest-order **bit** corresponds to argument N, and the N-1th lowest-order **bit** corresponds to argument 1. If the column is a grouping column the bit is 1 else is 0.
+Each `GROUPING_ID` argument must be an element of the `GROUP BY` list. `GROUPING_ID ()` returns an **integer** bitmap whose lowest N bits may be lit. A lit **bit** indicates the corresponding argument is not a grouping column for the given output row. The lowest-order **bit** corresponds to argument N, and the N-1th lowest-order **bit** corresponds to argument 1. If the column is a grouping column the bit is 0 else is 1.
 
 For example:
 

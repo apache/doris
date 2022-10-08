@@ -134,7 +134,6 @@ When defining columns, you can refer to the following suggestions:
 2. Try to choose the type of integer. Because integer type calculations and lookups are much more efficient than strings.
 3. For the selection principle of integer types of different lengths, follow **enough to**.
 4. For lengths of type VARCHAR and STRING, follow **enough to**.
-5. The total byte length of all columns (including Key and Value) cannot exceed 100KB.
 
 ### Partitioning and Bucket
 
@@ -224,18 +223,18 @@ It is also possible to use only one layer of partitioning. When using a layer pa
         PARTITION `p201702_2000` VALUES LESS THAN ("2017-03-01", "2000"),
         PARTITION `p201703_all` VALUES LESS THAN ("2017-04-01")
     )
-    ```
-    
+   ```
+   
     In the above example, we specify `date` (DATE type) and `id` (INT type) as partition columns. The resulting partitions in the above example are as follows:
-    
+   
     ```
     *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
     *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
     *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
     ```
-    
+   
     Note that the last partition user defaults only the partition value of the `date` column, so the partition value of the `id` column will be filled with `MIN_VALUE` by default. When the user inserts data, the partition column values ​​are compared in order, and the corresponding partition is finally obtained. Examples are as follows:
-    
+   
     ```
     * Data --> Partition
     * 2017-01-01, 200   --> p201701_1000
@@ -290,17 +289,17 @@ It is also possible to use only one layer of partitioning. When using a layer pa
         PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
     )
     ```
-    
+   
     In the above example, we specify `id`(INT type) and `city`(VARCHAR type) as partition columns. The above example ends up with the following partitions.
-    
+   
     ```
     * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
     * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
     * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
     ```
-    
+   
     When the user inserts data, the partition column values will be compared sequentially in order to finally get the corresponding partition. An example is as follows.
-    
+   
     ```
     * Data ---> Partition
     * 1, Beijing  ---> p1_city

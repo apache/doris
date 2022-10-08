@@ -22,7 +22,6 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-
 /** used to generate pattern for PhysicalBinary. */
 public class PhysicalBinaryPatternGenerator extends PatternGenerator {
 

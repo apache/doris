@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
-import com.google.common.base.Preconditions;
-
 import java.util.List;
 import java.util.Optional;
 
@@ -53,11 +51,5 @@ public abstract class LogicalBinary<
         super(type, groupExpression, logicalProperties, leftChild, rightChild);
     }
 
-    public abstract List<Slot> computeOutput(Plan left, Plan right);
-
-    @Override
-    public final LogicalProperties computeLogicalProperties(Plan... inputs) {
-        Preconditions.checkArgument(inputs.length == 2);
-        return new LogicalProperties(() -> computeOutput(inputs[0], inputs[1]));
-    }
+    public abstract List<Slot> computeOutput();
 }

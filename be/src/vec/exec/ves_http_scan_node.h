@@ -23,6 +23,7 @@
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/ves_http_scanner.h"
+
 namespace doris {
 
 class RuntimeState;

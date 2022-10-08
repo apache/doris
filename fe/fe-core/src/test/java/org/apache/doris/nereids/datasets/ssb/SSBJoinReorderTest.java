@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.datasets.ssb;
 
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -44,11 +43,13 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 SSBUtils.Q4_1,
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
-                        "((lo_custkey = c_custkey) AND (c_region = 'AMERICA'))",
-                        "((lo_suppkey = s_suppkey) AND (s_region = 'AMERICA'))",
+                        "(lo_custkey = c_custkey)",
+                        "(lo_suppkey = s_suppkey)",
                         "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2'))")
+                ImmutableList.of("(((CAST(c_region AS STRING) = CAST('AMERICA' AS STRING)) AND (CAST(s_region AS STRING) "
+                        + "= CAST('AMERICA' AS STRING))) AND ((CAST(p_mfgr AS STRING) = CAST('MFGR#1' AS STRING)) "
+                        + "OR (CAST(p_mfgr AS STRING) = CAST('MFGR#2' AS STRING))))")
         );
     }
 
@@ -58,12 +59,15 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 SSBUtils.Q4_2,
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
-                        "((lo_custkey = c_custkey) AND (c_region = 'AMERICA'))",
-                        "((lo_suppkey = s_suppkey) AND (s_region = 'AMERICA'))",
+                        "(lo_custkey = c_custkey)",
+                        "(lo_suppkey = s_suppkey)",
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "(((d_year = 1997) OR (d_year = 1998)) AND ((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2')))")
+                        "((((CAST(c_region AS STRING) = CAST('AMERICA' AS STRING)) AND (CAST(s_region AS STRING) "
+                                + "= CAST('AMERICA' AS STRING))) AND ((d_year = 1997) OR (d_year = 1998))) "
+                                + "AND ((CAST(p_mfgr AS STRING) = CAST('MFGR#1' AS STRING)) OR (CAST(p_mfgr AS STRING) "
+                                + "= CAST('MFGR#2' AS STRING))))")
         );
     }
 
@@ -74,16 +78,18 @@ public class SSBJoinReorderTest extends SSBTestBase {
                 ImmutableList.of(
                         "(lo_orderdate = d_datekey)",
                         "(lo_custkey = c_custkey)",
-                        "((lo_suppkey = s_suppkey) AND (s_nation = 'UNITED STATES'))",
-                        "((lo_partkey = p_partkey) AND (p_category = 'MFGR#14'))"
+                        "(lo_suppkey = s_suppkey)",
+                        "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("((d_year = 1997) OR (d_year = 1998))")
+                ImmutableList.of("(((CAST(s_nation AS STRING) = CAST('UNITED STATES' AS STRING)) AND ((d_year = 1997) "
+                        + "OR (d_year = 1998))) AND (CAST(p_category AS STRING) = CAST('MFGR#14' AS STRING)))")
         );
     }
 
     private void test(String sql, List<String> expectJoinConditions, List<String> expectFilterPredicates) {
-        LogicalPlan analyzed = new NereidsAnalyzer(connectContext).analyze(sql);
+        LogicalPlan analyzed = analyze(sql);
         LogicalPlan plan = testJoinReorder(analyzed);
+        System.out.println(plan.treeString());
         new PlanChecker(expectJoinConditions, expectFilterPredicates).check(plan);
     }
 
@@ -114,9 +120,10 @@ public class SSBJoinReorderTest extends SSBTestBase {
 
             // check join conditions
             List<String> actualJoinConditions = joins.stream().map(j -> {
-                Optional<Expression> condition = j.getCondition();
+                Optional<Expression> condition = j.getOnClauseCondition();
                 return condition.map(Expression::toSql).orElse("");
             }).collect(Collectors.toList());
+
             Assertions.assertEquals(expectJoinConditions, actualJoinConditions);
 
             // check filter predicates
@@ -142,14 +149,14 @@ public class SSBJoinReorderTest extends SSBTestBase {
         }
 
         @Override
-        public Void visitLogicalFilter(LogicalFilter<Plan> filter, Context context) {
+        public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, Context context) {
             filters.add(filter);
             filter.child().accept(this, new Context(filter));
             return null;
         }
 
         @Override
-        public Void visitLogicalJoin(LogicalJoin<Plan, Plan> join, Context context) {
+        public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Context context) {
             join.left().accept(this, new Context(join));
             join.right().accept(this, new Context(join));
             joins.add(join);

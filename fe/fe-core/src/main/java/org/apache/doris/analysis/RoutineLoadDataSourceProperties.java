@@ -305,7 +305,7 @@ public class RoutineLoadDataSourceProperties {
         String[] kafkaPartitionsStringList = kafkaPartitionsString.split(",");
         for (String s : kafkaPartitionsStringList) {
             try {
-                kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(
+                kafkaPartitionOffsets.add(Pair.of(getIntegerValueFromString(
                         s, CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY), KafkaProgress.OFFSET_END_VAL));
             } catch (AnalysisException e) {
                 throw new AnalysisException(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY

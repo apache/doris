@@ -17,48 +17,36 @@
 
 package org.apache.doris.nereids.types;
 
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class DataTypeTest {
     @Test
     public void testDataTypeEquals() {
-        BigIntType bigIntType1 = new BigIntType();
-        BigIntType bigIntType2 = new BigIntType();
-        Assertions.assertEquals(bigIntType1, bigIntType2);
-        Assertions.assertEquals(bigIntType1.hashCode(), bigIntType2.hashCode());
+        DecimalType decimalType1 = new DecimalType(27, 9);
+        DecimalType decimalType2 = new DecimalType(27, 9);
+        DecimalType decimalType3 = new DecimalType(28, 9);
+        DecimalType decimalType4 = new DecimalType(27, 10);
+        Assertions.assertEquals(decimalType1, decimalType2);
+        Assertions.assertEquals(decimalType1.hashCode(), decimalType2.hashCode());
+        Assertions.assertNotEquals(decimalType1, decimalType3);
+        Assertions.assertNotEquals(decimalType1.hashCode(), decimalType3.hashCode());
+        Assertions.assertNotEquals(decimalType1, decimalType4);
+        Assertions.assertNotEquals(decimalType1.hashCode(), decimalType4.hashCode());
 
-        BooleanType booleanType1 = new BooleanType();
-        BooleanType booleanType2 = new BooleanType();
-        Assertions.assertEquals(booleanType1, booleanType2);
-        Assertions.assertEquals(booleanType1.hashCode(), booleanType2.hashCode());
-
-        DoubleType doubleType1 = new DoubleType();
-        DoubleType doubleType2 = new DoubleType();
-        Assertions.assertEquals(doubleType1, doubleType2);
-        Assertions.assertEquals(doubleType1.hashCode(), doubleType2.hashCode());
-
-        IntegerType integerType1 = new IntegerType();
-        IntegerType integerType2 = new IntegerType();
-        Assertions.assertEquals(integerType1, integerType2);
-        Assertions.assertEquals(integerType1.hashCode(), integerType2.hashCode());
-
-        NullType nullType1 = new NullType();
-        NullType nullType2 = new NullType();
-        Assertions.assertEquals(nullType1, nullType2);
-        Assertions.assertEquals(nullType1.hashCode(), nullType2.hashCode());
-
-        StringType stringType1 = new StringType();
-        StringType stringType2 = new StringType();
-        Assertions.assertEquals(stringType1, stringType2);
-        Assertions.assertEquals(stringType1.hashCode(), stringType2.hashCode());
+        CharType charType1 = new CharType(10);
+        CharType charType2 = new CharType(10);
+        CharType charType3 = new CharType(15);
+        Assertions.assertEquals(charType1, charType2);
+        Assertions.assertEquals(charType1.hashCode(), charType2.hashCode());
+        Assertions.assertNotEquals(charType1, charType3);
+        Assertions.assertNotEquals(charType1.hashCode(), charType3.hashCode());
 
         VarcharType varcharType1 = new VarcharType(32);
         VarcharType varcharType2 = new VarcharType(32);
+        VarcharType varcharType3 = new VarcharType(64);
         Assertions.assertEquals(varcharType1, varcharType2);
         Assertions.assertEquals(varcharType1.hashCode(), varcharType2.hashCode());
-        VarcharType varcharType3 = new VarcharType(64);
         Assertions.assertNotEquals(varcharType1, varcharType3);
         Assertions.assertNotEquals(varcharType1.hashCode(), varcharType3.hashCode());
     }

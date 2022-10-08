@@ -42,7 +42,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class TableFunctionNode extends PlanNode {
-
     private List<LateralViewRef> lateralViewRefs;
     private ArrayList<Expr> fnCallExprList;
     private List<TupleId> lateralViewTupleIds;
@@ -55,6 +54,7 @@ public class TableFunctionNode extends PlanNode {
         super(id, "TABLE FUNCTION NODE", StatisticalType.TABLE_FUNCTION_NODE);
         tupleIds.addAll(inputNode.getTupleIds());
         tblRefIds.addAll(inputNode.getTupleIds());
+        tblRefIds.addAll(inputNode.getTblRefIds());
         lateralViewTupleIds = lateralViewRefs.stream().map(e -> e.getDesc().getId())
                 .collect(Collectors.toList());
         tupleIds.addAll(lateralViewTupleIds);
@@ -100,11 +100,23 @@ public class TableFunctionNode extends PlanNode {
         for (Expr resultExpr : baseTblResultExprs) {
             // find all slotRef bound by tupleIds in resultExpr
             resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+
+            // For vec engine while lateral view involves subquery
+            Expr dst = outputSmap.get(resultExpr);
+            if (dst != null) {
+                dst.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+            }
         }
         // case2
         List<Expr> remainConjuncts = analyzer.getRemainConjuncts(tupleIds);
         for (Expr expr : remainConjuncts) {
             expr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+
+            // For vec engine while lateral view involves subquery
+            Expr dst = outputSmap.get(expr);
+            if (dst != null) {
+                dst.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+            }
         }
         // set output slot ids
         for (SlotRef slotRef : outputSlotRef) {

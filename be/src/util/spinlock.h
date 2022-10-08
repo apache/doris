@@ -20,9 +20,9 @@
 
 #pragma once
 
-#include <atomic>
+#include <sched.h> /* For sched_yield() */
 
-#include "common/logging.h"
+#include <atomic>
 
 namespace doris {
 

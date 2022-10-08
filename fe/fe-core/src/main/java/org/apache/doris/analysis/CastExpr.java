@@ -74,11 +74,11 @@ public class CastExpr extends Expr {
                     continue;
                 }
                 if (fromType.isStringType() && !toType.isStringType()) {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
                 } else if (!fromType.isDateType() && toType.isDateType()) {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
                 } else {
-                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
+                    TYPE_NULLABLE_MODE.put(Pair.of(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
                 }
             }
         }
@@ -107,6 +107,19 @@ public class CastExpr extends Expr {
                     "Implicit casts should never throw analysis exception.");
         }
         analysisDone();
+    }
+
+    /**
+     * Just use for nereids, put analyze() in finalizeImplForNereids
+     */
+    public CastExpr(Type targetType, Expr e, Void v) {
+        super();
+        Preconditions.checkArgument(targetType.isValid());
+        Preconditions.checkNotNull(e);
+        type = targetType;
+        targetTypeDef = null;
+        isImplicit = true;
+        children.add(e);
     }
 
     /**
@@ -178,7 +191,7 @@ public class CastExpr extends Expr {
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
-                        toType, TYPE_NULLABLE_MODE.get(new Pair<>(fromType, toType)),
+                        toType, TYPE_NULLABLE_MODE.get(Pair.of(fromType, toType)),
                         Lists.newArrayList(fromType), false,
                         beSymbol, null, null, true));
             }
@@ -268,16 +281,12 @@ public class CastExpr extends Expr {
         Type childType = getChild(0).getType();
 
         // this cast may result in loss of precision, but the user requested it
-        if (childType.matchesType(type)) {
-            // For types which has precision and scale, we also need to check quality between precisions and scales
-            if (!PrimitiveType.typeWithPrecision.contains(
-                    type.getPrimitiveType()) || ((((ScalarType) type).decimalPrecision()
-                    == ((ScalarType) childType).decimalPrecision()) && (((ScalarType) type).decimalScale()
-                    == ((ScalarType) childType).decimalScale()))) {
-                noOp = true;
-                return;
-            }
+        noOp = Type.matchExactType(childType, type);
+
+        if (noOp) {
+            return;
         }
+
         // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
         // it is necessary to check if it is castable before creating fn.
         // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
@@ -328,8 +337,7 @@ public class CastExpr extends Expr {
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType()
-                    && !targetType.isAssignedStrLenInColDefinition())) {
+            if (!(targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet())) {
                 targetTypeDef.analyze(analyzer);
             }
         } else {
@@ -406,7 +414,6 @@ public class CastExpr extends Expr {
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
             return new DecimalLiteral(value.getStringValue());
         } else if (type.isFloatingPointType()) {
-
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
             return new StringLiteral(value.getStringValue());
@@ -537,6 +544,13 @@ public class CastExpr extends Expr {
 
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
+        try {
+            analyze();
+        } catch (AnalysisException ex) {
+            LOG.warn("Implicit casts fail", ex);
+            Preconditions.checkState(false,
+                    "Implicit casts should never throw analysis exception.");
+        }
         FunctionName fnName = new FunctionName(getFnName(type));
         Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
         if (type.isScalarType()) {

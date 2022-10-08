@@ -20,6 +20,7 @@ package org.apache.doris.ldap;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LdapConfig;
@@ -28,7 +29,6 @@ import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -38,9 +38,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 
 /**
- * If the user logs in with LDAP authentication, the user LDAP group privileges will be saved in 'ldapGroupsPrivs' of
- * ConnectContext. When checking user privileges, Doris need to check both the privileges granted by Doris
- * and LDAP group privileges. This class is used for checking current user LDAP group privileges.
+ * This class is used for checking current user LDAP group privileges.
  */
 public class LdapPrivsChecker {
     private static final Logger LOG = LogManager.getLogger(LdapPrivsChecker.class);
@@ -116,7 +114,7 @@ public class LdapPrivsChecker {
         if (!hasLdapPrivs(currentUser)) {
             return;
         }
-        PaloRole currentUserLdapPrivs = ConnectContext.get().getLdapGroupsPrivs();
+        PaloRole currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
         for (Map.Entry<TablePattern, PrivBitSet> entry : currentUserLdapPrivs.getTblPatternToPrivs().entrySet()) {
             switch (entry.getKey().getPrivLevel()) {
                 case GLOBAL:
@@ -150,7 +148,7 @@ public class LdapPrivsChecker {
         if (!hasLdapPrivs(currentUser)) {
             return;
         }
-        PaloRole currentUserLdapPrivs = ConnectContext.get().getLdapGroupsPrivs();
+        PaloRole currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
         for (Map.Entry<ResourcePattern, PrivBitSet> entry
                 : currentUserLdapPrivs.getResourcePatternToPrivs().entrySet()) {
             switch (entry.getKey().getPrivLevel()) {
@@ -177,7 +175,7 @@ public class LdapPrivsChecker {
         if (!hasLdapPrivs(currentUser)) {
             return false;
         }
-        PaloRole currentUserLdapPrivs = ConnectContext.get().getLdapGroupsPrivs();
+        PaloRole currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
         for (Map.Entry<TablePattern, PrivBitSet> entry : currentUserLdapPrivs.getTblPatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(level) && PaloPrivilege.satisfy(entry.getValue(), wanted)) {
                 return true;
@@ -191,7 +189,7 @@ public class LdapPrivsChecker {
         if (!hasLdapPrivs(currentUser)) {
             return false;
         }
-        PaloRole currentUserLdapPrivs = ConnectContext.get().getLdapGroupsPrivs();
+        PaloRole currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
         for (Map.Entry<TablePattern, PrivBitSet> entry : currentUserLdapPrivs.getTblPatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE)
                     && entry.getKey().getQualifiedDb().equals(db)) {
@@ -201,19 +199,9 @@ public class LdapPrivsChecker {
         return false;
     }
 
-    public static boolean isCurrentUser(UserIdentity userIdent) {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            return false;
-        }
-        UserIdentity currentUser = context.getCurrentUserIdentity();
-        return currentUser.getQualifiedUser().equals(userIdent.getQualifiedUser())
-                && currentUser.getHost().equals(userIdent.getHost());
-    }
-
     public static boolean hasLdapPrivs(UserIdentity userIdent) {
-        return LdapConfig.ldap_authentication_enabled && isCurrentUser(userIdent)
-                && ConnectContext.get().getLdapGroupsPrivs() != null;
+        return LdapConfig.ldap_authentication_enabled && Env.getCurrentEnv().getAuth().getLdapManager()
+                .doesUserExist(userIdent.getQualifiedUser());
     }
 
     public static Map<TablePattern, PrivBitSet> getLdapAllDbPrivs(UserIdentity userIdentity) {
@@ -221,7 +209,7 @@ public class LdapPrivsChecker {
         if (!hasLdapPrivs(userIdentity)) {
             return ldapDbPrivs;
         }
-        for (Map.Entry<TablePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
+        for (Map.Entry<TablePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
                 .getTblPatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.DATABASE)) {
                 ldapDbPrivs.put(entry.getKey(), entry.getValue());
@@ -235,7 +223,7 @@ public class LdapPrivsChecker {
         if (!hasLdapPrivs(userIdentity)) {
             return ldapTblPrivs;
         }
-        for (Map.Entry<TablePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
+        for (Map.Entry<TablePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
                 .getTblPatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE)) {
                 ldapTblPrivs.put(entry.getKey(), entry.getValue());
@@ -249,13 +237,17 @@ public class LdapPrivsChecker {
         if (!hasLdapPrivs(userIdentity)) {
             return ldapResourcePrivs;
         }
-        for (Map.Entry<ResourcePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
+        for (Map.Entry<ResourcePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
                 .getResourcePatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.RESOURCE)) {
                 ldapResourcePrivs.put(entry.getKey(), entry.getValue());
             }
         }
         return ldapResourcePrivs;
+    }
+
+    private static PaloRole getUserLdapPrivs(String fullName) {
+        return Env.getCurrentEnv().getAuth().getLdapManager().getUserInfo(fullName).getPaloRole();
     }
 
     // Temporary user has information_schema 'Select_priv' priv by default.

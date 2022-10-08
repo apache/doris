@@ -23,7 +23,7 @@ namespace doris::vectorized {
 
 /**
  * Use UInt32 as underlying type to represent DateV2 type.
- * Specifically, a dateV2 type is represented as (YYYY (16 bits), MM (8 bits), DD (8 bits)).
+ * Specifically, a dateV2 type is represented as (YYYY (23 bits), MM (4 bits), dd (5 bits)).
  */
 class DataTypeDateV2 final : public DataTypeNumberBase<UInt32> {
 public:
@@ -43,8 +43,16 @@ public:
     static void cast_to_date(const UInt32 from, Int64& to);
     static void cast_to_date_time(const UInt32 from, Int64& to);
     static void cast_to_date_time_v2(const UInt32 from, UInt64& to);
+    static void cast_from_date(const Int64 from, UInt32& to);
+    static void cast_from_date_time(const Int64 from, UInt32& to);
 };
 
+/**
+ * Use UInt64 as underlying type to represent DateTimeV2 type.
+ *                                                    +---------------date part---------------+-----------------------time part------------------------+
+ *                                                    |                  27 bits              |                         37 bits                        |
+ * Specifically, a dateTimeV2 type is represented as (YYYY (18 bits), MM (4 bits), dd (5 bits), HH (5 bits), mm (6 bits), SS (6 bits), ssssss (20 bits)).
+ */
 class DataTypeDateTimeV2 final : public DataTypeNumberBase<UInt64> {
 public:
     static constexpr bool is_parametric = true;
@@ -74,6 +82,8 @@ public:
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);
     static void cast_to_date_v2(const UInt64 from, UInt32& to);
+    static void cast_from_date(const Int64 from, UInt64& to);
+    static void cast_from_date_time(const Int64 from, UInt64& to);
 
 private:
     UInt32 scale_;

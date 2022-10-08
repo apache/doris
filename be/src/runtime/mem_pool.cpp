@@ -27,7 +27,6 @@
 
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/doris_metrics.h"
 
@@ -46,7 +45,6 @@ MemPool::MemPool(MemTracker* mem_tracker)
           next_chunk_size_(INITIAL_CHUNK_SIZE),
           total_allocated_bytes_(0),
           total_reserved_bytes_(0),
-          peak_allocated_bytes_(0),
           _mem_tracker(mem_tracker) {}
 
 MemPool::MemPool()
@@ -54,7 +52,6 @@ MemPool::MemPool()
           next_chunk_size_(INITIAL_CHUNK_SIZE),
           total_allocated_bytes_(0),
           total_reserved_bytes_(0),
-          peak_allocated_bytes_(0),
           _mem_tracker(nullptr) {}
 
 MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_) : chunk(chunk_), allocated_bytes(0) {
@@ -128,6 +125,7 @@ Status MemPool::find_chunk(size_t min_size, bool check_limits) {
     if (config::disable_mem_pools) {
         // Disable pooling by sizing the chunk to fit only this allocation.
         // Make sure the alignment guarantees are respected.
+        // This will generate too many small chunks.
         chunk_size = std::max<size_t>(min_size, alignof(max_align_t));
     } else {
         DCHECK_GE(next_chunk_size_, INITIAL_CHUNK_SIZE);
@@ -136,7 +134,7 @@ Status MemPool::find_chunk(size_t min_size, bool check_limits) {
 
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
     if (check_limits &&
-        !thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
+        !thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->check_limit(
                 chunk_size)) {
         return Status::MemoryAllocFailed("MemPool find new chunk {} bytes faild, exceed limit",
                                          chunk_size);
@@ -215,8 +213,6 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
         src->total_allocated_bytes_ = 0;
     }
 
-    peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
-
     if (!keep_current) src->free_all();
     DCHECK(src->check_integrity(false));
     DCHECK(check_integrity(false));
@@ -237,7 +233,6 @@ void MemPool::exchange_data(MemPool* other) {
     std::swap(next_chunk_size_, other->next_chunk_size_);
     std::swap(total_allocated_bytes_, other->total_allocated_bytes_);
     std::swap(total_reserved_bytes_, other->total_reserved_bytes_);
-    std::swap(peak_allocated_bytes_, other->peak_allocated_bytes_);
     std::swap(chunks_, other->chunks_);
 }
 

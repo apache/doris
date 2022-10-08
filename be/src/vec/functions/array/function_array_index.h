@@ -67,7 +67,7 @@ public:
     }
 
 private:
-    ColumnPtr _execute_string(const ColumnArray::Offsets& offsets, const UInt8* nested_null_map,
+    ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column) {
         // check array nested column type and get data
         const auto& str_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
@@ -110,7 +110,7 @@ private:
     }
 
     template <typename NestedColumnType, typename RightColumnType>
-    ColumnPtr _execute_number(const ColumnArray::Offsets& offsets, const UInt8* nested_null_map,
+    ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column) {
         // check array nested column type and get data
         const auto& nested_data =
@@ -144,7 +144,7 @@ private:
     }
 
     template <typename NestedColumnType>
-    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets& offsets,
+    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
                                        const UInt8* nested_null_map, const IColumn& nested_column,
                                        const IColumn& right_column) {
         if (check_column<ColumnUInt8>(right_column)) {
@@ -174,12 +174,6 @@ private:
         } else if (right_column.is_date_type()) {
             return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_null_map,
                                                                  nested_column, right_column);
-        } else if (right_column.is_date_v2_type()) {
-            return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_null_map,
-                                                                   nested_column, right_column);
-        } else if (right_column.is_datetime_v2_type()) {
-            return _execute_number<NestedColumnType, ColumnDateTimeV2>(offsets, nested_null_map,
-                                                                       nested_column, right_column);
         } else if (right_column.is_datetime_type()) {
             return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_null_map,
                                                                      nested_column, right_column);
@@ -257,14 +251,8 @@ private:
             if (nested_column->is_date_type()) {
                 return_column = _execute_number_expanded<ColumnDate>(offsets, nested_null_map,
                                                                      *nested_column, *right_column);
-            } else if (nested_column->is_date_v2_type()) {
-                return_column = _execute_number_expanded<ColumnDateV2>(
-                        offsets, nested_null_map, *nested_column, *right_column);
             } else if (nested_column->is_datetime_type()) {
                 return_column = _execute_number_expanded<ColumnDateTime>(
-                        offsets, nested_null_map, *nested_column, *right_column);
-            } else if (nested_column->is_datetime_v2_type()) {
-                return_column = _execute_number_expanded<ColumnDateTimeV2>(
                         offsets, nested_null_map, *nested_column, *right_column);
             }
         }

@@ -53,6 +53,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Ignore;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -1188,6 +1189,12 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
+        // here only a bucket shuffle + broadcast jost join
+        queryStr = "explain SELECT * FROM test.bucket_shuffle1 T LEFT JOIN test.bucket_shuffle1 T1 ON T1.k2 = T.k1 and T.k2 = T1.k3 LEFT JOIN"
+                + " test.bucket_shuffle2 T2 ON T2.k2 = T1.k1 and T2.k1 = T1.k2;";
+        explainString = getSQLPlanOrErrorMsg(queryStr);
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
+        Assert.assertTrue(explainString.contains("BROADCAST"));
         // disable bucket shuffle join again
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
     }
@@ -1644,15 +1651,15 @@ public class QueryPlanTest extends TestWithFeService {
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    999"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("1\n" + "    999"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
+        Assert.assertTrue(explainString.contains("1\n" + "    999"));
     }
 
     @Test
@@ -1922,7 +1929,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
-        Assert.assertTrue(explainStr.contains("tuple ids: 0 1 4"));
+        Assert.assertTrue(explainStr.contains("tuple ids: 5"));
     }
 
     @Ignore
@@ -2146,5 +2153,47 @@ public class QueryPlanTest extends TestWithFeService {
         System.out.println(explainString);
         // errCode = 2, detailMessage = Unknown column 'col2' in 't_2'
         Assert.assertFalse(explainString.contains("errCode"));
+    }
+
+    @Test
+    public void testKeyOrderError() throws Exception {
+        Assertions.assertTrue(getSQLPlanOrErrorMsg("CREATE TABLE `test`.`test_key_order` (\n"
+                + "  `k1` tinyint(4) NULL COMMENT \"\",\n"
+                + "  `k2` smallint(6) NULL COMMENT \"\",\n"
+                + "  `k3` int(11) NULL COMMENT \"\",\n"
+                + "  `v1` double MAX NULL COMMENT \"\",\n"
+                + "  `v2` float SUM NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`k1`, `k3`, `k2`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");").contains("Key columns should be a ordered prefix of the schema. "
+                + "KeyColumns[1] (starts from zero) is k3, "
+                + "but corresponding column is k2 in the previous columns declaration."));
+    }
+
+    @Test
+    public void testPreaggregationOfOrthogonalBitmapUDAF() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE test.bitmap_tb (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `id2` int(11) NULL COMMENT \"\",\n"
+                + "  `id3` bitmap bitmap_union NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`id`,`id2`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
+
+        String queryBaseTableStr = "explain select id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
+        String explainString1 = getSQLPlanOrErrorMsg(queryBaseTableStr);
+        Assert.assertTrue(explainString1.contains("PREAGGREGATION: ON"));
+
+        String queryTableStr = "explain select id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
+        String explainString2 = getSQLPlanOrErrorMsg(queryTableStr);
+        Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
     }
 }

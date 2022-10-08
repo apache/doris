@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
 // and modified by Doris.
 
-suite("add_table_policy_by_modify_partition", "policy") {
+suite("add_table_policy_by_modify_partition") {
     def create_table_partition_not_have_policy_result = try_sql """
         CREATE TABLE IF NOT EXISTS `create_table_partition` (
         `lo_orderkey` bigint(20) NOT NULL COMMENT "",

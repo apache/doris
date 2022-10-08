@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Data Model, ROLLUP and Prefix Index",
+    "title": "Data Model",
     "language": "en"
 }
 ---
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Data Model, ROLLUP and Prefix Index
+# Data Model
 
-This document describes Doris's data model, ROLLUP and prefix index concepts at the logical level to help users better use Doris to cope with different business scenarios.
+This document describes Doris's data model at the logical level to help users better use Doris to cope with different business scenarios.
 
 ## Basic concepts
 
@@ -329,7 +329,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `op_id` BIGINT COMMENT "operater id",
     `op_time` DATETIME COMMENT "operate time"
 )
-DUPLICATE KEY(`timestamp`, `type`)
+DUPLICATE KEY(`timestamp`, `type`, `error_code`)
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"
@@ -443,6 +443,9 @@ Another way is to **change the aggregation type of the count column above to REP
 ### Duplicate Model
 
 Duplicate model has no limitation of aggregation model. Because the model does not involve aggregate semantics, when doing count (*) query, we can get the correct semantics by choosing a column of queries arbitrarily.
+
+### Key Columns
+For the Duplicate,Aggregate and Unique models,The key columns will be given when the table created, but it is actually different: For the Duplicate model, the key columns of the table can be regarded as just "sort columns", not an unique identifier. In aggregate type tables such as Aggregate and Unique models, the key columns are both "sort columns" and "unique identification columns", which were the real "key columns".
 
 ## Suggestions for Choosing Data Model
 

@@ -26,7 +26,6 @@
 
 #include "common/config.h"
 #include "util/cpu_info.h"
-#include "util/logging.h"
 
 namespace doris {
 

@@ -20,8 +20,8 @@
 
 #pragma once
 
+#include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
-#include "vec/common/exception.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -30,10 +30,39 @@
 
 class SipHash;
 
+#define SIP_HASHES_FUNCTION_COLUMN_IMPL()                                \
+    auto s = hashes.size();                                              \
+    DCHECK(s == size());                                                 \
+    if (null_data == nullptr) {                                          \
+        for (size_t i = 0; i < s; i++) {                                 \
+            update_hash_with_value(i, hashes[i]);                        \
+        }                                                                \
+    } else {                                                             \
+        for (size_t i = 0; i < s; i++) {                                 \
+            if (null_data[i] == 0) update_hash_with_value(i, hashes[i]); \
+        }                                                                \
+    }
+
+#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
+    if (null_data == nullptr) {                                                      \
+        for (size_t i = 0; i < s; i++) {                                             \
+            hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);     \
+        }                                                                            \
+    } else {                                                                         \
+        for (size_t i = 0; i < s; i++) {                                             \
+            if (null_data[i] == 0)                                                   \
+                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]); \
+        }                                                                            \
+    }
+
 namespace doris::vectorized {
 
 class Arena;
 class Field;
+
+class ColumnSorter;
+using EqualFlags = std::vector<uint8_t>;
+using EqualRange = std::pair<int, int>;
 
 /// Declares interface to store columns in memory.
 class IColumn : public COW<IColumn> {
@@ -46,7 +75,18 @@ private:
     /// If you want to copy column for modification, look at 'mutate' method.
     virtual MutablePtr clone() const = 0;
 
+protected:
+    // 64bit offsets now only Array type used, so we make it protected
+    // to avoid use IColumn::Offset64 directly.
+    // please use ColumnArray::Offset64 instead if we need.
+    using Offset64 = UInt64;
+    using Offsets64 = PaddedPODArray<Offset64>;
+
 public:
+    // 32bit offsets for string
+    using Offset = UInt32;
+    using Offsets = PaddedPODArray<Offset>;
+
     /// Name of a Column. It is used in info messages.
     virtual std::string get_name() const { return get_family_name(); }
 
@@ -83,6 +123,12 @@ public:
         return nullptr;
     }
 
+    // shrink the end zeros for CHAR type or ARRAY<CHAR> type
+    virtual MutablePtr get_shrinked_column() {
+        LOG(FATAL) << "Cannot clone_resized() column " << get_name();
+        return nullptr;
+    }
+
     /// Returns number of values in column.
     virtual size_t size() const = 0;
 
@@ -99,10 +145,6 @@ public:
     /// If possible, returns pointer to memory chunk which contains n-th element (if it isn't possible, throws an exception)
     /// Is used to optimize some computations (in aggregation, for example).
     virtual StringRef get_data_at(size_t n) const = 0;
-
-    /// Like getData, but has special behavior for columns that contain variable-length strings.
-    /// Returns zero-ending memory chunk (i.e. its size is 1 byte longer).
-    virtual StringRef get_data_at_with_terminating_zero(size_t n) const { return get_data_at(n); }
 
     /// If column stores integers, it returns n-th element transformed to UInt64 using static_cast.
     /// If column stores floating point numbers, bits of n-th elements are copied to lower bits of UInt64, the remaining bits are zeros.
@@ -281,10 +323,39 @@ public:
         LOG(FATAL) << "deserialize_vec_with_null_map not supported";
     }
 
+    /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
     /// Update state of hash function with value of n-th element.
     /// On subsequent calls of this method for sequence of column values of arbitrary types,
     ///  passed bytes to hash must identify sequence of values unambiguously.
-    virtual void update_hash_with_value(size_t n, SipHash& hash) const = 0;
+    virtual void update_hash_with_value(size_t n, SipHash& hash) const {
+        LOG(FATAL) << "update_hash_with_value siphash not supported";
+    }
+
+    /// Update state of hash function with value of n elements to avoid the virtual function call
+    /// null_data to mark whether need to do hash compute, null_data == nullptr
+    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
+    /// do xxHash here, faster than other hash method
+    virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                          const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << "update_hashes_with_value siphash not supported";
+    };
+
+    /// Update state of hash function with value of n elements to avoid the virtual function call
+    /// null_data to mark whether need to do hash compute, null_data == nullptr
+    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
+    /// do xxHash here, faster than other sip hash
+    virtual void update_hashes_with_value(uint64_t* __restrict hashes,
+                                          const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << "update_hashes_with_value xxhash not supported";
+    };
+
+    /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
+    /// null_data to mark whether need to do hash compute, null_data == nullptr
+    /// means all element need to do hash function, else only *null_data != 0 need to do hash func
+    virtual void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+                                        const uint8_t* __restrict null_data = nullptr) const {
+        LOG(FATAL) << "update_crcs_with_value not supported";
+    };
 
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.
@@ -331,6 +402,16 @@ public:
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
                            int nan_direction_hint) const = 0;
 
+    /**
+     * To compare all rows in this column with another row (with row_id = rhs_row_id in column rhs)
+     * @param nan_direction_hint and direction indicates the ordering.
+     * @param cmp_res if we already has a comparison result for row i, e.g. cmp_res[i] = 1, we can skip row i
+     * @param filter this stores comparison results for all rows. filter[i] = 1 means row i is less than row rhs_row_id in rhs
+     */
+    virtual void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                                  int direction, std::vector<uint8>& cmp_res,
+                                  uint8* __restrict filter) const;
+
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
       * reverse - reverse ordering (acsending).
@@ -344,8 +425,6 @@ public:
       * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
       * It is necessary in ARRAY JOIN operation.
       */
-    using Offset = UInt64;
-    using Offsets = PaddedPODArray<Offset>;
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
     virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
@@ -360,6 +439,8 @@ public:
     using Selector = PaddedPODArray<ColumnIndex>;
     virtual std::vector<MutablePtr> scatter(ColumnIndex num_columns,
                                             const Selector& selector) const = 0;
+
+    virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
 
     /// Insert data from several other columns according to source mask (used in vertical merge).
     /// For now it is a helper to de-virtualize calls to insert*() functions inside gather loop
@@ -488,6 +569,8 @@ public:
 
     virtual bool is_column_dictionary() const { return false; }
 
+    virtual bool is_column_array() const { return false; }
+
     /// If the only value column can contain is NULL.
     /// Does not imply type of object, because it can be ColumnNullable(ColumnNothing) or ColumnConst(ColumnNullable(ColumnNothing))
     virtual bool only_null() const { return false; }
@@ -496,6 +579,10 @@ public:
     virtual bool can_be_inside_nullable() const { return false; }
 
     virtual bool low_cardinality() const { return false; }
+
+    virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                             IColumn::Permutation& perms, EqualRange& range,
+                             bool last_column) const;
 
     virtual ~IColumn() = default;
     IColumn() = default;
@@ -513,22 +600,16 @@ public:
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
     virtual bool is_date_type() const { return is_date; }
-    virtual bool is_date_v2_type() const { return is_date_v2; }
-    virtual bool is_datetime_v2_type() const { return is_datetime_v2; }
     virtual bool is_datetime_type() const { return is_date_time; }
     virtual bool is_decimalv2_type() const { return is_decimalv2; }
 
     virtual void set_date_type() { is_date = true; }
-    virtual void set_date_v2_type() { is_date_v2 = true; }
-    virtual void set_datetime_v2_type() { is_datetime_v2 = true; }
     virtual void set_datetime_type() { is_date_time = true; }
     virtual void set_decimalv2_type() { is_decimalv2 = true; }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
-    bool is_date_v2 = false;
-    bool is_datetime_v2 = false;
     bool is_decimalv2 = false;
 
 protected:
@@ -536,6 +617,9 @@ protected:
     /// In derived classes (that use final keyword), implement scatter method as call to scatter_impl.
     template <typename Derived>
     std::vector<MutablePtr> scatter_impl(ColumnIndex num_columns, const Selector& selector) const;
+
+    template <typename Derived>
+    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
 };
 
 using ColumnPtr = IColumn::Ptr;

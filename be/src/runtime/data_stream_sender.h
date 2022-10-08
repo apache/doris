@@ -171,7 +171,7 @@ protected:
                    << ", error_text=" << cntl->ErrorText()
                    << ", client: " << BackendOptions::get_localhost();
                 LOG(WARNING) << ss.str();
-                return Status::ThriftRpcError(ss.str());
+                return Status::RpcError(ss.str());
             }
             return Status::OK();
         }

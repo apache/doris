@@ -21,14 +21,11 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.statistics.ColumnStats;
 
 import com.google.common.base.Preconditions;
@@ -38,14 +35,14 @@ import java.util.Map;
 /**
  * Calculate selectivity of the filter.
  */
-public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double, Void> {
+public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void> {
 
-    private static double DEFAULT_SELECTIVITY = 0.1;
-
+    private static final double DEFAULT_EQUAL_SELECTIVITY = 0.3;
+    private static final double DEFAULT_RANGE_SELECTIVITY = 0.8;
     private final Map<Slot, ColumnStats> slotRefToStats;
 
     public FilterSelectivityCalculator(Map<Slot, ColumnStats> slotRefToStats) {
-        Preconditions.checkState(slotRefToStats != null);
+        Preconditions.checkNotNull(slotRefToStats);
         this.slotRefToStats = slotRefToStats;
     }
 
@@ -53,14 +50,26 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
      * Do estimate.
      */
     public double estimate(Expression expression) {
-        // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
-        // consider is a valid predicate.
+        //TODO: refine the selectivity by ndv.
+        // T1.A = T2.B => selectivity = 1
+        // T1.A + T1.B > 1 => selectivity = 1
+        if (expression instanceof ComparisonPredicate
+                && !(expression.getInputSlots().size() == 1)) {
+            return 1.0;
+        }
+        //only calculate comparison in form of `slot comp literal`,
+        //otherwise, use DEFAULT_RANGE_SELECTIVITY
         if (expression instanceof ComparisonPredicate
                 && !(expression.child(0) instanceof SlotReference
                 && expression.child(1) instanceof Literal)) {
-            return 1.0;
+            return DEFAULT_RANGE_SELECTIVITY;
         }
         return expression.accept(this, null);
+    }
+
+    @Override
+    public Double visit(Expression expr, Void context) {
+        return DEFAULT_RANGE_SELECTIVITY;
     }
 
     @Override
@@ -69,7 +78,7 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
         Expression rightExpr = compoundPredicate.child(1);
         double leftSel = 1;
         double rightSel = 1;
-        leftSel =  estimate(leftExpr);
+        leftSel = estimate(leftExpr);
         rightSel = estimate(rightExpr);
         return compoundPredicate instanceof Or ? leftSel + rightSel - leftSel * rightSel : leftSel * rightSel;
     }
@@ -85,26 +94,10 @@ public class FilterSelectivityCalculator extends DefaultExpressionVisitor<Double
         SlotReference left = (SlotReference) equalTo.left();
         ColumnStats columnStats = slotRefToStats.get(left);
         if (columnStats == null) {
-            return DEFAULT_SELECTIVITY;
+            return DEFAULT_EQUAL_SELECTIVITY;
         }
         long ndv = columnStats.getNdv();
-        return ndv < 0 ? DEFAULT_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
+        return ndv < 0 ? DEFAULT_EQUAL_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
     }
-
     // TODO: Should consider the distribution of data.
-    @Override
-    public Double visitGreaterThan(GreaterThan greaterThan, Void context) {
-        return DEFAULT_SELECTIVITY;
-    }
-
-    @Override
-    public Double visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, Void context) {
-        return DEFAULT_SELECTIVITY;
-    }
-
-    @Override
-    public Double visitLessThan(LessThan lessThan, Void context) {
-        return DEFAULT_SELECTIVITY;
-    }
-
 }

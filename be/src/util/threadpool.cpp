@@ -557,20 +557,26 @@ void ThreadPool::dispatch_thread() {
                state == ThreadPoolToken::State::QUIESCING);
         --token->_active_threads;
         --token->_num_submitted_tasks;
+
+        // handle shutdown && idle
         if (token->_active_threads == 0) {
             if (state == ThreadPoolToken::State::QUIESCING) {
                 DCHECK(token->_entries.empty());
                 token->transition(ThreadPoolToken::State::QUIESCED);
             } else if (token->_entries.empty()) {
                 token->transition(ThreadPoolToken::State::IDLE);
-            } else if (token->mode() == ExecutionMode::SERIAL) {
-                _queue.emplace_back(token);
-                ++token->_num_submitted_tasks;
-                --token->_num_unsubmitted_tasks;
             }
-        } else if (token->mode() == ExecutionMode::CONCURRENT &&
-                   token->_num_submitted_tasks < token->_max_concurrency &&
-                   token->_num_unsubmitted_tasks > 0) {
+        }
+
+        // We decrease _num_submitted_tasks holding lock, so the following DCHECK works.
+        DCHECK(token->_num_submitted_tasks < token->_max_concurrency);
+
+        // If token->state is running and there are unsubmitted tasks in the token, we put
+        // the token back.
+        if (token->_num_unsubmitted_tasks > 0 && state == ThreadPoolToken::State::RUNNING) {
+            // SERIAL: if _entries is not empty, then num_unsubmitted_tasks must be greater than 0.
+            // CONCURRENT: we have to check _num_unsubmitted_tasks because there may be at least 2
+            // threads are running for the token.
             _queue.emplace_back(token);
             ++token->_num_submitted_tasks;
             --token->_num_unsubmitted_tasks;

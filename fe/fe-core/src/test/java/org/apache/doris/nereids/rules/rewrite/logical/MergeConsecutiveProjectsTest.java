@@ -17,20 +17,19 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -48,19 +47,17 @@ public class MergeConsecutiveProjectsTest {
         NamedExpression colA = new SlotReference("a", IntegerType.INSTANCE, true, Lists.newArrayList("a"));
         NamedExpression colB = new SlotReference("b", IntegerType.INSTANCE, true, Lists.newArrayList("b"));
         NamedExpression colC = new SlotReference("c", IntegerType.INSTANCE, true, Lists.newArrayList("c"));
-        LogicalProject project1 = new LogicalProject(Lists.newArrayList(colA, colB, colC), relation);
-        LogicalProject project2 = new LogicalProject(Lists.newArrayList(colA, colB), project1);
-        LogicalProject project3 = new LogicalProject(Lists.newArrayList(colA), project2);
+        LogicalProject project1 = new LogicalProject<>(Lists.newArrayList(colA, colB, colC), relation);
+        LogicalProject project2 = new LogicalProject<>(Lists.newArrayList(colA, colB), project1);
+        LogicalProject project3 = new LogicalProject<>(Lists.newArrayList(colA), project2);
 
-        PlannerContext plannerContext = new Memo(project3)
-                .newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project3);
         List<Rule> rules = Lists.newArrayList(new MergeConsecutiveProjects().build());
-        plannerContext.bottomUpRewrite(rules);
-        Plan plan = plannerContext.getMemo().copyOut();
+        cascadesContext.bottomUpRewrite(rules);
+        Plan plan = cascadesContext.getMemo().copyOut();
         System.out.println(plan.treeString());
         Assertions.assertTrue(plan instanceof LogicalProject);
-        Assertions.assertTrue(((LogicalProject<?>) plan).getProjects().equals(Lists.newArrayList(colA)));
+        Assertions.assertEquals(((LogicalProject<?>) plan).getProjects(), Lists.newArrayList(colA));
         Assertions.assertTrue(plan.child(0) instanceof UnboundRelation);
     }
 
@@ -84,32 +81,32 @@ public class MergeConsecutiveProjectsTest {
         Alias alias = new Alias(new Add(colA, new IntegerLiteral(1)), "X");
         Slot aliasRef = alias.toSlot();
 
-        LogicalProject project1 = new LogicalProject(
+        LogicalProject project1 = new LogicalProject<>(
                 Lists.newArrayList(
                         colB,
                         colC,
                         alias),
                 relation);
-        LogicalProject project2 = new LogicalProject(
+        LogicalProject project2 = new LogicalProject<>(
                 Lists.newArrayList(
-                        new Alias(new Add(aliasRef, new IntegerLiteral(2)), "Y")
+                        new Alias(new Add(aliasRef, new IntegerLiteral(2)), "Y"),
+                        aliasRef
                 ),
                 project1);
 
-        PlannerContext plannerContext = new Memo(project2)
-                .newPlannerContext(new ConnectContext())
-                .setDefaultJobContext();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project2);
         List<Rule> rules = Lists.newArrayList(new MergeConsecutiveProjects().build());
-        plannerContext.bottomUpRewrite(rules);
-        Plan plan = plannerContext.getMemo().copyOut();
+        cascadesContext.bottomUpRewrite(rules);
+        Plan plan = cascadesContext.getMemo().copyOut();
         System.out.println(plan.treeString());
         Assertions.assertTrue(plan instanceof LogicalProject);
         LogicalProject finalProject = (LogicalProject) plan;
-        Add finalExpression = new Add(
+        Add aPlus1Plus2 = new Add(
                 new Add(colA, new IntegerLiteral(1)),
                 new IntegerLiteral(2)
         );
-        Assertions.assertEquals(1, finalProject.getProjects().size());
-        Assertions.assertTrue(((Alias) finalProject.getProjects().get(0)).child().equals(finalExpression));
+        Assertions.assertEquals(2, finalProject.getProjects().size());
+        Assertions.assertEquals(aPlus1Plus2, ((Alias) finalProject.getProjects().get(0)).child());
+        Assertions.assertEquals(alias, finalProject.getProjects().get(1));
     }
 }

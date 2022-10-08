@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/types.h"                          // for TypeInfo
+#include "olap/wrapper_field.h"
 #include "util/block_compression.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "vec/columns/column.h"
@@ -159,19 +160,57 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
-Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                                CondColumn* delete_condition,
-                                                RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_zone_map(
+        const AndBlockColumnPredicate* col_predicates,
+        std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_condition, &page_indexes));
+    RETURN_IF_ERROR(_get_filtered_pages(col_predicates, delete_predicates, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
     return Status::OK();
 }
 
-bool ColumnReader::match_condition(CondColumn* cond) const {
-    if (_zone_map_index_meta == nullptr || cond == nullptr) {
+Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const {
+    // TODO: this work to get min/max value seems should only do once
+    FieldType type = _type_info->type();
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
+    _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+
+    dst->reserve(*n);
+    bool is_string = is_olap_string_type(type);
+    if (max_value->is_null()) {
+        assert_cast<vectorized::ColumnNullable&>(*dst).insert_default();
+    } else {
+        if (is_string) {
+            auto sv = (StringValue*)max_value->cell_ptr();
+            dst->insert_data(sv->ptr, sv->len);
+        } else {
+            dst->insert_many_fix_len_data(static_cast<const char*>(max_value->cell_ptr()), 1);
+        }
+    }
+
+    auto size = *n - 1;
+    if (min_value->is_null()) {
+        assert_cast<vectorized::ColumnNullable&>(*dst).insert_null_elements(size);
+    } else {
+        if (is_string) {
+            auto sv = (StringValue*)min_value->cell_ptr();
+            dst->insert_many_data(sv->ptr, sv->len, size);
+        } else {
+            // TODO: the work may cause performance problem, opt latter
+            for (int i = 0; i < size; ++i) {
+                dst->insert_many_fix_len_data(static_cast<const char*>(min_value->cell_ptr()), 1);
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates) const {
+    if (_zone_map_index_meta == nullptr) {
         return true;
     }
     FieldType type = _type_info->type();
@@ -180,7 +219,7 @@ bool ColumnReader::match_condition(CondColumn* cond) const {
     _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
 
     return _zone_map_match_condition(_zone_map_index_meta->segment_zone_map(), min_value.get(),
-                                     max_value.get(), cond);
+                                     max_value.get(), col_predicates);
 }
 
 void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
@@ -205,19 +244,20 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
 bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
                                              WrapperField* min_value_container,
                                              WrapperField* max_value_container,
-                                             CondColumn* cond) const {
+                                             const AndBlockColumnPredicate* col_predicates) const {
     if (!zone_map.has_not_null() && !zone_map.has_null()) {
         return false; // no data in this zone
     }
 
-    if (cond == nullptr || zone_map.pass_all()) {
+    if (zone_map.pass_all() || min_value_container == nullptr || max_value_container == nullptr) {
         return true;
     }
 
-    return cond->eval({min_value_container, max_value_container});
+    return col_predicates->evaluate_and({min_value_container, max_value_container});
 }
 
-Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* delete_condition,
+Status ColumnReader::_get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
+                                         std::vector<const ColumnPredicate*>* delete_predicates,
                                          std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
@@ -230,12 +270,15 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* de
         } else {
             _parse_zone_map(zone_maps[i], min_value.get(), max_value.get());
             if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
-                                          cond_column)) {
+                                          col_predicates)) {
                 bool should_read = true;
-                if (delete_condition != nullptr) {
-                    int state = delete_condition->del_eval({min_value.get(), max_value.get()});
-                    if (state == DEL_SATISFIED) {
-                        should_read = false;
+                if (delete_predicates != nullptr) {
+                    for (auto del_pred : *delete_predicates) {
+                        if (min_value.get() == nullptr || max_value.get() == nullptr ||
+                            del_pred->evaluate_and({min_value.get(), max_value.get()})) {
+                            should_read = false;
+                            break;
+                        }
                     }
                 }
                 if (should_read) {
@@ -261,7 +304,7 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
     return Status::OK();
 }
 
-Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
+Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                                     RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
     RowRanges bf_row_ranges;
@@ -284,7 +327,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
     for (auto& pid : page_ids) {
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
-        if (cond_column->eval(bf.get())) {
+        if (col_predicates->evaluate_and(bf.get())) {
             bf_row_ranges.add(RowRange(_ordinal_index->get_first_ordinal(pid),
                                        _ordinal_index->get_last_ordinal(pid) + 1));
         }
@@ -382,7 +425,7 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
                                                  ColumnIterator* item_iterator,
                                                  ColumnIterator* null_iterator)
         : _array_reader(reader) {
-    _length_iterator.reset(offset_reader);
+    _offset_iterator.reset(offset_reader);
     _item_iterator.reset(item_iterator);
     if (_array_reader->is_nullable()) {
         _null_iterator.reset(null_iterator);
@@ -390,7 +433,7 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
 }
 
 Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(_length_iterator->init(opts));
+    RETURN_IF_ERROR(_offset_iterator->init(opts));
     RETURN_IF_ERROR(_item_iterator->init(opts));
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
@@ -401,22 +444,42 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
+Status ArrayFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
+    if (_offset_iterator->get_current_page()->has_remaining()) {
+        PageDecoder* offset_page_decoder = _offset_iterator->get_current_page()->data_decoder;
+        ColumnBlock ordinal_block(_length_batch.get(), nullptr);
+        ColumnBlockView ordinal_view(&ordinal_block);
+        size_t i = 1;
+        RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&i, &ordinal_view)); // not null
+        DCHECK(i == 1);
+        *offset = *reinterpret_cast<uint64_t*>(_length_batch->data());
+    } else {
+        *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
+    }
+    return Status::OK();
+}
+
 Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
     ColumnBlock* array_block = dst->column_block();
     auto* array_batch = static_cast<ArrayColumnVectorBatch*>(array_block->vector_batch());
 
-    // 1. read n offsets
+    // 1. read n+1 offsets
+    array_batch->offsets()->resize(*n + 1);
     ColumnBlock offset_block(array_batch->offsets(), nullptr);
-    ColumnBlockView offset_view(&offset_block,
-                                dst->current_offset() + 1); // offset应该比collection的游标多1
+    ColumnBlockView offset_view(&offset_block);
     bool offset_has_null = false;
-    RETURN_IF_ERROR(_length_iterator->next_batch(n, &offset_view, &offset_has_null));
+    RETURN_IF_ERROR(_offset_iterator->next_batch(n, &offset_view, &offset_has_null));
     DCHECK(!offset_has_null);
 
     if (*n == 0) {
         return Status::OK();
     }
-    array_batch->get_offset_by_length(dst->current_offset(), *n);
+
+    RETURN_IF_ERROR(_peek_one_offset(reinterpret_cast<ordinal_t*>(offset_view.data())));
+
+    size_t start_offset = dst->current_offset();
+    auto* ordinals = reinterpret_cast<ordinal_t*>(offset_block.data());
+    array_batch->put_item_ordinal(ordinals, start_offset, *n + 1);
 
     // 2. read null
     if (_array_reader->is_nullable()) {
@@ -434,7 +497,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     }
 
     // read item
-    size_t item_size = array_batch->get_item_size(dst->current_offset(), *n);
+    size_t item_size = ordinals[*n] - ordinals[0];
     if (item_size >= 0) {
         bool item_has_null = false;
         ColumnVectorBatch* item_vector_batch = array_batch->elements();
@@ -461,6 +524,39 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     return Status::OK();
 }
 
+Status ArrayFileColumnIterator::_seek_by_offsets(ordinal_t ord) {
+    // using offsets info
+    ordinal_t offset = 0;
+    RETURN_IF_ERROR(_peek_one_offset(&offset));
+    RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(offset));
+    return Status::OK();
+}
+
+Status ArrayFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
+    RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
+    if (_array_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+    }
+    return _seek_by_offsets(ord);
+}
+
+Status ArrayFileColumnIterator::_calculate_offsets(
+        ssize_t start, vectorized::ColumnArray::ColumnOffsets& column_offsets) {
+    ordinal_t last_offset = 0;
+    RETURN_IF_ERROR(_peek_one_offset(&last_offset));
+
+    // calculate real offsets
+    auto& offsets_data = column_offsets.get_data();
+    ordinal_t first_offset = offsets_data[start - 1]; // -1 is valid
+    ordinal_t first_ord = offsets_data[start];
+    for (ssize_t i = start; i < offsets_data.size() - 1; ++i) {
+        offsets_data[i] = first_offset + (offsets_data[i + 1] - first_ord);
+    }
+    // last offset
+    offsets_data[offsets_data.size() - 1] = first_offset + (last_offset - first_ord);
+    return Status::OK();
+}
+
 Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                            bool* has_null) {
     const auto* column_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
@@ -470,19 +566,16 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     bool offsets_has_null = false;
     auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
     ssize_t start = column_offsets_ptr->size();
-    RETURN_IF_ERROR(_length_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
+    RETURN_IF_ERROR(_offset_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
     if (*n == 0) {
         return Status::OK();
     }
     auto& column_offsets =
             static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
-    auto& offsets_data = column_offsets.get_data();
-    for (ssize_t i = start; i < offsets_data.size(); ++i) {
-        offsets_data[i] += offsets_data[i - 1]; // -1 is ok
-    }
-
+    RETURN_IF_ERROR(_calculate_offsets(start, column_offsets));
+    size_t num_items =
+            column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
     auto column_items_ptr = column_array->get_data().assume_mutable();
-    size_t num_items = offsets_data.back() - offsets_data[start - 1];
     if (num_items > 0) {
         size_t num_read = num_items;
         bool items_has_null = false;
@@ -520,7 +613,7 @@ FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
-    RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), _compress_codec));
+    RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), &_compress_codec));
     if (config::enable_low_cardinality_optimize &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {
         auto dict_encoding_type = _reader->get_dict_encoding_type();
@@ -653,6 +746,10 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
     // bytes_read = data size + null bitmap size
     _opts.stats->bytes_read += *n * dst->type_info()->size() + BitmapSize(*n);
     return Status::OK();
+}
+
+Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) {
+    return _reader->next_batch_of_zone_map(n, dst);
 }
 
 Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
@@ -805,8 +902,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
-    RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer,
-                                       _compress_codec.get()));
+    RETURN_IF_ERROR(
+            _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                        _reader->encoding_info(), iter.page(), iter.page_index(),
@@ -827,7 +924,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 _opts.type = INDEX_PAGE;
                 RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(),
                                                    &_dict_page_handle, &dict_data, &dict_footer,
-                                                   _compress_codec.get()));
+                                                   _compress_codec));
                 // ignore dict_footer.dict_page_footer().encoding() due to only
                 // PLAIN_ENCODING is supported for dict page right now
                 _dict_decoder = std::make_unique<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>(
@@ -846,21 +943,20 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     return Status::OK();
 }
 
-Status FileColumnIterator::get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                                      CondColumn* delete_condition,
-                                                      RowRanges* row_ranges) {
+Status FileColumnIterator::get_row_ranges_by_zone_map(
+        const AndBlockColumnPredicate* col_predicates,
+        std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(
-                _reader->get_row_ranges_by_zone_map(cond_column, delete_condition, row_ranges));
+                _reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates, row_ranges));
     }
     return Status::OK();
 }
 
-Status FileColumnIterator::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
-                                                          RowRanges* row_ranges) {
-    if (cond_column != nullptr && cond_column->can_do_bloom_filter() &&
-        _reader->has_bloom_filter_index()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(cond_column, row_ranges));
+Status FileColumnIterator::get_row_ranges_by_bloom_filter(
+        const AndBlockColumnPredicate* col_predicates, RowRanges* row_ranges) {
+    if (col_predicates->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(col_predicates, row_ranges));
     }
     return Status::OK();
 }
@@ -980,7 +1076,8 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     }
     case OLAP_FIELD_TYPE_STRING:
     case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_CHAR: {
+    case OLAP_FIELD_TYPE_CHAR:
+    case OLAP_FIELD_TYPE_JSONB: {
         data_ptr = ((Slice*)mem_value)->data;
         data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);

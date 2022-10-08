@@ -26,12 +26,12 @@ import java.util.Objects;
  */
 public class OrderKey {
 
-    private Expression expr;
+    private final Expression expr;
 
     // Order is ascending.
-    private boolean isAsc;
+    private final boolean isAsc;
 
-    private boolean nullFirst;
+    private final boolean nullFirst;
 
     /**
      * Constructor of OrderKey.
@@ -67,7 +67,7 @@ public class OrderKey {
 
     @Override
     public String toString() {
-        return expr.toSql();
+        return expr.toString();
     }
 
     @Override

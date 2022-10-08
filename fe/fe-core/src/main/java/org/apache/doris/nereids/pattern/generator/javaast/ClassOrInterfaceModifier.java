@@ -23,7 +23,6 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 
-
 /** java's class or interface's modifiers. */
 public class ClassOrInterfaceModifier implements JavaAstNode {
     public final int mod;

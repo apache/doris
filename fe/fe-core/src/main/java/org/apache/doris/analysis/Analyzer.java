@@ -81,6 +81,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -151,6 +152,17 @@ public class Analyzer {
 
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
+
+    public boolean isInlineView() {
+        return isInlineView;
+    }
+
+    public void setInlineView(boolean inlineView) {
+        isInlineView = inlineView;
+    }
+
+    // Flag indicating if this analyzer instance belongs to an inlineview.
+    private boolean isInlineView = false;
 
     // Flag indicating whether this analyzer belongs to a WITH clause view.
     private boolean isWithClause = false;
@@ -277,6 +289,11 @@ public class Analyzer {
         // map from outer-joined tuple id, ie, one that is nullable in this select block,
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
         private final Map<TupleId, TableRef> outerJoinedTupleIds = Maps.newHashMap();
+
+        // set of left side and right side of tuple id to mark null side in vec
+        // exec engine
+        private final Set<TupleId> outerLeftSideJoinTupleIds = Sets.newHashSet();
+        private final Set<TupleId> outerRightSideJoinTupleIds = Sets.newHashSet();
 
         // Map of registered conjunct to the last full outer join (represented by its
         // rhs table ref) that outer joined it.
@@ -534,6 +551,7 @@ public class Analyzer {
         Calendar currentDate = Calendar.getInstance();
         String nowStr = formatter.format(currentDate.getTime());
         queryGlobals.setNowString(nowStr);
+        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         return queryGlobals;
     }
 
@@ -669,7 +687,7 @@ public class Analyzer {
         // to replace it with.
         tableName.analyze(this);
 
-        DatabaseIf database = globalState.env.getDataSourceMgr().getCatalogOrAnalysisException(tableName.getCtl())
+        DatabaseIf database = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tableName.getCtl())
                 .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
@@ -718,7 +736,7 @@ public class Analyzer {
     }
 
     public TableIf getTableOrAnalysisException(TableName tblName) throws AnalysisException {
-        DatabaseIf db = globalState.env.getDataSourceMgr().getCatalogOrAnalysisException(tblName.getCtl())
+        DatabaseIf db = globalState.env.getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl())
                 .getDbOrAnalysisException(tblName.getDb());
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
@@ -776,6 +794,21 @@ public class Analyzer {
             d = resolveColumnRef(colName);
         } else {
             d = resolveColumnRef(newTblName, colName);
+            //in reanalyze, the inferred expr may contain upper level table alias, and the upper level alias has not
+            // been PROCESSED. So we resolve this column without tbl name.
+            // For example: a view V "select * from t where t.a>1"
+            // sql: select * from V as t1 join V as t2 on t1.a=t2.a and t1.a in (1,2)
+            // after first analyze, sql becomes:
+            //  select * from V as t1 join V as t2 on t1.a=t2.a and t1.a in (1,2) and t2.a in (1, 2)
+            // in reanalyze, when we process V as t2, we indeed process sql like this:
+            //    select * from t where t.a>1 and t2.a in (1, 2)
+            //  in order to resolve t2.a, we have to ignore "t2"
+            // ===================================================
+            // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
+            // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
+            if (d == null && isInlineView) {
+                d = resolveColumnRef(colName);
+            }
         }
         /*
          * Now, we only support the columns in the subquery to associate the outer query columns in parent level.
@@ -974,6 +1007,16 @@ public class Analyzer {
             LOG.debug("registerOuterJoinedTids: " + globalState.outerJoinedTupleIds);
         }
     }
+
+    public void registerOuterJoinedRightSideTids(List<TupleId> tids) {
+        globalState.outerRightSideJoinTupleIds.addAll(tids);
+    }
+
+    public void registerOuterJoinedLeftSideTids(List<TupleId> tids) {
+        globalState.outerLeftSideJoinTupleIds.addAll(tids);
+    }
+
+
 
     /**
      * Register the given tuple id as being the invisible side of a semi-join.
@@ -1271,22 +1314,6 @@ public class Analyzer {
                     && !globalState.ojClauseByConjunct.containsKey(e.getId())
                     && !globalState.sjClauseByConjunct.containsKey(e.getId())
                     && canEvalPredicate(tupleIds, e)) {
-                result.add(e);
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Return all unassigned registered conjuncts that are fully bound by given
-     * list of tuple ids
-     */
-    public List<Expr> getAllUnassignedConjuncts(List<TupleId> tupleIds) {
-        List<Expr> result = Lists.newArrayList();
-        for (Expr e : globalState.conjuncts.values()) {
-            if (!e.isAuxExpr() && e.isBoundByTupleIds(tupleIds)
-                    && !globalState.assignedConjuncts.contains(e.getId())
-                    && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
                 result.add(e);
             }
         }
@@ -2207,6 +2234,14 @@ public class Analyzer {
         return globalState.outerJoinedTupleIds.containsKey(tid);
     }
 
+    public boolean isOuterJoinedLeftSide(TupleId tid) {
+        return globalState.outerLeftSideJoinTupleIds.contains(tid);
+    }
+
+    public boolean isOuterJoinedRightSide(TupleId tid) {
+        return globalState.outerRightSideJoinTupleIds.contains(tid);
+    }
+
     public boolean isInlineView(TupleId tid) {
         return globalState.inlineViewTupleIds.contains(tid);
     }
@@ -2303,5 +2338,32 @@ public class Analyzer {
             }
         }
         return false;
+    }
+
+
+    /**
+     * Change all outer joined slots to nullable
+     * Returns the slots actually be changed from not nullable to nullable
+     */
+    public List<SlotDescriptor> changeSlotToNullableOfOuterJoinedTuples() {
+        List<SlotDescriptor> result = new ArrayList<>();
+        for (TupleId id : globalState.outerJoinedTupleIds.keySet()) {
+            TupleDescriptor tupleDescriptor = globalState.descTbl.getTupleDesc(id);
+            if (tupleDescriptor != null) {
+                for (SlotDescriptor desc : tupleDescriptor.getSlots()) {
+                    if (!desc.getIsNullable()) {
+                        desc.setIsNullable(true);
+                        result.add(desc);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    public void changeSlotsToNotNullable(List<SlotDescriptor> slots) {
+        for (SlotDescriptor slot : slots) {
+            slot.setIsNullable(false);
+        }
     }
 }

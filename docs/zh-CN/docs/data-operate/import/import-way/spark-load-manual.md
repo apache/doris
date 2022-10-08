@@ -30,7 +30,7 @@ Spark load 通过外部的 Spark 资源实现对导入数据的预处理，提�
 
  Spark load 是利用了 spark 集群的资源对要导入的数据的进行了排序，Doris be 直接写文件，这样能大大降低 Doris 集群的资源使用，对于历史海量数据迁移降低 Doris 集群资源使用及负载有很好的效果。
 
-如果用户在没有 Spark 集群这种资源的情况下，又想方便、快速的完成外部存储历史数据的迁移，可以使用 [Broker load](./BROKER-LOAD.md) 。相对 Spark load 导入 Broker load 对 Doris 集群的资源占用会更高。
+如果用户在没有 Spark 集群这种资源的情况下，又想方便、快速的完成外部存储历史数据的迁移，可以使用 [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) 。相对 Spark load 导入 Broker load 对 Doris 集群的资源占用会更高。
 
 Spark load 是一种异步导入方式，用户需要通过 MySQL 协议创建 Spark 类型导入任务，并通过 `SHOW LOAD` 查看导入结果。
 
@@ -107,7 +107,7 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 ## Hive Bitmap UDF
 
-Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。
+Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf 文档](../../../ecosystem/external-table/hive-bitmap-udf)
 
 ## 基本操作
 
@@ -127,10 +127,10 @@ PROPERTIES
   working_dir = path,
   broker = broker_name,
   broker.property_key = property_value,
-  hadoop.security.authentication = kerberos,
-  kerberos_principal = doris@YOUR.COM,
-  kerberos_keytab = /home/doris/my.keytab
-  kerberos_keytab_content = ASDOWHDLAWIDJHWLDKSALDJSDIWALD
+  broker.hadoop.security.authentication = kerberos,
+  broker.kerberos_principal = doris@YOUR.COM,
+  broker.kerberos_keytab = /home/doris/my.keytab
+  broker.kerberos_keytab_content = ASDOWHDLAWIDJHWLDKSALDJSDIWALD
 )
 
 -- drop spark resource
@@ -162,12 +162,15 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
   - `spark.hadoop.fs.defaultFS`: master为yarn时必填。
   - 其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html
 - `working_dir`: ETL 使用的目录。spark作为ETL资源使用时必填。例如：hdfs://host:port/tmp/doris。
-- `hadoop.security.authentication`：指定认证方式为 kerberos。
-- `kerberos_principal`：指定 kerberos 的 principal。
-- `kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
-- `kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
+- `broker.hadoop.security.authentication`：指定认证方式为 kerberos。
+- `broker.kerberos_principal`：指定 kerberos 的 principal。
+- `broker.kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
+- `broker.kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `broker.kerberos_keytab` 配置二选一即可。
 - `broker`: broker 名字。spark 作为 ETL 资源使用时必填。需要使用 `ALTER SYSTEM ADD BROKER` 命令提前完成配置。
   - `broker.property_key`: broker 读取 ETL 生成的中间文件时需要指定的认证信息等。
+- `env`: 指定spark环境变量,支持动态设置,比如当认证hadoop认为方式为simple时，设置hadoop用户名和密码
+  - `env.HADOOP_USER_NAME`: 访问hadoop用户名
+  - `env.HADOOP_USER_PASSWORD`:密码
 
 示例：
 
@@ -207,10 +210,10 @@ PROPERTIES
 
 如果是 Spark load 访问带有 Kerberos 认证的 Hadoop 集群资源，我们只需要在创建 Spark resource 的时候指定以下参数即可：
 
-- `hadoop.security.authentication`：指定认证方式为 kerberos。
-- `kerberos_principal`：指定 kerberos 的 principal。
-- `kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
-- `kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
+- `broker.hadoop.security.authentication`：指定认证方式为 kerberos。
+- `broker.kerberos_principal`：指定 kerberos 的 principal。
+- `broker.kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
+- `broker.kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
 
 实例：
 
@@ -229,9 +232,9 @@ PROPERTIES
   "spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
   "broker" = "broker0",
-  "hadoop.security.authentication" = "kerberos",
-  "kerberos_principal" = "doris@YOUR.COM",
-  "kerberos_keytab" = "/home/doris/my.keytab"
+  "broker.hadoop.security.authentication" = "kerberos",
+  "broker.kerberos_principal" = "doris@YOUR.COM",
+  "broker.kerberos_keytab" = "/home/doris/my.keytab"
 );
 ```
 
@@ -449,6 +452,75 @@ PROPERTIES
 );
 ```
 
+示例4： 导入 hive 分区表的数据
+
+```sql
+--hive 建表语句
+create table test_partition(
+	id int,
+	name string,
+	age int
+)
+partitioned by (dt string)
+row format delimited fields terminated by ','
+stored as textfile;
+
+--doris 建表语句
+CREATE TABLE IF NOT EXISTS test_partition_04
+(
+	dt date,
+	id int,
+	name string,
+	age int
+)
+UNIQUE KEY(`dt`, `id`)
+DISTRIBUTED BY HASH(`id`) BUCKETS 1
+PROPERTIES (
+	"replication_allocation" = "tag.location.default: 1"
+);
+--spark load 语句
+CREATE EXTERNAL RESOURCE "spark_resource"
+PROPERTIES
+(
+"type" = "spark",
+"spark.master" = "yarn",
+"spark.submit.deployMode" = "cluster",
+"spark.executor.memory" = "1g",
+"spark.yarn.queue" = "default",
+"spark.hadoop.yarn.resourcemanager.address" = "localhost:50056",
+"spark.hadoop.fs.defaultFS" = "hdfs://localhost:9000",
+"working_dir" = "hdfs://localhost:9000/tmp/doris",
+"broker" = "broker_01"
+);
+LOAD LABEL demo.test_hive_partition_table_18
+(
+    DATA INFILE("hdfs://localhost:9000/user/hive/warehouse/demo.db/test/dt=2022-08-01/*")
+    INTO TABLE test_partition_04
+    COLUMNS TERMINATED BY ","
+    FORMAT AS "csv"
+    (id,name,age)
+    COLUMNS FROM PATH AS (`dt`)
+    SET
+    (
+        dt=dt,
+        id=id,
+        name=name,
+        age=age
+    )
+)
+WITH RESOURCE 'spark_resource'
+(
+    "spark.executor.memory" = "1g",
+    "spark.shuffle.compress" = "true"
+)
+PROPERTIES
+(
+    "timeout" = "3600"
+);
+```
+
+
+
 创建导入的详细语法执行 `HELP SPARK LOAD` 查看语法帮助。这里主要介绍 Spark load 的创建导入语法中参数意义和注意事项。
 
 **Label**
@@ -603,6 +675,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ## 常见问题
 
+- 现在Spark load 还不支持 Doris 表字段是String类型的导入，如果你的表字段有String类型的请改成varchar类型，不然会导入失败，提示 `type:ETL_QUALITY_UNSATISFIED; msg:quality not good enough to cancel`
 - 使用 Spark Load 时没有在 spark 客户端的 `spark-env.sh` 配置 `HADOOP_CONF_DIR` 环境变量。
 
 如果 `HADOOP_CONF_DIR` 环境变量没有设置，会报 `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment.` 错误。

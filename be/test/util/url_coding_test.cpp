@@ -23,8 +23,6 @@
 
 #include <iostream>
 
-#include "util/logging.h"
-
 namespace doris {
 
 // Tests encoding/decoding of input.  If expected_encoded is non-empty, the

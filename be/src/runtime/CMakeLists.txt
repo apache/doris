@@ -46,6 +46,7 @@ set(RUNTIME_FILES
     runtime_state.cpp
     runtime_filter_mgr.cpp
     string_value.cpp
+    jsonb_value.cpp
     thread_context.cpp
     thread_resource_mgr.cpp
     threadlocal.cc
@@ -54,7 +55,6 @@ set(RUNTIME_FILES
     collection_value.cpp
     tuple.cpp
     tuple_row.cpp
-    dpp_writer.cpp
     qsorter.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
@@ -76,11 +76,8 @@ set(RUNTIME_FILES
     tablets_channel.cpp
     bufferpool/buffer_allocator.cc
     bufferpool/buffer_pool.cc
-    bufferpool/reservation_tracker.cc
-    bufferpool/reservation_util.cc
     bufferpool/suballocator.cc
     bufferpool/system_allocator.cc
-    initial_reservations.cc
     snapshot_loader.cpp
     query_statistics.cpp 
     message_body_sink.cpp
@@ -115,6 +112,12 @@ if (WITH_MYSQL)
     set(RUNTIME_FILES ${RUNTIME_FILES}
         mysql_table_writer.cpp
         mysql_table_sink.cpp
+        )
+endif()
+
+if (USE_JEMALLOC)
+    set(RUNTIME_FILES ${RUNTIME_FILES}
+        memory/jemalloc_hook.cpp
         )
 endif()
 

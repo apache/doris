@@ -32,7 +32,6 @@
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/options.h"
-#include "olap/types.h"
 #include "runtime/mem_pool.h"
 
 namespace doris {
@@ -94,6 +93,9 @@ private:
     MemPool _pool;
     faststring _buffer;
     faststring _first_value;
+
+    bool _has_empty = false;
+    uint32_t _empty_code = 0;
 };
 
 class BinaryDictPageDecoder : public PageDecoder {
@@ -119,7 +121,7 @@ public:
 
     void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
 
-    ~BinaryDictPageDecoder();
+    ~BinaryDictPageDecoder() override;
 
 private:
     Slice _data;

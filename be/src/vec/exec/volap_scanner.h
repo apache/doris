@@ -57,9 +57,13 @@ public:
 
     RuntimeState* runtime_state() { return _runtime_state; }
 
-    std::vector<ExprContext*>* conjunct_ctxs() { return &_conjunct_ctxs; }
-
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
+
+    void discard_conjuncts() {
+        _vconjunct_ctx->mark_as_stale();
+        _stale_vexpr_ctxs.push_back(_vconjunct_ctx);
+        _vconjunct_ctx = nullptr;
+    }
 
     void mark_to_need_to_close() { _need_to_close = true; }
 
@@ -104,7 +108,6 @@ private:
     VOlapScanNode* _parent;
     const TupleDescriptor* _tuple_desc; /**< tuple descriptor */
 
-    std::vector<ExprContext*> _conjunct_ctxs;
     // to record which runtime filters have been used
     std::vector<bool> _runtime_filter_marks;
 
@@ -128,6 +131,7 @@ private:
     // time costed and row returned statistics
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
+    int64_t _num_rows_return = 0;
     int64_t _compressed_bytes_read = 0;
 
     // number rows filtered by pushed condition
@@ -143,6 +147,8 @@ private:
     bool _need_to_close = false;
 
     TabletSchemaSPtr _tablet_schema;
+
+    std::vector<VExprContext*> _stale_vexpr_ctxs;
 };
 
 } // namespace vectorized

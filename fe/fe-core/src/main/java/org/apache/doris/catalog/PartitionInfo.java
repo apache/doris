@@ -38,6 +38,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /*
@@ -70,6 +71,7 @@ public class PartitionInfo implements Writable {
     protected Map<Long, TTabletType> idToTabletType;
 
     public PartitionInfo() {
+        this.type = PartitionType.UNPARTITIONED;
         this.idToDataProperty = new HashMap<>();
         this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
@@ -376,4 +378,26 @@ public class PartitionInfo implements Writable {
         return buff.toString();
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PartitionInfo that = (PartitionInfo) o;
+        return isMultiColumnPartition == that.isMultiColumnPartition && type == that.type && Objects.equals(
+                partitionColumns, that.partitionColumns) && Objects.equals(idToItem, that.idToItem)
+                && Objects.equals(idToTempItem, that.idToTempItem) && Objects.equals(idToDataProperty,
+                that.idToDataProperty) && Objects.equals(idToStoragePolicy, that.idToStoragePolicy)
+                && Objects.equals(idToReplicaAllocation, that.idToReplicaAllocation) && Objects.equals(
+                idToInMemory, that.idToInMemory) && Objects.equals(idToTabletType, that.idToTabletType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type, partitionColumns, idToItem, idToTempItem, idToDataProperty, idToStoragePolicy,
+                idToReplicaAllocation, isMultiColumnPartition, idToInMemory, idToTabletType);
+    }
 }

@@ -122,6 +122,10 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select current_time();",
                 "");
+
+        testConstantExpressResult(
+                "select current_date();",
+                "");
     }
 
     @Test

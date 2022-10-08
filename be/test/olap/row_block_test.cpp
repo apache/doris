@@ -27,7 +27,6 @@
 #include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
-#include "util/logging.h"
 
 using std::vector;
 using std::string;

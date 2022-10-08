@@ -21,7 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
@@ -45,7 +45,7 @@ public class MetadataViewerTest {
     private Env env;
 
     @Mocked
-    private InternalDataSource internalDataSource;
+    private InternalCatalog internalCatalog;
 
     @Mocked
     private SystemInfoService infoService;
@@ -70,7 +70,7 @@ public class MetadataViewerTest {
 
         new Expectations() {
             {
-                internalDataSource.getDbOrDdlException(anyString);
+                internalCatalog.getDbOrDdlException(anyString);
                 minTimes = 0;
                 result = db;
             }
@@ -82,9 +82,9 @@ public class MetadataViewerTest {
                 minTimes = 0;
                 result = env;
 
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = internalDataSource;
+                result = internalCatalog;
             }
         };
 

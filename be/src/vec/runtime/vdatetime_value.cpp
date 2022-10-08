@@ -48,7 +48,11 @@ uint8_t mysql_week_mode(uint32_t mode) {
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
                                    uint32_t minute, uint32_t second, uint16_t type) {
     bool time = hour > (type == TIME_TIME ? TIME_MAX_HOUR : 23) || minute > 59 || second > 59;
-    return time || check_date(year, month, day);
+    if (type == TIME_TIME) {
+        return time;
+    } else {
+        return time || check_date(year, month, day);
+    }
 }
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
@@ -583,8 +587,35 @@ int VecDateTimeValue::compute_format_len(const char* format, int len) {
     return size;
 }
 
+static const char digits100[201] =
+        "00010203040506070809"
+        "10111213141516171819"
+        "20212223242526272829"
+        "30313233343536373839"
+        "40414243444546474849"
+        "50515253545556575859"
+        "60616263646566676869"
+        "70717273747576777879"
+        "80818283848586878889"
+        "90919293949596979899";
+
+char* write_two_digits_to_string(int number, char* dst) {
+    memcpy(dst, &digits100[number * 2], 2);
+    return dst + 2;
+}
+
+char* write_four_digits_to_string(int number, char* dst) {
+    memcpy(dst, &digits100[(number / 100) * 2], 2);
+    memcpy(dst + 2, &digits100[(number % 100) * 2], 2);
+    return dst + 4;
+}
+
 bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) const {
+    if (check_range(_year, _month, _day, _hour, _minute, _second, _type)) {
+        return false;
+    }
     char buf[64];
+    char* cursor = buf;
     char* pos = NULL;
     const char* ptr = format;
     const char* end = format + len;
@@ -598,6 +629,54 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
         // Skip '%'
         ptr++;
         switch (ch = *ptr++) {
+        case 'y':
+            // Year, numeric (two digits)
+            to = write_two_digits_to_string(_year % 100, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'Y':
+            // Year, numeric, four digits
+            to = write_four_digits_to_string(_year, to);
+            cursor += 4;
+            pos = cursor;
+            break;
+        case 'd':
+            // Day of month (00...31)
+            to = write_two_digits_to_string(_day, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'H':
+            to = write_two_digits_to_string(_hour, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'i':
+            // Minutes, numeric (00..59)
+            to = write_two_digits_to_string(_minute, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'm':
+            to = write_two_digits_to_string(_month, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'h':
+        case 'I':
+            // Hour (01..12)
+            to = write_two_digits_to_string((_hour % 24 + 11) % 12 + 1, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 's':
+        case 'S':
+            // Seconds (00..59)
+            to = write_two_digits_to_string(_second, to);
+            cursor += 2;
+            pos = cursor;
+            break;
         case 'a':
             // Abbreviated weekday name
             if (_type == TIME_TIME || (_year == 0 && _month == 0)) {
@@ -614,18 +693,13 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             break;
         case 'c':
             // Month, numeric (0...12)
-            pos = int_to_str(_month, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
-            break;
-        case 'd':
-            // Day of month (00...31)
-            pos = int_to_str(_day, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            pos = int_to_str(_month, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'D':
             // Day of the month with English suffix (0th, 1st, ...)
-            pos = int_to_str(_day, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
+            pos = int_to_str(_day, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             if (_day >= 10 && _day <= 19) {
                 to = append_string("th", to);
             } else {
@@ -647,49 +721,28 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             break;
         case 'e':
             // Day of the month, numeric (0..31)
-            pos = int_to_str(_day, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
+            pos = int_to_str(_day, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'f':
             // Microseconds (000000..999999)
-            pos = int_to_str(0, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 6, to);
-            break;
-        case 'h':
-        case 'I':
-            // Hour (01..12)
-            pos = int_to_str((_hour % 24 + 11) % 12 + 1, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
-            break;
-        case 'H':
-            // Hour (00..23)
-            pos = int_to_str(_hour, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
-            break;
-        case 'i':
-            // Minutes, numeric (00..59)
-            pos = int_to_str(_minute, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            pos = int_to_str(0, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 6, to);
             break;
         case 'j':
             // Day of year (001..366)
-            pos = int_to_str(daynr() - doris::calc_daynr(_year, 1, 1) + 1, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 3, to);
+            pos = int_to_str(daynr() - doris::calc_daynr(_year, 1, 1) + 1, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 3, to);
             break;
         case 'k':
             // Hour (0..23)
-            pos = int_to_str(_hour, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
+            pos = int_to_str(_hour, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'l':
             // Hour (1..12)
-            pos = int_to_str((_hour % 24 + 11) % 12 + 1, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
-            break;
-        case 'm':
-            // Month, numeric (00..12)
-            pos = int_to_str(_month, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            pos = int_to_str((_hour % 24 + 11) % 12 + 1, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'M':
             // Month name (January..December)
@@ -724,12 +777,6 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
                 to = append_string(" AM", to);
             }
             break;
-        case 's':
-        case 'S':
-            // Seconds (00..59)
-            pos = int_to_str(_second, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
-            break;
         case 'T':
             // Time, 24-hour (hh:mm:ss)
             *to++ = (char)('0' + ((_hour % 24) / 10));
@@ -749,8 +796,9 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             if (_type == TIME_TIME) {
                 return false;
             }
-            pos = int_to_str(week(mysql_week_mode(1)), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            to = write_two_digits_to_string(week(mysql_week_mode(1)), to);
+            cursor += 2;
+            pos = cursor;
             break;
         case 'U':
             // Week (00..53), where Sunday is the first day of the week;
@@ -758,8 +806,9 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             if (_type == TIME_TIME) {
                 return false;
             }
-            pos = int_to_str(week(mysql_week_mode(0)), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            to = write_two_digits_to_string(week(mysql_week_mode(0)), to);
+            cursor += 2;
+            pos = cursor;
             break;
         case 'v':
             // Week (01..53), where Monday is the first day of the week;
@@ -767,8 +816,9 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             if (_type == TIME_TIME) {
                 return false;
             }
-            pos = int_to_str(week(mysql_week_mode(3)), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            to = write_two_digits_to_string(week(mysql_week_mode(3)), to);
+            cursor += 2;
+            pos = cursor;
             break;
         case 'V':
             // Week (01..53), where Sunday is the first day of the week;
@@ -776,16 +826,17 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             if (_type == TIME_TIME) {
                 return false;
             }
-            pos = int_to_str(week(mysql_week_mode(2)), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            to = write_two_digits_to_string(week(mysql_week_mode(2)), to);
+            cursor += 2;
+            pos = cursor;
             break;
         case 'w':
             // Day of the week (0=Sunday..6=Saturday)
             if (_type == TIME_TIME || (_month == 0 && _year == 0)) {
                 return false;
             }
-            pos = int_to_str(doris::calc_weekday(daynr(), true), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
+            pos = int_to_str(doris::calc_weekday(daynr(), true), cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'W':
             // Weekday name (Sunday..Saturday)
@@ -799,8 +850,9 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             }
             uint32_t year = 0;
             calc_week(*this, mysql_week_mode(3), &year, true);
-            pos = int_to_str(year, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 4, to);
+            to = write_four_digits_to_string(year, to);
+            cursor += 4;
+            pos = cursor;
             break;
         }
         case 'X': {
@@ -811,20 +863,11 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             }
             uint32_t year = 0;
             calc_week(*this, mysql_week_mode(2), &year);
-            pos = int_to_str(year, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 4, to);
+            to = write_four_digits_to_string(year, to);
+            cursor += 4;
+            pos = cursor;
             break;
         }
-        case 'y':
-            // Year, numeric (two digits)
-            pos = int_to_str(_year % 100, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
-            break;
-        case 'Y':
-            // Year, numeric, four digits
-            pos = int_to_str(_year, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 4, to);
-            break;
         default:
             *to++ = ch;
             break;
@@ -908,7 +951,7 @@ uint32_t VecDateTimeValue::year_week(uint8_t mode) const {
     // not covered by year_week_table, calculate at runtime
     uint32_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
-    uint8_t week = calc_week(*this, mode | 2, &year);
+    uint8_t week = calc_week(*this, mode | 2, &year, true);
     // When the mode WEEK_FIRST_WEEKDAY is not set,
     // the week in which the last three days of the year fall may belong to the following year.
     if (week == 53 && day() >= 29 && !(mode & 4)) {
@@ -1003,6 +1046,10 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
         cutoff_3 = (ULONGLONG_MAX % LFACTOR2) % 100;
     }
     if (ptr >= end) {
+        return false;
+    }
+    // a valid input should at least contains one digit
+    if (!isdigit(*ptr)) {
         return false;
     }
     // Skip '0'
@@ -1313,22 +1360,32 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 val = tmp;
                 date_part_used = true;
                 break;
-            case 'r':
-                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+            case 'r': {
+                VecDateTimeValue tmp_val;
+                if (!tmp_val.from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
                     return false;
                 }
+                this->_hour = tmp_val._hour;
+                this->_minute = tmp_val._minute;
+                this->_second = tmp_val._second;
                 val = tmp;
                 time_part_used = true;
                 already_set_time_part = true;
                 break;
-            case 'T':
-                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+            }
+            case 'T': {
+                VecDateTimeValue tmp_val;
+                if (!tmp_val.from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
                     return false;
                 }
+                this->_hour = tmp_val._hour;
+                this->_minute = tmp_val._minute;
+                this->_second = tmp_val._second;
                 time_part_used = true;
                 already_set_time_part = true;
                 val = tmp;
                 break;
+            }
             case '.':
                 while (val < val_end && ispunct(*val)) {
                     val++;
@@ -1676,13 +1733,19 @@ std::size_t hash_value(VecDateTimeValue const& value) {
 
 template <typename T>
 bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
-                                uint8_t minute, uint8_t second, uint32_t microsecond) {
+                                uint8_t minute, uint8_t second, uint32_t microsecond,
+                                bool only_time_part) {
     if (hour > 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
         return true;
     }
+    if (only_time_part) {
+        return false;
+    }
+    if (year < MIN_YEAR || year > MAX_YEAR) {
+        return true;
+    }
     if (month == 2 && day == 29 && doris::is_leap(year)) return false;
-    if (year < MIN_YEAR || year > MAX_YEAR || month == 0 || month > 12 ||
-        day > s_days_in_month[month] || day == 0) {
+    if (month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
         return true;
     }
     return false;
@@ -1730,7 +1793,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
 
     int field_idx = 0;
     int field_len = year_len;
-    while (ptr < end && isdigit(*ptr) && field_idx <= MAX_DATE_PARTS) {
+    while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
         const char* start = ptr;
         int temp_val = 0;
         bool scan_to_delim = (!is_interval_format) && (field_idx != 6);
@@ -1743,6 +1806,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
             if constexpr (is_datetime) {
                 if (scale >= 0) {
                     temp_val /= std::pow(10, 6 - scale);
+                    temp_val *= std::pow(10, 6 - scale);
                 }
             }
         }
@@ -1761,7 +1825,6 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
         if (field_idx == 2 && *ptr == 'T') {
             // YYYYMMDDTHHMMDD, skip 'T' and continue
             ptr++;
-            field_idx++;
             continue;
         }
 
@@ -2058,22 +2121,41 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 val = tmp;
                 date_part_used = true;
                 break;
-            case 'r':
-                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+            case 'r': {
+                if constexpr (is_datetime) {
+                    DateV2Value<DateTimeV2ValueType> tmp_val;
+                    if (!tmp_val.from_date_format_str("%I:%i:%S %p", 11, val, val_end - val,
+                                                      &tmp)) {
+                        return false;
+                    }
+                    this->date_v2_value_.hour_ = tmp_val.hour();
+                    this->date_v2_value_.minute_ = tmp_val.minute();
+                    this->date_v2_value_.second_ = tmp_val.second();
+                    val = tmp;
+                    time_part_used = true;
+                    already_set_time_part = true;
+                    break;
+                } else {
                     return false;
                 }
-                val = tmp;
-                time_part_used = true;
-                already_set_time_part = true;
-                break;
-            case 'T':
-                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+            }
+            case 'T': {
+                if constexpr (is_datetime) {
+                    DateV2Value<DateTimeV2ValueType> tmp_val;
+                    if (!tmp_val.from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+                        return false;
+                    }
+                    this->date_v2_value_.hour_ = tmp_val.hour();
+                    this->date_v2_value_.minute_ = tmp_val.minute();
+                    this->date_v2_value_.second_ = tmp_val.second();
+                    time_part_used = true;
+                    already_set_time_part = true;
+                    val = tmp;
+                    break;
+                } else {
                     return false;
                 }
-                time_part_used = true;
-                already_set_time_part = true;
-                val = tmp;
-                break;
+            }
             case '.':
                 while (val < val_end && ispunct(*val)) {
                     val++;
@@ -2153,20 +2235,9 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
             LOG(WARNING) << "Microsecond is not allowed for date type!";
             return false;
         }
-        if (!date_part_used) {
-            LOG(WARNING) << "Time type is not supported yet!";
-            return false;
-        }
-    } else {
-        if (date_part_used) {
-            if (time_part_used) {
-                if constexpr (!is_datetime) {
-                    LOG(WARNING) << "Time part is not allowed for date type!";
-                    return false;
-                }
-            }
-        } else {
-            LOG(WARNING) << "Time type is not supported yet!";
+    } else if (time_part_used) {
+        if constexpr (!is_datetime) {
+            LOG(WARNING) << "Time part is not allowed for date type!";
             return false;
         }
     }
@@ -2225,7 +2296,8 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
     if constexpr (is_datetime) {
-        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond);
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond,
+                                        time_part_used && !date_part_used);
     } else {
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
@@ -2268,11 +2340,20 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
         /* Second */
         *buffer++ = (char)('0' + (date_v2_value_.second_ / 10));
         *buffer++ = (char)('0' + (date_v2_value_.second_ % 10));
-        if (scale != 0 && date_v2_value_.microsecond_ > 0) {
+        if (scale < 0 && date_v2_value_.microsecond_ > 0) {
             *buffer++ = '.';
             /* Microsecond */
             uint32_t ms = date_v2_value_.microsecond_;
             int ms_width = scale == -1 ? 6 : std::min(6, scale);
+            for (int i = 0; i < ms_width; i++) {
+                *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
+                ms %= (uint32_t)std::pow(10, 5 - i);
+            }
+        } else if (scale > 0) {
+            *buffer++ = '.';
+            /* Microsecond */
+            uint32_t ms = date_v2_value_.microsecond_;
+            int ms_width = std::min(6, scale);
             for (int i = 0; i < ms_width; i++) {
                 *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
                 ms %= (uint32_t)std::pow(10, 5 - i);
@@ -2342,8 +2423,8 @@ uint32_t DateV2Value<T>::year_week(uint8_t mode) const {
     }
     uint16_t year = 0;
     // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
-    uint8_t week =
-            calc_week(this->daynr(), this->year(), this->month(), this->day(), mode | 2, &year);
+    uint8_t week = calc_week(this->daynr(), this->year(), this->month(), this->day(), mode | 2,
+                             &year, true);
     // When the mode WEEK_FIRST_WEEKDAY is not set,
     // the week in which the last three days of the year fall may belong to the following year.
     if (week == 53 && day() >= 29 && !(mode & 4)) {
@@ -2554,7 +2635,6 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const std::string& timezon
 
 template <typename T>
 bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
-    DCHECK(is_datetime);
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
                     std::chrono::system_clock::from_time_t(0));
@@ -2563,6 +2643,31 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
     const auto tp = cctz::convert(t, ctz);
 
     set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
+    return true;
+}
+
+template <typename T>
+bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
+                                   const std::string& timezone, const int scale) {
+    cctz::time_zone ctz;
+    if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
+        return false;
+    }
+    return from_unixtime(timestamp, nano_seconds, ctz, scale);
+}
+
+template <typename T>
+bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
+                                   const cctz::time_zone& ctz, const int scale) {
+    static const cctz::time_point<cctz::sys_seconds> epoch =
+            std::chrono::time_point_cast<cctz::sys_seconds>(
+                    std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
+
+    const auto tp = cctz::convert(t, ctz);
+
+    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+             nano_seconds / std::pow(10, 9 - scale) * std::pow(10, 6 - scale));
     return true;
 }
 
@@ -2610,9 +2715,22 @@ void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint
 }
 
 template <typename T>
+void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
+    if constexpr (is_datetime) {
+        date_v2_value_.microsecond_ = microsecond;
+    } else {
+        LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
+    }
+}
+
+template <typename T>
 bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) const {
+    if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
+        return false;
+    }
     char buf[64];
     char* pos = nullptr;
+    char* cursor = buf;
     const char* ptr = format;
     const char* end = format + len;
     char ch = '\0';
@@ -2625,6 +2743,54 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
         // Skip '%'
         ptr++;
         switch (ch = *ptr++) {
+        case 'y':
+            // Year, numeric (two digits)
+            to = write_two_digits_to_string(this->year() % 100, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'Y':
+            // Year, numeric, four digits
+            to = write_four_digits_to_string(this->year(), to);
+            cursor += 4;
+            pos = cursor;
+            break;
+        case 'd':
+            // Day of month (00...31)
+            to = write_two_digits_to_string(this->day(), to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'H':
+            to = write_two_digits_to_string(this->hour(), to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'i':
+            // Minutes, numeric (00..59)
+            to = write_two_digits_to_string(this->minute(), to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'm':
+            to = write_two_digits_to_string(this->month(), to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'h':
+        case 'I':
+            // Hour (01..12)
+            to = write_two_digits_to_string((this->hour() % 24 + 11) % 12 + 1, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 's':
+        case 'S':
+            // Seconds (00..59)
+            to = write_two_digits_to_string(this->second(), to);
+            cursor += 2;
+            pos = cursor;
+            break;
         case 'a':
             // Abbreviated weekday name
             if (this->year() == 0 && this->month() == 0) {
@@ -2641,18 +2807,13 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             break;
         case 'c':
             // Month, numeric (0...12)
-            pos = int_to_str(this->month(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
-            break;
-        case 'd':
-            // Day of month (00...31)
-            pos = int_to_str(this->day(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            pos = int_to_str(this->month(), cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'D':
             // Day of the month with English suffix (0th, 1st, ...)
-            pos = int_to_str(this->day(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
+            pos = int_to_str(this->day(), cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             if (this->day() >= 10 && this->day() <= 19) {
                 to = append_string("th", to);
             } else {
@@ -2674,49 +2835,28 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             break;
         case 'e':
             // Day of the month, numeric (0..31)
-            pos = int_to_str(this->day(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
+            pos = int_to_str(this->day(), cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'f':
             // Microseconds (000000..999999)
-            pos = int_to_str(this->microsecond(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 6, to);
-            break;
-        case 'h':
-        case 'I':
-            // Hour (01..12)
-            int_to_str((this->hour() % 24 + 11) % 12 + 1, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
-            break;
-        case 'H':
-            // Hour (00..23)
-            pos = int_to_str(this->hour(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
-            break;
-        case 'i':
-            // Minutes, numeric (00..59)
-            pos = int_to_str(this->minute(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            pos = int_to_str(this->microsecond(), cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 6, to);
             break;
         case 'j':
             // Day of year (001..366)
-            pos = int_to_str(daynr() - doris::calc_daynr(this->year(), 1, 1) + 1, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 3, to);
+            pos = int_to_str(daynr() - doris::calc_daynr(this->year(), 1, 1) + 1, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 3, to);
             break;
         case 'k':
             // Hour (0..23)
-            pos = int_to_str(this->hour(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
+            pos = int_to_str(this->hour(), cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'l':
             // Hour (1..12)
-            pos = int_to_str((this->hour() % 12) + 1, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
-            break;
-        case 'm':
-            // Month, numeric (00..12)
-            pos = int_to_str(this->month(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            pos = int_to_str((this->hour() % 24 + 11) % 12 + 1, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'M':
             // Month name (January..December)
@@ -2727,7 +2867,11 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             break;
         case 'p':
             // AM or PM
-            to = append_string("AM", to);
+            if ((this->hour() % 24) >= 12) {
+                to = append_string("PM", to);
+            } else {
+                to = append_string("AM", to);
+            }
             break;
         case 'r': {
             // Time, 12-hour (hh:mm:ss followed by AM or PM)
@@ -2748,12 +2892,6 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             }
             break;
         }
-        case 's':
-        case 'S':
-            // Seconds (00..59)
-            pos = int_to_str(this->second(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
-            break;
         case 'T': {
             // Time, 24-hour (hh:mm:ss)
             *to++ = (char)('0' + ((this->hour() % 24) / 10));
@@ -2771,34 +2909,38 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
         case 'u':
             // Week (00..53), where Monday is the first day of the week;
             // WEEK() mode 1
-            pos = int_to_str(week(mysql_week_mode(1)), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            to = write_two_digits_to_string(week(mysql_week_mode(1)), to);
+            cursor += 2;
+            pos = cursor;
             break;
         case 'U':
             // Week (00..53), where Sunday is the first day of the week;
             // WEEK() mode 0
-            pos = int_to_str(week(mysql_week_mode(0)), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            to = write_two_digits_to_string(week(mysql_week_mode(0)), to);
+            cursor += 2;
+            pos = cursor;
             break;
         case 'v':
             // Week (01..53), where Monday is the first day of the week;
             // WEEK() mode 3; used with %x
-            pos = int_to_str(week(mysql_week_mode(3)), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            to = write_two_digits_to_string(week(mysql_week_mode(3)), to);
+            cursor += 2;
+            pos = cursor;
             break;
         case 'V':
             // Week (01..53), where Sunday is the first day of the week;
             // WEEK() mode 2; used with %X
-            pos = int_to_str(week(mysql_week_mode(2)), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
+            to = write_two_digits_to_string(week(mysql_week_mode(2)), to);
+            cursor += 2;
+            pos = cursor;
             break;
         case 'w':
             // Day of the week (0=Sunday..6=Saturday)
             if (this->month() == 0 && this->year() == 0) {
                 return false;
             }
-            pos = int_to_str(doris::calc_weekday(daynr(), true), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 1, to);
+            pos = int_to_str(doris::calc_weekday(daynr(), true), cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'W':
             // Weekday name (Sunday..Saturday)
@@ -2810,8 +2952,9 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             uint16_t year = 0;
             calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(3),
                       &year, true);
-            pos = int_to_str(year, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 4, to);
+            to = write_four_digits_to_string(year, to);
+            cursor += 4;
+            pos = cursor;
             break;
         }
         case 'X': {
@@ -2820,20 +2963,11 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             uint16_t year = 0;
             calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(2),
                       &year);
-            pos = int_to_str(year, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 4, to);
+            to = write_four_digits_to_string(year, to);
+            cursor += 4;
+            pos = cursor;
             break;
         }
-        case 'y':
-            // Year, numeric (two digits)
-            pos = int_to_str(this->year() % 100, buf);
-            to = append_with_prefix(buf, pos - buf, '0', 2, to);
-            break;
-        case 'Y':
-            // Year, numeric, four digits
-            pos = int_to_str(this->year(), buf);
-            to = append_with_prefix(buf, pos - buf, '0', 4, to);
-            break;
         default:
             *to++ = ch;
             break;

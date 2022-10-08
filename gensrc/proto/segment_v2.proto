@@ -69,8 +69,8 @@ message DataPageFooterPB {
     // required: size of nullmap, 0 if the page doesn't contain NULL
     optional uint32 nullmap_size = 3;
     // only for array column
-    // Save the first array's first item's ordinal.
-    optional uint64 first_array_item_ordinal = 4;
+    // Save the offset of next page 
+    optional uint64 next_array_item_ordinal = 4;
 }
 
 message IndexPageFooterPB {
@@ -167,6 +167,9 @@ message PrimaryKeyIndexMetaPB {
     optional IndexedColumnMetaPB primary_key_index = 1;
     // bloom filter index
     optional ColumnIndexMetaPB bloom_filter_index = 2;
+
+    optional bytes min_key = 3;
+    optional bytes max_key = 4;
 }
 
 message SegmentFooterPB {

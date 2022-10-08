@@ -48,8 +48,9 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
     RETURN_IF_CANCELLED(state);
     do {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(_children[0]->get_next(state, block, &_child_eos),
-                                       _children[0]->get_next_span(), _child_eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                _children[0]->get_next_after_projects(state, block, &_child_eos),
+                _children[0]->get_next_span(), _child_eos);
         if (_child_eos) {
             *eos = true;
             break;

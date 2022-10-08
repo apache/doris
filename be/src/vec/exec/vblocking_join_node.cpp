@@ -21,6 +21,7 @@
 
 #include "exprs/expr.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
@@ -57,7 +58,9 @@ Status VBlockingJoinNode::prepare(RuntimeState* state) {
 
     for (int i = 0; i < _build_tuple_size; ++i) {
         TupleDescriptor* build_tuple_desc = child(1)->row_desc().tuple_descriptors()[i];
-        _build_tuple_idx.push_back(_row_descriptor.get_tuple_idx(build_tuple_desc->id()));
+        auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
+        RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
+        _build_tuple_idx.push_back(tuple_idx);
     }
 
     return Status::OK();
@@ -72,6 +75,7 @@ Status VBlockingJoinNode::close(RuntimeState* state) {
 
 void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     status->set_value(construct_build_side(state));
     // Release the thread token as soon as possible (before the main thread joins
     // on it).  This way, if we had a chain of 10 joins using 1 additional thread,
@@ -115,8 +119,9 @@ Status VBlockingJoinNode::open(RuntimeState* state) {
     // Seed left child in preparation for get_next().
     while (true) {
         release_block_memory(_left_block);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(0)->get_next(state, &_left_block, &_left_side_eos),
-                                       child(0)->get_next_span(), _left_side_eos);
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(state, &_left_block, &_left_side_eos),
+                child(0)->get_next_span(), _left_side_eos);
         COUNTER_UPDATE(_left_child_row_counter, _left_block.rows());
         _left_block_pos = 0;
 

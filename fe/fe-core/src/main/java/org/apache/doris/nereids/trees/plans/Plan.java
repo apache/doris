@@ -19,13 +19,20 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all plan node.
@@ -37,21 +44,61 @@ public interface Plan extends TreeNode<Plan> {
     // cache GroupExpression for fast exit from Memo.copyIn.
     Optional<GroupExpression> getGroupExpression();
 
-    default <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        throw new RuntimeException("accept() is not implemented by plan " + this.getClass().getSimpleName());
-    }
+    <R, C> R accept(PlanVisitor<R, C> visitor, C context);
 
-    List<Expression> getExpressions();
+    List<? extends Expression> getExpressions();
 
     LogicalProperties getLogicalProperties();
 
-    default LogicalProperties computeLogicalProperties(Plan... inputs) {
+    boolean canBind();
+
+    default boolean bound() {
+        return !(getLogicalProperties() instanceof UnboundLogicalProperties);
+    }
+
+    default boolean hasUnboundExpression() {
+        return getExpressions().stream().anyMatch(Expression::hasUnbound);
+    }
+
+    default boolean childrenBound() {
+        return children()
+                .stream()
+                .allMatch(Plan::bound);
+    }
+
+    default LogicalProperties computeLogicalProperties() {
         throw new IllegalStateException("Not support compute logical properties for " + getClass().getName());
     }
 
+    /**
+     * Get output slot list of the plan.
+     */
     List<Slot> getOutput();
 
-    default List<Slot> computeOutput(Plan... inputs) {
+    /**
+     * Get output slot set of the plan.
+     */
+    default Set<Slot> getOutputSet() {
+        return ImmutableSet.copyOf(getOutput());
+    }
+
+    default Set<ExprId> getOutputExprIdSet() {
+        return getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
+    }
+
+    /**
+     * Get the input slot set of the plan.
+     * The result is collected from all the expressions' input slots appearing in the plan node.
+     * <p>
+     * Note that the input slots of subquery's inner plan are not included.
+     */
+    default Set<Slot> getInputSlots() {
+        return getExpressions().stream()
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    default List<Slot> computeOutput() {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
     }
 

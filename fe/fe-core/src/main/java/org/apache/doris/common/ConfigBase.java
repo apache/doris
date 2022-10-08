@@ -75,11 +75,12 @@ public class ConfigBase {
     private static String ldapCustomConfFile;
     public static Class<? extends ConfigBase> ldapConfClass;
 
+    public static Map<String, Field> ldapConfFields = Maps.newHashMap();
+
     private boolean isLdapConfig = false;
 
     public void init(String configFile) throws Exception {
-        this.isLdapConfig = (this instanceof LdapConfig);
-        if (!isLdapConfig) {
+        if (this instanceof Config) {
             confClass = this.getClass();
             confFile = configFile;
             confFields = Maps.newHashMap();
@@ -92,9 +93,17 @@ public class ConfigBase {
             }
 
             initConf(confFile);
-        } else {
+        } else if (this instanceof LdapConfig) {
+            isLdapConfig = true;
             ldapConfClass = this.getClass();
             ldapConfFile = configFile;
+            for (Field field : ldapConfClass.getFields()) {
+                ConfField confField = field.getAnnotation(ConfField.class);
+                if (confField == null) {
+                    continue;
+                }
+                ldapConfFields.put(confField.value().equals("") ? field.getName() : confField.value(), field);
+            }
             initConf(ldapConfFile);
         }
     }
@@ -292,7 +301,11 @@ public class ConfigBase {
     public static synchronized void setMutableConfig(String key, String value) throws DdlException {
         Field field = confFields.get(key);
         if (field == null) {
-            throw new DdlException("Config '" + key + "' does not exist");
+            if (ldapConfFields.containsKey(key)) {
+                field = ldapConfFields.get(key);
+            } else {
+                throw new DdlException("Config '" + key + "' does not exist");
+            }
         }
 
         ConfField anno = field.getAnnotation(ConfField.class);
@@ -313,7 +326,10 @@ public class ConfigBase {
     }
 
     public static synchronized List<List<String>> getConfigInfo(PatternMatcher matcher) {
-        return confFields.entrySet().stream().sorted(Map.Entry.comparingByKey()).flatMap(e -> {
+        Map<String, Field> allConfFields = Maps.newHashMap();
+        allConfFields.putAll(confFields);
+        allConfFields.putAll(ldapConfFields);
+        return allConfFields.entrySet().stream().sorted(Map.Entry.comparingByKey()).flatMap(e -> {
             String confKey = e.getKey();
             Field f = e.getValue();
             ConfField anno = f.getAnnotation(ConfField.class);

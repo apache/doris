@@ -39,63 +39,81 @@ Usage: $0 <options>
 
 Examples:
     batch mode:
-        sh restore_tablet_tool.sh -b "http://127.0.0.1:8040" -f tablets.txt
-        sh restore_tablet_tool.sh --backend "http://127.0.0.1:8040" --file tablets.txt
+        bash restore_tablet_tool.sh -b http://127.0.0.1:8040 -f tablets.txt
+        bash restore_tablet_tool.sh --backend http://127.0.0.1:8040 --file tablets.txt
 
     single mode:
-        sh restore_tablet_tool.sh -b "http://127.0.0.1:8040" -t 12345 -s 11111
-        sh restore_tablet_tool.sh --backend "http://127.0.0.1:8040" --tablet_id 12345 --schema_hash 11111
+        bash restore_tablet_tool.sh -b http://127.0.0.1:8040 -t 12345 -s 11111
+        bash restore_tablet_tool.sh --backend http://127.0.0.1:8040 --tablet_id 12345 --schema_hash 11111
     "
     exit 1
 }
 
-OPTS=$(getopt \
-  -n $0 \
-  -o 'b:t:s:f:' \
-  -l 'server:,tablet_id:,schema_hash:,file:,help' \
-  -- "$@")
-
-if [ $? != 0 ] ; then
+if ! OPTS=$(getopt \
+    -n "$0" \
+    -o 'b:t:s:f:' \
+    -l 'server:,tablet_id:,schema_hash:,file:,help' \
+    -- "$@"); then
     usage
 fi
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 
-SERVER="http://127.0.0.1/8040"
-TABLET_ID=
-SCHEMA_HASH=
-FILENAME=
+SERVER='http://127.0.0.1/8040'
+TABLET_ID=''
+SCHEMA_HASH=''
+FILENAME=''
 BATCH_MODE=false
 
 while true; do
     case "$1" in
-        -b|--backend) SERVER=$2 ; shift 2 ;;
-        -f|--file) FILENAME=$2 ; BATCH_MODE=true ; shift 2 ;;
-        -t|--tablet_id) TABLET_ID=$2 ; shift 2 ;;
-        -s|--schema_hash) SCHEMA_HASH=$2 ; shift 2 ;;
-        -h|--help) usage ; shift ;;
-        --) shift ;  break ;;
-        *) echo "Internal error!" ; exit 1 ;;
+    -b | --backend)
+        SERVER="$2"
+        shift 2
+        ;;
+    -f | --file)
+        FILENAME="$2"
+        BATCH_MODE=true
+        shift 2
+        ;;
+    -t | --tablet_id)
+        TABLET_ID="$2"
+        shift 2
+        ;;
+    -s | --schema_hash)
+        SCHEMA_HASH="$2"
+        shift 2
+        ;;
+    -h | --help)
+        usage
+        shift
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        echo "Internal error!"
+        exit 1
+        ;;
     esac
 done
 
 restore_tablet() {
-    echo "start to restore tablet id:"$2", schema hash:"$3
+    echo "start to restore tablet id:$2, schema hash:$3"
     curl -X POST "$1/api/restore_tablet?tablet_id=$2&schema_hash=$3"
     echo -e "\n"
 }
 
-if [ $BATCH_MODE = true ] ; then
-    lines=`cat $FILENAME`
-    for line in $lines
-    do
+if ${BATCH_MODE}; then
+    while read -r line; do
         # split the comma-split line
         # format: tablet_id,schema_hash
-        fields=(${line/,/ })
-        TABLET_ID=${fields[0]}
-        SCHEMA_HASH=${fields[1]}
-        restore_tablet $SERVER $TABLET_ID $SCHEMA_HASH
-    done
+        read -r -a fields <<<"${line/,/ }"
+        TABLET_ID="${fields[0]}"
+        SCHEMA_HASH="${fields[1]}"
+        restore_tablet "${SERVER}" "${TABLET_ID}" "${SCHEMA_HASH}"
+    done <"${FILENAME}"
 else
-    restore_tablet $SERVER $TABLET_ID $SCHEMA_HASH
+    restore_tablet "${SERVER}" "${TABLET_ID}" "${SCHEMA_HASH}"
 fi

@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
@@ -35,11 +35,11 @@ import java.util.Objects;
  * Each batch of rules will be uniformly executed.
  */
 public abstract class BatchRulesJob {
-    protected PlannerContext plannerContext;
+    protected CascadesContext cascadesContext;
     protected List<Job> rulesJob = new ArrayList<>();
 
-    BatchRulesJob(PlannerContext plannerContext) {
-        this.plannerContext = Objects.requireNonNull(plannerContext, "plannerContext can not null");
+    BatchRulesJob(CascadesContext cascadesContext) {
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not null");
     }
 
     protected Job bottomUpBatch(List<RuleFactory> ruleFactories) {
@@ -48,9 +48,9 @@ public abstract class BatchRulesJob {
             rules.addAll(ruleFactory.buildRules());
         }
         return new RewriteBottomUpJob(
-                plannerContext.getMemo().getRoot(),
+                cascadesContext.getMemo().getRoot(),
                 rules,
-                plannerContext.getCurrentJobContext());
+                cascadesContext.getCurrentJobContext());
     }
 
     protected Job topDownBatch(List<RuleFactory> ruleFactories) {
@@ -58,22 +58,35 @@ public abstract class BatchRulesJob {
         for (RuleFactory ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
-        return new RewriteTopDownJob(
-                plannerContext.getMemo().getRoot(),
-                rules,
-                plannerContext.getCurrentJobContext());
+        return new RewriteTopDownJob(cascadesContext.getMemo().getRoot(), rules,
+                cascadesContext.getCurrentJobContext());
+    }
+
+    protected Job topDownBatch(List<RuleFactory> ruleFactories, boolean once) {
+        List<Rule> rules = new ArrayList<>();
+        for (RuleFactory ruleFactory : ruleFactories) {
+            rules.addAll(ruleFactory.buildRules());
+        }
+        return new RewriteTopDownJob(cascadesContext.getMemo().getRoot(), rules,
+                cascadesContext.getCurrentJobContext(), once);
     }
 
     protected Job optimize() {
         return new OptimizeGroupJob(
-                plannerContext.getMemo().getRoot(),
-                plannerContext.getCurrentJobContext());
+                cascadesContext.getMemo().getRoot(),
+                cascadesContext.getCurrentJobContext());
     }
 
+    /**
+     * execute.
+     */
     public void execute() {
         for (Job job : rulesJob) {
-            plannerContext.pushJob(job);
-            plannerContext.getJobScheduler().executeJobPool(plannerContext);
+            do {
+                cascadesContext.getCurrentJobContext().setRewritten(false);
+                cascadesContext.pushJob(job);
+                cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+            } while (!job.isOnce() && cascadesContext.getCurrentJobContext().isRewritten());
         }
     }
 }

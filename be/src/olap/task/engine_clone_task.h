@@ -35,9 +35,8 @@ public:
     virtual Status execute();
 
 public:
-    EngineCloneTask(const TCloneReq& _clone_req, const TMasterInfo& _master_info,
-                    int64_t _signature, vector<string>* error_msgs,
-                    vector<TTabletInfo>* tablet_infos, Status* _res_status);
+    EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& master_info, int64_t signature,
+                    vector<TTabletInfo>* tablet_infos);
     ~EngineCloneTask() {}
 
 private:
@@ -53,11 +52,10 @@ private:
 
     Status _make_and_download_snapshots(DataDir& data_dir, const std::string& local_data_path,
                                         TBackend* src_host, string* src_file_path,
-                                        vector<string>* error_msgs,
                                         const vector<Version>* missing_versions,
                                         bool* allow_incremental_clone);
 
-    void _set_tablet_info(Status status, bool is_new_tablet);
+    Status _set_tablet_info(bool is_new_tablet);
 
     // Download tablet files from
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
@@ -72,9 +70,7 @@ private:
 
 private:
     const TCloneReq& _clone_req;
-    vector<string>* _error_msgs;
     vector<TTabletInfo>* _tablet_infos;
-    Status* _res_status;
     int64_t _signature;
     const TMasterInfo& _master_info;
     int64_t _copy_size;

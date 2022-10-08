@@ -19,30 +19,25 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-
-import java.util.Objects;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 /**
  * Compound predicate expression.
  * Such as &&,||,AND,OR.
  */
-public abstract class CompoundPredicate extends Expression implements BinaryExpression {
-    protected final String symbol;
+public abstract class CompoundPredicate extends BinaryOperator {
 
     /**
      * Desc: Constructor for CompoundPredicate.
      *
      * @param left  left child of comparison predicate
      * @param right right child of comparison predicate
+     * @param symbol symbol used in sql
      */
     public CompoundPredicate(Expression left, Expression right, String symbol) {
-        super(left, right);
-        this.symbol = symbol;
-    }
-
-    @Override
-    public String toSql() {
-        return "(" + left().toSql() + " " + symbol + " " + right().toSql() + ")";
+        super(left, right, symbol);
     }
 
     @Override
@@ -51,31 +46,18 @@ public abstract class CompoundPredicate extends Expression implements BinaryExpr
     }
 
     @Override
+    public DataType getDataType() throws UnboundException {
+        return BooleanType.INSTANCE;
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCompoundPredicate(this, context);
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        CompoundPredicate other = (CompoundPredicate) o;
-        return Objects.equals(left(), other.left())
-                && Objects.equals(right(), other.right());
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(symbol, left(), right());
-    }
-
-    @Override
-    public String toString() {
-        return "(" + left().toString() + " " + symbol + " " + right().toString() + ")";
+    public AbstractDataType inputType() {
+        return BooleanType.INSTANCE;
     }
 
     /**
@@ -89,5 +71,6 @@ public abstract class CompoundPredicate extends Expression implements BinaryExpr
     public abstract CompoundPredicate flip(Expression left, Expression right);
 
     public abstract Class<? extends CompoundPredicate> flipType();
+
 }
 

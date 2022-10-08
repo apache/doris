@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -25,8 +25,8 @@ import com.google.common.collect.ImmutableList;
  * cascade optimizer added.
  */
 public class OptimizeRulesJob extends BatchRulesJob {
-    public OptimizeRulesJob(PlannerContext plannerContext) {
-        super(plannerContext);
+    public OptimizeRulesJob(CascadesContext cascadesContext) {
+        super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 optimize()
         ));

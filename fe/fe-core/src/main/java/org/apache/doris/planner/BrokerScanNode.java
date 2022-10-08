@@ -235,14 +235,17 @@ public class BrokerScanNode extends LoadScanNode {
         context.params = params;
 
         BrokerFileGroup fileGroup = context.fileGroup;
-        params.setColumnSeparator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
+        params.setColumnSeparator(fileGroup.getColumnSeparator().getBytes(Charset.forName("UTF-8"))[0]);
         params.setLineDelimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
-        params.setColumnSeparatorStr(fileGroup.getValueSeparator());
+        params.setColumnSeparatorStr(fileGroup.getColumnSeparator());
         params.setLineDelimiterStr(fileGroup.getLineDelimiter());
-        params.setColumnSeparatorLength(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8")).length);
+        params.setColumnSeparatorLength(fileGroup.getColumnSeparator().getBytes(Charset.forName("UTF-8")).length);
         params.setLineDelimiterLength(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8")).length);
         params.setStrictMode(strictMode);
         params.setProperties(brokerDesc.getProperties());
+        if (params.getSrcSlotIds() == null) {
+            params.setSrcSlotIds(new java.util.ArrayList<java.lang.Integer>());
+        }
         deleteCondition = fileGroup.getDeleteCondition();
         mergeType = fileGroup.getMergeType();
         initColumns(context);
@@ -283,10 +286,9 @@ public class BrokerScanNode extends LoadScanNode {
         }
 
         if (targetTable != null) {
-            Load.initColumns(targetTable, columnDescs,
-                    context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
-                    context.srcTupleDescriptor, context.slotDescByName, context.params,
-                    formatType(context.fileGroup.getFileFormat(), ""), VectorizedUtil.isVectorized());
+            Load.initColumns(targetTable, columnDescs, context.fileGroup.getColumnToHadoopFunction(), context.exprMap,
+                    analyzer, context.srcTupleDescriptor, context.slotDescByName, context.params.getSrcSlotIds(),
+                    formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
         }
     }
 
@@ -514,7 +516,7 @@ public class BrokerScanNode extends LoadScanNode {
             String headerType = getHeaderType(context.fileGroup.getFileFormat());
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
-                    context.fileGroup.getColumnsFromPath());
+                    context.fileGroup.getColumnNamesFromPath());
             int numberOfColumnsFromFile = context.slotDescByName.size() - columnsFromPath.size();
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text

@@ -96,6 +96,7 @@ set(EXEC_FILES
     parquet_writer.cpp
     orc_scanner.cpp
     odbc_connector.cpp
+    table_connector.cpp
     json_scanner.cpp
     assert_num_rows_node.cpp
 

@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.SlotExtractor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -44,6 +43,7 @@ import java.util.stream.Stream;
  *    |
  *  scan(k1,k2,k3,v1)
  * transformed:
+ * 　project(k1)
  *    |
  *  filter(k2 > 3)
  *   |
@@ -59,14 +59,14 @@ public class PruneFilterChildColumns extends AbstractPushDownProjectRule<Logical
     }
 
     @Override
-    protected Plan pushDownProject(LogicalFilter<GroupPlan> filterPlan, Set<Slot> references) {
-        Set<Slot> filterSlots = SlotExtractor.extractSlot(filterPlan.getPredicates());
-        Set<Slot> required = Stream.concat(references.stream(), filterSlots.stream()).collect(Collectors.toSet());
-        if (required.containsAll(filterPlan.child().getOutput())) {
-            return filterPlan;
+    protected Plan pushDownProject(LogicalFilter<GroupPlan> filter, Set<Slot> references) {
+        Set<Slot> filterInputSlots = filter.getInputSlots();
+        Set<Slot> required = Stream.concat(references.stream(), filterInputSlots.stream()).collect(Collectors.toSet());
+        if (required.containsAll(filter.child().getOutput())) {
+            return filter;
         }
-        return filterPlan.withChildren(
-            ImmutableList.of(new LogicalProject<>(Lists.newArrayList(required), filterPlan.child()))
+        return filter.withChildren(
+            ImmutableList.of(new LogicalProject<>(Lists.newArrayList(required), filter.child()))
         );
     }
 }

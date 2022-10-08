@@ -48,13 +48,18 @@ under the License.
 ```sql
 CREATE SQL_BLOCK_RULE test_rule 
 PROPERTIES(
-  "sql"="select * from order_analysis",
+  "sql"="select \\* from order_analysis",
   "global"="false",
   "enable"="true",
   "sqlHash"=""
 )
 ```
+>注意：
+>
+>这里sql 语句最后不要带分号
+
 当我们去执行刚才我们定义在规则里的sql时就会返回异常错误，示例如下：
+
 ```sql
 mysql> select * from order_analysis;
 ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule: order_analysis_rule

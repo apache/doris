@@ -49,6 +49,7 @@ illustrate:
 5. LastHeartbeat is the last heartbeat.
 6. IsHelper indicates whether the node is a helper node in bdbje.
 7. ErrMsg is used to display the error message when the heartbeat fails.
+8. CurrentConnected indicates whether the FE node is currently connected
 
 ### Example
 

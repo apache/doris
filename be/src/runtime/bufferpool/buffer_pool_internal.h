@@ -23,7 +23,6 @@
 
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/bufferpool/buffer_pool_counters.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 
 // Ensure that DCheckConsistency() function calls get removed in release builds.
 #ifndef NDEBUG
@@ -132,16 +131,14 @@ private:
 class BufferPool::Client {
 public:
     Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group,
-           const std::string& name, ReservationTracker* parent_reservation,
-           int64_t reservation_limit, RuntimeProfile* profile);
+           const std::string& name, RuntimeProfile* profile);
 
     ~Client() {
         DCHECK_EQ(0, num_pages_);
         DCHECK_EQ(0, buffers_allocated_bytes_);
     }
 
-    /// Release reservation for this client.
-    void Close() { reservation_.Close(); }
+    void Close() {}
 
     /// Create a pinned page using 'buffer', which was allocated using AllocateBuffer().
     /// No client or page locks should be held by the caller.
@@ -181,15 +178,11 @@ public:
     /// client locks should be held by the caller.
     Status PrepareToAllocateBuffer(int64_t len) WARN_UNUSED_RESULT;
 
-    /// Implementation of ClientHandle::DecreaseReservationTo().
-    Status DecreaseReservationTo(int64_t target_bytes) WARN_UNUSED_RESULT;
-
     /// Called after a buffer of 'len' is freed via the FreeBuffer() API to update
     /// internal accounting and release the buffer to the client's reservation. No page or
     /// client locks should be held by the caller.
     void FreedBuffer(int64_t len) {
         std::lock_guard<std::mutex> cl(lock_);
-        reservation_.ReleaseTo(len);
         buffers_allocated_bytes_ -= len;
         DCHECK_CONSISTENCY();
     }
@@ -208,7 +201,6 @@ public:
         DCHECK(client_lock.mutex() == &lock_ && client_lock.owns_lock());
     }
 
-    ReservationTracker* reservation() { return &reservation_; }
     const BufferPoolClientCounters& counters() const { return counters_; }
     //bool spilling_enabled() const { return file_group_ != nullptr; }
     void set_debug_write_delay_ms(int val) { debug_write_delay_ms_ = val; }
@@ -230,10 +222,6 @@ private:
         DCHECK_LE(
                 pinned_pages_.size() + dirty_unpinned_pages_.size() + in_flight_write_pages_.size(),
                 num_pages_);
-        // Check that we flushed enough pages to disk given our eviction policy.
-        DCHECK_GE(reservation_.GetReservation(), buffers_allocated_bytes_ + pinned_pages_.bytes() +
-                                                         dirty_unpinned_pages_.bytes() +
-                                                         in_flight_write_pages_.bytes());
     }
 
     /// Must be called once before allocating or reclaiming a buffer of 'len'. Ensures that
@@ -268,10 +256,6 @@ private:
 
     /// A name identifying the client.
     const std::string name_;
-
-    /// The reservation tracker for the client. All pages pinned by the client count as
-    /// usage against 'reservation_'.
-    ReservationTracker reservation_;
 
     /// The RuntimeProfile counters for this client, owned by the client's RuntimeProfile.
     /// All non-nullptr.

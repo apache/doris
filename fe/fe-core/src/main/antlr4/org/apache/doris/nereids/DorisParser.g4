@@ -78,7 +78,7 @@ querySpecification
     ;
 
 selectClause
-    : SELECT namedExpressionSeq
+    : SELECT selectHint? namedExpressionSeq
     ;
 
 whereClause
@@ -107,6 +107,16 @@ groupByItem
 
 havingClause
     : HAVING booleanExpression
+    ;
+
+selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+
+hintStatement
+    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    ;
+
+hintAssignment
+    : key=identifier (EQ (constantValue=constant | identifierValue=identifier))?
     ;
 
 queryOrganization
@@ -193,6 +203,7 @@ predicate
     | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
+    | IS NOT? kind=NULL
     ;
 
 valueExpression
@@ -284,6 +295,7 @@ quotedIdentifier
 
 number
     : MINUS? INTEGER_VALUE            #integerLiteral
+    | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
 

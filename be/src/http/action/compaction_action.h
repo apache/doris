@@ -19,13 +19,11 @@
 
 #include "common/status.h"
 #include "http/http_handler.h"
-#include "olap/base_compaction.h"
-#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 
 namespace doris {
 
-enum CompactionActionType {
+enum class CompactionActionType {
     SHOW_INFO = 1,
     RUN_COMPACTION = 2,
     RUN_COMPACTION_STATUS = 3,
@@ -41,7 +39,7 @@ class CompactionAction : public HttpHandler {
 public:
     CompactionAction(CompactionActionType type) : _type(type) {}
 
-    virtual ~CompactionAction() {}
+    ~CompactionAction() override = default;
 
     void handle(HttpRequest* req) override;
 

@@ -30,10 +30,6 @@
 
 namespace doris::vectorized {
 
-bool is_null(const Slice& slice) {
-    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
-}
-
 VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
@@ -42,6 +38,7 @@ VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
         : BrokerScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
                         counter) {
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+    _src_block_mem_reuse = true;
 }
 
 VBrokerScanner::~VBrokerScanner() = default;
@@ -81,6 +78,7 @@ Status VBrokerScanner::get_next(Block* output_block, bool* eof) {
             }
         }
     }
+    columns.clear();
 
     return _fill_dest_block(output_block, eof);
 }
@@ -88,8 +86,12 @@ Status VBrokerScanner::get_next(Block* output_block, bool* eof) {
 Status VBrokerScanner::_fill_dest_columns(const Slice& line,
                                           std::vector<MutableColumnPtr>& columns) {
     RETURN_IF_ERROR(_line_split_to_values(line));
-    if (!_success) {
+    if (UNLIKELY(!_success)) {
         // If not success, which means we met an invalid row, return.
+        return Status::OK();
+    }
+
+    if (!check_array_format(_split_values)) {
         return Status::OK();
     }
 
@@ -98,19 +100,8 @@ Status VBrokerScanner::_fill_dest_columns(const Slice& line,
         int dest_index = idx++;
 
         auto src_slot_desc = _src_slot_descs[i];
-        if (!src_slot_desc->is_materialized()) {
-            continue;
-        }
 
         const Slice& value = _split_values[i];
-        if (is_null(value)) {
-            // nullable
-            auto* nullable_column =
-                    reinterpret_cast<vectorized::ColumnNullable*>(columns[dest_index].get());
-            nullable_column->insert_default();
-            continue;
-        }
-
         _text_converter->write_string_column(src_slot_desc, &columns[dest_index], value.data,
                                              value.size);
     }

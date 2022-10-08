@@ -19,12 +19,15 @@ package org.apache.doris.nereids.rules;
 
 /**
  * Promise of rule, The value with a large promise has a higher priority.
+ * NOTICE: we must ensure that the promise of the IMPLEMENT is greater than the promise of the others.
  */
 public enum RulePromise {
+    ANALYSIS,
+    REWRITE,
     EXPLORE,
     IMPLEMENT,
-    REWRITE,
-    ANALYSIS,
+
+    // just for check plan in UT
     PLAN_CHECK
     ;
 

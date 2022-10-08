@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/hll_function.h"
 #include "olap/hll.h"
-#include "udf/udf.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/simple_function_factory.h"
@@ -37,7 +35,7 @@ struct HLLHash {
 
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1] - 1;
+            size_t str_size = offsets[i] - offsets[i - 1];
             uint64_t hash_value =
                     HashUtil::murmur_hash64A(raw_str, str_size, HashUtil::MURMUR_SEED);
             res_data[i].update(hash_value);
@@ -56,7 +54,7 @@ struct HLLHash {
                 continue;
             } else {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                size_t str_size = offsets[i] - offsets[i - 1];
                 uint64_t hash_value =
                         HashUtil::murmur_hash64A(raw_str, str_size, HashUtil::MURMUR_SEED);
                 res_data[i].update(hash_value);

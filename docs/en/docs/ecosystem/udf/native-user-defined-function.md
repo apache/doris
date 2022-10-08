@@ -160,17 +160,17 @@ Running `sh build.sh` in the root directory of Doris will generate a static libr
 
     ```
     # Include udf
-    include_directories(thirdparty/include)
+    include_directories(../thirdparty/include)
 
     # Set all libraries
     add_library(udf STATIC IMPORTED)
-    set_target_properties(udf PROPERTIES IMPORTED_LOCATION thirdparty/lib/libDorisUdf.a)
+    set_target_properties(udf PROPERTIES IMPORTED_LOCATION ../thirdparty/lib/libDorisUdf.a)
 
     # where to put generated libraries
-    set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
+    set(LIBRARY_OUTPUT_PATH "src/udf_samples")
 
     # where to put generated binaries
-    set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
+    set(EXECUTABLE_OUTPUT_PATH "src/udf_samples")
 
     add_library(udfsample SHARED udf_sample.cpp)
         target_link_libraries(udfsample
@@ -259,6 +259,11 @@ For specific use, please refer to `CREATE FUNCTION` for more detailed informatio
 Users must have the `SELECT` permission of the corresponding database to use UDF/UDAF.
 
 The use of UDF is consistent with ordinary function methods. The only difference is that the scope of built-in functions is global, and the scope of UDF is internal to DB. When the link session is inside the data, directly using the UDF name will find the corresponding UDF inside the current DB. Otherwise, the user needs to display the specified UDF database name, such as `dbName`.`funcName`.
+
+In current version, vectorization needs to be turned off to use native udf  
+```
+set enable_vectorized_engine = false;
+```
 
 
 ## Delete UDF

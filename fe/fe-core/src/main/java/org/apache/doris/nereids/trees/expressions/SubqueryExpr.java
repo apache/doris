@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -30,11 +30,22 @@ import java.util.Objects;
 /**
  * Subquery Expression.
  */
-public class SubqueryExpr extends Expression {
-    protected LogicalPlan queryPlan;
+public abstract class SubqueryExpr extends Expression {
+    protected final LogicalPlan queryPlan;
+    protected final List<Slot> correlateSlots;
 
     public SubqueryExpr(LogicalPlan subquery) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
+        this.correlateSlots = ImmutableList.of();
+    }
+
+    public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots) {
+        this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
+        this.correlateSlots = ImmutableList.copyOf(correlateSlots);
+    }
+
+    public List<Slot> getCorrelateSlots() {
+        return correlateSlots;
     }
 
     @Override
@@ -44,19 +55,18 @@ public class SubqueryExpr extends Expression {
 
     @Override
     public boolean nullable() throws UnboundException {
-        // TODO:
-        // Any child is nullable, the whole is nullable
-        throw new UnboundException("not support");
+        return true;
     }
 
     @Override
     public String toSql() {
-        return "(" + queryPlan.toString() + ")";
+        return "(" + queryPlan + ")";
     }
 
     @Override
     public String toString() {
-        return "(" + queryPlan.toString() + ")";
+        return "(QueryPlan: " + queryPlan
+                + "), (CorrelatedSlots: " + correlateSlots + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -68,12 +78,6 @@ public class SubqueryExpr extends Expression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return children.get(0);
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -82,7 +86,8 @@ public class SubqueryExpr extends Expression {
             return false;
         }
         SubqueryExpr other = (SubqueryExpr) o;
-        return checkEquals(queryPlan, other.queryPlan);
+        return checkEquals(queryPlan, other.queryPlan)
+                && Objects.equals(correlateSlots, other.correlateSlots);
     }
 
     /**
@@ -118,6 +123,10 @@ public class SubqueryExpr extends Expression {
 
     @Override
     public int hashCode() {
-        return Objects.hash(queryPlan);
+        return Objects.hash(queryPlan, correlateSlots);
+    }
+
+    public List<Slot> getOutput() {
+        return queryPlan.getOutput();
     }
 }

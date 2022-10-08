@@ -79,7 +79,8 @@ public class AddRollupClause extends AlterTableClause {
         Set<String> colSet = Sets.newHashSet();
         for (String col : columnNames) {
             if (Strings.isNullOrEmpty(col)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, col);
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                        col, FeNameFormat.getColumnNameRegex());
             }
             if (!colSet.add(col)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col);

@@ -23,37 +23,26 @@
 #include <fmt/format.h>
 #include <snappy.h>
 
-#include <cstring>
-#include <iomanip>
-#include <iterator>
-#include <memory>
-
+#include "agent/heartbeat_server.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
+#include "util/block_compression.h"
+#include "util/faststring.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_common.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/exception.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_hll.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 
@@ -75,20 +64,34 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
 }
 
 Block::Block(const PBlock& pblock) {
+    CHECK(HeartbeatServer::check_be_exec_version(pblock.be_exec_version()));
+
     const char* buf = nullptr;
     std::string compression_scratch;
     if (pblock.compressed()) {
         // Decompress
+        SCOPED_RAW_TIMER(&_decompress_time_ns);
         const char* compressed_data = pblock.column_values().c_str();
         size_t compressed_size = pblock.column_values().size();
         size_t uncompressed_size = 0;
-        bool success =
-                snappy::GetUncompressedLength(compressed_data, compressed_size, &uncompressed_size);
-        DCHECK(success) << "snappy::GetUncompressedLength failed";
-        compression_scratch.resize(uncompressed_size);
-        success =
-                snappy::RawUncompress(compressed_data, compressed_size, compression_scratch.data());
-        DCHECK(success) << "snappy::RawUncompress failed";
+        if (pblock.has_compression_type() && pblock.has_uncompressed_size()) {
+            BlockCompressionCodec* codec;
+            get_block_compression_codec(pblock.compression_type(), &codec);
+            uncompressed_size = pblock.uncompressed_size();
+            compression_scratch.resize(uncompressed_size);
+            Slice decompressed_slice(compression_scratch);
+            codec->decompress(Slice(compressed_data, compressed_size), &decompressed_slice);
+            DCHECK(uncompressed_size == decompressed_slice.size);
+        } else {
+            bool success = snappy::GetUncompressedLength(compressed_data, compressed_size,
+                                                         &uncompressed_size);
+            DCHECK(success) << "snappy::GetUncompressedLength failed";
+            compression_scratch.resize(uncompressed_size);
+            success = snappy::RawUncompress(compressed_data, compressed_size,
+                                            compression_scratch.data());
+            DCHECK(success) << "snappy::RawUncompress failed";
+        }
+        _decompressed_bytes = uncompressed_size;
         buf = compression_scratch.data();
     } else {
         buf = pblock.column_values().data();
@@ -97,7 +100,7 @@ Block::Block(const PBlock& pblock) {
     for (const auto& pcol_meta : pblock.column_metas()) {
         DataTypePtr type = DataTypeFactory::instance().create_data_type(pcol_meta);
         MutableColumnPtr data_column = type->create_column();
-        buf = type->deserialize(buf, data_column.get());
+        buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version());
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -252,6 +255,22 @@ const ColumnWithTypeAndName& Block::get_by_name(const std::string& name) const {
     }
 
     return data[it->second];
+}
+
+ColumnWithTypeAndName* Block::try_get_by_name(const std::string& name) {
+    auto it = index_by_name.find(name);
+    if (index_by_name.end() == it) {
+        return nullptr;
+    }
+    return &data[it->second];
+}
+
+const ColumnWithTypeAndName* Block::try_get_by_name(const std::string& name) const {
+    auto it = index_by_name.find(name);
+    if (index_by_name.end() == it) {
+        return nullptr;
+    }
+    return &data[it->second];
 }
 
 bool Block::has(const std::string& name) const {
@@ -558,7 +577,6 @@ DataTypes Block::get_data_types() const {
 }
 
 void Block::clear() {
-    info = BlockInfo();
     data.clear();
     index_by_name.clear();
 }
@@ -578,7 +596,6 @@ void Block::clear_column_data(int column_size) noexcept {
 }
 
 void Block::swap(Block& other) noexcept {
-    std::swap(info, other.info);
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
 }
@@ -597,8 +614,9 @@ void Block::update_hash(SipHash& hash) const {
     }
 }
 
-void filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t column_to_keep) {
-    auto count = count_bytes_in_filter(filter);
+void Block::filter_block_internal(Block* block, const IColumn::Filter& filter,
+                                  uint32_t column_to_keep) {
+    size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
         for (size_t i = 0; i < column_to_keep; ++i) {
             std::move(*block->get_by_position(i).column).assume_mutable()->clear();
@@ -607,7 +625,7 @@ void filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t
         if (count != block->rows()) {
             for (size_t i = 0; i < column_to_keep; ++i) {
                 block->get_by_position(i).column =
-                        block->get_by_position(i).column->filter(filter, 0);
+                        block->get_by_position(i).column->filter(filter, count);
             }
         }
     }
@@ -620,6 +638,14 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
         columns_with_type_and_name.emplace_back(data[offset]);
     }
     return columns_with_type_and_name;
+}
+
+void Block::append_block_by_selector(MutableColumns& columns,
+                                     const IColumn::Selector& selector) const {
+    DCHECK(data.size() == columns.size());
+    for (size_t i = 0; i < data.size(); i++) {
+        data[i].column->append_data_by_selector(columns[i], selector);
+    }
 }
 
 Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
@@ -665,23 +691,27 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     return Status::OK();
 }
 
-Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
+Status Block::serialize(PBlock* pblock,
+                        /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
+                        size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
+    pblock->set_be_exec_version(HeartbeatServer::be_exec_version);
+
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
     for (const auto& c : *this) {
         PColumnMeta* pcm = pblock->add_column_metas();
         c.to_pb_column_meta(pcm);
         // get serialized size
-        content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(*(c.column));
+        content_uncompressed_size +=
+                c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
     }
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
-    std::string* column_values = nullptr;
+    std::string column_values;
     try {
-        column_values = pblock->mutable_column_values();
-        column_values->resize(content_uncompressed_size);
+        column_values.resize(content_uncompressed_size);
     } catch (...) {
         std::exception_ptr p = std::current_exception();
         std::string msg = fmt::format(
@@ -690,41 +720,32 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }
-    char* buf = column_values->data();
+    char* buf = column_values.data();
 
     for (const auto& c : *this) {
-        buf = c.type->serialize(*(c.column), buf);
+        buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
     *uncompressed_bytes = content_uncompressed_size;
 
     // compress
     if (config::compress_rowbatches && content_uncompressed_size > 0) {
-        size_t max_compressed_size = snappy::MaxCompressedLength(content_uncompressed_size);
-        std::string compression_scratch;
-        try {
-            // Try compressing the content to compression_scratch,
-            // swap if compressed data is smaller
-            // Allocation of extra-long contiguous memory may fail, and data compression cannot be used if it fails
-            compression_scratch.resize(max_compressed_size);
-        } catch (...) {
-            std::exception_ptr p = std::current_exception();
-            std::string msg =
-                    fmt::format("Try to alloc {} bytes for compression scratch failed. reason {}",
-                                max_compressed_size, p ? p.__cxa_exception_type()->name() : "null");
-            LOG(WARNING) << msg;
-            return Status::BufferAllocFailed(msg);
-        }
-        size_t compressed_size = 0;
-        char* compressed_output = compression_scratch.data();
-        snappy::RawCompress(column_values->data(), content_uncompressed_size, compressed_output,
-                            &compressed_size);
+        SCOPED_RAW_TIMER(&_compress_time_ns);
+        pblock->set_compression_type(compression_type);
+        pblock->set_uncompressed_size(content_uncompressed_size);
+
+        BlockCompressionCodec* codec;
+        RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
+
+        faststring buf_compressed;
+        codec->compress(Slice(column_values.data(), content_uncompressed_size), &buf_compressed);
+        size_t compressed_size = buf_compressed.size();
 
         if (LIKELY(compressed_size < content_uncompressed_size)) {
-            compression_scratch.resize(compressed_size);
-            column_values->swap(compression_scratch);
+            pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
             pblock->set_compressed(true);
             *compressed_bytes = compressed_size;
         } else {
+            pblock->set_column_values(std::move(column_values));
             *compressed_bytes = content_uncompressed_size;
         }
 
@@ -892,11 +913,14 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
     }
 }
 
-MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs) {
+MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size) {
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
             _data_types.emplace_back(slot_desc->get_data_type_ptr());
             _columns.emplace_back(_data_types.back()->create_column());
+            if (reserve_size != 0) {
+                _columns.back()->reserve(reserve_size);
+            }
         }
     }
 }
@@ -1021,25 +1045,12 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
 void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
     for (auto idx : char_type_idx) {
         if (idx < data.size()) {
-            if (this->get_by_position(idx).column->is_nullable()) {
-                this->get_by_position(idx).column = ColumnNullable::create(
-                        reinterpret_cast<const ColumnString*>(
-                                reinterpret_cast<const ColumnNullable*>(
-                                        this->get_by_position(idx).column.get())
-                                        ->get_nested_column_ptr()
-                                        .get())
-                                ->get_shinked_column(),
-                        reinterpret_cast<const ColumnNullable*>(
-                                this->get_by_position(idx).column.get())
-                                ->get_null_map_column_ptr());
-            } else {
-                this->get_by_position(idx).column = reinterpret_cast<const ColumnString*>(
-                                                            this->get_by_position(idx).column.get())
-                                                            ->get_shinked_column();
-            }
+            auto& col_and_name = this->get_by_position(idx);
+            col_and_name.column = col_and_name.column->assume_mutable()->get_shrinked_column();
         }
     }
 }
+
 size_t MutableBlock::allocated_bytes() const {
     size_t res = 0;
     for (const auto& col : _columns) {

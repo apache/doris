@@ -27,12 +27,12 @@ Apache Doris is a high-performance, real-time analytical database based on MPP a
 
 Apache Doris was first born as Palo project for Baidu's ad reporting business, officially open-sourced in 2017, donated by Baidu to the Apache Foundation for incubation in July 2018, and then incubated and operated by members of the incubator project management committee under the guidance of Apache mentors. Currently, the Apache Doris community has gathered more than 300 contributors from nearly 100 companies in different industries, and the number of active contributors is close to 100 per month. Apache Doris has graduated from Apache incubator successfully and become a Top-Level Project in June 2022.
 
-Apache Doris now has a wide user base in China and around the world, and as of today, Apache Doris is used in production environments in over 500 companies worldwide. More than 80% of the top 50 Internet companies in China in terms of market capitalization or valuation have been using Apache Doris for a long time, including Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Weibo, and Ke Holdings. It is also widely used in some traditional industries such as finance, energy, manufacturing, and telecommunications.
+Apache Doris now has a wide user base in China and around the world, and as of today, Apache Doris is used in production environments in over 700 companies worldwide. More than 80% of the top 50 Internet companies in China in terms of market capitalization or valuation have been using Apache Doris for a long time, including Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Weibo, and Ke Holdings. It is also widely used in some traditional industries such as finance, energy, manufacturing, and telecommunications.
 
 # Usage Scenarios
 
 As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
-![origin_img_v2_33e733e0-df43-4d69-8047-b8bd90cbbd7g](/images/origin_img_v2_33e733e0-df43-4d69-8047-b8bd90cbbd7g.png)
+![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/sekvbs5ih5rb16wz6n9k.png)
 
 Apache Doris is widely used in the following scenarios:
 
@@ -57,7 +57,7 @@ The overall architecture of Apache Doris is shown in the following figure. The D
 
 Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. And these two types of processes guarantee high availability of services and high reliability of data through consistency protocols. This highly integrated architecture design greatly reduces the operation and maintenance cost of a distributed system.
 
-![origin_img_v2_28d005e1-21d6-4801-956f-0c06373a7a9g](/images/origin_img_v2_28d005e1-21d6-4801-956f-0c06373a7a9g.png)
+![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/mnz20ae3s23vv3e9ltmi.png)
 
 Apache Doris adopts MySQL protocol, highly compatible with MySQL dialect, and supports standard SQL. Users can access Doris through various client tools and support seamless connection with BI tools.
 
@@ -80,11 +80,10 @@ Doris also supports strong consistent materialized views, where updates and sele
 
 In terms of query engine, Doris adopts the MPP model, with parallel execution between and within nodes, and also supports distributed shuffle join for multiple large tables, which can better cope with complex queries.
 
-![origin_img_v2_cee507bd-d6ed-4359-9e52-51e9b8458f8g](/images/origin_img_v2_cee507bd-d6ed-4359-9e52-51e9b8458f8g.png)
+![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/vjlmumwyx728uymsgcw0.png)
 
 The Doris query engine is vectorized, and all memory structures can be laid out in a columnar format to achieve significant reductions in virtual function calls, improved Cache hit rates, and efficient use of SIMD instructions. Performance in wide table aggregation scenarios is 5–10 times higher than in non-vectorized engines.
-
-![origin_img_v2_ad65aae9-9ed0-463e-a34c-94e32b092a4g](/images/origin_img_v2_ad65aae9-9ed0-463e-a34c-94e32b092a4g.png)
+![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ck2m3kbnodn28t28vphp.png)
 
 Apache Doris uses Adaptive Query Execution technology, which can dynamically adjust the execution plan based on runtime statistics, such as runtime filter technology to generate filters to push to the probe side at runtime and to automatically penetrate the filters to the probe side which drastically reduces the amount of data in the probe and speeds up join performance. Doris' runtime filter supports In/Min/Max/Bloom filter.
 

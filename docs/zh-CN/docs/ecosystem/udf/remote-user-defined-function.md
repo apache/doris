@@ -72,7 +72,7 @@ Remote UDF Service 支持通过 RPC 的方式访问用户提供的 UDF Service�
 
 ## 创建 UDF
 
-目前暂不支持 UDAF 和 UDTF
+目前暂不支持UDTF
 
 ```sql
 CREATE FUNCTION 

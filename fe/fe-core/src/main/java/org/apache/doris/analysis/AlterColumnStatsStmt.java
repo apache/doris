@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
@@ -133,8 +134,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
      * TODO(wzt): Support for external tables
      */
     private void checkPartitionAndColumnNames() throws AnalysisException {
-        Database db = analyzer.getEnv().getInternalDataSource()
-                .getDbOrAnalysisException(tableName.getDb());
+        Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
         Table table = db.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() != Table.TableType.OLAP) {
@@ -143,7 +143,8 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
         OlapTable olapTable = (OlapTable) table;
         if (olapTable.getColumn(columnName) == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    columnName, FeNameFormat.getColumnNameRegex());
         }
 
         if (optPartitionNames != null) {

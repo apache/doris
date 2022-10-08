@@ -29,7 +29,6 @@
 #include "testutil/function_utils.h"
 #include "util/bitmap_intersect.h"
 #include "util/bitmap_value.h"
-#include "util/logging.h"
 
 namespace doris {
 

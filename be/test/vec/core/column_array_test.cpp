@@ -28,7 +28,7 @@
 
 namespace doris::vectorized {
 
-void check_array_offsets(const IColumn& arr, const std::vector<IColumn::Offset>& offs) {
+void check_array_offsets(const IColumn& arr, const std::vector<ColumnArray::Offset64>& offs) {
     auto arr_col = check_and_get_column<ColumnArray>(arr);
     ASSERT_EQ(arr_col->size(), offs.size());
     for (size_t i = 0; i < arr_col->size(); ++i) {
@@ -52,15 +52,15 @@ void check_array_data(const IColumn& arr, const std::vector<std::string>& data) 
     ASSERT_EQ(data_col->size(), data.size());
     for (size_t i = 0; i < data_col->size(); ++i) {
         auto element = data_col->get_data_at(i);
-        ASSERT_EQ(std::string(element.data), data[i]);
+        ASSERT_EQ(std::string(element.data, element.size), data[i]);
     }
 }
 
 TEST(ColumnArrayTest, IntArrayTest) {
-    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnVector<int32_t>::create();
     // init column array with [[1,2,3],[],[4]]
-    std::vector<IColumn::Offset> offs = {0, 3, 3, 4};
+    std::vector<ColumnArray::Offset64> offs = {0, 3, 3, 4};
     std::vector<int32_t> vals = {1, 2, 3, 4};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -82,10 +82,10 @@ TEST(ColumnArrayTest, IntArrayTest) {
 }
 
 TEST(ColumnArrayTest, StringArrayTest) {
-    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnString::create();
     // init column array with [["abc","d"],["ef"],[], [""]];
-    std::vector<IColumn::Offset> offs = {0, 2, 3, 3, 4};
+    std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
     std::vector<std::string> vals = {"abc", "d", "ef", ""};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -107,10 +107,10 @@ TEST(ColumnArrayTest, StringArrayTest) {
 }
 
 TEST(ColumnArrayTest, IntArrayPermuteTest) {
-    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnVector<int32_t>::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
-    std::vector<IColumn::Offset> offs = {0, 3, 3, 4, 6};
+    std::vector<ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -133,10 +133,10 @@ TEST(ColumnArrayTest, IntArrayPermuteTest) {
 }
 
 TEST(ColumnArrayTest, StringArrayPermuteTest) {
-    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnString::create();
     // init column array with [["abc","d"],["ef"],[], [""]];
-    std::vector<IColumn::Offset> offs = {0, 2, 3, 3, 4};
+    std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
     std::vector<std::string> vals = {"abc", "d", "ef", ""};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -159,10 +159,10 @@ TEST(ColumnArrayTest, StringArrayPermuteTest) {
 }
 
 TEST(ColumnArrayTest, EmptyArrayPermuteTest) {
-    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnVector<int32_t>::create();
     // init column array with [[],[],[],[]]
-    std::vector<IColumn::Offset> offs = {0, 0, 0, 0, 0};
+    std::vector<ColumnArray::Offset64> offs = {0, 0, 0, 0, 0};
     std::vector<int32_t> vals = {};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -185,10 +185,10 @@ TEST(ColumnArrayTest, EmptyArrayPermuteTest) {
 }
 
 TEST(ColumnArrayTest, IntArrayReplicateTest) {
-    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnVector<int32_t>::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
-    std::vector<IColumn::Offset> offs = {0, 3, 3, 4, 6};
+    std::vector<ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -209,10 +209,10 @@ TEST(ColumnArrayTest, IntArrayReplicateTest) {
 }
 
 TEST(ColumnArrayTest, StringArrayReplicateTest) {
-    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnString::create();
     // init column array with [["abc","d"],["ef"],[], [""]];
-    std::vector<IColumn::Offset> offs = {0, 2, 3, 3, 4};
+    std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
     std::vector<std::string> vals = {"abc", "d", "ef", ""};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);

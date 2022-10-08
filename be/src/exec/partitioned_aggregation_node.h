@@ -691,30 +691,6 @@ private:
     /// Calls finalizes on all tuples starting at 'it'.
     void CleanupHashTbl(const std::vector<NewAggFnEvaluator*>& agg_fn_evals,
                         PartitionedHashTable::Iterator it);
-
-    /// Compute minimum buffer reservation for grouping aggregations.
-    /// We need one buffer per partition, which is used either as the write buffer for the
-    /// aggregated stream or the unaggregated stream. We need an additional buffer to read
-    /// the stream we are currently repartitioning. The read buffer needs to be a max-sized
-    /// buffer to hold a max-sized row and we need one max-sized write buffer that is used
-    /// temporarily to append a row to any stream.
-    ///
-    /// If we need to serialize, we need an additional buffer while spilling a partition
-    /// as the partitions aggregate stream needs to be serialized and rewritten.
-    /// We do not spill streaming preaggregations, so we do not need to reserve any buffers.
-    int64_t MinReservation() const {
-        //DCHECK(!grouping_exprs_.empty());
-        // Must be kept in sync with AggregationNode.computeNodeResourceProfile() in fe.
-        //if (is_streaming_preagg_) {
-        // Reserve at least one buffer and a 64kb hash table per partition.
-        //    return (_resource_profile.spillable_buffer_size + 64 * 1024) * PARTITION_FANOUT;
-        //}
-        //int num_buffers = PARTITION_FANOUT + 1 + (needs_serialize_ ? 1 : 0);
-        // Two of the buffers must fit the maximum row.
-        //return _resource_profile.spillable_buffer_size * (num_buffers - 2) +
-        //_resource_profile.max_row_buffer_size * 2;
-        return 0;
-    }
 };
 
 } // namespace doris

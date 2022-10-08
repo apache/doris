@@ -37,12 +37,13 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryStateException;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -70,7 +71,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class DeleteHandlerTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     private DeleteHandler deleteHandler;
 
@@ -93,6 +94,8 @@ public class DeleteHandlerTest {
     private AgentTaskQueue agentTaskQueue;
     @Mocked
     private AgentTaskExecutor executor;
+    @Mocked
+    private SystemInfoService systemInfoService;
 
     private Database db;
     private PaloAuth auth;
@@ -129,22 +132,22 @@ public class DeleteHandlerTest {
             }
         };
 
-        InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
+        InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
         new Expectations() {
             {
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                env.getCurrentDataSource();
+                env.getCurrentCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
@@ -167,6 +170,14 @@ public class DeleteHandlerTest {
                 env.getEditLog();
                 minTimes = 0;
                 result = editLog;
+
+                env.getClusterInfo();
+                minTimes = 0;
+                result = systemInfoService;
+
+                systemInfoService.getBackendIds(false);
+                minTimes = 0;
+                result = Lists.newArrayList(1L);
             }
         };
         globalTransactionMgr.addDatabaseTransactionMgr(db.getId());

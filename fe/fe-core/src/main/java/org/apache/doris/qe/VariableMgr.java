@@ -186,6 +186,10 @@ public class VariableMgr {
             ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, attr.name(), value);
         }
 
+        if (VariableVarCallbacks.hasCallback(attr.name())) {
+            VariableVarCallbacks.call(attr.name(), value);
+        }
+
         return true;
     }
 
@@ -265,8 +269,7 @@ public class VariableMgr {
     }
 
     private static void setGlobalVarAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
-        // set global variable should not affect variables of current session.
-        // global variable will only make effect when connecting in.
+        // global variable will make effect when is set immediately.
         wlock.lock();
         try {
             setValue(ctx.getObj(), ctx.getField(), value);
@@ -515,9 +518,6 @@ public class VariableMgr {
 
         // Set to true if the variables need to be forwarded along with forward statement.
         boolean needForward() default false;
-
-        // Set to true if the variables need to be set in TQueryOptions
-        boolean isQueryOption() default false;
     }
 
     private static class VarContext {
@@ -587,8 +587,7 @@ public class VariableMgr {
             }
 
             field.setAccessible(true);
-            builder.put(attr.name(),
-                    new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
+            builder.put(attr.name(), new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
         }
         return builder;
     }

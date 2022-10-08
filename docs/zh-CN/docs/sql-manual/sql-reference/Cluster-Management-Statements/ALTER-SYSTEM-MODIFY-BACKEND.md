@@ -59,19 +59,19 @@ ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
 1. 修改 BE 的资源标签
 
    ```sql
-   ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
-   ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a", "tag.compute" = "c1");
+   ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("tag.location" = "group_a");
+   ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("tag.location" = "group_a", "tag.compute" = "c1");
    ```
 
 2. 修改 BE 的查询禁用属性
    
    ```sql
-   ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
+   ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("disable_query" = "true");
    ```
 3. 修改 BE 的导入禁用属性
    
    ```sql
-   ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true");
+   ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("disable_load" = "true");
    ```
 ### Keywords
 

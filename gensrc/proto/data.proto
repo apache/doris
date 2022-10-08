@@ -21,6 +21,7 @@ package doris;
 option java_package = "org.apache.doris.proto";
 
 import "types.proto";
+import "segment_v2.proto";
 
 message PNodeStatistics {
     required int64 node_id = 1;
@@ -63,4 +64,7 @@ message PBlock {
     repeated PColumnMeta column_metas = 1;
     optional bytes column_values = 2;
     optional bool compressed = 3 [default = false];
+    optional int64 uncompressed_size = 4;
+    optional segment_v2.CompressionTypePB compression_type = 5 [default = SNAPPY];
+    optional int32 be_exec_version = 6 [default = 0];
 }

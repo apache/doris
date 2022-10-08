@@ -90,6 +90,7 @@ enum TPrimitiveType {
   DECIMAL32,
   DECIMAL64,
   DECIMAL128,
+  JSONB,
 }
 
 enum TTypeNodeType {
@@ -356,6 +357,23 @@ struct TFunction {
   13: optional bool vectorized = false
 }
 
+struct TJdbcExecutorCtorParams {
+  // Local path to the UDF's jar file
+  1: optional string jar_location_path
+
+  // "jdbc:mysql://127.0.0.1:3307/test";
+  2: optional string jdbc_url
+
+  //root
+  3: optional string jdbc_user
+
+  //password
+  4: optional string jdbc_password
+
+  //"com.mysql.jdbc.Driver"
+  5: optional string jdbc_driver_class
+}
+
 struct TJavaUdfExecutorCtorParams {
   1: optional TFunction fn
 
@@ -517,7 +535,8 @@ enum TTableType {
     ODBC_TABLE,
     HIVE_TABLE,
     ICEBERG_TABLE,
-    HUDI_TABLE
+    HUDI_TABLE,
+    JDBC_TABLE
 }
 
 enum TOdbcTableType {

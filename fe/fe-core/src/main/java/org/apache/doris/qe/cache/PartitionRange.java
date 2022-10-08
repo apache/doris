@@ -215,10 +215,6 @@ public class PartitionRange {
             date = key.date;
         }
 
-        public boolean equals(PartitionKeyType key) {
-            return realValue() == key.realValue();
-        }
-
         public void add(int num) {
             if (keyType == KeyType.DATE) {
                 date = new Date(date.getTime() + num * 3600 * 24 * 1000);

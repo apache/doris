@@ -75,14 +75,6 @@ public class HashDistributionDesc extends DistributionDesc {
             if (!distColSet.add(columnName)) {
                 throw new AnalysisException("Duplicated distribution column " + columnName);
             }
-            for (ColumnDef columnDef : columnDefs) {
-                if (columnDef.getName().equals(columnName)) {
-                    if (columnDef.getType().isScalarType(PrimitiveType.STRING)) {
-                        throw new AnalysisException("String Type should not be used in distribution column["
-                                + columnDef.getName() + "].");
-                    }
-                }
-            }
         }
     }
 
@@ -121,8 +113,15 @@ public class HashDistributionDesc extends DistributionDesc {
                         throw new DdlException("Distribution column[" + colName + "] is not key column");
                     }
 
-                    if (column.getType().isFloatingPointType()) {
-                        throw new DdlException("Floating point type column can not be distribution column");
+                    if (column.getType().isScalarType(PrimitiveType.STRING)) {
+                        throw new DdlException("String Type should not be used in distribution column["
+                                + column.getName() + "].");
+                    } else if (column.getType().isArrayType()) {
+                        throw new DdlException("Array Type should not be used in distribution column["
+                                + column.getName() + "].");
+                    } else if (column.getType().isFloatingPointType()) {
+                        throw new DdlException("Floating point type should not be used in distribution column["
+                                + column.getName() + "].");
                     }
 
                     distributionColumns.add(column);

@@ -49,12 +49,11 @@ public:
     }
 
     void commit() override {
-        _data.push_back(0);
-        _offsets.push_back(_offsets.back() + _now_offset + 1);
+        _offsets.push_back(_offsets.back() + _now_offset);
         _now_offset = 0;
     }
 
-    ~VectorBufferWriter() { DCHECK(_now_offset == 0); }
+    ~VectorBufferWriter() override { DCHECK(_now_offset == 0); }
 
 private:
     ColumnString::Chars& _data;

@@ -32,7 +32,9 @@
 #include "common/status.h"
 #include "gutil/dynamic_annotations.h"
 #include "olap/olap_define.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/chunk.h"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -160,7 +162,6 @@ public:
 
     int64_t total_allocated_bytes() const { return total_allocated_bytes_; }
     int64_t total_reserved_bytes() const { return total_reserved_bytes_; }
-    int64_t peak_allocated_bytes() const { return peak_allocated_bytes_; }
 
     MemTracker* mem_tracker() { return _mem_tracker; }
 
@@ -240,7 +241,6 @@ private:
             DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
             info.allocated_bytes += padding + size;
             total_allocated_bytes_ += padding + size;
-            peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
             DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
             return result;
         }
@@ -297,9 +297,6 @@ private:
 
     /// sum of all bytes allocated in chunks_
     int64_t total_reserved_bytes_;
-
-    /// Maximum number of bytes allocated from this pool at one time.
-    int64_t peak_allocated_bytes_;
 
     std::vector<ChunkInfo> chunks_;
 

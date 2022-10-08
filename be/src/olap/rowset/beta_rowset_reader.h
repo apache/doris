@@ -38,6 +38,8 @@ public:
     // It's ok, because we only get ref here, the block's owner is this reader.
     Status next_block(RowBlock** block) override;
     Status next_block(vectorized::Block* block) override;
+    Status next_block_view(vectorized::BlockView* block_view) override;
+    bool support_return_data_by_ref() override { return _iterator->support_return_data_by_ref(); }
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
@@ -66,7 +68,7 @@ public:
 private:
     bool _should_push_down_value_predicates() const;
 
-    std::unique_ptr<Schema> _schema;
+    std::shared_ptr<Schema> _input_schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 
@@ -75,7 +77,7 @@ private:
 
     std::unique_ptr<RowwiseIterator> _iterator;
 
-    std::unique_ptr<RowBlockV2> _input_block;
+    std::shared_ptr<RowBlockV2> _input_block;
     std::unique_ptr<RowBlock> _output_block;
     std::unique_ptr<RowCursor> _row;
 

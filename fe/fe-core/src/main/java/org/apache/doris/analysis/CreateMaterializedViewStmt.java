@@ -34,6 +34,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +56,8 @@ import java.util.Set;
  * [PROPERTIES ("key" = "value")]
  */
 public class CreateMaterializedViewStmt extends DdlStmt {
+    private static final Logger LOG = LogManager.getLogger(CreateMaterializedViewStmt.class);
+
     public static final String MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
     public static final Map<String, MVColumnPattern> FN_NAME_TO_PATTERN;
 
@@ -400,9 +404,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     mvColumnName = baseColumnName;
                 } else {
                     mvColumnName = mvColumnBuilder(functionName, baseColumnName);
-                    if (!functionChild0.getType().isStringType()) {
-                        functionChild0.uncheckedCastChild(Type.VARCHAR, 0);
-                    }
                     defineExpr = functionChild0;
                 }
                 mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());

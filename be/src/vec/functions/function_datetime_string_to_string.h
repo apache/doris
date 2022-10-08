@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_date.h"

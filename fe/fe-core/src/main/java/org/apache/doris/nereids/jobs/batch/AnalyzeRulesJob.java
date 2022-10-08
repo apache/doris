@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
+import org.apache.doris.nereids.rules.analysis.ResolveHaving;
 import org.apache.doris.nereids.rules.analysis.Scope;
 
 import com.google.common.collect.ImmutableList;
@@ -35,16 +36,17 @@ public class AnalyzeRulesJob extends BatchRulesJob {
 
     /**
      * Execute the analysis job with scope.
-     * @param plannerContext planner context for execute job
+     * @param cascadesContext planner context for execute job
      * @param scope Parse the symbolic scope of the field
      */
-    public AnalyzeRulesJob(PlannerContext plannerContext, Optional<Scope> scope) {
-        super(plannerContext);
+    public AnalyzeRulesJob(CascadesContext cascadesContext, Optional<Scope> scope) {
+        super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(
                         new BindRelation(),
                         new BindSlotReference(scope),
                         new BindFunction(),
+                        new ResolveHaving(),
                         new ProjectToGlobalAggregate())
                 )));
     }

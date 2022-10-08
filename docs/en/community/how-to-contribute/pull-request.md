@@ -26,11 +26,11 @@ under the License.
 
 # Code Submission Guide
 
-[Pull Request (PR)](https://help.github.com/articles/about-pull-requests/) can be easily submitted on [Github](https://github.com/apache/incubator-doris). The PR method of Doris project is described below.
+[Pull Request (PR)](https://help.github.com/articles/about-pull-requests/) can be easily submitted on [Github](https://github.com/apache/doris). The PR method of Doris project is described below.
 
 ## Fork Repository
 
-Go to the [github page](https://github.com/apache/incubator-doris) of apache/incubator-doris , and click the button `Fork` in the upper right corner for Fork.
+Go to the [github page](https://github.com/apache/doris) of apache/doris , and click the button `Fork` in the upper right corner for Fork.
 
 ![Fork](/images/fork-repo.png)
 
@@ -39,17 +39,17 @@ Go to the [github page](https://github.com/apache/incubator-doris) of apache/inc
 #### (1) Clone the code locally:
 
 ```
-git clone https://github.com/<your_github_name>/incubator-doris.git
+git clone https://github.com/<your_github_name>/doris.git
 ```
 
 Note: Please replace your GitHub name with your yourgithubname.
 
 When clone is completed, origin defaults to the remote fork address on github.
 
-#### (2) Add apache/incubator-doris to the remote branch upstream of the local warehouse:
+#### (2) Add apache/doris to the remote branch upstream of the local warehouse:
 
 ```
-cd doris
+cd  doris
 git remote add upstream https://github.com/apache/doris.git
 ```
 
@@ -109,7 +109,7 @@ For how to write Commit Message, here are some Tips:
 
 For more details, see <https://chris.beams.io/posts/git-commit>.
 
-![create PR](/images/create-pr2.png)
+![create PR](/images/create-pr.png)
 
 #### (4) Complete the creation
 After successful creation, you can see that Doris project needs review, you can wait for us to review and join, you can also contact us directly.

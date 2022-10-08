@@ -115,7 +115,7 @@ protected:
     // true if there is no more data can be read from this function.
     bool _eos = false;
     // true means the function result set from current row is empty(eg, source value is null or empty).
-    // so that when calling reset(), we can do nothing and keep eos as true.
+    // so that when calling reset(), we can do nothing and keep eos as false.
     bool _is_current_empty = false;
     // the position of current cursor
     int64_t _cur_offset = 0;

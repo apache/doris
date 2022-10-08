@@ -74,6 +74,7 @@ public class SparkResource extends Resource {
     private static final String YARN_MASTER = "yarn";
     private static final String SPARK_CONFIG_PREFIX = "spark.";
     private static final String BROKER_PROPERTY_PREFIX = "broker.";
+    private static final String ENV_PREFIX = "env.";
     // spark uses hadoop configs in the form of spark.hadoop.*
     private static final String SPARK_HADOOP_CONFIG_PREFIX = "spark.hadoop.";
     private static final String SPARK_YARN_RESOURCE_MANAGER_ADDRESS = "spark.hadoop.yarn.resourcemanager.address";
@@ -103,19 +104,22 @@ public class SparkResource extends Resource {
     // broker username and password
     @SerializedName(value = "brokerProperties")
     private Map<String, String> brokerProperties;
+    @SerializedName(value = "envConfigs")
+    private Map<String, String> envConfigs;
 
     public SparkResource(String name) {
-        this(name, Maps.newHashMap(), null, null, Maps.newHashMap());
+        this(name, Maps.newHashMap(), null, null, Maps.newHashMap(), Maps.newHashMap());
     }
 
     // "public" for testing
     public SparkResource(String name, Map<String, String> sparkConfigs, String workingDir, String broker,
-                         Map<String, String> brokerProperties) {
+                         Map<String, String> brokerProperties, Map<String, String> envConfigs) {
         super(name, ResourceType.SPARK);
         this.sparkConfigs = sparkConfigs;
         this.workingDir = workingDir;
         this.broker = broker;
         this.brokerProperties = brokerProperties;
+        this.envConfigs = envConfigs;
     }
 
     public String getMaster() {
@@ -149,12 +153,25 @@ public class SparkResource extends Resource {
         return sparkConfigs;
     }
 
+    public Map<String, String> getEnvConfigsWithoutPrefix() {
+        Map<String, String> envConfig = Maps.newHashMap();
+        if (envConfigs != null) {
+            for (Map.Entry<String, String> entry : envConfigs.entrySet()) {
+                if (entry.getKey().startsWith(ENV_PREFIX)) {
+                    String key = entry.getKey().substring(ENV_PREFIX.length());
+                    envConfig.put(key, entry.getValue());
+                }
+            }
+        }
+        return envConfig;
+    }
+
     public Pair<String, String> getYarnResourcemanagerAddressPair() {
-        return Pair.create(YARN_RESOURCE_MANAGER_ADDRESS, sparkConfigs.get(SPARK_YARN_RESOURCE_MANAGER_ADDRESS));
+        return Pair.of(YARN_RESOURCE_MANAGER_ADDRESS, sparkConfigs.get(SPARK_YARN_RESOURCE_MANAGER_ADDRESS));
     }
 
     public SparkResource getCopiedResource() {
-        return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties);
+        return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties, envConfigs);
     }
 
     @Override
@@ -233,6 +250,15 @@ public class SparkResource extends Resource {
             broker = properties.get(BROKER);
         }
         brokerProperties.putAll(getBrokerProperties(properties));
+        Map<String, String> env = getEnvConfig(properties);
+        if (env.size() > 0) {
+            if (envConfigs == null) {
+                envConfigs = env;
+            } else {
+                envConfigs.putAll(env);
+            }
+        }
+        LOG.info("updateProperties,{},{}", properties, envConfigs);
     }
 
     @Override
@@ -241,6 +267,8 @@ public class SparkResource extends Resource {
 
         // get spark configs
         sparkConfigs = getSparkConfig(properties);
+        envConfigs = getEnvConfig(properties);
+        LOG.info("setProperties,{},{}", properties, envConfigs);
         // check master and deploy mode
         if (getMaster() == null) {
             throw new DdlException("Missing " + SPARK_MASTER + " in properties");
@@ -283,6 +311,16 @@ public class SparkResource extends Resource {
             }
         }
         return sparkConfig;
+    }
+
+    private Map<String, String> getEnvConfig(Map<String, String> properties) {
+        Map<String, String> envConfig = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(ENV_PREFIX)) {
+                envConfig.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return envConfig;
     }
 
     private Map<String, String> getSparkHadoopConfig(Map<String, String> properties) {
@@ -337,6 +375,11 @@ public class SparkResource extends Resource {
         }
         for (Map.Entry<String, String> entry : brokerProperties.entrySet()) {
             result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+        }
+        if (envConfigs != null) {
+            for (Map.Entry<String, String> entry : envConfigs.entrySet()) {
+                result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+            }
         }
     }
 }

@@ -22,6 +22,8 @@
 #include <roaring/roaring.hh>
 
 #include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/wrapper_field.h"
 
 namespace doris {
 
@@ -48,6 +50,25 @@ public:
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override;
+
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (_is_null) {
+            return statistic.first->is_null();
+        } else {
+            return !statistic.second->is_null();
+        }
+    }
+
+    bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        if (_is_null) {
+            return bf->test_bytes(nullptr, 0);
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type: is_null=" << _is_null;
+            return true;
+        }
+    }
+
+    bool can_do_bloom_filter() const override { return _is_null; }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 

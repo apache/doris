@@ -102,8 +102,7 @@ public class WithClause implements ParseNode {
         Preconditions.checkNotNull(other);
         views = Lists.newArrayList();
         for (View view : other.views) {
-            views.add(new View(view.getName(), view.getQueryStmt().clone(),
-                    view.getOriginalColLabels()));
+            views.add(new View(view.getName(), view.getQueryStmt().clone(), view.getOriginalColLabels()));
         }
     }
 
@@ -113,12 +112,12 @@ public class WithClause implements ParseNode {
         }
     }
 
-    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
-            throws AnalysisException {
+    public void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
         for (View view : views) {
             QueryStmt stmt = view.getQueryStmt();
             parentViewNameSet.add(view.getName());
-            stmt.getTables(analyzer, tableMap, parentViewNameSet);
+            stmt.getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 

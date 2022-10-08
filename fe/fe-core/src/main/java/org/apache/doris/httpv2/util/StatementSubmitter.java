@@ -29,6 +29,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.httpv2.util.streamresponse.JsonStreamResponse;
+import org.apache.doris.httpv2.util.streamresponse.StreamResponseInf;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -49,6 +51,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * This is a simple stmt submitter for submitting a statement to the local FE.
@@ -78,7 +81,6 @@ public class StatementSubmitter {
     }
 
     private static class Worker implements Callable<ExecutionResultSet> {
-
         private ConnectContext ctx;
         private StmtContext queryCtx;
 
@@ -102,14 +104,25 @@ public class StatementSubmitter {
                     stmt = conn.prepareStatement(
                             queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                     // set fetch size to 1 to enable streaming result set to avoid OOM.
-                    ((PreparedStatement) stmt).setFetchSize(1);
+                    ((PreparedStatement) stmt).setFetchSize(1000);
                     ResultSet rs = ((PreparedStatement) stmt).executeQuery();
+                    if (queryCtx.isStream) {
+                        StreamResponseInf streamResponse = new JsonStreamResponse(queryCtx.response);
+                        streamResponse.handleQueryAndShow(rs, startTime);
+                        rs.close();
+                        return new ExecutionResultSet(null);
+                    }
                     ExecutionResultSet resultSet = generateResultSet(rs, startTime);
                     rs.close();
                     return resultSet;
                 } else if (stmtBase instanceof DdlStmt || stmtBase instanceof ExportStmt) {
                     stmt = conn.createStatement();
                     stmt.execute(queryCtx.stmt);
+                    if (queryCtx.isStream) {
+                        StreamResponseInf streamResponse = new JsonStreamResponse(queryCtx.response);
+                        streamResponse.handleDdlAndExport(startTime);
+                        return new ExecutionResultSet(null);
+                    }
                     ExecutionResultSet resultSet = generateExecStatus(startTime);
                     return resultSet;
                 } else {
@@ -198,7 +211,7 @@ public class StatementSubmitter {
          *  "time" : 10
          * }
          */
-        private ExecutionResultSet generateExecStatus(long startTime) throws SQLException {
+        private ExecutionResultSet generateExecStatus(long startTime) {
             Map<String, Object> result = Maps.newHashMap();
             result.put("type", TYPE_EXEC_STATUS);
             result.put("status", Maps.newHashMap());
@@ -228,12 +241,18 @@ public class StatementSubmitter {
         public String user;
         public String passwd;
         public long limit; // limit the number of rows returned by the stmt
+        // used for stream Work
+        public boolean isStream;
+        public HttpServletResponse response;
 
-        public StmtContext(String stmt, String user, String passwd, long limit) {
+        public StmtContext(String stmt, String user, String passwd, long limit,
+                            boolean isStream, HttpServletResponse response) {
             this.stmt = stmt;
             this.user = user;
             this.passwd = passwd;
             this.limit = limit;
+            this.isStream = isStream;
+            this.response = response;
         }
     }
 }

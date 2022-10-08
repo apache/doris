@@ -33,6 +33,8 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -59,6 +61,12 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     private KeysType keysType;
     @SerializedName(value = "defineStmt")
     private OriginStatement defineStmt;
+    //for light schema change
+    @SerializedName(value = "maxColUniqueId")
+    private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+
+    private static final Logger LOG = LogManager.getLogger(MaterializedIndexMeta.class);
+
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
@@ -157,29 +165,17 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         if (!(obj instanceof MaterializedIndexMeta)) {
             return false;
         }
-        MaterializedIndexMeta indexMeta = (MaterializedIndexMeta) obj;
-        if (indexMeta.indexId != this.indexId) {
-            return false;
-        }
-        if (indexMeta.schema.size() != this.schema.size() || !indexMeta.schema.containsAll(this.schema)) {
-            return false;
-        }
-        if (indexMeta.schemaVersion != this.schemaVersion) {
-            return false;
-        }
-        if (indexMeta.schemaHash != this.schemaHash) {
-            return false;
-        }
-        if (indexMeta.shortKeyColumnCount != this.shortKeyColumnCount) {
-            return false;
-        }
-        if (indexMeta.storageType != this.storageType) {
-            return false;
-        }
-        if (indexMeta.keysType != this.keysType) {
-            return false;
-        }
-        return true;
+        MaterializedIndexMeta other = (MaterializedIndexMeta) obj;
+
+        return indexId == other.indexId
+                && schema.size() == other.schema.size()
+                && schema.equals(other.schema)
+                && schemaVersion == other.schemaVersion
+                && schemaHash == other.schemaHash
+                && shortKeyColumnCount == other.shortKeyColumnCount
+                && storageType == other.storageType
+                && keysType == other.keysType
+                && maxColUniqueId == other.maxColUniqueId;
     }
 
     @Override
@@ -212,4 +208,26 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         }
     }
 
+    //take care: only use when creating MaterializedIndexMeta's schema.
+    public int incAndGetMaxColUniqueId() {
+        this.maxColUniqueId++;
+        return this.maxColUniqueId;
+    }
+
+    public int getMaxColUniqueId() {
+        return this.maxColUniqueId;
+    }
+
+    public void setMaxColUniqueId(int maxColUniqueId) {
+        this.maxColUniqueId = maxColUniqueId;
+    }
+
+    public void initSchemaColumnUniqueId() {
+        maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+        this.schema.stream().forEach(column -> {
+            column.setUniqueId(incAndGetMaxColUniqueId());
+            LOG.debug("indexId: {},  column:{}, uniqueId:{}",
+                    indexId, column, column.getUniqueId());
+        });
+    }
 }

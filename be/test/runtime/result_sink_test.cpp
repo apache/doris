@@ -39,7 +39,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
 #include "util/cpu_info.h"
-#include "util/logging.h"
 #include "util/mysql_row_buffer.h"
 
 namespace doris {

@@ -20,7 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -192,7 +192,7 @@ public class ConnectProcessorTest {
             }
         };
 
-        DataSourceIf ds = env.getCurrentDataSource();
+        CatalogIf catalog = env.getCurrentCatalog();
 
         new Expectations(context) {
             {
@@ -240,9 +240,9 @@ public class ConnectProcessorTest {
                 minTimes = 0;
                 result = new TUniqueId();
 
-                context.getCurrentDataSource();
+                context.getCurrentCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
             }
         };
 

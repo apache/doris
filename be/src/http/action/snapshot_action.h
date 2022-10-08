@@ -37,7 +37,7 @@ public:
     void handle(HttpRequest* req) override;
 
 private:
-    int64_t make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
+    int64_t _make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
 }; // end class SnapshotAction
 
 } // end namespace doris

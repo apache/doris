@@ -21,12 +21,14 @@ import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
@@ -49,7 +51,7 @@ public class AggregateDisassembleTest {
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.student, ImmutableList.of("student"));
+        rStudent = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student, ImmutableList.of(""));
     }
 
     /**
@@ -99,65 +101,6 @@ public class AggregateDisassembleTest {
         Assertions.assertEquals(2, global.getOutputExpressions().size());
         Assertions.assertTrue(global.getOutputExpressions().get(0) instanceof SlotReference);
         Assertions.assertEquals(globalOutput0, global.getOutputExpressions().get(0));
-        Assertions.assertTrue(global.getOutputExpressions().get(1) instanceof Alias);
-        Assertions.assertEquals(globalOutput1, global.getOutputExpressions().get(1).child(0));
-        Assertions.assertEquals(1, global.getGroupByExpressions().size());
-        Assertions.assertEquals(globalGroupBy, global.getGroupByExpressions().get(0));
-
-        // check id:
-        Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
-                global.getOutputExpressions().get(0).getExprId());
-        Assertions.assertEquals(outputExpressionList.get(1).getExprId(),
-                global.getOutputExpressions().get(1).getExprId());
-    }
-
-    /**
-     * the initial plan is:
-     *   Aggregate(phase: [GLOBAL], outputExpr: [(age + 1) as key, SUM(id) as sum], groupByExpr: [age + 1])
-     *   +--childPlan(id, name, age)
-     * we should rewrite to:
-     *   Aggregate(phase: [GLOBAL], outputExpr: [a, SUM(b) as c], groupByExpr: [a])
-     *   +--Aggregate(phase: [LOCAL], outputExpr: [(age + 1) as a, SUM(id) as b], groupByExpr: [age + 1])
-     *       +--childPlan(id, name, age)
-     */
-    @Test
-    public void aliasGroupBy() {
-        List<Expression> groupExpressionList = Lists.newArrayList(
-                new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1)));
-        List<NamedExpression> outputExpressionList = Lists.newArrayList(
-                new Alias(new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1)), "key"),
-                new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
-        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
-
-        Plan after = rewrite(root);
-
-        Assertions.assertTrue(after instanceof LogicalUnary);
-        Assertions.assertTrue(after instanceof LogicalAggregate);
-        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
-        LogicalAggregate<Plan> global = (LogicalAggregate) after;
-        LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0);
-        Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
-        Assertions.assertEquals(AggPhase.LOCAL, local.getAggPhase());
-
-        Expression localOutput0 = new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1));
-        Expression localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
-        Expression localGroupBy = new Add(rStudent.getOutput().get(2).toSlot(), new IntegerLiteral(1));
-
-        Assertions.assertEquals(2, local.getOutputExpressions().size());
-        Assertions.assertTrue(local.getOutputExpressions().get(0) instanceof Alias);
-        Assertions.assertEquals(localOutput0, local.getOutputExpressions().get(0).child(0));
-        Assertions.assertTrue(local.getOutputExpressions().get(1) instanceof Alias);
-        Assertions.assertEquals(localOutput1, local.getOutputExpressions().get(1).child(0));
-        Assertions.assertEquals(1, local.getGroupByExpressions().size());
-        Assertions.assertEquals(localGroupBy, local.getGroupByExpressions().get(0));
-
-        Expression globalOutput0 = local.getOutputExpressions().get(0).toSlot();
-        Expression globalOutput1 = new Sum(local.getOutputExpressions().get(1).toSlot());
-        Expression globalGroupBy = local.getOutputExpressions().get(0).toSlot();
-
-        Assertions.assertEquals(2, global.getOutputExpressions().size());
-        Assertions.assertTrue(global.getOutputExpressions().get(0) instanceof Alias);
-        Assertions.assertEquals(globalOutput0, global.getOutputExpressions().get(0).child(0));
         Assertions.assertTrue(global.getOutputExpressions().get(1) instanceof Alias);
         Assertions.assertEquals(globalOutput1, global.getOutputExpressions().get(1).child(0));
         Assertions.assertEquals(1, global.getGroupByExpressions().size());
@@ -266,6 +209,85 @@ public class AggregateDisassembleTest {
         // check id:
         Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
                 global.getOutputExpressions().get(0).getExprId());
+    }
+
+    /**
+     * the initial plan is:
+     *   Aggregate(phase: [GLOBAL], outputExpr: [(COUNT(distinct age) + 2) as c], groupByExpr: [id])
+     *   +-- childPlan(id, name, age)
+     * we should rewrite to:
+     *   Aggregate(phase: [DISTINCT_LOCAL], outputExpr: [(COUNT(distinct age) + 2) as c], groupByExpr: [id])
+     *   +-- Aggregate(phase: [GLOBAL], outputExpr: [id, age], groupByExpr: [id, age])
+     *       +-- Aggregate(phase: [LOCAL], outputExpr: [id, age], groupByExpr: [id, age])
+     *           +-- childPlan(id, name, age)
+     */
+    @Test
+    public void distinctAggregateWithGroupBy() {
+        List<Expression> groupExpressionList = Lists.newArrayList(rStudent.getOutput().get(0).toSlot());
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(new Alias(
+                new Add(new Count(rStudent.getOutput().get(2).toSlot(), true),
+                        new IntegerLiteral(2)), "c"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
+
+        Plan after = rewrite(root);
+
+        Assertions.assertTrue(after instanceof LogicalUnary);
+        Assertions.assertTrue(after instanceof LogicalAggregate);
+        Assertions.assertTrue(after.child(0) instanceof LogicalUnary);
+        LogicalAggregate<Plan> distinctLocal = (LogicalAggregate) after;
+        LogicalAggregate<Plan> global = (LogicalAggregate) after.child(0);
+        LogicalAggregate<Plan> local = (LogicalAggregate) after.child(0).child(0);
+        Assertions.assertEquals(AggPhase.DISTINCT_LOCAL, distinctLocal.getAggPhase());
+        Assertions.assertEquals(AggPhase.GLOBAL, global.getAggPhase());
+        Assertions.assertEquals(AggPhase.LOCAL, local.getAggPhase());
+        // check local:
+        // id
+        Expression localOutput0 = rStudent.getOutput().get(0).toSlot();
+        // age
+        Expression localOutput1 = rStudent.getOutput().get(2).toSlot();
+        // id
+        Expression localGroupBy0 = rStudent.getOutput().get(0).toSlot();
+        // age
+        Expression localGroupBy1 = rStudent.getOutput().get(2).toSlot();
+
+        Assertions.assertEquals(2, local.getOutputExpressions().size());
+        Assertions.assertTrue(local.getOutputExpressions().get(0) instanceof SlotReference);
+        Assertions.assertEquals(localOutput0, local.getOutputExpressions().get(0));
+        Assertions.assertTrue(local.getOutputExpressions().get(1) instanceof SlotReference);
+        Assertions.assertEquals(localOutput1, local.getOutputExpressions().get(1));
+        Assertions.assertEquals(2, local.getGroupByExpressions().size());
+        Assertions.assertEquals(localGroupBy0, local.getGroupByExpressions().get(0));
+        Assertions.assertEquals(localGroupBy1, local.getGroupByExpressions().get(1));
+
+        // check global:
+        Expression globalOutput0 = local.getOutputExpressions().get(0).toSlot();
+        Expression globalOutput1 = local.getOutputExpressions().get(1).toSlot();
+        Expression globalGroupBy0 = local.getOutputExpressions().get(0).toSlot();
+        Expression globalGroupBy1 = local.getOutputExpressions().get(1).toSlot();
+
+        Assertions.assertEquals(2, global.getOutputExpressions().size());
+        Assertions.assertTrue(global.getOutputExpressions().get(0) instanceof SlotReference);
+        Assertions.assertEquals(globalOutput0, global.getOutputExpressions().get(0));
+        Assertions.assertTrue(global.getOutputExpressions().get(1) instanceof SlotReference);
+        Assertions.assertEquals(globalOutput1, global.getOutputExpressions().get(1));
+        Assertions.assertEquals(2, global.getGroupByExpressions().size());
+        Assertions.assertEquals(globalGroupBy0, global.getGroupByExpressions().get(0));
+        Assertions.assertEquals(globalGroupBy1, global.getGroupByExpressions().get(1));
+
+        // check distinct local:
+        Expression distinctLocalOutput = new Add(new Count(local.getOutputExpressions().get(1).toSlot(), true),
+                new IntegerLiteral(2));
+        Expression distinctLocalGroupBy = local.getOutputExpressions().get(0).toSlot();
+
+        Assertions.assertEquals(1, distinctLocal.getOutputExpressions().size());
+        Assertions.assertTrue(distinctLocal.getOutputExpressions().get(0) instanceof Alias);
+        Assertions.assertEquals(distinctLocalOutput, distinctLocal.getOutputExpressions().get(0).child(0));
+        Assertions.assertEquals(1, distinctLocal.getGroupByExpressions().size());
+        Assertions.assertEquals(distinctLocalGroupBy, distinctLocal.getGroupByExpressions().get(0));
+
+        // check id:
+        Assertions.assertEquals(outputExpressionList.get(0).getExprId(),
+                distinctLocal.getOutputExpressions().get(0).getExprId());
     }
 
     private Plan rewrite(Plan input) {

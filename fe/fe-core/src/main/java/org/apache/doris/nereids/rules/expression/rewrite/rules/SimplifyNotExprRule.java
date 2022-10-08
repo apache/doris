@@ -51,7 +51,7 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
         Expression child = not.child();
         if (child instanceof ComparisonPredicate) {
             ComparisonPredicate cp = (ComparisonPredicate) not.child();
-            Expression left =  rewrite(cp.left(), context);
+            Expression left = rewrite(cp.left(), context);
             Expression right = rewrite(cp.right(), context);
 
             // TODO: visit concrete class instead of `instanceof`.
@@ -59,7 +59,7 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
                 return new LessThanEqual(left, right);
             } else if (child instanceof GreaterThanEqual) {
                 return new LessThan(left, right);
-            } else  if (child instanceof LessThan) {
+            } else if (child instanceof LessThan) {
                 return new GreaterThanEqual(left, right);
             } else if (child instanceof LessThanEqual) {
                 return new GreaterThan(left, right);
@@ -68,7 +68,7 @@ public class SimplifyNotExprRule extends AbstractExpressionRewriteRule {
             }
         } else if (child instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) not.child();
-            Expression left =  rewrite(new Not(cp.left()), context);
+            Expression left = rewrite(new Not(cp.left()), context);
             Expression right = rewrite(new Not(cp.right()), context);
             return cp.flip(left, right);
         }

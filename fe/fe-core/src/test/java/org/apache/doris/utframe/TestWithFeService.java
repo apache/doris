@@ -17,7 +17,9 @@
 
 package org.apache.doris.utframe;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
@@ -33,14 +35,23 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -63,9 +74,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.io.FileUtils;
+import org.junit.Assert;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInstance;
 
 import java.io.File;
@@ -110,6 +123,12 @@ public abstract class TestWithFeService {
         runAfterAll();
         Env.getCurrentEnv().clear();
         cleanDorisFeDir(runningDir);
+        NamedExpressionUtil.clear();
+    }
+
+    @BeforeEach
+    public final void beforeEach() throws Exception {
+        runBeforeEach();
     }
 
     protected void runBeforeAll() throws Exception {
@@ -118,9 +137,28 @@ public abstract class TestWithFeService {
     protected void runAfterAll() throws Exception {
     }
 
+    protected void runBeforeEach() throws Exception {
+    }
+
     // Help to create a mocked ConnectContext.
     protected ConnectContext createDefaultCtx() throws IOException {
         return createCtx(UserIdentity.ROOT, "127.0.0.1");
+    }
+
+    protected StatementContext createStatementCtx(String sql) {
+        return new StatementContext(connectContext, new OriginStatement(sql, 0));
+    }
+
+    protected CascadesContext createCascadesContext(String sql) {
+        StatementContext statementCtx = createStatementCtx(sql);
+        LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
+        return CascadesContext.newContext(statementCtx, initPlan);
+    }
+
+    public LogicalPlan analyze(String sql) {
+        CascadesContext cascadesContext = createCascadesContext(sql);
+        cascadesContext.newAnalyzer().analyze();
+        return (LogicalPlan) cascadesContext.getMemo().copyOut();
     }
 
     protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
@@ -468,4 +506,38 @@ public abstract class TestWithFeService {
         connectContext.setCurrentUserIdentity(user);
         connectContext.setQualifiedUser(SystemInfoService.DEFAULT_CLUSTER + ":" + userName);
     }
+
+    protected void addRollup(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().alterTable(alterTableStmt);
+        // waiting alter job state: finished AND table state: normal
+        checkAlterJob();
+        Thread.sleep(100);
+    }
+
+    private void checkAlterJob() throws InterruptedException, MetaNotFoundException {
+        // check alter job
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
+        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
+            while (!alterJobV2.getJobState().isFinalState()) {
+                System.out.println("alter job " + alterJobV2.getDbId()
+                        + " is running. state: " + alterJobV2.getJobState());
+                Thread.sleep(100);
+            }
+            System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
+            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+
+            // Add table state check in case of below Exception:
+            // there is still a short gap between "job finish" and "table become normal",
+            // so if user send next alter job right after the "job finish",
+            // it may encounter "table's state not NORMAL" error.
+            Database db =
+                    Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
+            OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
+            while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                Thread.sleep(1000);
+            }
+        }
+    }
+
 }

@@ -17,11 +17,8 @@
 
 #pragma once
 
-#include "opentelemetry/context/context.h"
-#include "opentelemetry/sdk/trace/tracer_provider.h"
 #include "opentelemetry/trace/provider.h"
-#include "util/pretty_printer.h"
-#include "util/runtime_profile.h"
+#include "util/telemetry/open_telemetry_scop_wrapper.hpp"
 
 /// A trace represents the execution process of a single request in the system, span represents a
 /// logical operation unit with start time and execution duration in the system, and multiple spans
@@ -65,6 +62,12 @@ using OpentelemetryScope = opentelemetry::trace::Scope;
     auto span = tracer->StartSpan(name);         \
     OpentelemetryScope scope {span};
 
+#define START_AND_SCOPE_SPAN_IF(enable, tracer, name) \
+    OpenTelemetryScopeWrapper(enable, tracer, name)
+
+#define INIT_AND_SCOPE_REENTRANT_SPAN_IF(enable, tracer, reentrant_span, name) \
+    OpenTelemetryScopeWrapper(enable, tracer, reentrant_span, name)
+
 namespace telemetry {
 
 void init_tracer();
@@ -85,15 +88,6 @@ inline OpentelemetryTracer get_tracer(const std::string& tracer_name) {
 /// Returns true if the active pan stack is not empty.
 inline bool is_current_span_valid() {
     return opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid();
-}
-
-inline void set_span_attribute(OpentelemetrySpan& span, RuntimeProfile::Counter* const counter) {
-    span->SetAttribute(counter->name(), PrettyPrinter::print(counter->value(), counter->type()));
-}
-
-inline void set_current_span_attribute(RuntimeProfile::Counter* const counter) {
-    opentelemetry::trace::Tracer::GetCurrentSpan()->SetAttribute(
-            counter->name(), PrettyPrinter::print(counter->value(), counter->type()));
 }
 
 } // namespace telemetry

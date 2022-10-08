@@ -29,16 +29,16 @@ import java.util.List;
 public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
 
     @Override
-    public Plan visit(Plan expr, C context) {
+    public Plan visit(Plan plan, C context) {
         List<Plan> newChildren = new ArrayList<>();
         boolean hasNewChildren = false;
-        for (Plan child : expr.children()) {
+        for (Plan child : plan.children()) {
             Plan newChild = child.accept(this, context);
             if (newChild != child) {
                 hasNewChildren = true;
             }
             newChildren.add(newChild);
         }
-        return hasNewChildren ? expr.withChildren(newChildren) : expr;
+        return hasNewChildren ? plan.withChildren(newChildren) : plan;
     }
 }

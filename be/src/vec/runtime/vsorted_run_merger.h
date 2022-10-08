@@ -72,7 +72,7 @@ protected:
     size_t _offset = 0;
 
     std::vector<ReceiveQueueSortCursorImpl> _cursors;
-    std::priority_queue<SortCursor> _priority_queue;
+    std::priority_queue<MergeSortCursor> _priority_queue;
 
     Block _empty_block;
 
@@ -83,8 +83,8 @@ protected:
     RuntimeProfile::Counter* _get_next_block_timer;
 
 private:
-    void next_heap(SortCursor& current);
-    bool has_next_block(SortCursor& current);
+    void next_heap(MergeSortCursor& current);
+    bool has_next_block(MergeSortCursor& current);
 };
 
 } // namespace vectorized

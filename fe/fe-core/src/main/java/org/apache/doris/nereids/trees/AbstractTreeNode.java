@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees;
 
-
 import org.apache.doris.nereids.memo.GroupExpression;
 
 import com.google.common.collect.ImmutableList;
@@ -38,7 +37,6 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/doris/pull/9807#discussion_r884829067
 
-
     public AbstractTreeNode(NODE_TYPE... children) {
         this(Optional.empty(), children);
     }
@@ -51,7 +49,10 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
      */
     public AbstractTreeNode(Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
         this.children = ImmutableList.copyOf(children);
+    }
 
+    public AbstractTreeNode(Optional<GroupExpression> groupExpression, List<NODE_TYPE> children) {
+        this.children = ImmutableList.copyOf(children);
     }
 
     @Override

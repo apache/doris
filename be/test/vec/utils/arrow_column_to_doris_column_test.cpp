@@ -39,6 +39,7 @@
 #include "arrow/type_fwd.h"
 #include "arrow/type_traits.h"
 #include "gutil/casts.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -613,7 +614,7 @@ TEST(ArrowColumnToDorisColumnTest, test_binary) {
 
 template <typename ArrowValueType, bool is_nullable = false>
 static inline std::shared_ptr<arrow::Array> create_array_array(
-        std::vector<IColumn::Offset>& vec_offsets, std::vector<bool>& null_map,
+        std::vector<ColumnArray::Offset64>& vec_offsets, std::vector<bool>& null_map,
         std::shared_ptr<arrow::DataType> value_type, std::shared_ptr<arrow::Array> values,
         size_t& counter) {
     using offset_type = typename arrow::ListType::offset_type;
@@ -646,7 +647,7 @@ static inline std::shared_ptr<arrow::Array> create_array_array(
 
 template <typename ArrowType, bool is_nullable>
 void test_arrow_to_array_column(ColumnWithTypeAndName& column,
-                                std::vector<IColumn::Offset>& vec_offsets,
+                                std::vector<ColumnArray::Offset64>& vec_offsets,
                                 std::vector<bool>& null_map,
                                 std::shared_ptr<arrow::DataType> value_type,
                                 std::shared_ptr<arrow::Array> values, const std::string& value,
@@ -698,7 +699,7 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
 
 template <typename ArrowType, bool is_nullable>
 void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
-                std::vector<IColumn::Offset>& vec_offsets, std::vector<bool>& null_map,
+                std::vector<ColumnArray::Offset64>& vec_offsets, std::vector<bool>& null_map,
                 std::shared_ptr<arrow::DataType> value_type) {
     TypeDescriptor type(TYPE_ARRAY);
     type.children.push_back(TYPE_VARCHAR);
@@ -724,7 +725,7 @@ void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
 TEST(ArrowColumnToDorisColumnTest, test_array) {
     std::vector<std::string> test_cases = {"1.2345678", "-12.34567890", "99999999999.99999999",
                                            "-99999999999.99999999"};
-    std::vector<IColumn::Offset> vec_offsets = {0, 3, 3, 4, 6, 6, 64};
+    std::vector<ColumnArray::Offset64> vec_offsets = {0, 3, 3, 4, 6, 6, 64};
     std::vector<bool> null_map = {false, true, false, false, false, false};
     test_array<arrow::BinaryType, false>(test_cases, 64, vec_offsets, null_map,
                                          arrow::list(arrow::binary()));

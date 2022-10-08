@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -42,16 +43,15 @@ import org.apache.doris.nereids.util.ExpressionUtils;
  *                   |
  *                 scan
  */
-public class MergeConsecutiveFilters  extends OneRewriteRuleFactory {
+public class MergeConsecutiveFilters extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalFilter()).then(filter -> {
-            LogicalFilter<?> childFilter = filter.child();
+            LogicalFilter<? extends Plan> childFilter = filter.child();
             Expression predicates = filter.getPredicates();
             Expression childPredicates = childFilter.getPredicates();
             Expression mergedPredicates = ExpressionUtils.and(predicates, childPredicates);
-            LogicalFilter mergedFilter = new LogicalFilter(mergedPredicates, childFilter.child());
-            return mergedFilter;
+            return new LogicalFilter<>(mergedPredicates, childFilter.child());
         }).toRule(RuleType.MERGE_CONSECUTIVE_FILTERS);
     }
 

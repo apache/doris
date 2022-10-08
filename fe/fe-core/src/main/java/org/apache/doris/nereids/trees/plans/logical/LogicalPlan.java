@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -43,4 +45,9 @@ public interface LogicalPlan extends Plan {
     default <C> LogicalPlan optionalMap(Optional<C> ctx, Supplier<LogicalPlan> f) {
         return ctx.map(a -> f.get()).orElse(this);
     }
+
+    default LogicalPlan recomputeLogicalProperties() {
+        return (LogicalPlan) withChildren(ImmutableList.copyOf(children()));
+    }
+
 }

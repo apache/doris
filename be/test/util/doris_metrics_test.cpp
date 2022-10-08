@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
-#include "util/logging.h"
 
 namespace doris {
 

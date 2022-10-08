@@ -64,13 +64,18 @@ public interface Command extends LogicalPlan {
     }
 
     @Override
-    default List<Expression> getExpressions() {
+    default List<? extends Expression> getExpressions() {
         throw new RuntimeException("Command do not implement getExpressions");
     }
 
     @Override
     default LogicalProperties getLogicalProperties() {
         throw new RuntimeException("Command do not implement getLogicalProperties");
+    }
+
+    @Override
+    default boolean canBind() {
+        throw new RuntimeException("Command do not implement canResolve");
     }
 
     @Override

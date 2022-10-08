@@ -20,27 +20,21 @@ under the License.
 # Usage
 
     These scripts are used to make ssb and ssb flat test.
-    The ssb flat data comes from ssb tables by way of 'INSERT INTO ... SELECT ...',
-    which means ssb test steps 1 to 4 should have been done before loading ssb flat data.
+    The ssb flat data comes from ssb tables by way of 'INSERT INTO ... SELECT ...'.
 
 ## ssb test, follow the steps below:
 ### 1. build ssb dbgen tool.
-    ./build-ssb-dbgen.sh
+    ./bin/build-ssb-dbgen.sh
 ### 2. generate ssb data. use -h for more infomations.
-    ./gen-ssb-data.sh -s 1
-### 3. create ssb tables. modify `doris-cluster.conf` to specify doris info, then run script below.
-    ./create-ssb-tables.sh
+    ./bin/gen-ssb-data.sh -s 1
+### 3. create ssb tables. modify `conf/doris-cluster.conf` to specify Doris cluster info, then run script below.
+    ./bin/create-ssb-tables.sh
 ### 4. load ssb data. use -h for help.
-    ./load-ssb-dimension-data.sh
-    ./load-ssb-fact-data.sh
+    ./bin/load-ssb-data.sh
 ### 5. run ssb queries.
-    ./run-ssb-queries.sh
+    ./bin/run-ssb-queries.sh
 
 ## ssb flat test, follow the steps below:
 ### 1. prepare ssb data, which means ssb test steps 1 to 4 have been done.
-### 2. create ssb flat table in the same database of ssb tables.
-    ./create-ssb-flat-table.sh
-### 3. load ssb flat data.
-    ./load-ssb-flat-data.sh
-### 4. run ssb flat queries.
-    ./run-ssb-flat-queries.sh
+### 2. run ssb flat queries.
+    ./bin/run-ssb-flat-queries.sh

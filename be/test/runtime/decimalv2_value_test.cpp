@@ -22,8 +22,6 @@
 #include <iostream>
 #include <string>
 
-#include "util/logging.h"
-
 namespace doris {
 
 class DecimalV2ValueTest : public testing::Test {

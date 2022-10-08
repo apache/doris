@@ -19,6 +19,7 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Joiner;
@@ -30,7 +31,7 @@ import java.util.stream.Collectors;
 /**
  * Expression for unbound function.
  */
-public class UnboundFunction extends Expression implements Unbound {
+public class UnboundFunction extends Expression implements Unbound, PropagateNullable {
 
     private final String name;
     private final boolean isDistinct;
@@ -64,13 +65,13 @@ public class UnboundFunction extends Expression implements Unbound {
         String params = children.stream()
                 .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
-        return name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
+        return name + "(" + (isDistinct ? "DISTINCT " : "") + params + ")";
     }
 
     @Override
     public String toString() {
         String params = Joiner.on(", ").join(children);
-        return "'" + name + "(" + (isDistinct ? "DISTINCT " : "")  + params + ")";
+        return "'" + name + "(" + (isDistinct ? "DISTINCT " : "") + params + ")";
     }
 
     @Override
@@ -79,7 +80,7 @@ public class UnboundFunction extends Expression implements Unbound {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public UnboundFunction withChildren(List<Expression> children) {
         return new UnboundFunction(name, isDistinct, isStar, children);
     }
 

@@ -62,9 +62,10 @@ public:
 
     // check if this load channel mem consumption exceeds limit.
     // If yes, it will pick a tablets channel to try to reduce memory consumption.
-    // If force is true, even if this load channel does not exceeds limit, it will still
-    // try to reduce memory.
-    void handle_mem_exceed_limit(bool force);
+    // The mehtod will not return until the chosen tablet channels finished memtable
+    // flush.
+    template <typename TabletWriterAddResult>
+    Status handle_mem_exceed_limit(TabletWriterAddResult* response);
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
@@ -140,10 +141,7 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
         return st;
     }
 
-    // 2. check if mem consumption exceed limit
-    handle_mem_exceed_limit(false);
-
-    // 3. add batch to tablets channel
+    // 2. add batch to tablets channel
     if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
         if (request.has_row_batch()) {
             RETURN_IF_ERROR(channel->add_batch(request, response));
@@ -154,7 +152,7 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
         }
     }
 
-    // 4. handle eos
+    // 3. handle eos
     if (request.has_eos() && request.eos()) {
         st = _handle_eos(channel, request, response);
         if (!st.ok()) {
@@ -170,6 +168,30 @@ inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channe
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
        << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;
+}
+
+template <typename TabletWriterAddResult>
+Status LoadChannel::handle_mem_exceed_limit(TabletWriterAddResult* response) {
+    bool found = false;
+    std::shared_ptr<TabletsChannel> channel;
+    {
+        // lock so that only one thread can check mem limit
+        std::lock_guard<std::mutex> l(_lock);
+
+        LOG(INFO) << "reducing memory of " << *this
+                  << " ,mem consumption: " << _mem_tracker->consumption();
+        found = _find_largest_consumption_channel(&channel);
+    }
+    // Release lock so that other threads can still call add_batch concurrently.
+    if (found) {
+        DCHECK(channel != nullptr);
+        return channel->reduce_mem_usage(response);
+    } else {
+        // should not happen, add log to observe
+        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
+                     << "load_id=" << _load_id;
+    }
+    return Status::OK();
 }
 
 } // namespace doris

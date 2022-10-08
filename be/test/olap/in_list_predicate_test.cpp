@@ -25,19 +25,19 @@
 #include "olap/field.h"
 #include "olap/row_block2.h"
 #include "runtime/mem_pool.h"
+#include "runtime/primitive_type.h"
 #include "runtime/string_value.hpp"
-#include "util/logging.h"
 
 namespace doris {
 
 namespace datetime {
 
-static uint24_t timestamp_from_date(const char* date_string) {
+static uint32_t timestamp_from_date(const char* date_string) {
     tm time_tm;
     strptime(date_string, "%Y-%m-%d", &time_tm);
 
     int value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
-    return uint24_t(value);
+    return uint32_t(value);
 }
 
 static uint32_t timestamp_from_date_v2(const char* date_string) {
@@ -138,7 +138,7 @@ public:
     std::unique_ptr<Schema> _schema;
 };
 
-#define TEST_IN_LIST_PREDICATE_V2(TYPE, TYPE_NAME, FIELD_TYPE)                                    \
+#define TEST_IN_LIST_PREDICATE_V2(PRIMITIVE_TYPE, TYPE, TYPE_NAME, FIELD_TYPE)                    \
     TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) {                                          \
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();                        \
         SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, false, true, \
@@ -150,7 +150,8 @@ public:
         values.insert(4);                                                                         \
         values.insert(5);                                                                         \
         values.insert(6);                                                                         \
-        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values));                  \
+        ColumnPredicate* pred = new InListPredicateBase<PRIMITIVE_TYPE, PredicateType::IN_LIST>(  \
+                0, std::move(values));                                                            \
         uint16_t sel[10];                                                                         \
         for (int i = 0; i < 10; ++i) {                                                            \
             sel[i] = i;                                                                           \
@@ -197,11 +198,11 @@ public:
         delete pred;                                                                              \
     }
 
-TEST_IN_LIST_PREDICATE_V2(int8_t, TINYINT, "TINYINT")
-TEST_IN_LIST_PREDICATE_V2(int16_t, SMALLINT, "SMALLINT")
-TEST_IN_LIST_PREDICATE_V2(int32_t, INT, "INT")
-TEST_IN_LIST_PREDICATE_V2(int64_t, BIGINT, "BIGINT")
-TEST_IN_LIST_PREDICATE_V2(int128_t, LARGEINT, "LARGEINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_TINYINT, int8_t, TINYINT, "TINYINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_SMALLINT, int16_t, SMALLINT, "SMALLINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_INT, int32_t, INT, "INT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_BIGINT, int64_t, BIGINT, "BIGINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_LARGEINT, int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
@@ -215,7 +216,8 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     values.insert(4.1);
     values.insert(5.1);
     values.insert(6.1);
-    ColumnPredicate* pred = new InListPredicate<float>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_FLOAT, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -265,7 +267,8 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
     values.insert(5.1);
     values.insert(6.1);
 
-    ColumnPredicate* pred = new InListPredicate<double>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DOUBLE, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -319,7 +322,8 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     decimal12_t value3 = {6, 6};
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<decimal12_t>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DECIMALV2, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -384,7 +388,8 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     value3.len = 5;
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_CHAR, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -461,7 +466,8 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
     value3.len = 3;
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_VARCHAR, PredicateType::IN_LIST>(0, std::move(values));
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -518,7 +524,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    phmap::flat_hash_set<uint24_t> values;
+    phmap::flat_hash_set<uint32_t> values;
     uint24_t value1 = datetime::timestamp_from_date("2017-09-09");
     values.insert(value1);
 
@@ -527,7 +533,8 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
 
     uint24_t value3 = datetime::timestamp_from_date("2017-09-11");
     values.insert(value3);
-    ColumnPredicate* pred = new InListPredicate<uint24_t>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST>(0, std::move(values));
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -544,7 +551,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        uint24_t timestamp = datetime::timestamp_from_date(date_array[i].c_str());
+        uint24_t timestamp = uint24_t(datetime::timestamp_from_date(date_array[i].c_str()));
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
@@ -566,7 +573,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
             col_block_view.set_null_bits(1, true);
         } else {
             col_block_view.set_null_bits(1, false);
-            uint24_t timestamp = datetime::timestamp_from_date(date_array[i].c_str());
+            uint24_t timestamp = uint24_t(datetime::timestamp_from_date(date_array[i].c_str()));
             *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
         }
     }
@@ -599,7 +606,8 @@ TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
 
     uint32_t value3 = datetime::timestamp_from_date_v2("2017-09-11");
     values.insert(value3);
-    ColumnPredicate* pred = new InListPredicate<uint32_t>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DATEV2, PredicateType::IN_LIST>(0, std::move(values));
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -672,7 +680,8 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     uint64_t value3 = datetime::timestamp_from_datetime("2017-09-11 01:01:00");
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<uint64_t>(0, std::move(values));
+    ColumnPredicate* pred =
+            new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST>(0, std::move(values));
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");

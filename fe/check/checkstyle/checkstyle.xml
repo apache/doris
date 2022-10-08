@@ -318,10 +318,21 @@ under the License.
         <!-- Size Violations -->
         <!-- Whitespace -->
         <module name="EmptyLineSeparator">
+            <property name="id" value="exceptForNereids"/>
             <property name="tokens"
                       value="PACKAGE_DEF, IMPORT, STATIC_IMPORT, CLASS_DEF, INTERFACE_DEF, ENUM_DEF,
                     STATIC_INIT, INSTANCE_INIT, METHOD_DEF, CTOR_DEF, VARIABLE_DEF, RECORD_DEF,
                     COMPACT_CTOR_DEF"/>
+            <property name="allowNoEmptyLineBetweenFields" value="true"/>
+        </module>
+        <module name="EmptyLineSeparator">
+            <property name="id" value="forNereids"/>
+            <property name="tokens"
+                      value="PACKAGE_DEF, IMPORT, STATIC_IMPORT, CLASS_DEF, INTERFACE_DEF, ENUM_DEF,
+                    STATIC_INIT, INSTANCE_INIT, METHOD_DEF, CTOR_DEF, VARIABLE_DEF, RECORD_DEF,
+                    COMPACT_CTOR_DEF"/>
+            <property name="allowMultipleEmptyLines" value="false"/>
+            <property name="allowMultipleEmptyLinesInsideClassMembers" value="false"/>
             <property name="allowNoEmptyLineBetweenFields" value="true"/>
         </module>
         <module name="GenericWhitespace">
@@ -391,6 +402,7 @@ under the License.
             <property name="tokens" value="METHOD_REF"/>
             <property name="option" value="nl"/>
         </module>
+        <module name="SingleSpaceSeparator"/>
         <module name="WhitespaceAfter">
             <property name="tokens"
                       value="COMMA, SEMI, TYPECAST, LITERAL_IF, LITERAL_ELSE,

@@ -25,7 +25,6 @@
 
 #include "common/configbase.h"
 #include "testutil/test_util.h"
-#include "util/logging.h"
 #include "util/thread_group.h"
 
 using std::vector;

@@ -24,4 +24,12 @@ public interface Limit {
     long getLimit();
 
     long getOffset();
+
+    /**
+     * This limit node has valid offset info or not.
+     * We treat the limit as having a valid offset info only when `getOffset` result is a positive value.
+     */
+    default boolean hasValidOffset() {
+        return getOffset() > 0;
+    }
 }

@@ -187,6 +187,7 @@ ONE_ARG_MATH_FN(acos, DoubleVal, DoubleVal, std::acos);
 ONE_ARG_MATH_FN(tan, DoubleVal, DoubleVal, std::tan);
 ONE_ARG_MATH_FN(atan, DoubleVal, DoubleVal, std::atan);
 ONE_ARG_MATH_FN(sqrt, DoubleVal, DoubleVal, std::sqrt);
+ONE_ARG_MATH_FN(cbrt, DoubleVal, DoubleVal, std::cbrt);
 ONE_ARG_MATH_FN(ceil, BigIntVal, DoubleVal, std::ceil);
 ONE_ARG_MATH_FN(floor, BigIntVal, DoubleVal, std::floor);
 ONE_ARG_MATH_FN(exp, DoubleVal, DoubleVal, std::exp);

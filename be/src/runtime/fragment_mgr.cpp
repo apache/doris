@@ -60,6 +60,7 @@ namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -94,8 +95,6 @@ public:
     std::string to_http_path(const std::string& file_name);
 
     Status execute();
-
-    Status cancel_before_execute();
 
     Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
@@ -236,15 +235,23 @@ Status FragmentExecState::execute() {
     if (_need_wait_execution_trigger) {
         // if _need_wait_execution_trigger is true, which means this instance
         // is prepared but need to wait for the signal to do the rest execution.
-        _fragments_ctx->wait_for_start();
-        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
+        if (!_fragments_ctx->wait_for_start()) {
+            return cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "wait fragment start timeout");
+        }
     }
+#ifndef BE_TEST
+    if (_executor.runtime_state()->is_cancelled()) {
+        return Status::Cancelled("cancelled before execution");
+    }
+#endif
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
         CgroupsMgr::apply_system_cgroup();
+        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
         WARN_IF_ERROR(_executor.open(), strings::Substitute("Got error while opening fragment $0",
                                                             print_id(_fragment_instance_id)));
+
         _executor.close();
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
@@ -252,24 +259,9 @@ Status FragmentExecState::execute() {
     return Status::OK();
 }
 
-Status FragmentExecState::cancel_before_execute() {
-    // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK(executor()->runtime_state());
-#endif
-    _executor.set_abort();
-    _executor.cancel();
-    if (_pipe != nullptr) {
-        _pipe->cancel("Execution aborted before start");
-    }
-    return Status::OK();
-}
-
 Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     if (!_cancelled) {
-        _cancelled = true;
         std::lock_guard<std::mutex> l(_status_lock);
-        RETURN_IF_ERROR(_exec_status);
         if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
             _executor.set_is_report_on_cancel(false);
         }
@@ -277,6 +269,7 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
         if (_pipe != nullptr) {
             _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
         }
+        _cancelled = true;
     }
     return Status::OK();
 }
@@ -304,7 +297,9 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
-        ss << "couldn't get a client for " << _coord_addr;
+        UniqueId uid(_query_id.hi, _query_id.lo);
+        ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status;
+        LOG(WARNING) << "query_id: " << uid << ", " << ss.str();
         update_status(Status::InternalError(ss.str()));
         return;
     }
@@ -391,8 +386,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     TReportExecStatusResult res;
     Status rpc_status;
 
-    VLOG_ROW << "debug: reportExecStatus params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
+    VLOG_DEBUG << "reportExecStatus params is "
+               << apache::thrift::ThriftDebugString(params).c_str();
     try {
         try {
             coord->reportExecStatus(res, params);
@@ -450,11 +445,15 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
                 .set_max_threads(config::fragment_pool_thread_num_max)
                 .set_max_queue_size(config::fragment_pool_queue_size)
                 .build(&_thread_pool);
+
+    REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
+                         [this]() { return _thread_pool->get_queue_size(); });
     CHECK(s.ok()) << s.to_string();
 }
 
 FragmentMgr::~FragmentMgr() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
+    DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
     _stop_background_threads_latch.count_down();
     if (_cancel_thread) {
         _cancel_thread->join();
@@ -489,11 +488,10 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     doris::signal::query_id_hi = exec_state->query_id().hi;
     doris::signal::query_id_lo = exec_state->query_id().lo;
 
-    TAG(LOG(INFO))
-            .log(std::move(func_name))
-            .query_id(exec_state->query_id())
-            .instance_id(exec_state->fragment_instance_id())
-            .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
+    LOG_INFO(func_name)
+            .tag("query_id", exec_state->query_id())
+            .tag("instance_id", exec_state->fragment_instance_id())
+            .tag("pthread_id", (uintptr_t)pthread_self());
 
     exec_state->execute();
 
@@ -564,7 +562,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
                 "timeout or be cancelled. host: {}",
                 BackendOptions::get_localhost());
     }
-    search->second->set_ready_to_execute();
+    search->second->set_ready_to_execute(false);
     return Status::OK();
 }
 
@@ -618,6 +616,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                     BackendOptions::get_localhost());
         }
         fragments_ctx = search->second;
+        _set_scan_concurrency(params, fragments_ctx.get());
     } else {
         // This may be a first fragment request of the query.
         // Create the query fragments context.
@@ -626,6 +625,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl,
                                               &(fragments_ctx->desc_tbl)));
         fragments_ctx->coord_addr = params.coord;
+        LOG(INFO) << "query_id: "
+                  << UniqueId(fragments_ctx->query_id.hi, fragments_ctx->query_id.lo)
+                  << " coord_addr " << fragments_ctx->coord_addr;
         fragments_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
@@ -634,21 +636,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->set_rsc_info = true;
         }
 
-        if (params.__isset.query_options) {
-            fragments_ctx->timeout_second = params.query_options.query_timeout;
-            if (params.query_options.__isset.resource_limit) {
-                fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
-            }
-        }
-        if (params.__isset.fragment && params.fragment.__isset.plan &&
-            params.fragment.plan.nodes.size() > 0) {
-            for (auto& node : params.fragment.plan.nodes) {
-                if (node.limit > 0 && node.limit < 1024) {
-                    fragments_ctx->set_serial_thread_token();
-                    break;
-                }
-            }
-        }
+        fragments_ctx->timeout_second = params.query_options.query_timeout;
+        _set_scan_concurrency(params, fragments_ctx.get());
 
         {
             // Find _fragments_ctx_map again, in case some other request has already
@@ -695,12 +684,61 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             std::lock_guard<std::mutex> lock(_lock);
             _fragment_map.erase(params.params.fragment_instance_id);
         }
-        exec_state->cancel_before_execute();
-        return Status::InternalError("Put planfragment to thread pool failed. err = {}, BE: {}",
-                                     st.get_error_msg(), BackendOptions::get_localhost());
+        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                           "push plan fragment to thread pool failed");
+        return Status::InternalError(
+                strings::Substitute("push plan fragment $0 to thread pool failed. err = $1, BE: $2",
+                                    print_id(params.params.fragment_instance_id),
+                                    st.get_error_msg(), BackendOptions::get_localhost()));
     }
 
     return Status::OK();
+}
+
+void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params,
+                                        QueryFragmentsCtx* fragments_ctx) {
+#ifndef BE_TEST
+    // set thread token
+    // the thread token will be set if
+    // 1. the cpu_limit is set, or
+    // 2. the limit is very small ( < 1024)
+    int concurrency = 1;
+    bool is_serial = false;
+    if (params.query_options.__isset.resource_limit &&
+        params.query_options.resource_limit.__isset.cpu_limit) {
+        concurrency = params.query_options.resource_limit.cpu_limit;
+    } else {
+        concurrency = config::doris_scanner_thread_pool_thread_num;
+    }
+    if (params.__isset.fragment && params.fragment.__isset.plan &&
+        params.fragment.plan.nodes.size() > 0) {
+        for (auto& node : params.fragment.plan.nodes) {
+            // Only for SCAN NODE
+            if (!_is_scan_node(node.node_type)) {
+                continue;
+            }
+            if (node.__isset.conjuncts && !node.conjuncts.empty()) {
+                // If the scan node has where predicate, do not set concurrency
+                continue;
+            }
+            if (node.limit > 0 && node.limit < 1024) {
+                concurrency = 1;
+                is_serial = true;
+                break;
+            }
+        }
+    }
+    fragments_ctx->set_thread_token(concurrency, is_serial);
+#endif
+}
+
+bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
+    return type == TPlanNodeType::OLAP_SCAN_NODE || type == TPlanNodeType::MYSQL_SCAN_NODE ||
+           type == TPlanNodeType::SCHEMA_SCAN_NODE || type == TPlanNodeType::META_SCAN_NODE ||
+           type == TPlanNodeType::BROKER_SCAN_NODE || type == TPlanNodeType::ES_SCAN_NODE ||
+           type == TPlanNodeType::ES_HTTP_SCAN_NODE || type == TPlanNodeType::ODBC_SCAN_NODE ||
+           type == TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE ||
+           type == TPlanNodeType::FILE_SCAN_NODE || type == TPlanNodeType::JDBC_SCAN_NODE;
 }
 
 Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
@@ -735,9 +773,6 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _fragments_ctx_map.begin(); it != _fragments_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
-                    // The execution logic of the instance needs to be notified.
-                    // The execution logic of the instance will eventually cancel the execution plan.
-                    it->second->set_ready_to_execute();
                     it = _fragments_ctx_map.erase(it);
                 } else {
                     ++it;

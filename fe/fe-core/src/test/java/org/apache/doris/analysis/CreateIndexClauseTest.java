@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -47,7 +47,8 @@ public class CreateIndexClauseTest {
 
     @Test(expected = AnalysisException.class)
     public void testDuplIndex() throws AnalysisException {
-        CreateIndexClause clause = new CreateIndexClause(new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "table"), null, false);
+        CreateIndexClause clause = new CreateIndexClause(
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), null, false);
         clause.analyze(analyzer);
 
     }

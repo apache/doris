@@ -596,7 +596,7 @@ Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
         if (is_dir) {
             return Status::OK();
         } else {
-            return s.clone_and_append("path already exists but not a dir");
+            return std::move(s.append("path already exists but not a dir"));
         }
     }
     return s;

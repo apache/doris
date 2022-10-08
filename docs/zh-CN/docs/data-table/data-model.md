@@ -335,7 +335,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `op_id` BIGINT COMMENT "负责人id",
     `op_time` DATETIME COMMENT "处理时间"
 )
-DUPLICATE KEY(`timestamp`, `type`)
+DUPLICATE KEY(`timestamp`, `type`, `error_code`)
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"
@@ -452,6 +452,9 @@ SELECT COUNT(*) FROM table;
 ### Duplicate 模型
 
 Duplicate 模型没有聚合模型的这个局限性。因为该模型不涉及聚合语意，在做 count(*) 查询时，任意选择一列查询，即可得到语意正确的结果。
+
+### key 列
+Duplicate、Aggregate、Unique 模型，都会在建表指定 key 列，然而实际上是有所区别的：对于 Duplicate 模型，表的key列，可以认为只是 “排序列”，并非起到唯一标识的作用。而 Aggregate、Unique 模型这种聚合类型的表，key 列是兼顾 “排序列” 和 “唯一标识列”，是真正意义上的“ key 列”。
 
 ## 数据模型的选择建议
 

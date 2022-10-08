@@ -169,19 +169,17 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
 inline void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
                                                vectorized::MutableColumnPtr* column_ptr,
                                                const char* data, size_t len) {
-    vectorized::IColumn* col_ptr = column_ptr->get();
-    // \N means it's NULL
-    if (LIKELY(slot_desc->is_nullable())) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
-        if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
-            nullable_column->insert_data(nullptr, 0);
-            return;
-        } else {
-            nullable_column->get_null_map_data().push_back(0);
-            col_ptr = &nullable_column->get_nested_column();
-        }
+    DCHECK(column_ptr->get()->is_nullable());
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
+    if (len == 2 && data[0] == '\\' && data[1] == 'N') {
+        nullable_column->get_null_map_data().push_back(1);
+        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
+                .insert_default();
+    } else {
+        nullable_column->get_null_map_data().push_back(0);
+        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
+                .insert_data(data, len);
     }
-    reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data, len);
 }
 
 inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,

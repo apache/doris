@@ -161,17 +161,17 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
     
     ```
     # Include udf
-    include_directories(thirdparty/include)    
+    include_directories(../thirdparty/include)    
 
     # Set all libraries
     add_library(udf STATIC IMPORTED)
-    set_target_properties(udf PROPERTIES IMPORTED_LOCATION thirdparty/lib/libDorisUdf.a)
+    set_target_properties(udf PROPERTIES IMPORTED_LOCATION ../thirdparty/lib/libDorisUdf.a)
 
     # where to put generated libraries
-    set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
+    set(LIBRARY_OUTPUT_PATH "src/udf_samples")
 
     # where to put generated binaries
-    set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
+    set(EXECUTABLE_OUTPUT_PATH "src/udf_samples")
 
     add_library(udfsample SHARED udf_sample.cpp)
         target_link_libraries(udfsample
@@ -261,6 +261,11 @@ CREATE [AGGREGATE] FUNCTION
 用户使用 UDF 必须拥有对应数据库的 `SELECT` 权限。
 
 UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函数的作用域是全局的，而 UDF 的作用域是 DB内部。当链接 session 位于数据内部时，直接使用 UDF 名字会在当前DB内部查找对应的 UDF。否则用户需要显示的指定 UDF 的数据库名字，例如 `dbName`.`funcName`。
+
+当前版本中，使用原生UDF时还需要将向量化关闭  
+```
+set enable_vectorized_engine = false;
+```
 
 
 ## 删除 UDF函数

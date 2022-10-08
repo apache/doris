@@ -23,7 +23,6 @@
 #include <filesystem>
 
 #include "common/configbase.h"
-#include "util/logging.h"
 
 namespace doris {
 

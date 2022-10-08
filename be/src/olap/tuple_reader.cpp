@@ -66,7 +66,7 @@ Status TupleReader::_init_collect_iter(const ReaderParams& read_params,
 }
 
 Status TupleReader::init(const ReaderParams& read_params) {
-    TabletReader::init(read_params);
+    RETURN_NOT_OK(TabletReader::init(read_params));
 
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto status = _init_collect_iter(read_params, &rs_readers);

@@ -19,6 +19,7 @@
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
+#include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -53,12 +54,6 @@ Status SetOperationNode::prepare(RuntimeState* state) {
     }
     _build_tuple_size = child(0)->row_desc().tuple_descriptors().size();
     _build_tuple_row_size = _build_tuple_size * sizeof(Tuple*);
-    _build_tuple_idx.reserve(_build_tuple_size);
-
-    for (int i = 0; i < _build_tuple_size; ++i) {
-        TupleDescriptor* build_tuple_desc = child(0)->row_desc().tuple_descriptors()[i];
-        _build_tuple_idx.push_back(_row_descriptor.get_tuple_idx(build_tuple_desc->id()));
-    }
     _find_nulls = std::vector<bool>();
     for (auto ctx : _child_expr_lists[0]) {
         _find_nulls.push_back(!ctx->root()->is_slotref() || ctx->is_nullable());
@@ -143,7 +138,8 @@ Status SetOperationNode::open(RuntimeState* state) {
     }
     // initial build hash table used for remove duplicated
     _hash_tbl.reset(new HashTable(_child_expr_lists[0], _child_expr_lists[1], _build_tuple_size,
-                                  true, _find_nulls, id(), state->batch_size() * 2));
+                                  true, _find_nulls, id(),
+                                  BitUtil::RoundUpToPowerOfTwo(state->batch_size())));
     RowBatch build_batch(child(0)->row_desc(), state->batch_size());
     RETURN_IF_ERROR(child(0)->open(state));
 

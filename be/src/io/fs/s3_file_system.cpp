@@ -51,6 +51,9 @@ S3FileSystem::S3FileSystem(S3Conf s3_conf, ResourceId resource_id)
                   fmt::format("{}/{}/{}", s3_conf.endpoint, s3_conf.bucket, s3_conf.prefix),
                   std::move(resource_id), FileSystemType::S3),
           _s3_conf(std::move(s3_conf)) {
+    if (_s3_conf.prefix.size() > 0 && _s3_conf.prefix[0] == '/') {
+        _s3_conf.prefix = _s3_conf.prefix.substr(1);
+    }
     _executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
             resource_id.c_str(), config::s3_transfer_executor_pool_size);
 }
@@ -141,7 +144,7 @@ Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
     RETURN_IF_ERROR(file_size(path, &fsize));
     auto key = get_key(path);
     auto fs_path = Path(_s3_conf.endpoint) / _s3_conf.bucket / key;
-    *reader = std::make_unique<S3FileReader>(std::move(fs_path), fsize, std::move(key),
+    *reader = std::make_shared<S3FileReader>(std::move(fs_path), fsize, std::move(key),
                                              _s3_conf.bucket, this);
     return Status::OK();
 }

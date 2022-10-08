@@ -24,7 +24,6 @@ package-lock.json
 
 # ignore all sub `/bin` and `/build` directory
 **/build/
-*/**/bin/
 **/target/
 **/node_modules/
 **/dist/

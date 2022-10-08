@@ -18,7 +18,6 @@
 #include "runtime/user_function_cache.h"
 
 #include <atomic>
-#include <boost/algorithm/string/predicate.hpp> // boost::algorithm::ends_with
 #include <regex>
 #include <vector>
 
@@ -27,6 +26,7 @@
 #include "http/http_client.h"
 #include "util/dynamic_util.h"
 #include "util/file_utils.h"
+#include "util/string_util.h"
 #ifdef LIBJVM
 #include "util/jni-util.h"
 #endif
@@ -97,7 +97,7 @@ UserFunctionCacheEntry::~UserFunctionCacheEntry() {
     }
 }
 
-UserFunctionCache::UserFunctionCache() {}
+UserFunctionCache::UserFunctionCache() = default;
 
 UserFunctionCache::~UserFunctionCache() {
     std::lock_guard<std::mutex> l(_cache_lock);
@@ -130,8 +130,13 @@ Status UserFunctionCache::init(const std::string& lib_dir) {
 }
 
 Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std::string& file) {
-    if (!boost::algorithm::ends_with(file, ".so")) {
-        return Status::InternalError("unknown library file format");
+    LibType lib_type;
+    if (ends_with(file, ".so")) {
+        lib_type = LibType::SO;
+    } else if (ends_with(file, ".jar")) {
+        lib_type = LibType::JAR;
+    } else {
+        return Status::InternalError("unknown library file format: " + file);
     }
 
     std::vector<std::string> split_parts = strings::Split(file, ".");
@@ -149,7 +154,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
     }
     // create a cache entry and put it into entry map
     UserFunctionCacheEntry* entry =
-            new UserFunctionCacheEntry(function_id, checksum, dir + "/" + file, LibType::SO);
+            new UserFunctionCacheEntry(function_id, checksum, dir + "/" + file, lib_type);
     entry->is_downloaded = true;
 
     entry->ref();
@@ -255,7 +260,6 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
         } else {
             entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(fid, checksum, type),
                                                type);
-
             entry->ref();
             _entry_map.emplace(fid, entry);
         }
@@ -343,7 +347,7 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
     RETURN_IF_ERROR(client.execute(download_cb));
     RETURN_IF_ERROR(status);
     digest.digest();
-    if (!boost::iequals(digest.hex(), entry->checksum)) {
+    if (!iequal(digest.hex(), entry->checksum)) {
         LOG(WARNING) << "UDF's checksum is not equal, one=" << digest.hex()
                      << ", other=" << entry->checksum;
         return Status::InternalError("UDF's library checksum is not match");

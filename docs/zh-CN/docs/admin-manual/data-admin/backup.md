@@ -56,7 +56,7 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
 
 ## 开始备份
 
-1. 创建一个hdfs的远程仓库example_repo：
+1. 创建一个 hdfs 的远程仓库 example_repo：
 
    ```sql
    CREATE REPOSITORY `example_repo`
@@ -68,6 +68,25 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
       "password" = "password"
    );
    ```
+
+2. 创建一个 s3 的远程仓库 : s3_repo
+
+   ```
+   CREATE REPOSITORY `s3_repo`
+   WITH S3
+   ON LOCATION "s3://bucket_name/test"
+   PROPERTIES
+   (
+       "AWS_ENDPOINT" = "http://xxxx.xxxx.com",
+       "AWS_ACCESS_KEY" = "xxxx",
+       "AWS_SECRET_KEY"="xxx",
+       "AWS_REGION" = "xxx"
+   ); 
+   ```
+
+   >注意：
+   >
+   >ON LOCATION 这里后面跟的是 Bucket Name
 
 2. 全量备份 example_db 下的表 example_tbl 到仓库 example_repo 中：
 
@@ -143,7 +162,7 @@ BACKUP的更多用法可参考 [这里](../../sql-manual/sql-reference/Data-Defi
 1. 备份恢复相关的操作目前只允许拥有 ADMIN 权限的用户执行。
 2. 一个 Database 内，只允许有一个正在执行的备份或恢复作业。
 3. 备份和恢复都支持最小分区（Partition）级别的操作，当表的数据量很大时，建议按分区分别执行，以降低失败重试的代价。
-4. 因为备份恢复操作，操作的都是实际的数据文件。所以当一个表的分片过多，或者一个分片有过多的小版本时，可能即使总数据量很小，依然需要备份或恢复很长时间。用户可以通过 `SHOW PARTITIONS FROM table_name;` 和 `SHOW TABLET FROM table_name;` 来查看各个分区的分片数量，以及各个分片的文件版本数量，来预估作业执行时间。文件数量对作业执行的时间影响非常大，所以建议在建表时，合理规划分区分桶，以避免过多的分片。
+4. 因为备份恢复操作，操作的都是实际的数据文件。所以当一个表的分片过多，或者一个分片有过多的小版本时，可能即使总数据量很小，依然需要备份或恢复很长时间。用户可以通过 `SHOW PARTITIONS FROM table_name;` 和 `SHOW TABLETS FROM table_name;` 来查看各个分区的分片数量，以及各个分片的文件版本数量，来预估作业执行时间。文件数量对作业执行的时间影响非常大，所以建议在建表时，合理规划分区分桶，以避免过多的分片。
 5. 当通过 `SHOW BACKUP` 或者 `SHOW RESTORE` 命令查看作业状态时。有可能会在 `TaskErrMsg` 一列中看到错误信息。但只要 `State` 列不为 `CANCELLED`，则说明作业依然在继续。这些 Task 有可能会重试成功。当然，有些 Task 错误，也会直接导致作业失败。
    常见的`TaskErrMsg`错误如下：
       Q1：备份到HDFS，状态显示UPLOADING，TaskErrMsg 错误信息：[13333: Close broker writer failed, broker:TNetworkAddress(hostname=10.10.0.0,port=8000) msg:errors while close file output stream, cause by: DataStreamer Exception: ]

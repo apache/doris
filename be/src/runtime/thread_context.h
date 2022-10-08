@@ -134,10 +134,6 @@ public:
     void attach_task(const TaskType& type, const std::string& task_id,
                      const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-        DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) && _task_id == "")
-                << ",new tracker label: " << mem_tracker->label() << ",old tracker label: "
-                << _thread_mem_tracker_mgr->limiter_mem_tracker()->label();
-        DCHECK(type != TaskType::UNKNOWN);
         _type = type;
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
@@ -249,18 +245,53 @@ public:
     }
 };
 
+// The following macros are used to fix the tracking accuracy of caches etc.
 #define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() \
     auto VARNAME_LINENUM(stop_check_limit) = StopCheckThreadMemTrackerLimit()
 #define CONSUME_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->_thread_mem_tracker_mgr->consume(size)
 #define RELEASE_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->_thread_mem_tracker_mgr->consume(-size)
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) \
-    doris::thread_context()->_thread_mem_tracker_mgr->transfer_to(size, tracker)
+#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                         \
+    doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->transfer_to( \
+            size, tracker)
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) \
-    doris::thread_context()->_thread_mem_tracker_mgr->transfer_from(size, tracker)
-#define RETURN_LIMIT_EXCEEDED(state, msg, ...)               \
-    return doris::thread_context()                           \
-            ->_thread_mem_tracker_mgr->limiter_mem_tracker() \
-            ->mem_limit_exceeded(state, msg, ##__VA_ARGS__);
+    tracker->transfer_to(                               \
+            size, doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw())
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                              \
+    return doris::thread_context()                                                          \
+            ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()                            \
+            ->mem_limit_exceeded(                                                           \
+                    state,                                                                  \
+                    fmt::format("exec node:<{}>, {}",                                       \
+                                doris::thread_context()                                     \
+                                        ->_thread_mem_tracker_mgr->last_consumer_tracker(), \
+                                msg),                                                       \
+                    ##__VA_ARGS__);
+
+// Mem Hook to consume thread mem tracker
+#define MEM_MALLOC_HOOK(size)                                                                \
+    do {                                                                                     \
+        if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_context != nullptr) { \
+            doris::update_bthread_context();                                                 \
+            doris::bthread_context->_thread_mem_tracker_mgr->consume(size);                  \
+        } else if (LIKELY(doris::thread_context_ptr._init)) {                                \
+            doris::thread_context_ptr._ptr->_thread_mem_tracker_mgr->consume(size);          \
+        } else {                                                                             \
+            doris::ThreadMemTrackerMgr::consume_no_attach(size);                             \
+        }                                                                                    \
+    } while (0)
+
+#define MEM_FREE_HOOK(size)                                                                  \
+    do {                                                                                     \
+        if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_context != nullptr) { \
+            doris::update_bthread_context();                                                 \
+            doris::bthread_context->_thread_mem_tracker_mgr->consume(-size);                 \
+        } else if (doris::thread_context_ptr._init) {                                        \
+            doris::thread_context_ptr._ptr->_thread_mem_tracker_mgr->consume(-size);         \
+        } else {                                                                             \
+            doris::ThreadMemTrackerMgr::consume_no_attach(-size);                            \
+        }                                                                                    \
+    } while (0)
+
 } // namespace doris

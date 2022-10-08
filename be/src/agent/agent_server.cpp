@@ -111,7 +111,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
     Status ret_st;
 
     // TODO check master_info here if it is the same with that of heartbeat rpc
-    if (_master_info.network_address.hostname == "" || _master_info.network_address.port == 0) {
+    if (_master_info.network_address.hostname.empty() || _master_info.network_address.port == 0) {
         Status ret_st = Status::Cancelled("Have not get FE Master heartbeat yet");
         ret_st.to_thrift(&agent_result.status);
         return;
@@ -191,8 +191,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
 #undef HANDLE_TYPE
 
         if (!ret_st.ok()) {
-            LOG(WARNING) << "fail to submit task. reason: " << ret_st.get_error_msg()
-                         << ", task: " << task;
+            LOG_WARNING("failed to submit task").tag("task", task).error(ret_st.get_error_msg());
             // For now, all tasks in the batch share one status, so if any task
             // was failed to submit, we can only return error to FE(even when some
             // tasks have already been successfully submitted).
@@ -213,33 +212,34 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
                                 const TSnapshotRequest& snapshot_request) {
     string snapshot_path;
     bool allow_incremental_clone = false;
-    Status err_code = SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path,
-                                                                 &allow_incremental_clone);
-    if (!err_code) {
-        LOG(WARNING) << "fail to make_snapshot. tablet_id=" << snapshot_request.tablet_id
-                     << ", schema_hash=" << snapshot_request.schema_hash
-                     << ", error_code=" << err_code.to_string();
+    Status status = SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path,
+                                                               &allow_incremental_clone);
+    if (!status) {
+        LOG_WARNING("failed to make snapshot")
+                .tag("tablet_id", snapshot_request.tablet_id)
+                .tag("schema_hash", snapshot_request.schema_hash)
+                .error(status);
     } else {
-        LOG(INFO) << "success to make_snapshot. tablet_id=" << snapshot_request.tablet_id
-                  << ", schema_hash=" << snapshot_request.schema_hash
-                  << ", snapshot_path: " << snapshot_path;
+        LOG_INFO("successfully make snapshot")
+                .tag("tablet_id", snapshot_request.tablet_id)
+                .tag("schema_hash", snapshot_request.schema_hash)
+                .tag("snapshot_path", snapshot_path);
         t_agent_result.__set_snapshot_path(snapshot_path);
         t_agent_result.__set_allow_incremental_clone(allow_incremental_clone);
     }
 
-    err_code.to_thrift(&t_agent_result.status);
+    status.to_thrift(&t_agent_result.status);
     t_agent_result.__set_snapshot_version(snapshot_request.preferred_snapshot_version);
 }
 
 void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::string& snapshot_path) {
-    Status err_code = SnapshotManager::instance()->release_snapshot(snapshot_path);
-    if (!err_code) {
-        LOG(WARNING) << "failed to release_snapshot. snapshot_path: " << snapshot_path
-                     << ", err_code: " << err_code.to_string();
+    Status status = SnapshotManager::instance()->release_snapshot(snapshot_path);
+    if (!status) {
+        LOG_WARNING("failed to release snapshot").tag("snapshot_path", snapshot_path).error(status);
     } else {
-        LOG(INFO) << "success to release_snapshot. snapshot_path=" << snapshot_path;
+        LOG_INFO("successfully release snapshot").tag("snapshot_path", snapshot_path);
     }
-    err_code.to_thrift(&t_agent_result.status);
+    status.to_thrift(&t_agent_result.status);
 }
 
 void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,

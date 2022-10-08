@@ -171,7 +171,13 @@ private:
         case TYPE_LARGEINT: {
             __int128 value = 0;
             if (iterator->IsNumber()) {
-                value = iterator->GetUint64();
+                if (iterator->IsUint64()) {
+                    value = iterator->GetUint64();
+                } else {
+                    return Status::RuntimeError(
+                            "rapidjson can't parse the number larger than Uint64, please use "
+                            "String to parse as LARGEINT");
+                }
             } else {
                 std::string_view view(iterator->GetString(), iterator->GetStringLength());
                 std::stringstream stream;

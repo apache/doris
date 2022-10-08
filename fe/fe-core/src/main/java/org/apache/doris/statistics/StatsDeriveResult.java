@@ -41,6 +41,9 @@ public class StatsDeriveResult {
 
     private Map<Slot, ColumnStats> slotToColumnStats;
 
+    public boolean isReduced = false;
+    public int width = 1;
+
     public StatsDeriveResult(long rowCount, Map<Slot, ColumnStats> slotToColumnStats) {
         this.rowCount = rowCount;
         this.slotToColumnStats = slotToColumnStats;
@@ -60,6 +63,8 @@ public class StatsDeriveResult {
         for (Entry<Slot, ColumnStats> entry : another.slotToColumnStats.entrySet()) {
             slotToColumnStats.put(entry.getKey(), entry.getValue().copy());
         }
+        this.isReduced = another.isReduced;
+        this.width = another.width;
     }
 
     public float computeSize() {
@@ -83,7 +88,7 @@ public class StatsDeriveResult {
             }
         }
         if (!exist) {
-            return 1;
+            count = (float) 1.0;
         }
         return count * rowCount;
     }

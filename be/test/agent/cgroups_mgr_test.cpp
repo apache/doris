@@ -23,7 +23,6 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "util/logging.h"
 
 #ifndef BE_TEST
 #define BE_TEST

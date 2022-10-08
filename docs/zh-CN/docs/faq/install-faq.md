@@ -157,7 +157,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
 2. FE
 
-   FE 是 java 进程，健壮程度要由于 C/C++ 程序。通常FE 挂掉的原因可能是 OOM（Out-of-Memory）或者是元数据写入失败。这些错误通常在 fe.log 或者 fe.out 中有错误堆栈。需要根据错误堆栈信息进一步排查。
+   FE 是 java 进程，健壮程度要优于 C/C++ 程序。通常FE 挂掉的原因可能是 OOM（Out-of-Memory）或者是元数据写入失败。这些错误通常在 fe.log 或者 fe.out 中有错误堆栈。需要根据错误堆栈信息进一步排查。
 
 ### Q7. 关于数据目录SSD和HDD的配置, 建表有时候会遇到报错`Failed to find enough host with storage medium and tag`
 

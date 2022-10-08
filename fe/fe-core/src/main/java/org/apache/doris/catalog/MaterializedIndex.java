@@ -31,7 +31,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
@@ -252,27 +251,13 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
             return false;
         }
 
-        MaterializedIndex table = (MaterializedIndex) obj;
+        MaterializedIndex other = (MaterializedIndex) obj;
 
-        // Check idToTablets
-        if (table.idToTablets == null) {
-            return false;
-        }
-        if (idToTablets.size() != table.idToTablets.size()) {
-            return false;
-        }
-        for (Entry<Long, Tablet> entry : idToTablets.entrySet()) {
-            long key = entry.getKey();
-            if (!table.idToTablets.containsKey(key)) {
-                return false;
-            }
-            if (!entry.getValue().equals(table.idToTablets.get(key))) {
-                return false;
-            }
-        }
-
-        return (state.equals(table.state))
-                && (rowCount == table.rowCount);
+        return other.idToTablets != null
+                && idToTablets.size() == other.idToTablets.size()
+                && idToTablets.equals(other.idToTablets)
+                && (state.equals(other.state))
+                && (rowCount == other.rowCount);
     }
 
     @Override

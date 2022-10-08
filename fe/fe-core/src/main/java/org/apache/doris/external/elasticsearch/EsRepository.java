@@ -90,7 +90,7 @@ public class EsRepository extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
-        List<Long> dbIds = Env.getCurrentEnv().getInternalDataSource().getDbIds();
+        List<Long> dbIds = Env.getCurrentEnv().getInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database database = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (database == null) {

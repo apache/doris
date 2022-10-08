@@ -263,6 +263,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            SCOPED_SWITCH_BTHREAD_TLS();
 
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
@@ -320,6 +321,8 @@ void PInternalServiceImpl::_tablet_writer_add_batch(google::protobuf::RpcControl
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            SCOPED_SWITCH_BTHREAD_TLS();
+
             // TODO(zxy) delete in 1.2 version
             brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
             attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);

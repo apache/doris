@@ -34,6 +34,8 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_fixed_length_object.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -74,7 +76,7 @@ public:
                                           BeConsts::MAX_DECIMAL64_PRECISION, 0)},
                     {"Decimal128", std::make_shared<DataTypeDecimal<Decimal128>>(
                                            BeConsts::MAX_DECIMAL128_PRECISION, 0)},
-
+                    {"Json", std::make_shared<DataTypeJsonb>()},
             };
             for (auto const& [key, val] : base_type_map) {
                 instance.register_data_type(key, val);

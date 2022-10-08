@@ -71,12 +71,12 @@ Status FileArrowScanner::_open_next_reader() {
         int32_t num_of_columns_from_file = _file_slot_descs.size();
 
         _cur_file_reader =
-                _new_arrow_reader(file_reader.release(), _state->batch_size(),
-                                  num_of_columns_from_file, range.start_offset, range.size);
+                _new_arrow_reader(_file_slot_descs, file_reader.release(), num_of_columns_from_file,
+                                  range.start_offset, range.size);
 
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
-        Status status = _cur_file_reader->init_reader(tuple_desc, _file_slot_descs, _conjunct_ctxs,
-                                                      _state->timezone());
+        Status status =
+                _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
         if (status.is_end_of_file()) {
             continue;
         } else {
@@ -127,7 +127,7 @@ Status FileArrowScanner::_next_arrow_batch() {
 Status FileArrowScanner::_init_arrow_batch_if_necessary() {
     // 1. init batch if first time
     // 2. reset reader if end of file
-    Status status;
+    Status status = Status::OK();
     if (_scanner_eof) {
         return Status::EndOfFile("EOF");
     }
@@ -186,11 +186,10 @@ Status FileArrowScanner::_append_batch_to_block(Block* block) {
         if (slot_desc == nullptr) {
             continue;
         }
-        int file_index = _cur_file_reader->get_cloumn_index(slot_desc->col_name());
-        if (file_index == -1) {
-            continue;
-        }
-        auto* array = _batch->column(file_index).get();
+        std::string real_column_name = _cur_file_reader->is_case_sensitive()
+                                               ? slot_desc->col_name()
+                                               : slot_desc->col_name_lower_case();
+        auto* array = _batch->GetColumnByName(real_column_name).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(
                 array, _arrow_batch_cur_idx, column_with_type_and_name.column,
@@ -227,11 +226,10 @@ VFileParquetScanner::VFileParquetScanner(RuntimeState* state, RuntimeProfile* pr
     _init_profiles(profile);
 }
 
-ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                        int32_t num_of_columns_from_file,
-                                                        int64_t range_start_offset,
-                                                        int64_t range_size) {
-    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file,
+ArrowReaderWrap* VFileParquetScanner::_new_arrow_reader(
+        const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader,
+        int32_t num_of_columns_from_file, int64_t range_start_offset, int64_t range_size) {
+    return new ParquetReaderWrap(_state, file_slot_descs, file_reader, num_of_columns_from_file,
                                  range_start_offset, range_size, false);
 }
 
@@ -251,12 +249,11 @@ VFileORCScanner::VFileORCScanner(RuntimeState* state, RuntimeProfile* profile,
                                  ScannerCounter* counter)
         : FileArrowScanner(state, profile, params, ranges, pre_filter_texprs, counter) {}
 
-ArrowReaderWrap* VFileORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                    int32_t num_of_columns_from_file,
-                                                    int64_t range_start_offset,
-                                                    int64_t range_size) {
-    return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file, range_start_offset,
-                             range_size, false);
+ArrowReaderWrap* VFileORCScanner::_new_arrow_reader(
+        const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader,
+        int32_t num_of_columns_from_file, int64_t range_start_offset, int64_t range_size) {
+    return new ORCReaderWrap(_state, file_slot_descs, file_reader, num_of_columns_from_file,
+                             range_start_offset, range_size, false);
 }
 
 } // namespace doris::vectorized

@@ -18,7 +18,7 @@
 package org.apache.doris.external;
 
 /**
- * Used to describe the data information that ExternalScanNode needs to read external data sources.
+ * Used to describe the data information that ExternalScanNode needs to read external catalogs.
  * For example, for hive, the ExternalScanRange may save the file info which need to be read,
  * such as file path, file format, start and offset, etc.
  */

@@ -88,6 +88,7 @@ public:
                                         const doris_udf::DoubleVal& v);
 
     static doris_udf::DoubleVal sqrt(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal cbrt(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
     static doris_udf::DoubleVal pow(doris_udf::FunctionContext* ctx,
                                     const doris_udf::DoubleVal& base,
                                     const doris_udf::DoubleVal& exp);

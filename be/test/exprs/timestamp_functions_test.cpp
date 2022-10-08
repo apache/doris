@@ -123,16 +123,14 @@ TEST_F(TimestampFunctionsTest, day_of_month_test) {
     dtv1.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv1;
     dtv1.to_datetime_val(&tv1);
-    EXPECT_EQ(false, TimestampFunctions::day_of_month(context, tv1).is_null);
-    EXPECT_EQ(1, TimestampFunctions::day_of_month(context, tv1).val);
+    EXPECT_EQ(true, TimestampFunctions::day_of_month(context, tv1).is_null);
 
     // 2020-01-00 00:00:00
     DateTimeValue dtv2(20200100000000);
     dtv2.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv2;
     dtv2.to_datetime_val(&tv2);
-    EXPECT_EQ(false, TimestampFunctions::day_of_month(context, tv2).is_null);
-    EXPECT_EQ(0, TimestampFunctions::day_of_month(context, tv2).val);
+    EXPECT_EQ(true, TimestampFunctions::day_of_month(context, tv2).is_null);
 
     // 2020-02-29 00:00:00
     DateTimeValue dtv3(20200229000000);

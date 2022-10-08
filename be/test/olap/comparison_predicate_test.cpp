@@ -26,19 +26,19 @@
 #include "olap/row_block2.h"
 #include "olap/wrapper_field.h"
 #include "runtime/mem_pool.h"
+#include "runtime/primitive_type.h"
 #include "runtime/string_value.hpp"
-#include "util/logging.h"
 
 namespace doris {
 
 namespace datetime {
 
-static uint24_t to_date_timestamp(const char* date_string) {
+static uint32_t to_date_timestamp(const char* date_string) {
     tm time_tm;
     strptime(date_string, "%Y-%m-%d", &time_tm);
 
     int value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
-    return uint24_t(value);
+    return uint32_t(value);
 }
 
 static uint64_t to_datetime_timestamp(const std::string& value_string) {
@@ -129,7 +129,7 @@ TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
         return_columns.push_back(i);
     }
     float value = 5.0;
-    ColumnPredicate* pred = new EqualPredicate<float>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(0, value);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -173,7 +173,7 @@ TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
         return_columns.push_back(i);
     }
     double value = 5.0;
-    ColumnPredicate* pred = new EqualPredicate<double>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::EQ>(0, value);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -217,7 +217,8 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
         return_columns.push_back(i);
     }
     decimal12_t value = {5, 5};
-    ColumnPredicate* pred = new EqualPredicate<decimal12_t>(0, value);
+    ColumnPredicate* pred =
+            new ComparisonPredicateBase<TYPE_DECIMALV2, PredicateType::EQ>(0, value);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -282,7 +283,7 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
     value.len = 4;
     value.ptr = const_cast<char*>(value_buffer);
 
-    ColumnPredicate* pred = new EqualPredicate<StringValue>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_STRING, PredicateType::EQ>(0, value);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -338,8 +339,8 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
     for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    uint24_t value = datetime::to_date_timestamp("2017-09-10");
-    ColumnPredicate* pred = new EqualPredicate<uint24_t>(0, value);
+    uint32_t value = datetime::to_date_timestamp("2017-09-10");
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>(0, value);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -356,7 +357,10 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+        const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+        uint24_t timestamp = 0;
+        memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+               sizeof(uint24_t));
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
@@ -372,7 +376,10 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
             col_block_view.set_null_bits(1, true);
         } else {
             col_block_view.set_null_bits(1, false);
-            uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+            const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+            uint24_t timestamp = 0;
+            memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+                   sizeof(uint24_t));
             *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
         }
     }
@@ -397,7 +404,7 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
         return_columns.push_back(i);
     }
     uint64_t value = datetime::to_datetime_timestamp("2017-09-10 01:00:00");
-    ColumnPredicate* pred = new EqualPredicate<uint64_t>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>(0, value);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");
@@ -454,7 +461,7 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
         return_columns.push_back(i);
     }
     float value = 5.0;
-    ColumnPredicate* pred = new LessPredicate<float>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LT>(0, value);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -506,7 +513,7 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
         return_columns.push_back(i);
     }
     double value = 5.0;
-    ColumnPredicate* pred = new LessPredicate<double>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::LT>(0, value);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -558,7 +565,8 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
         return_columns.push_back(i);
     }
     decimal12_t value = {5, 5};
-    ColumnPredicate* pred = new LessPredicate<decimal12_t>(0, value);
+    ColumnPredicate* pred =
+            new ComparisonPredicateBase<TYPE_DECIMALV2, PredicateType::LT>(0, value);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -606,7 +614,7 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
     const char* value_buffer = "dddd";
     value.len = 4;
     value.ptr = const_cast<char*>(value_buffer);
-    ColumnPredicate* pred = new LessPredicate<StringValue>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_STRING, PredicateType::LT>(0, value);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -667,8 +675,8 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
     for (int i = 0; i < tablet_schema->num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    uint24_t value = datetime::to_date_timestamp("2017-09-10");
-    ColumnPredicate* pred = new LessPredicate<uint24_t>(0, value);
+    uint32_t value = datetime::to_date_timestamp("2017-09-10");
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATE, PredicateType::LT>(0, value);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -685,7 +693,10 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
     ColumnBlockView col_block_view(&col_block);
     for (int i = 0; i < size; ++i, col_block_view.advance(1)) {
         col_block_view.set_null_bits(1, false);
-        uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+        const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+        uint24_t timestamp = 0;
+        memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+               sizeof(uint24_t));
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
@@ -701,7 +712,10 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
             col_block_view.set_null_bits(1, true);
         } else {
             col_block_view.set_null_bits(1, false);
-            uint24_t timestamp = datetime::to_date_timestamp(date_array[i].c_str());
+            const uint32_t tmp = datetime::to_date_timestamp(date_array[i].c_str());
+            uint24_t timestamp = 0;
+            memcpy(reinterpret_cast<void*>(&timestamp), reinterpret_cast<const void*>(&tmp),
+                   sizeof(uint24_t));
             *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
         }
     }
@@ -728,7 +742,7 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
     }
 
     uint64_t value = datetime::to_datetime_timestamp("2017-09-10 01:00:00");
-    ColumnPredicate* pred = new LessPredicate<uint64_t>(0, value);
+    ColumnPredicate* pred = new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::LT>(0, value);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");

@@ -372,7 +372,7 @@ public class SparkLoadJob extends BulkLoadJob {
                     continue;
                 }
                 String tabletMetaStr = EtlJobConfig.getTabletMetaStr(filePath);
-                tabletMetaToFileInfo.put(tabletMetaStr, Pair.create(filePath, entry.getValue()));
+                tabletMetaToFileInfo.put(tabletMetaStr, Pair.of(filePath, entry.getValue()));
             }
 
             loadingStatus = etlStatus;
@@ -740,11 +740,13 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     public void clearSparkLauncherLog() {
-        String logPath = sparkLoadAppHandle.getLogPath();
-        if (!Strings.isNullOrEmpty(logPath)) {
-            File file = new File(logPath);
-            if (file.exists()) {
-                file.delete();
+        if (sparkLoadAppHandle != null) {
+            String logPath = sparkLoadAppHandle.getLogPath();
+            if (!Strings.isNullOrEmpty(logPath)) {
+                File file = new File(logPath);
+                if (file.exists()) {
+                    file.delete();
+                }
             }
         }
     }
@@ -775,7 +777,7 @@ public class SparkLoadJob extends BulkLoadJob {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             String tabletMetaStr = Text.readString(in);
-            Pair<String, Long> fileInfo = Pair.create(Text.readString(in), in.readLong());
+            Pair<String, Long> fileInfo = Pair.of(Text.readString(in), in.readLong());
             tabletMetaToFileInfo.put(tabletMetaStr, fileInfo);
         }
     }
@@ -903,10 +905,18 @@ public class SparkLoadJob extends BulkLoadJob {
             Map<String, SlotDescriptor> srcSlotDescByName = Maps.newHashMap();
             for (Column column : columns) {
                 SlotDescriptor srcSlotDesc = descTable.addSlotDescriptor(srcTupleDesc);
-                srcSlotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                 srcSlotDesc.setIsMaterialized(true);
                 srcSlotDesc.setIsNullable(true);
-                srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.VARCHAR));
+
+                if (column.getDataType() == PrimitiveType.BITMAP) {
+                    // cast to bitmap when the target column type is bitmap
+                    srcSlotDesc.setType(ScalarType.createType(PrimitiveType.BITMAP));
+                    srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.BITMAP));
+                } else {
+                    srcSlotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.VARCHAR));
+                }
+
                 params.addToSrcSlotIds(srcSlotDesc.getId().asInt());
                 srcSlotDescByName.put(column.getName(), srcSlotDesc);
             }

@@ -76,3 +76,11 @@ Doris的 Master FE 节点会主动发送心跳给各个FE或BE节点，并且在
 3. 关闭 SQL 缓存 `set [global] enable_sql_cache = false;`
 
 这里是因为 bitmap / hll 类型在向量化执行引擎中：输入均为NULL，则输出的结果也是NULL而不是0
+
+### Q6. 访问对象存储时报错：curl 77: Problem with the SSL CA cert
+
+如果 be.INFO 日志中出现 `curl 77: Problem with the SSL CA cert` 错误。可以尝试通过以下方式解决：
+
+1. 在 [https://curl.se/docs/caextract.html](https://curl.se/docs/caextract.html) 下载证书：cacert.pem
+2. 拷贝证书到指定位置：`sudo cp /tmp/cacert.pem /etc/ssl/certs/ca-certificates.crt`
+3. 重启 BE 节点。

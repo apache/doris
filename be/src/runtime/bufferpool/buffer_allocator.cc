@@ -239,7 +239,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
     }
     if (UNLIKELY(len > system_bytes_limit_)) {
         err_stream << "Tried to allocate buffer of " << len << " bytes"
-                   << " > buffer pool limit of  " << MAX_BUFFER_BYTES << " bytes";
+                   << " > buffer pool limit of  " << system_bytes_limit_ << " bytes";
         return Status::InternalError(err_stream.str());
     }
 
@@ -368,7 +368,8 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(bool slow_but_sure, int cur
     if (slow_but_sure && bytes_found < target_bytes) {
         bytes_found +=
                 DecreaseBytesRemaining(target_bytes - bytes_found, true, &system_bytes_remaining_);
-        DCHECK_EQ(bytes_found, target_bytes) << DebugString();
+        // Deadlock in arena_locks in BufferPool::BufferAllocator::ScavengeBuffers and _lock in DebugString
+        // DCHECK_EQ(bytes_found, target_bytes) << DebugString();
     }
     return bytes_found;
 }

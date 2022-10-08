@@ -28,7 +28,7 @@ under the License.
 
 ### Description
 
-该命令用于创建一张表。本文档主语介绍创建 Doris 自维护的表的语法。外部表语法请参阅 [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.md)文档。
+该命令用于创建一张表。本文档主要介绍创建 Doris 自维护的表的语法。外部表语法请参阅 [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.md)文档。
 
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
@@ -40,7 +40,7 @@ CREATE TABLE [IF NOT EXISTS] [database.]table
 [keys_type]
 [table_comment]
 [partition_info]
-distribution_info
+distribution_desc
 [rollup_list]
 [properties]
 [extra_properties]
@@ -318,6 +318,14 @@ distribution_info
         Doris默认不使用light schema change优化。如果想使用该优化需要指定为true。
     
         `"light_schema_change" = 'true'`
+    
+    * `disable_auto_compaction`
+
+        是否对这个表禁用自动compaction。
+
+        如果这个属性设置成 `true`, 后台的自动compaction进程会跳过这个表的所有tablet。
+
+        `"disable_auto_compaction" = "false"`
 
     * 动态分区相关
     

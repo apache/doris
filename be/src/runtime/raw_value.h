@@ -442,10 +442,15 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     case TYPE_SMALLINT:
         return HashUtil::zlib_crc_hash(v, 2, seed);
     case TYPE_INT:
+    case TYPE_DATEV2:
+    case TYPE_DECIMAL32:
         return HashUtil::zlib_crc_hash(v, 4, seed);
     case TYPE_BIGINT:
+    case TYPE_DATETIMEV2:
+    case TYPE_DECIMAL64:
         return HashUtil::zlib_crc_hash(v, 8, seed);
     case TYPE_LARGEINT:
+    case TYPE_DECIMAL128:
         return HashUtil::zlib_crc_hash(v, 16, seed);
     case TYPE_FLOAT:
         return HashUtil::zlib_crc_hash(v, 4, seed);
@@ -458,21 +463,6 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         int len = date_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, seed);
     }
-    case TYPE_DATEV2: {
-        const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>* date_v2_val =
-                (const vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)v;
-        char buf[64];
-        int len = date_v2_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, len, seed);
-    }
-
-    case TYPE_DATETIMEV2: {
-        const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>* date_v2_val =
-                (const vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*)v;
-        char buf[64];
-        int len = date_v2_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, len, seed);
-    }
 
     case TYPE_DECIMALV2: {
         const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
@@ -481,13 +471,6 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
         return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
     }
-
-    case TYPE_DECIMAL32:
-        return HashUtil::zlib_crc_hash(v, 4, seed);
-    case TYPE_DECIMAL64:
-        return HashUtil::zlib_crc_hash(v, 8, seed);
-    case TYPE_DECIMAL128:
-        return HashUtil::zlib_crc_hash(v, 16, seed);
     default:
         DCHECK(false) << "invalid type: " << type;
         return 0;

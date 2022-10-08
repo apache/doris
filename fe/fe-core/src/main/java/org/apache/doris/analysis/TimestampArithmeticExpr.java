@@ -36,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -84,6 +85,52 @@ public class TimestampArithmeticExpr extends Expr {
         this.intervalFirst = intervalFirst;
         children.add(e1);
         children.add(e2);
+    }
+
+    /**
+     * used for Nereids ONLY.
+     * C'tor for function-call like arithmetic, e.g., 'date_add(a, interval b year)'.
+     *
+     * @param funcName timestamp arithmetic function name, used for all function except ADD and SUBTRACT.
+     * @param e1 non interval literal child of this function
+     * @param e2 interval literal child of this function
+     * @param timeUnitIdent interval time unit, could be 'year', 'month', 'day', 'hour', 'minute', 'second'.
+     * @param dataType the return data type of this expression.
+     */
+    public TimestampArithmeticExpr(String funcName, Expr e1, Expr e2, String timeUnitIdent, Type dataType) {
+        this.funcName = funcName;
+        this.timeUnitIdent = timeUnitIdent;
+        this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase(Locale.ROOT));
+        this.intervalFirst = false;
+        children.add(e1);
+        children.add(e2);
+        this.type = dataType;
+    }
+
+    /**
+     * used for Nereids ONLY.
+     * C'tor for non-function-call like arithmetic, e.g., 'a + interval b year'.
+     * e1 always refers to the timestamp to be added/subtracted from, and e2
+     * to the time value (even in the interval-first case).
+     *
+     * @param op operator of this function either ADD or SUBTRACT.
+     * @param e1 non interval literal child of this function
+     * @param e2 interval literal child of this function
+     * @param timeUnitIdent interval time unit, could be 'year', 'month', 'day', 'hour', 'minute', 'second'.
+     * @param intervalFirst true if the left child is interval literal
+     * @param dataType the return data type of this expression.
+     */
+    public TimestampArithmeticExpr(ArithmeticExpr.Operator op, Expr e1, Expr e2,
+            String timeUnitIdent, boolean intervalFirst, Type dataType) {
+        Preconditions.checkState(op == Operator.ADD || op == Operator.SUBTRACT);
+        this.funcName = null;
+        this.op = op;
+        this.timeUnitIdent = timeUnitIdent;
+        this.timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase(Locale.ROOT));
+        this.intervalFirst = intervalFirst;
+        children.add(e1);
+        children.add(e2);
+        this.type = dataType;
     }
 
     protected TimestampArithmeticExpr(TimestampArithmeticExpr other) {
@@ -228,8 +275,25 @@ public class TimestampArithmeticExpr extends Expr {
                     (op == ArithmeticExpr.Operator.ADD) ? "ADD" : "SUB");
         }
 
-        fn = getBuiltinFunction(funcOpName.toLowerCase(), collectChildReturnTypes(),
+        Type[] childrenTypes = collectChildReturnTypes();
+        fn = getBuiltinFunction(funcOpName.toLowerCase(), childrenTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        Preconditions.checkArgument(fn != null);
+        Type[] argTypes = fn.getArgs();
+        if (argTypes.length > 0) {
+            // Implicitly cast all the children to match the function if necessary
+            for (int i = 0; i < childrenTypes.length; ++i) {
+                // For varargs, we must compare with the last type in callArgs.argTypes.
+                int ix = Math.min(argTypes.length - 1, i);
+                if (!childrenTypes[i].matchesType(argTypes[ix]) && Config.enable_date_conversion
+                        && !childrenTypes[i].isDateType() && (argTypes[ix].isDate() || argTypes[ix].isDatetime())) {
+                    uncheckedCastChild(ScalarType.getDefaultDateType(argTypes[ix]), i);
+                } else if (!childrenTypes[i].matchesType(argTypes[ix]) && !(
+                        childrenTypes[i].isDateType() && argTypes[ix].isDateType())) {
+                    uncheckedCastChild(argTypes[ix], i);
+                }
+            }
+        }
         LOG.debug("fn is {} name is {}", fn, funcOpName);
     }
 
@@ -424,7 +488,7 @@ public class TimestampArithmeticExpr extends Expr {
         if (StringUtils.isEmpty(funcName)) {
             throw new AnalysisException("function name is null");
         }
-        type = getChild(0).getType();
+        timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
         opcode = getOpCode();
         fn = getBuiltinFunction(funcName.toLowerCase(), collectChildReturnTypes(),
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

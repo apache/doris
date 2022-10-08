@@ -63,7 +63,7 @@ struct ToBitmap {
                 continue;
             } else {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                size_t str_size = offsets[i] - offsets[i - 1];
                 StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
                 uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
                         raw_str, str_size, &parse_result);
@@ -85,7 +85,7 @@ struct BitmapFromString {
         std::vector<uint64_t> bits;
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int64_t str_size = offsets[i] - offsets[i - 1] - 1;
+            int64_t str_size = offsets[i] - offsets[i - 1];
 
             if ((str_size > INT32_MAX) ||
                 !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
@@ -140,8 +140,22 @@ public:
     }
 };
 
-struct BitmapHash {
+template <int HashBits>
+struct BitmapHashName {};
+
+template <>
+struct BitmapHashName<32> {
     static constexpr auto name = "bitmap_hash";
+};
+
+template <>
+struct BitmapHashName<64> {
+    static constexpr auto name = "bitmap_hash64";
+};
+
+template <int HashBits>
+struct BitmapHash {
+    static constexpr auto name = BitmapHashName<HashBits>::name;
 
     using ReturnType = DataTypeBitMap;
 
@@ -153,10 +167,16 @@ struct BitmapHash {
 
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1] - 1;
-            uint32_t hash_value =
-                    HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
-            res_data[i].add(hash_value);
+            size_t str_size = offsets[i] - offsets[i - 1];
+            if constexpr (HashBits == 32) {
+                uint32_t hash_value =
+                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+                res_data[i].add(hash_value);
+            } else {
+                uint64_t hash_value = 0;
+                murmur_hash3_x64_64(raw_str, str_size, 0, &hash_value);
+                res_data[i].add(hash_value);
+            }
         }
     }
 
@@ -172,10 +192,16 @@ struct BitmapHash {
                 continue;
             } else {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-                size_t str_size = offsets[i] - offsets[i - 1] - 1;
-                uint32_t hash_value =
-                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
-                res_data[i].add(hash_value);
+                size_t str_size = offsets[i] - offsets[i - 1];
+                if constexpr (HashBits == 32) {
+                    uint32_t hash_value =
+                            HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+                    res_data[i].add(hash_value);
+                } else {
+                    uint64_t hash_value = 0;
+                    murmur_hash3_x64_64(raw_str, str_size, 0, &hash_value);
+                    res_data[i].add(hash_value);
+                }
             }
         }
     }
@@ -511,7 +537,8 @@ public:
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
 using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
-using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash>;
+using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash<32>>;
+using FunctionBitmapHash64 = FunctionAlwaysNotNullable<BitmapHash<64>>;
 
 using FunctionBitmapMin = FunctionBitmapSingle<FunctionBitmapMinImpl>;
 using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;
@@ -539,6 +566,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToBitmap>();
     factory.register_function<FunctionBitmapFromString>();
     factory.register_function<FunctionBitmapHash>();
+    factory.register_function<FunctionBitmapHash64>();
     factory.register_function<FunctionBitmapCount>();
     factory.register_function<FunctionBitmapMin>();
     factory.register_function<FunctionBitmapMax>();

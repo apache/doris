@@ -52,6 +52,18 @@
   {% endif %}
 {%- endmacro %}
 
+{% macro doris__unique_key() -%}
+  {% set cols = config.get('unique_key', validator=validation.any[list]) %}
+  {% if cols is not none %}
+    UNIQUE KEY (
+      {% for item in cols %}
+        {{ item }}
+      {% if not loop.last %},{% endif %}
+      {% endfor %}
+    )
+  {% endif %}
+{%- endmacro %}
+
 {% macro doris__distributed_by(column_names) -%}
   {% set label = 'DISTRIBUTED BY HASH' %}
   {% set engine = config.get('engine', validator=validation.any[basestring]) %}
@@ -104,4 +116,18 @@
     alter table {{ from_relation }} rename {{ to_relation.table }}
     {% endif %}
   {% endcall %}
+{%- endmacro %}
+
+
+{% macro doris__timestimp_id() -%}
+ {{ return( (modules.datetime.datetime.now() ~ "").replace('-','').replace(':','').replace('.','').replace(' ','') ) }}
+{%- endmacro %}
+
+{% macro doris__with_label() -%}
+  {% set lable_suffix_id = config.get('label_id', validator=validation.any[basestring]) %}
+  {% if lable_suffix_id in [none,'DEFAULT'] %}
+    WITH LABEL dbt_doris_label_{{doris__timestimp_id()}}
+  {% else %}
+    WITH LABEL dbt_doris_label_{{ lable_suffix_id }}
+  {% endif %}  
 {%- endmacro %}

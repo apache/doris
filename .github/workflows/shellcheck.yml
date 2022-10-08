@@ -1,0 +1,52 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+name: ShellCheck
+
+on: [push, pull_request_target]
+
+jobs:
+  shellcheck:
+    name: ShellCheck 
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ${{ github.ref }} ( ${{ github.sha }} )
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
+        if: ${{ github.event_name == 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+
+      - name: Patch
+        run: |
+          pushd .github/actions/action-sh-checker >/dev/null
+          git apply ../patches/action-sh-checker.patch
+          popd >/dev/null
+
+      - name: Run ShellCheck
+        uses: ./.github/actions/action-sh-checker
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          sh_checker_comment: true
+          sh_checker_exclude: .git .github ^thirdparty/src ^thirdparty/installed ^ui ^docs/node_modules ^tools/clickbench-tools ^extension ^output ^fs_brokers/apache_hdfs_broker/output

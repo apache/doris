@@ -51,7 +51,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
+            .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -163,6 +163,13 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
+
+            // remote used capacity
+            long remoteUsedB = backend.getRemoteUsedCapacityB();
+            Pair<Double, String> totalRemoteUsedCapacity = DebugUtil.getByteUint(remoteUsedB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteUsedCapacity.first) + " "
+                    + totalRemoteUsedCapacity.second);
+
             // tags
             backendInfo.add(backend.getTagMapString());
             // err msg

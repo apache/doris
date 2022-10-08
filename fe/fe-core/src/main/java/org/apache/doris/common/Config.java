@@ -255,6 +255,15 @@ public class Config extends ConfigBase {
     public static int bdbje_replica_ack_timeout_second = 10;
 
     /**
+     * The desired upper limit on the number of bytes of reserved space to
+     * retain in a replicated JE Environment.
+     * You only need to decrease this value if your FE meta disk is really small.
+     * And don't need to increase this value.
+     */
+    @ConfField
+    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+
+    /**
      * num of thread to handle heartbeat events in heartbeat_mgr.
      */
     @ConfField(masterOnly = true)
@@ -744,6 +753,7 @@ public class Config extends ConfigBase {
      * this config has been replaced by async_loading_load_task_pool_size,
      * it will be removed in the future.
      */
+    @Deprecated
     @ConfField(mutable = false, masterOnly = true)
     public static int async_load_task_pool_size = 10;
 
@@ -1676,7 +1686,7 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = false;
 
     @ConfField
-    public static boolean enable_vectorized_load = false;
+    public static boolean enable_vectorized_load = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
@@ -1686,7 +1696,7 @@ public class Config extends ConfigBase {
      * Should be removed when this feature is ready.
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_multi_catalog = false; // 1 min
+    public static boolean enable_multi_catalog = false;
 
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
@@ -1732,4 +1742,54 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String s3_compatible_object_storages = "s3,oss,cos,bos";
+
+    /**
+     * Support complex data type ARRAY.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_array_type = false;
+
+    /**
+     * Use new fe generate es dsl.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_new_es_dsl = true;
+
+    /**
+     * The timeout of executing async remote fragment.
+     * In normal case, the async remote fragment will be executed in a short time. If system are under high load
+     * condition，try to set this timeout longer.
+     */
+    @ConfField(mutable = true)
+    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
+
+    /**
+     * Temp config, should be removed when new file scan node is ready.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_new_load_scan_node = false;
+
+    /**
+     * Max data version of backends serialize block.
+     */
+    @ConfField(mutable = false)
+    public static int max_be_exec_version = 1;
+
+    /**
+     * Min data version of backends serialize block.
+     */
+    @ConfField(mutable = false)
+    public static int min_be_exec_version = 0;
+
+    /**
+     * Data version of backends serialize block.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int be_exec_version = max_be_exec_version;
+
+    @ConfField(mutable = false)
+    public static int statistic_job_scheduler_execution_interval_ms = 60 * 60 * 1000;
+
+    @ConfField(mutable = false)
+    public static int statistic_task_scheduler_execution_interval_ms = 60 * 60 * 1000;
 }

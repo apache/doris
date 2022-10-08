@@ -29,7 +29,6 @@
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
-#include "util/pretty_printer.h"
 #include "util/thrift_util.h"
 #include "util/url_coding.h"
 
@@ -398,7 +397,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
 
     DCHECK(parent_counter_name == ROOT_COUNTER ||
            _counter_map.find(parent_counter_name) != _counter_map.end());
-    Counter* counter = _pool->add(new Counter(type, 0, name));
+    Counter* counter = _pool->add(new Counter(type, 0));
     _counter_map[name] = counter;
     std::set<std::string>* child_counters =
             find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
@@ -526,6 +525,88 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
         bool indent = children[i].second;
         profile->pretty_print(s, prefix + (indent ? "  " : ""));
     }
+}
+
+void RuntimeProfile::add_to_span() {
+    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
+    if (!span->IsRecording() || _added_to_span) {
+        return;
+    }
+    _added_to_span = true;
+
+    CounterMap counter_map;
+    ChildCounterMap child_counter_map;
+    {
+        std::lock_guard<std::mutex> l(_counter_map_lock);
+        counter_map = _counter_map;
+        child_counter_map = _child_counter_map;
+    }
+
+    auto total_time = counter_map.find("TotalTime");
+    DCHECK(total_time != counter_map.end());
+
+    // profile name like "VDataBufferSender  (dst_fragment_instance_id=-2608c96868f3b77d--713968f450bfbe0d):"
+    // to "VDataBufferSender"
+    auto i = _name.find_first_of("(: ");
+    auto short_name = _name.substr(0, i);
+    span->SetAttribute("TotalTime", print_json_counter(short_name, total_time->second));
+
+    {
+        std::lock_guard<std::mutex> l(_info_strings_lock);
+        for (const std::string& key : _info_strings_display_order) {
+            // nlohmann json will core dump when serializing 'KeyRanges', here temporarily skip it.
+            if (key.compare("KeyRanges") == 0) {
+                continue;
+            }
+            span->SetAttribute(key, print_json_info(short_name, _info_strings.find(key)->second));
+        }
+    }
+
+    RuntimeProfile::add_child_counters_to_span(span, short_name, ROOT_COUNTER, counter_map,
+                                               child_counter_map);
+
+    ChildVector children;
+    {
+        std::lock_guard<std::mutex> l(_children_lock);
+        children = _children;
+    }
+
+    for (int i = 0; i < children.size(); ++i) {
+        RuntimeProfile* profile = children[i].first;
+        profile->add_to_span();
+    }
+}
+
+void RuntimeProfile::add_child_counters_to_span(OpentelemetrySpan span,
+                                                const std::string& profile_name,
+                                                const std::string& counter_name,
+                                                const CounterMap& counter_map,
+                                                const ChildCounterMap& child_counter_map) {
+    ChildCounterMap::const_iterator itr = child_counter_map.find(counter_name);
+
+    if (itr != child_counter_map.end()) {
+        const std::set<std::string>& child_counters = itr->second;
+        for (const std::string& child_counter : child_counters) {
+            CounterMap::const_iterator iter = counter_map.find(child_counter);
+            DCHECK(iter != counter_map.end());
+            span->SetAttribute(iter->first, print_json_counter(profile_name, iter->second));
+            RuntimeProfile::add_child_counters_to_span(span, profile_name, child_counter,
+                                                       counter_map, child_counter_map);
+        }
+    }
+}
+
+std::string RuntimeProfile::print_json_info(const std::string& profile_name, std::string value) {
+    rapidjson::StringBuffer s;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(s);
+
+    writer.StartObject();
+    writer.Key("profile");
+    writer.String(profile_name.c_str());
+    writer.Key("pretty");
+    writer.String(value.c_str());
+    writer.EndObject();
+    return s.GetString();
 }
 
 void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {

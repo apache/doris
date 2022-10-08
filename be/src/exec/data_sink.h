@@ -70,6 +70,7 @@ public:
     // It must be okay to call this multiple times. Subsequent calls should
     // be ignored.
     virtual Status close(RuntimeState* state, Status exec_status) {
+        profile()->add_to_span();
         _closed = true;
         return Status::OK();
     }

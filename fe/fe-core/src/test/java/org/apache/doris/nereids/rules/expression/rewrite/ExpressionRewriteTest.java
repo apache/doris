@@ -21,7 +21,9 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -38,11 +40,12 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testNotRewrite() {
-        executor = new ExpressionRuleExecutor(SimplifyNotExprRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyNotExprRule.INSTANCE));
 
         assertRewrite("not x", "not x");
         assertRewrite("not not x", "x");
         assertRewrite("not not not x", "not x");
+        assertRewrite("not not not not x", "x");
         assertRewrite("not (x > y)", "x <= y");
         assertRewrite("not (x < y)", "x >= y");
         assertRewrite("not (x >= y)", "x < y");
@@ -62,7 +65,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testNormalizeExpressionRewrite() {
-        executor = new ExpressionRuleExecutor(NormalizeBinaryPredicatesRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(NormalizeBinaryPredicatesRule.INSTANCE));
 
         assertRewrite("1 = 1", "1 = 1");
         assertRewrite("2 > x", "x < 2");
@@ -74,7 +77,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testDistinctPredicatesRewrite() {
-        executor = new ExpressionRuleExecutor(DistinctPredicatesRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(DistinctPredicatesRule.INSTANCE));
 
         assertRewrite("a = 1", "a = 1");
         assertRewrite("a = 1 and a = 1", "a = 1");
@@ -84,10 +87,9 @@ public class ExpressionRewriteTest {
         assertRewrite("a = 1 or a = 1 or b >= 1", "a = 1 or b >= 1");
     }
 
-
     @Test
     public void testExtractCommonFactorRewrite() {
-        executor = new ExpressionRuleExecutor(ExtractCommonFactorRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(ExtractCommonFactorRule.INSTANCE));
 
         assertRewrite("a", "a");
 
@@ -95,13 +97,11 @@ public class ExpressionRewriteTest {
         assertRewrite("a and b", "a and b");
         assertRewrite("a = 1 and b > 2", "a = 1 and b > 2");
 
-
         assertRewrite("(a and b) or (c and d)", "(a and b) or (c and d)");
         assertRewrite("(a and b) and (c and d)", "((a and b) and c) and d");
 
         assertRewrite("(a or b) and (a or c)", "a or (b and c)");
         assertRewrite("(a and b) or (a and c)", "a and (b or c)");
-
 
         assertRewrite("(a or b) and (a or c) and (a or d)", "a or (b and c and d)");
         assertRewrite("(a and b) or (a and c) or (a and d)", "a and (b or c or d)");
@@ -118,17 +118,17 @@ public class ExpressionRewriteTest {
         assertRewrite("(a and b) or ((d and c) and (d and e))", "(a and b) or (d and c and e)");
         assertRewrite("(a or b) and ((d or c) or (d or e))", "(a or b) and (d or c or e)");
 
-        assertRewrite("(a and b) or (a and b and c)",  "a and b");
-        assertRewrite("(a or b) and (a or b or c)",  "a or b");
+        assertRewrite("(a and b) or (a and b and c)", "a and b");
+        assertRewrite("(a or b) and (a or b or c)", "a or b");
 
-        assertRewrite("a and true",  "a");
-        assertRewrite("a or false",  "a");
+        assertRewrite("a and true", "a");
+        assertRewrite("a or false", "a");
 
-        assertRewrite("a and false",  "false");
-        assertRewrite("a or true",  "true");
+        assertRewrite("a and false", "false");
+        assertRewrite("a or true", "true");
 
-        assertRewrite("a or false or false or false",  "a");
-        assertRewrite("a and true and true and true",  "a");
+        assertRewrite("a or false or false or false", "a");
+        assertRewrite("a and true and true and true", "a");
 
         assertRewrite("(a and b) or a ", "a");
         assertRewrite("(a or b) and a ", "a");
@@ -142,11 +142,48 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testBetweenToCompoundRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE, SimplifyNotExprRule.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE,
+                SimplifyNotExprRule.INSTANCE));
 
-        assertRewrite(" a between c and d", "(a >= c) and (a <= d)");
-        assertRewrite(" a not between c and d)", "(a < c) or (a > d)");
+        assertRewrite("a between c and d", "(a >= c) and (a <= d)");
+        assertRewrite("a not between c and d)", "(a < c) or (a > d)");
 
+    }
+
+    @Test
+    public void testInPredicateToEqualToRule() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateToEqualToRule.INSTANCE));
+
+        assertRewrite("a in (1)", "a = 1");
+        assertRewrite("a in (1, 2)", "a in (1, 2)");
+        assertRewrite("a not in (1)", "not a = 1");
+        assertRewrite("a not in (1, 2)", "not a in (1, 2)");
+        assertRewrite("a in (a in (1))", "a = (a = 1)");
+        assertRewrite("a in (a in (1, 2))", "a = (a in (1, 2))");
+        assertRewrite("(a in (1)) in (1)", "(a = 1) = 1");
+        assertRewrite("(a in (1, 2)) in (1)", "(a in (1, 2)) = 1");
+        assertRewrite("(a in (1)) in (1, 2)", "(a = 1) in (1, 2)");
+        assertRewrite("case a when b in (1) then a else c end in (1)",
+                "case a when b = 1 then a else c end = 1");
+        assertRewrite("case a when b not in (1) then a else c end not in (1)",
+                "not case a when not b = 1 then a else c end = 1");
+        assertRewrite("case a when b not in (1) then a else c end in (1, 2)",
+                "case a when not b = 1 then a else c end in (1, 2)");
+
+    }
+
+    @Test
+    public void testSimplifyCastRule() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
+
+        // deduplicate
+        assertRewrite("CAST(1 AS tinyint)", "1");
+        assertRewrite("CAST('str' AS varchar)", "'str'");
+        assertRewrite("CAST(CAST(1 AS tinyint) AS tinyint)", "1");
+
+        // deduplicate inside
+        assertRewrite("CAST(CAST('str' AS varchar) AS double)", "CAST('str' AS double)");
+        assertRewrite("CAST(CAST(1 AS tinyint) AS double)", "CAST(1 AS double)");
     }
 
     private void assertRewrite(String expression, String expected) {

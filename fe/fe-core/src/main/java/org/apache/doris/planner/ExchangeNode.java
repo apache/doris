@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -83,6 +84,7 @@ public class ExchangeNode extends PlanNode {
             limit = inputNode.limit;
         }
         computeTupleIds();
+
     }
 
     public boolean isMergingExchange() {
@@ -94,8 +96,15 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     public final void computeTupleIds() {
-        clearTupleIds();
-        tupleIds.addAll(getChild(0).getTupleIds());
+        PlanNode inputNode = getChild(0);
+        TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
+        if (outputTupleDesc != null) {
+            tupleIds.clear();
+            tupleIds.add(outputTupleDesc.getId());
+        } else {
+            clearTupleIds();
+            tupleIds.addAll(getChild(0).getTupleIds());
+        }
         tblRefIds.addAll(getChild(0).getTblRefIds());
         nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
     }

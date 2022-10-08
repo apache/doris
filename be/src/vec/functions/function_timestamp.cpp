@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/datetime_value.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf_internal.h"
 #include "vec/columns/column_nullable.h"
@@ -23,9 +22,11 @@
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
-#include "vec/functions/function_totype.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -97,10 +98,10 @@ struct StrToDate {
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            int l_str_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_str_size = loffsets[i] - loffsets[i - 1];
 
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-            int r_str_size = roffsets[i] - roffsets[i - 1] - 1;
+            int r_str_size = roffsets[i] - roffsets[i - 1];
 
             auto& ts_val = *reinterpret_cast<DateValueType*>(&res[i]);
             if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {

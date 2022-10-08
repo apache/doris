@@ -167,7 +167,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
 #ifndef BE_TEST
     if (config::enable_stream_load_record) {
         str = ctx->prepare_stream_load_record(str);
-        _sava_stream_load_record(ctx, str);
+        _save_stream_load_record(ctx, str);
     }
 #endif
     // update statstics
@@ -248,7 +248,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 #ifndef BE_TEST
         if (config::enable_stream_load_record) {
             str = ctx->prepare_stream_load_record(str);
-            _sava_stream_load_record(ctx, str);
+            _save_stream_load_record(ctx, str);
         }
 #endif
         return -1;
@@ -555,6 +555,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
 
+    if (!http_req->header(HTTP_HIDDEN_COLUMNS).empty()) {
+        request.__set_hidden_columns(http_req->header(HTTP_HIDDEN_COLUMNS));
+    }
+
 #ifndef BE_TEST
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
@@ -600,7 +604,7 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     return Status::OK();
 }
 
-void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
+void StreamLoadAction::_save_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::string key =

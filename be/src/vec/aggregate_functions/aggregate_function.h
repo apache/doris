@@ -20,17 +20,27 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
+#include "vec/columns/column_complex.h"
 #include "vec/common/exception.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 
 class Arena;
 class IColumn;
 class IDataType;
+
+template <bool nullable, typename ColVecType>
+class AggregateFunctionBitmapCount;
+template <typename Op>
+class AggregateFunctionBitmapOp;
+struct AggregateFunctionBitmapUnionOp;
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
@@ -67,6 +77,9 @@ public:
     /// Delete data for aggregation.
     virtual void destroy(AggregateDataPtr __restrict place) const noexcept = 0;
 
+    virtual void destroy_vec(AggregateDataPtr __restrict place,
+                             const size_t num_rows) const noexcept = 0;
+
     /// Reset aggregation state
     virtual void reset(AggregateDataPtr place) const = 0;
 
@@ -87,6 +100,9 @@ public:
     virtual void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
                      Arena* arena) const = 0;
 
+    virtual void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
+                          std::vector<int>& rows, Arena* arena) const {}
+
     /// Merges state (on which place points to) with other state of current aggregation function.
     virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                        Arena* arena) const = 0;
@@ -105,16 +121,28 @@ public:
     virtual void serialize_vec(const std::vector<AggregateDataPtr>& places, size_t offset,
                                BufferWritable& buf, const size_t num_rows) const = 0;
 
+    virtual void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
+                                     MutableColumnPtr& dst, const size_t num_rows) const = 0;
+
+    virtual void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                                 MutableColumnPtr& dst) const = 0;
+
     /// Deserializes state. This function is called only for empty (just created) states.
     virtual void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                              Arena* arena) const = 0;
 
-    virtual void deserialize_vec(AggregateDataPtr places, ColumnString* column, Arena* arena,
+    virtual void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena* arena,
                                  size_t num_rows) const = 0;
+
+    virtual void deserialize_from_column(AggregateDataPtr places, const IColumn& column,
+                                         Arena* arena, size_t num_rows) const = 0;
 
     /// Deserializes state and merge it with current aggregation function.
     virtual void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
                                        Arena* arena) const = 0;
+
+    virtual void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
+                                                   const IColumn& column, Arena* arena) const = 0;
 
     /// Returns true if a function requires Arena to handle own states (see add(), merge(), deserialize()).
     virtual bool allocates_memory_in_arena() const { return false; }
@@ -135,7 +163,7 @@ public:
       *  and do a single call to "add_batch" for devirtualization and inlining.
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                           const IColumn** columns, Arena* arena) const = 0;
+                           const IColumn** columns, Arena* arena, bool agg_many = false) const = 0;
 
     // same as add_batch, but only call "add" function when place is not nullptr
     virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
@@ -157,8 +185,18 @@ public:
                                         AggregateDataPtr place, const IColumn** columns,
                                         Arena* arena) const = 0;
 
+    virtual void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
+                                         const size_t num_rows, Arena* arena) const = 0;
+
+    virtual void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                                   const size_t num_rows, Arena* arena) const = 0;
+
     const DataTypes& get_argument_types() const { return argument_types; }
     const Array& get_parameters() const { return parameters; }
+
+    virtual MutableColumnPtr create_serialize_column() const { return ColumnString::create(); }
+
+    virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
 
 protected:
     DataTypes argument_types;
@@ -172,8 +210,42 @@ public:
     IAggregateFunctionHelper(const DataTypes& argument_types_, const Array& parameters_)
             : IAggregateFunction(argument_types_, parameters_) {}
 
+    void destroy_vec(AggregateDataPtr __restrict place,
+                     const size_t num_rows) const noexcept override {
+        const size_t size_of_data_ = size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            static_cast<const Derived*>(this)->destroy(place + size_of_data_ * i);
+        }
+    }
+
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena) const override {
+                   const IColumn** columns, Arena* arena, bool agg_many) const override {
+        if constexpr (std::is_same_v<Derived, AggregateFunctionBitmapCount<false, ColumnBitmap>> ||
+                      std::is_same_v<Derived, AggregateFunctionBitmapCount<true, ColumnBitmap>> ||
+                      std::is_same_v<Derived,
+                                     AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>) {
+            if (agg_many) {
+                phmap::flat_hash_map<AggregateDataPtr, std::vector<int>> place_rows;
+                for (int i = 0; i < batch_size; ++i) {
+                    auto iter = place_rows.find(places[i] + place_offset);
+                    if (iter == place_rows.end()) {
+                        std::vector<int> rows;
+                        rows.push_back(i);
+                        place_rows.emplace(places[i] + place_offset, rows);
+                    } else {
+                        iter->second.push_back(i);
+                    }
+                }
+                auto iter = place_rows.begin();
+                while (iter != place_rows.end()) {
+                    static_cast<const Derived*>(this)->add_many(iter->first, columns, iter->second,
+                                                                arena);
+                    iter++;
+                }
+                return;
+            }
+        }
+
         for (size_t i = 0; i < batch_size; ++i) {
             static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
         }
@@ -228,7 +300,38 @@ public:
         }
     }
 
-    void deserialize_vec(AggregateDataPtr places, ColumnString* column, Arena* arena,
+    void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
+                             MutableColumnPtr& dst, const size_t num_rows) const override {
+        VectorBufferWriter writter(assert_cast<ColumnString&>(*dst));
+        serialize_vec(places, offset, writter, num_rows);
+    }
+
+    void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
+                                 const size_t num_rows, Arena* arena) const override {
+        char place[size_of_data()];
+        for (size_t i = 0; i != num_rows; ++i) {
+            static_cast<const Derived*>(this)->create(place);
+            static_cast<const Derived*>(this)->add(place, columns, i, arena);
+            static_cast<const Derived*>(this)->serialize(place, buf);
+            buf.commit();
+            static_cast<const Derived*>(this)->destroy(place);
+        }
+    }
+
+    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                           const size_t num_rows, Arena* arena) const override {
+        VectorBufferWriter writter(static_cast<ColumnString&>(*dst));
+        streaming_agg_serialize(columns, writter, num_rows, arena);
+    }
+
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                         MutableColumnPtr& dst) const override {
+        VectorBufferWriter writter(static_cast<ColumnString&>(*dst));
+        static_cast<const Derived*>(this)->serialize(place, writter);
+        writter.commit();
+    }
+
+    void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena* arena,
                          size_t num_rows) const override {
         const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {
@@ -237,6 +340,11 @@ public:
             static_cast<const Derived*>(this)->create(place);
             static_cast<const Derived*>(this)->deserialize(place, buffer_reader, arena);
         }
+    }
+
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+                                 size_t num_rows) const override {
+        deserialize_vec(places, assert_cast<const ColumnString*>(&column), arena, num_rows);
     }
 
     void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
@@ -299,6 +407,16 @@ public:
         derived->deserialize(deserialized_place, buf, arena);
         derived->merge(place, deserialized_place, arena);
         derived->destroy(deserialized_place);
+    }
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena* arena) const override {
+        size_t num_rows = column.size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            VectorBufferReader buffer_reader(
+                    (assert_cast<const ColumnString&>(column)).get_data_at(i));
+            deserialize_and_merge(place, buffer_reader, arena);
+        }
     }
 };
 

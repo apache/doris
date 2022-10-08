@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
-import com.google.common.base.Preconditions;
-
 import java.util.List;
 import java.util.Optional;
 
@@ -49,11 +47,5 @@ public abstract class LogicalUnary<CHILD_TYPE extends Plan>
         super(type, groupExpression, logicalProperties, child);
     }
 
-    public abstract List<Slot> computeOutput(Plan input);
-
-    @Override
-    public LogicalProperties computeLogicalProperties(Plan... inputs) {
-        Preconditions.checkArgument(inputs.length == 1);
-        return new LogicalProperties(() -> computeOutput(inputs[0]));
-    }
+    public abstract List<Slot> computeOutput();
 }

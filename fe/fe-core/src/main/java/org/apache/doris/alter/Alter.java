@@ -28,6 +28,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyEngineClause;
@@ -120,22 +121,38 @@ public class Alter {
     }
 
     public void processCreateMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt)
-            throws AnalysisException {
-        throw new AnalysisException("Create multi table materialized view is unsupported : " + stmt.toSql());
+            throws UserException {
+        // check db
+        Database db = stmt.getDatabase();
+        // check cluster capacity
+        Env.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+        // check db quota
+        db.checkQuota();
+        ((MaterializedViewHandler) materializedViewHandler).processCreateMultiTablesMaterializedView(stmt);
     }
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        if (stmt.getTableName() == null) {
+        if (!stmt.isForMTMV() && stmt.getTableName() == null) {
             throw new DdlException("Drop materialized view without table name is unsupported : " + stmt.toSql());
         }
+        TableName tableName = !stmt.isForMTMV() ? stmt.getTableName() : stmt.getMTMVName();
+
         // check db
-        String dbName = stmt.getTableName().getDb();
+        String dbName = tableName.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
-        String tableName = stmt.getTableName().getTbl();
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
+        String name = tableName.getTbl();
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name,
+                !stmt.isForMTMV() ? TableType.OLAP : TableType.MATERIALIZED_VIEW);
+
         // drop materialized view
-        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+        if (!stmt.isForMTMV()) {
+            ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+        } else {
+            DropTableStmt dropTableStmt = new DropTableStmt(stmt.isIfExists(), stmt.getMTMVName(), false);
+            dropTableStmt.setMaterializedView(true);
+            Env.getCurrentInternalCatalog().dropTable(dropTableStmt);
+        }
     }
 
     public void processRefreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException {

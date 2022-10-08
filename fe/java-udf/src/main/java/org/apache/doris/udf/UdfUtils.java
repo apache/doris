@@ -87,7 +87,7 @@ public class UdfUtils {
             default:
                 throw new InternalException("Return type " + node.getType() + " is not supported now!");
         }
-        return new Pair<Type, Integer>(type, nodeIdx);
+        return Pair.of(type, nodeIdx);
     }
 
     protected static long getAddressAtOffset(long base, int offset) {
@@ -140,9 +140,9 @@ public class UdfUtils {
         // the function definition. This happens when both of them map to the same primitive
         // type.
         if (retType.getPrimitiveType().toThrift() != javaType.getPrimitiveType()) {
-            return new Pair<Boolean, JavaUdfDataType>(false, javaType);
+            return Pair.of(false, javaType);
         }
-        return new Pair<Boolean, JavaUdfDataType>(true, javaType);
+        return Pair.of(true, javaType);
     }
 
     /**
@@ -157,10 +157,10 @@ public class UdfUtils {
         for (int i = 0; i < parameterTypes.length; ++i) {
             inputArgTypes[i] = JavaUdfDataType.getType(udfArgTypes[i + firstPos]);
             if (inputArgTypes[i].getPrimitiveType() != parameterTypes[i].getPrimitiveType().toThrift()) {
-                return new Pair<Boolean, JavaUdfDataType[]>(false, inputArgTypes);
+                return Pair.of(false, inputArgTypes);
             }
         }
-        return new Pair<Boolean, JavaUdfDataType[]>(true, inputArgTypes);
+        return Pair.of(true, inputArgTypes);
     }
 
     /**

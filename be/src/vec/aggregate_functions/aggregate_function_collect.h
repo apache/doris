@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/key_holder_helpers.h"
+#include "vec/columns/column_array.h"
 #include "vec/common/aggregation_common.h"
 #include "vec/common/hash_table/hash_set.h"
 #include "vec/common/pod_array_fwd.h"

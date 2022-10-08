@@ -383,7 +383,7 @@ public class CheckConsistencyJob {
         if (this.checksumMap.containsKey(backendId)) {
             checksumMap.put(backendId, checksum);
         } else {
-            // should not happened. add log to observe
+            // should not happen. add log to observe
             LOG.warn("can not find backend[{}] in tablet[{}]'s consistency check job", backendId, tabletId);
         }
     }

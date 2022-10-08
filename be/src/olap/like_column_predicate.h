@@ -53,8 +53,16 @@ public:
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;
 
-    std::string get_search_str() const { return std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len);}
+    std::string get_search_str() const override { return std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len);}
     bool is_opposite() const { return _opposite; }
+
+    void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter>  src) override { _page_ng_bf = std::move(src);  }
+    bool evaluate_and(const BloomFilter* bf) const override {
+        if (_page_ng_bf)
+            return bf->contains(*_page_ng_bf);
+        return true;
+    }
+    bool can_do_bloom_filter() const override { return true; }
 
 private:
     template <bool is_nullable>
@@ -101,7 +109,7 @@ private:
                             continue;
                         }
 
-                        StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
+                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                         if constexpr (is_and) {
                             unsigned char flag = 0;
                             (_state->function)(
@@ -121,23 +129,55 @@ private:
                 }
             } else {
                 if (column.is_column_dictionary()) {
-                    auto* nested_col_ptr = vectorized::check_and_get_column<
-                            vectorized::ColumnDictionary<vectorized::Int32>>(column);
-                    auto& data_array = nested_col_ptr->get_data();
-                    for (uint16_t i = 0; i < size; i++) {
-                        StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
-                        if constexpr (is_and) {
-                            unsigned char flag = 0;
-                            (_state->function)(
-                                    const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
-                            flags[i] &= _opposite ^ flag;
+                    if (_state->function_vec_dict) {
+                        if (LIKELY(_like_state.search_string_sv.len > 0)) {
+                            auto* nested_col_ptr = vectorized::check_and_get_column<
+                                    vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                            auto& data_array = nested_col_ptr->get_data();
+                            StringValue values[size];
+                            unsigned char temp_flags[size];
+                            for (uint16_t i = 0; i != size; i++) {
+                                values[i] = nested_col_ptr->get_shrink_value(data_array[i]);
+                            }
+                            (_state->function_vec_dict)(
+                                    const_cast<vectorized::LikeSearchState*>(&_like_state), pattern,
+                                    values, size, temp_flags);
+                            for (uint16_t i = 0; i < size; i++) {
+                                if constexpr (is_and) {
+                                    flags[i] &= _opposite ^ temp_flags[i];
+                                } else {
+                                    flags[i] = _opposite ^ temp_flags[i];
+                                }
+                            }
                         } else {
-                            unsigned char flag = 0;
-                            (_state->function)(
-                                    const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
-                            flags[i] = _opposite ^ flag;
+                            for (uint16_t i = 0; i < size; i++) {
+                                if constexpr (is_and) {
+                                    flags[i] &= _opposite ^ true;
+                                } else {
+                                    flags[i] = _opposite ^ true;
+                                }
+                            }
+                        }
+                    } else {
+                        auto* nested_col_ptr = vectorized::check_and_get_column<
+                                vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                        auto& data_array = nested_col_ptr->get_data();
+                        for (uint16_t i = 0; i < size; i++) {
+                            StringValue cell_value =
+                                    nested_col_ptr->get_shrink_value(data_array[i]);
+                            if constexpr (is_and) {
+                                unsigned char flag = 0;
+                                (_state->function)(
+                                        const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                        cell_value, pattern, &flag);
+                                flags[i] &= _opposite ^ flag;
+                            } else {
+                                unsigned char flag = 0;
+                                (_state->function)(
+                                        const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                        cell_value, pattern, &flag);
+                                flags[i] = _opposite ^ flag;
+                            }
                         }
                     }
                 } else {
@@ -159,6 +199,7 @@ private:
     // A separate scratch region is required for every concurrent caller of the Hyperscan API.
     // So here _like_state is separate for each instance of LikeColumnPredicate.
     vectorized::LikeSearchState _like_state;
+    std::unique_ptr<segment_v2::BloomFilter> _page_ng_bf; // for ngram-bf index
 };
 
 } //namespace doris

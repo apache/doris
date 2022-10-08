@@ -56,10 +56,16 @@ public:
     void execute_single_add(Block* block, AggregateDataPtr place, Arena* arena = nullptr);
 
     void execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
-                           Arena* arena = nullptr);
+                           Arena* arena = nullptr, bool agg_many = false);
 
     void execute_batch_add_selected(Block* block, size_t offset, AggregateDataPtr* places,
                                     Arena* arena = nullptr);
+
+    void streaming_agg_serialize(Block* block, BufferWritable& buf, const size_t num_rows,
+                                 Arena* arena);
+
+    void streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
+                                           const size_t num_rows, Arena* arena);
 
     void insert_result_info(AggregateDataPtr place, IColumn* column);
 

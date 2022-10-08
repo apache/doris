@@ -32,7 +32,6 @@
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
-#include "util/logging.h"
 #include "util/monotime.h"
 #include "util/thread_group.h"
 

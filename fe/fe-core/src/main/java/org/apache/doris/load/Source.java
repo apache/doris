@@ -204,7 +204,7 @@ public class Source implements Writable {
                         args.add(Text.readString(in));
                     }
                 }
-                columnToFunction.put(column, new Pair<String, List<String>>(functionName, args));
+                columnToFunction.put(column, Pair.of(functionName, args));
             }
         }
     }

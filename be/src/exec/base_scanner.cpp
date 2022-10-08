@@ -101,7 +101,10 @@ Status BaseScanner::init_expr_ctxes() {
     }
 
     std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
-    for (auto slot_desc : src_tuple_desc->slots()) {
+    std::unordered_map<SlotDescriptor*, int> src_slot_desc_to_index {};
+    for (int i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
+        auto* slot_desc = src_tuple_desc->slots()[i];
+        src_slot_desc_to_index.emplace(slot_desc, i);
         src_slot_desc_map.emplace(slot_desc->id(), slot_desc);
     }
     for (auto slot_id : _params.src_slot_ids) {
@@ -170,14 +173,16 @@ Status BaseScanner::init_expr_ctxes() {
             _dest_expr_ctx.emplace_back(ctx);
         }
         if (has_slot_id_map) {
-            auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-            if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
+            auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
                 _src_slot_descs_order_by_dest.emplace_back(nullptr);
             } else {
-                auto _src_slot_it = src_slot_desc_map.find(it->second);
+                auto _src_slot_it = src_slot_desc_map.find(it1->second);
                 if (_src_slot_it == std::end(src_slot_desc_map)) {
-                    return Status::InternalError("No src slot {} in src slot descs", it->second);
+                    return Status::InternalError("No src slot {} in src slot descs", it1->second);
                 }
+                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
+                                                     src_slot_desc_to_index[_src_slot_it->second]);
                 _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
@@ -304,6 +309,7 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
     size_t rows = _src_block.rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
+    auto origin_column_num = _src_block.columns();
 
     for (auto slot_desc : _dest_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
@@ -315,7 +321,12 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-        auto column_ptr = _src_block.get_by_position(result_column_id).column;
+        bool is_origin_column = result_column_id < origin_column_num;
+        auto column_ptr =
+                is_origin_column && _src_block_mem_reuse
+                        ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
+                        : _src_block.get_by_position(result_column_id).column;
+
         DCHECK(column_ptr != nullptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
@@ -326,7 +337,8 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
                     if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
-                        !_src_block.get_by_position(dest_index).column->is_null_at(i)) {
+                        !_src_block.get_by_position(_dest_slot_to_src_slot_index[dest_index])
+                                 .column->is_null_at(i)) {
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block.dump_one_line(i, _num_of_columns_from_file);
@@ -373,7 +385,11 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
     }
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
-    _src_block.clear();
+    if (_src_block_mem_reuse) {
+        _src_block.clear_column_data(origin_column_num);
+    } else {
+        _src_block.clear();
+    }
 
     size_t dest_size = dest_block->columns();
     // do filter
@@ -389,15 +405,18 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
 // TODO: opt the reuse of src_block or dest_block column. some case we have to
 // shallow copy the column of src_block to dest block
 Status BaseScanner::_init_src_block() {
-    DCHECK(_src_block.columns() == 0);
-    for (auto i = 0; i < _num_of_columns_from_file; ++i) {
-        SlotDescriptor* slot_desc = _src_slot_descs[i];
-        if (slot_desc == nullptr) {
-            continue;
+    if (_src_block.is_empty_column()) {
+        for (auto i = 0; i < _num_of_columns_from_file; ++i) {
+            SlotDescriptor* slot_desc = _src_slot_descs[i];
+            if (slot_desc == nullptr) {
+                continue;
+            }
+            auto data_type = slot_desc->get_data_type_ptr();
+            auto column_ptr = data_type->create_column();
+            column_ptr->reserve(_state->batch_size());
+            _src_block.insert(vectorized::ColumnWithTypeAndName(std::move(column_ptr), data_type,
+                                                                slot_desc->col_name()));
         }
-        auto data_type = slot_desc->get_data_type_ptr();
-        _src_block.insert(vectorized::ColumnWithTypeAndName(
-                data_type->create_column(), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
     }
 
     return Status::OK();
@@ -466,6 +485,40 @@ void BaseScanner::_fill_columns_from_path() {
                                                                 slot_desc->col_name()));
         }
     }
+}
+
+bool BaseScanner::is_null(const Slice& slice) {
+    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
+}
+
+bool BaseScanner::is_array(const Slice& slice) {
+    return slice.size > 1 && slice.data[0] == '[' && slice.data[slice.size - 1] == ']';
+}
+
+bool BaseScanner::check_array_format(std::vector<Slice>& split_values) {
+    // if not the array format, filter this line and return error url
+    auto dest_slot_descs = _dest_tuple_desc->slots();
+    for (int j = 0; j < split_values.size() && j < dest_slot_descs.size(); ++j) {
+        auto dest_slot_desc = dest_slot_descs[j];
+        if (!dest_slot_desc->is_materialized()) {
+            continue;
+        }
+        const Slice& value = split_values[j];
+        if (dest_slot_desc->type().is_array_type() && !is_null(value) && !is_array(value)) {
+            RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                    [&]() -> std::string { return std::string(value.data, value.size); },
+                    [&]() -> std::string {
+                        fmt::memory_buffer err_msg;
+                        fmt::format_to(err_msg, "Invalid format for array column({})",
+                                       dest_slot_desc->col_name());
+                        return fmt::to_string(err_msg);
+                    },
+                    &_scanner_eof));
+            _counter->num_rows_filtered++;
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace doris

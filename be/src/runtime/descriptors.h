@@ -100,6 +100,7 @@ public:
     int slot_size() const { return _slot_size; }
 
     const std::string& col_name() const { return _col_name; }
+    const std::string& col_name_lower_case() const { return _col_name_lower_case; }
 
     /// Return true if the physical layout of this descriptor matches the physical layout
     /// of other_desc, but not necessarily ids.
@@ -128,6 +129,7 @@ private:
     const int _tuple_offset;
     const NullIndicatorOffset _null_indicator_offset;
     const std::string _col_name;
+    const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;
 
@@ -273,6 +275,30 @@ private:
     TOdbcTableType::type _type;
 };
 
+class JdbcTableDescriptor : public TableDescriptor {
+public:
+    JdbcTableDescriptor(const TTableDescriptor& tdesc);
+    std::string debug_string() const override;
+    const std::string& jdbc_resource_name() const { return _jdbc_resource_name; }
+    const std::string& jdbc_driver_url() const { return _jdbc_driver_url; }
+    const std::string& jdbc_driver_class() const { return _jdbc_driver_class; }
+    const std::string& jdbc_driver_checksum() const { return _jdbc_driver_checksum; }
+    const std::string& jdbc_url() const { return _jdbc_url; }
+    const std::string& jdbc_table_name() const { return _jdbc_table_name; }
+    const std::string& jdbc_user() const { return _jdbc_user; }
+    const std::string& jdbc_passwd() const { return _jdbc_passwd; }
+
+private:
+    std::string _jdbc_resource_name;
+    std::string _jdbc_driver_url;
+    std::string _jdbc_driver_class;
+    std::string _jdbc_driver_checksum;
+    std::string _jdbc_url;
+    std::string _jdbc_table_name;
+    std::string _jdbc_user;
+    std::string _jdbc_passwd;
+};
+
 class TupleDescriptor {
 public:
     // virtual ~TupleDescriptor() {}
@@ -379,6 +405,13 @@ private:
 
     DescriptorTbl() = default;
 };
+
+#define RETURN_IF_INVALID_TUPLE_IDX(tuple_id, tuple_idx)                                         \
+    do {                                                                                         \
+        if (UNLIKELY(RowDescriptor::INVALID_IDX == tuple_idx)) {                                 \
+            return Status::InternalError("failed to get tuple idx with tuple id: {}", tuple_id); \
+        }                                                                                        \
+    } while (false)
 
 // Records positions of tuples within row produced by ExecNode.
 // TODO: this needs to differentiate between tuples contained in row

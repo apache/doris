@@ -541,10 +541,14 @@ public class MasterImpl {
 
     private void finishMakeSnapshot(AgentTask task, TFinishTaskRequest request) {
         SnapshotTask snapshotTask = (SnapshotTask) task;
-        if (Env.getCurrentEnv().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
-            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MAKE_SNAPSHOT, task.getSignature());
+        if (snapshotTask.isCopyTabletTask()) {
+            snapshotTask.setResultSnapshotPath(request.getSnapshotPath());
+            snapshotTask.countDown(task.getBackendId(), task.getTabletId());
+        } else {
+            if (Env.getCurrentEnv().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
+                AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MAKE_SNAPSHOT, task.getSignature());
+            }
         }
-
     }
 
     private void finishUpload(AgentTask task, TFinishTaskRequest request) {

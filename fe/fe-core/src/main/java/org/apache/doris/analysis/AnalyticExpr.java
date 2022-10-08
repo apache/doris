@@ -691,7 +691,10 @@ public class AnalyticExpr extends Expr {
             Type type = getFnCall().getChildren().get(2).getType();
 
             try {
-                getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
+                if (!Type.matchExactType(getFnCall().getChildren().get(0).getType(),
+                        getFnCall().getChildren().get(2).getType())) {
+                    getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
+                }
             }  catch (Exception e) {
                 LOG.warn("", e);
                 throw new AnalysisException("Convert type error in offset fn(default value); old_type="
@@ -747,7 +750,9 @@ public class AnalyticExpr extends Expr {
                 && window != null
                 && window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
             if (window.getLeftBoundary().getType() != BoundaryType.PRECEDING) {
-                window = new AnalyticWindow(window.getType(), window.getLeftBoundary(),
+                // Here left bound can only be CURRENT_ROW and the function is last_value,
+                // so the type is changed to rows
+                window = new AnalyticWindow(AnalyticWindow.Type.ROWS, window.getLeftBoundary(),
                                             window.getLeftBoundary());
                 fnCall = new FunctionCallExpr(new FunctionName(LASTVALUE),
                                               getFnCall().getParams());

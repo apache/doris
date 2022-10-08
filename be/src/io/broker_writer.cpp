@@ -99,7 +99,7 @@ Status BrokerWriter::open() {
         std::stringstream ss;
         ss << "Open broker writer failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     VLOG_ROW << "debug: send broker open writer response: "
@@ -153,13 +153,13 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
             std::stringstream ss;
             ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
             LOG(WARNING) << ss.str();
-            return Status::ThriftRpcError(ss.str());
+            return Status::RpcError(ss.str());
         }
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     VLOG_ROW << "debug: send broker pwrite response: "

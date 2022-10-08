@@ -19,12 +19,7 @@
 
 #include "runtime/string_value.h"
 #include "runtime/string_value.hpp"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_set.h"
 #include "vec/columns/columns_number.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -100,6 +95,31 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Str
     return Status::OK();
 }
 
+Status FunctionLikeBase::constant_substring_fn_vec(LikeSearchState* state,
+                                                   const StringValue& pattern,
+                                                   const StringValue* values, uint16_t* sel,
+                                                   uint16_t size, bool opposite,
+                                                   uint16_t* new_size) {
+    uint16_t count = 0;
+    for (uint16_t i = 0; i < size; i++) {
+        uint16_t idx = sel[i];
+        sel[count] = idx;
+        count += opposite ^ (state->substring_pattern.search(&values[idx]) != -1);
+    }
+    *new_size = count;
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_substring_fn_vec_dict(LikeSearchState* state,
+                                                        const StringValue& pattern,
+                                                        const StringValue* values, uint16_t size,
+                                                        unsigned char* result) {
+    for (uint16_t i = 0; i < size; i++) {
+        result[i] = (state->substring_pattern.search(&values[i]) != -1);
+    }
+    return Status::OK();
+}
+
 Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const StringValue& val,
                                            const StringValue& pattern, unsigned char* result) {
     auto ret = hs_scan(state->hs_database.get(), val.ptr, val.len, 0, state->hs_scratch.get(),
@@ -135,15 +155,14 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const StringValue& va
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
                                     hs_database_t** database, hs_scratch_t** scratch) {
     hs_compile_error_t* compile_err;
-
-    if (hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY, HS_MODE_BLOCK, NULL, database,
-                   &compile_err) != HS_SUCCESS) {
+    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY, HS_MODE_BLOCK, NULL,
+                          database, &compile_err);
+    if (res != HS_SUCCESS) {
         *database = nullptr;
         if (context) context->set_error("hs_compile regex pattern error");
-        auto status = Status::RuntimeError("hs_compile regex pattern error:" +
-                                           std::string(compile_err->message));
+        return Status::RuntimeError("hs_compile regex pattern error:" +
+                                    std::string(compile_err->message));
         hs_free_compile_error(compile_err);
-        return status;
     }
     hs_free_compile_error(compile_err);
 
@@ -227,10 +246,10 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
 
             /// Determine which index it refers to.
             /// begin + value_offsets[i] is the start offset of string at i+1
-            while (begin + value_offsets[i] <= pos) ++i;
+            while (begin + value_offsets[i] < pos) ++i;
 
             /// We check that the entry does not pass through the boundaries of strings.
-            if (pos + needle_size < begin + value_offsets[i]) {
+            if (pos + needle_size <= begin + value_offsets[i]) {
                 result[i] = 1;
             }
 
@@ -246,10 +265,10 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
 
     for (int i = 0; i < size; ++i) {
         char* val_raw_str = (char*)(&values[value_offsets[i - 1]]);
-        UInt32 val_str_size = value_offsets[i] - value_offsets[i - 1] - 1;
+        UInt32 val_str_size = value_offsets[i] - value_offsets[i - 1];
 
         char* pattern_raw_str = (char*)(&patterns[pattern_offsets[i - 1]]);
-        UInt32 patter_str_size = pattern_offsets[i] - pattern_offsets[i - 1] - 1;
+        UInt32 patter_str_size = pattern_offsets[i] - pattern_offsets[i - 1];
         RETURN_IF_ERROR((function)(search_state, StringValue(val_raw_str, val_str_size),
                                    StringValue(pattern_raw_str, patter_str_size), &result[i]));
     }
@@ -350,6 +369,8 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
             remove_escape_character(&search_string);
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
+            state->function_vec = constant_substring_fn_vec;
+            state->function_vec_dict = constant_substring_fn_vec_dict;
         } else {
             std::string re_pattern;
             convert_like_pattern(&state->search_state, pattern_str, &re_pattern);
@@ -393,6 +414,8 @@ Status FunctionRegexp::prepare(FunctionContext* context,
         } else if (RE2::FullMatch(pattern_str, SUBSTRING_RE, &search_string)) {
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
+            state->function_vec = constant_substring_fn_vec;
+            state->function_vec_dict = constant_substring_fn_vec_dict;
         } else {
             hs_database_t* database = nullptr;
             hs_scratch_t* scratch = nullptr;

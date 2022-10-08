@@ -38,6 +38,7 @@ struct TTabletSchema {
     10: optional i32 sequence_col_idx = -1
     11: optional Types.TSortType sort_type
     12: optional i32 sort_col_num
+    13: optional bool disable_auto_compaction
 }
 
 // this enum stands for different storage format in src_backends
@@ -67,16 +68,16 @@ struct TS3StorageParam {
 }
 
 struct TGetStoragePolicy {
-    1: required string policy_name
-    2: required i64 cooldown_datetime
-    3: required i64 cooldown_ttl
-    4: required TS3StorageParam s3_storage_param
-    5: required string md5_checksum
+    1: optional string policy_name
+    2: optional i64 cooldown_datetime
+    3: optional i64 cooldown_ttl
+    4: optional TS3StorageParam s3_storage_param
+    5: optional string md5_checksum
 }
 
 struct TGetStoragePolicyResult {
-    1: required Status.TStatus status
-    2: required list<TGetStoragePolicy> result_entrys
+    1: optional Status.TStatus status
+    2: optional list<TGetStoragePolicy> result_entrys
 }
 
 enum TCompressionType {
@@ -269,6 +270,7 @@ struct TSnapshotRequest {
     // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
+    10: optional bool is_copy_tablet_task
 }
 
 struct TReleaseSnapshotRequest {

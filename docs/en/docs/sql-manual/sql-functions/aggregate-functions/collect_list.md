@@ -43,7 +43,6 @@ Only supported in vectorized engine
 
 ```
 mysql> set enable_vectorized_engine=true;
-mysql> set enable_array_type = true;
 
 mysql> select k1,k2,k3 from collect_test order by k1;
 +------+------------+-------+

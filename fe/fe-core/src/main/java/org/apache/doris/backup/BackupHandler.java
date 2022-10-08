@@ -245,7 +245,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // check if db exist
         String dbName = stmt.getDbName();
-        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
 
         // Try to get sequence lock.
         // We expect at most one operation on a repo at same time.
@@ -401,7 +401,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                stmt.getTimeoutMs(), stmt.getMetaVersion(), env, repository.getId());
+                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), env, repository.getId());
         env.getEditLog().logRestoreJob(restoreJob);
 
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
@@ -539,7 +539,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = env.getInternalDataSource().getDbOrDdlException(dbName);
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
 
         AbstractJob job = getCurrentJob(db.getId());
         if (job == null || (job instanceof BackupJob && stmt.isRestore())
@@ -650,12 +650,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
         for (AbstractJob job : getAllCurrentJobs()) {
             if (job.getType() == JobType.BACKUP) {
                 if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.UPLOAD) {
-                    job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
+                    job.taskProgress.put(taskId, Pair.of(finishedNum, totalNum));
                     return true;
                 }
             } else if (job.getType() == JobType.RESTORE) {
                 if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.DOWNLOAD) {
-                    job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
+                    job.taskProgress.put(taskId, Pair.of(finishedNum, totalNum));
                     return true;
                 }
             }

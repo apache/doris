@@ -260,6 +260,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_STRING>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_JSONB>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_CHAR>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR> {};
 
@@ -336,6 +340,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_CHAR>
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_JSONB>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <FieldType field_type>
@@ -431,6 +439,10 @@ template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_STRING>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {};
 
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_JSONB>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {};
+
 // REPLACE_IF_NOT_NULL
 
 template <FieldType field_type>
@@ -482,6 +494,11 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIEL
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL,
+                                     OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_JSONB>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL,
                                      OLAP_FIELD_TYPE_VARCHAR> {};
 
@@ -589,6 +606,11 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
+};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_JSONB>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
 };
 

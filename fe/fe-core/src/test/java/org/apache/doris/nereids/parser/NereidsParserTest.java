@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -33,8 +34,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
-public class NereidsParserTest {
+public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testParseMultiple() {
@@ -60,22 +62,17 @@ public class NereidsParserTest {
 
     @Test
     public void testErrorListener() {
-        Exception exception = Assertions.assertThrows(ParseException.class, () -> {
-            String sql = "select * from t1 where a = 1 illegal_symbol";
-            NereidsParser nereidsParser = new NereidsParser();
-            nereidsParser.parseSingle(sql);
-        });
-        Assertions.assertEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n",
-                exception.getMessage());
+        parsePlan("select * from t1 where a = 1 illegal_symbol")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n");
     }
 
     @Test
     public void testPostProcessor() {
-        String sql = "select `AD``D` from t1 where a = 1";
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        LogicalProject<Plan> logicalProject = (LogicalProject) logicalPlan;
-        Assertions.assertEquals("AD`D", logicalProject.getProjects().get(0).getName());
+        parsePlan("select `AD``D` from t1 where a = 1")
+                .matchesFromRoot(
+                        logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName()))
+                );
     }
 
     @Test
@@ -191,5 +188,18 @@ public class NereidsParserTest {
         logicalPlan = nereidsParser.parseSingle(crossJoin);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
+    }
+
+    @Test
+    public void parseDecimal() {
+        String f1 = "SELECT col1 * 0.267081789095306 FROM t";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(f1);
+        long doubleCount = logicalPlan
+                .getExpressions()
+                .stream()
+                .mapToLong(e -> e.<Set<DecimalLiteral>>collect(DecimalLiteral.class::isInstance).size())
+                .sum();
+        Assertions.assertEquals(doubleCount, 1);
     }
 }

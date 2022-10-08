@@ -22,17 +22,16 @@
 
 #include <fmt/format.h>
 
-#include "common/logging.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/field_visitors.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -145,14 +144,9 @@ struct ConvertImpl {
                             DataTypeDate::cast_to_date(vec_to[i]);
                         }
                     } else if constexpr (IsDateV2Type<ToDataType>) {
-                        auto date_v2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(vec_to[i]);
-                        date_v2.from_date_int64(
-                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
+                        DataTypeDateV2::cast_from_date(vec_from[i], vec_to[i]);
                     } else if constexpr (IsDateTimeV2Type<ToDataType>) {
-                        auto date_v2 =
-                                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(vec_to[i]);
-                        date_v2.from_date_int64(
-                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
+                        DataTypeDateTimeV2::cast_from_date(vec_from[i], vec_to[i]);
                     } else {
                         vec_to[i] =
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
@@ -180,6 +174,8 @@ struct ConvertImpl {
                         } else if constexpr (IsDateTimeV2Type<ToDataType> &&
                                              IsDateTimeV2Type<FromDataType>) {
                             DataTypeDateTimeV2::cast_to_date(vec_from[i], vec_to[i]);
+                        } else if constexpr (IsDateType<ToDataType> && IsDateV2Type<FromDataType>) {
+                            DataTypeDateV2::cast_to_date(vec_from[i], vec_to[i]);
                         }
                     } else {
                         if constexpr (IsDateTimeV2Type<FromDataType>) {
@@ -330,6 +326,11 @@ struct ConvertImplGenericFromString {
 
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
+                // Note: here we should handle the null element
+                if (val.size == 0) {
+                    col_to->insert_default();
+                    continue;
+                }
                 ReadBuffer read_buffer((char*)(val.data), val.size);
                 RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
             }
@@ -895,7 +896,7 @@ struct ConvertThroughParsing {
                                          ? (*offsets)[i]
                                          : (current_offset + fixed_string_size);
             size_t string_size = std::is_same_v<FromDataType, DataTypeString>
-                                         ? next_offset - current_offset - 1
+                                         ? next_offset - current_offset
                                          : fixed_string_size;
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
@@ -1280,31 +1281,32 @@ private:
                 const auto& nested_type = nullable_type.get_nested_type();
 
                 Block tmp_block;
-                if (source_is_nullable)
-                    tmp_block = create_block_with_nested_columns(block, arguments);
-                else
+                size_t tmp_res_index = 0;
+                if (source_is_nullable) {
+                    tmp_block = create_block_with_nested_columns_only_args(block, arguments);
+                    tmp_res_index = tmp_block.columns();
+                    tmp_block.insert({nullptr, nested_type, ""});
+
+                    /// Perform the requested conversion.
+                    RETURN_IF_ERROR(
+                            wrapper(context, tmp_block, {0}, tmp_res_index, input_rows_count));
+                } else {
                     tmp_block = block;
 
-                size_t tmp_res_index = block.columns();
-                tmp_block.insert({nullptr, nested_type, ""});
+                    tmp_res_index = block.columns();
+                    tmp_block.insert({nullptr, nested_type, ""});
 
-                /// Perform the requested conversion.
-                RETURN_IF_ERROR(
-                        wrapper(context, tmp_block, arguments, tmp_res_index, input_rows_count));
-
-                const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
-
-                /// May happen in fuzzy tests. For debug purpose.
-                if (!tmp_res.column.get()) {
-                    return Status::RuntimeError(
-                            "Couldn't convert {} to {} in prepare_remove_nullable wrapper.",
-                            block.get_by_position(arguments[0]).type->get_name(),
-                            nested_type->get_name());
+                    /// Perform the requested conversion.
+                    RETURN_IF_ERROR(wrapper(context, tmp_block, arguments, tmp_res_index,
+                                            input_rows_count));
                 }
 
+                // Note: here we should return the nullable result column
+                const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
                 res.column = wrap_in_nullable(tmp_res.column,
                                               Block({block.get_by_position(arguments[0]), tmp_res}),
                                               {0}, 1, input_rows_count);
+
                 return Status::OK();
             };
         } else if (source_is_nullable) {

@@ -55,8 +55,12 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
         }
         InPredicate inPredicate = (InPredicate) expr;
         SlotRef slotRef;
-        if (inPredicate.contains(Subquery.class) || !inPredicate.isLiteralChildren() || inPredicate.isNotIn()
-                || !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)
+        // When the select stmt contains group by, we use oriGroupingExprs to store the original group by statement
+        // and reset it with the rewritten groupingExpr. Therefore, origroupingexprs cannot be analyzed.
+        // However, in #4197, oriGroupingExprs is rewritten to fix the problem of constant fold.
+        // The newly added InPredicteRewriteRule requires that expr must be analyzed before being rewritten
+        if (!inPredicate.isAnalyzed() || inPredicate.contains(Subquery.class) || !inPredicate.isLiteralChildren()
+                || inPredicate.isNotIn() || !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)
                 || (slotRef = inPredicate.getChild(0).getSrcSlotRef()) == null || slotRef.getColumn() == null) {
             return expr;
         }

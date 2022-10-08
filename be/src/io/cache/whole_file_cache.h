@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <future>
 #include <memory>
 
 #include "common/status.h"

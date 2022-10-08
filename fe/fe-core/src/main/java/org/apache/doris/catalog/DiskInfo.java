@@ -47,6 +47,8 @@ public class DiskInfo implements Writable {
     private long totalCapacityB;
     @SerializedName("dataUsedCapacityB")
     private long dataUsedCapacityB;
+    @SerializedName("remoteUsedCapacity")
+    private long remoteUsedCapacity = 0;
     @SerializedName("diskAvailableCapacityB")
     private long diskAvailableCapacityB;
     @SerializedName("state")
@@ -87,6 +89,14 @@ public class DiskInfo implements Writable {
 
     public void setDataUsedCapacityB(long dataUsedCapacityB) {
         this.dataUsedCapacityB = dataUsedCapacityB;
+    }
+
+    public long getRemoteUsedCapacity() {
+        return remoteUsedCapacity;
+    }
+
+    public void setRemoteUsedCapacity(long remoteUsedCapacity) {
+        this.remoteUsedCapacity = remoteUsedCapacity;
     }
 
     public long getDiskUsedCapacityB() {

@@ -42,7 +42,7 @@ commits邮件非常重要，因为所有的GitHub Issue，PR提交都会发往�
 ### 关联你的 ASF 账号与 Github 账号
 
 我们用GitHub来管理我们的Issue以及用户贡献。
-所以你需要把你的ASF账号与GitHub账号进行关联来获得[Doris仓库](https://github.com/apache/incubator-doris)的写入权限。
+所以你需要把你的ASF账号与GitHub账号进行关联来获得[Doris仓库](https://github.com/apache/doris)的写入权限。
 通过在[Gitbox](https://gitbox.apache.org/setup/)完成操作后，你就可以对GitHub仓库中的Issue，PR进行管理。
 
 ## Code Review指南

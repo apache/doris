@@ -26,7 +26,6 @@
 #include "olap/row_block2.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
-#include "util/logging.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 

@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
 // and modified by Doris.
 
-suite("alter_policy", "policy") {
+suite("alter_policy") {
     def has_resouce_policy_alter = sql """
         SHOW RESOURCES WHERE NAME = "has_resouce_policy_alter";
     """

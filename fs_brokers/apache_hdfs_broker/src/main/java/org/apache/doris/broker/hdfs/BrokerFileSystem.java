@@ -27,26 +27,29 @@ public class BrokerFileSystem {
 
     private static Logger logger = Logger
             .getLogger(BrokerFileSystem.class.getName());
-    
+
     private ReentrantLock lock;
     private FileSystemIdentity identity;
     private FileSystem dfsFileSystem;
     private long lastAccessTimestamp;
+    private long createTimestamp;
     private UUID fileSystemId;
-    
+
     public BrokerFileSystem(FileSystemIdentity identity) {
         this.identity = identity;
         this.lock = new ReentrantLock();
         this.dfsFileSystem = null;
         this.lastAccessTimestamp = System.currentTimeMillis();
+        this.createTimestamp = System.currentTimeMillis();
         this.fileSystemId = UUID.randomUUID();
     }
-    
+
     public synchronized void setFileSystem(FileSystem fileSystem) {
         this.dfsFileSystem = fileSystem;
         this.lastAccessTimestamp = System.currentTimeMillis();
+        this.createTimestamp = System.currentTimeMillis();
     }
-    
+
     public void closeFileSystem() {
         lock.lock();
         try {
@@ -63,31 +66,32 @@ public class BrokerFileSystem {
             lock.unlock();
         }
     }
-    
+
     public FileSystem getDFSFileSystem() {
         this.lastAccessTimestamp = System.currentTimeMillis();
         return dfsFileSystem;
     }
-    
+
     public void updateLastUpdateAccessTime() {
         this.lastAccessTimestamp = System.currentTimeMillis();
     }
-    
+
     public FileSystemIdentity getIdentity() {
         return identity;
     }
-    
+
     public ReentrantLock getLock() {
         return lock;
     }
-    
-    public boolean isExpired(long expirationIntervalSecs) {
-        if (System.currentTimeMillis() - lastAccessTimestamp > expirationIntervalSecs * 1000) {
-            return true;
-        }
-        return false;
+
+    public boolean isExpiredByLastAccessTime(long expirationIntervalSecs) {
+        return System.currentTimeMillis() - lastAccessTimestamp > expirationIntervalSecs * 1000;
     }
-    
+
+    public boolean isExpiredByCreateTime(long expirationIntervalSecs) {
+        return System.currentTimeMillis() - createTimestamp > expirationIntervalSecs * 1000;
+    }
+
     @Override
     public String toString() {
         return "BrokerFileSystem [identity=" + identity + ", dfsFileSystem="

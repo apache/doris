@@ -111,6 +111,7 @@ set(UTIL_FILES
   tuple_row_zorder_compare.cpp
   telemetry/telemetry.cpp
   telemetry/brpc_carrier.cpp
+  telemetry/open_telemetry_scop_wrapper.hpp
   quantile_state.cpp
   jni-util.cpp
 )

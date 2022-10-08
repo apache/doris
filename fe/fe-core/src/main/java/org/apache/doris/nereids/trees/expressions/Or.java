@@ -27,6 +27,7 @@ import java.util.List;
  * Or predicate expression.
  */
 public class Or extends CompoundPredicate {
+
     /**
      * Desc: Constructor for CompoundPredicate.
      *

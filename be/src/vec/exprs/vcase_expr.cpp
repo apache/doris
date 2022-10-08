@@ -17,13 +17,13 @@
 
 #include "vec/exprs/vcase_expr.h"
 
+#include "common/status.h"
 #include "vec/columns/column_nullable.h"
 
 namespace doris::vectorized {
 
 VCaseExpr::VCaseExpr(const TExprNode& node)
         : VExpr(node),
-          _is_prepare(false),
           _has_case_expr(node.case_expr.has_case_expr),
           _has_else_expr(node.case_expr.has_else_expr) {
     if (_has_case_expr) {
@@ -36,12 +36,7 @@ VCaseExpr::VCaseExpr(const TExprNode& node)
 
 Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                           VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
-
-    if (_is_prepare) {
-        return Status::OK();
-    }
-    _is_prepare = true;
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     ColumnsWithTypeAndName argument_template;
     DataTypes arguments;
@@ -94,7 +89,7 @@ Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_colum
 
     for (int i = 0; i < _children.size(); i++) {
         int column_id = -1;
-        _children[i]->execute(context, block, &column_id);
+        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
 
         block->replace_by_position_if_const(column_id);

@@ -21,7 +21,6 @@
 
 #include "util/simd/bits.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_set.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/simple_function_factory.h"
@@ -40,7 +39,7 @@ VRuntimeFilterWrapper::VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr)
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
-    RETURN_IF_ERROR(_impl->prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
     _expr_name = fmt::format("VRuntimeFilterWrapper({})", _impl->expr_name());
     return Status::OK();
 }

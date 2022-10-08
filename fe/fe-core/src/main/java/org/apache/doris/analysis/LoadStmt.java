@@ -335,7 +335,7 @@ public class LoadStmt extends DdlStmt {
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
             }
-            Database db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(label.getDbName());
+            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(label.getDbName());
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
                     && table.getKeysType() != KeysType.UNIQUE_KEYS) {

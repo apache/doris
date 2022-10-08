@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
@@ -39,7 +39,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class ShowViewStmtTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static String runningDir = "fe/mocked/ShowViewTest/" + UUID.randomUUID().toString() + "/";
     private static DorisAssert dorisAssert;
 

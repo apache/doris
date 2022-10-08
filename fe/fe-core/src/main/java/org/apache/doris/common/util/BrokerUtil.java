@@ -527,7 +527,7 @@ public class BrokerUtil {
 
     public static Pair<TPaloBrokerService.Client, TNetworkAddress> getBrokerAddressAndClient(BrokerDesc brokerDesc)
             throws UserException {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = new Pair<>(null, null);
+        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = Pair.of(null, null);
         TNetworkAddress address = getAddress(brokerDesc);
         TPaloBrokerService.Client client = borrowClient(address);
         pair.first = client;

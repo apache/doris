@@ -38,13 +38,22 @@ CREATE TABLE AS SELECT
 
 ```sql
 CREATE TABLE table_name [( column_name_list )]
-opt_engine opt_partition opt_properties KW_AS query_stmt
+    opt_engine:engineName
+    opt_keys:keys
+    opt_comment:tableComment
+    opt_partition:partition
+    opt_distribution:distribution
+    opt_rollup:index
+    opt_properties:tblProperties
+    opt_ext_properties:extProperties
+    KW_AS query_stmt:query_def
  ```
 
 说明: 
 
 - 用户需要拥有来源表的`SELECT`权限和目标库的`CREATE`权限
 - 创建表成功后，会进行数据导入，如果导入失败，将会删除表
+- 可以自行指定 key type，默认为`Duplicate Key`
 
 ### Example
 

@@ -73,7 +73,7 @@ TPC-H是一个决策支持基准（Decision Support Benchmark），它由一套�
 
 ## 4. 测试SQL
 
-TPCH 22个测试查询语句 ： [TPCH-Query-SQL](https://github.com/apache/incubator-doris/tree/master/tools/tpch-tools/queries)
+TPCH 22个测试查询语句 ： [TPCH-Query-SQL](https://github.com/apache/doris/tree/master/tools/tpch-tools/queries)
 
 **注意：**
 
@@ -134,10 +134,10 @@ TPCH 22个测试查询语句 ： [TPCH-Query-SQL](https://github.com/apache/incu
 
 ### 7.1 下载安装 TPC-H 数据生成工具
 
-执行以下脚本下载并编译  [tpch-tools](https://github.com/apache/incubator-doris/tree/master/tools/tpch-tools)  工具。
+执行以下脚本下载并编译  [tpch-tools](https://github.com/apache/doris/tree/master/tools/tpch-tools)  工具。
 
 ```shell
-sh build-tpch-dbgen.sh
+sh bin/build-tpch-dbgen.sh
 ```
 
 安装成功后，将在 `TPC-H_Tools_v3.0.0/` 目录下生成 `dbgen` 二进制文件。
@@ -147,12 +147,12 @@ sh build-tpch-dbgen.sh
 执行以下脚本生成 TPC-H 数据集：
 
 ```shell
-sh gen-tpch-data.sh
+sh bin/gen-tpch-data.sh
 ```
 
-> 注1：通过 `sh gen-tpch-data.sh -h` 查看脚本帮助。
+> 注1：通过 `sh bin/gen-tpch-data.sh -h` 查看脚本帮助。
 >
-> 注2：数据会以 `.tbl` 为后缀生成在  `tpch-data/` 目录下。文件总大小约100GB。生成时间可能在数分钟到1小时不等。
+> 注2：数据会以 `.tbl` 为后缀生成在  `bin/tpch-data/` 目录下。文件总大小约100GB。生成时间可能在数分钟到1小时不等。
 >
 > 注3：默认生成 100G 的标准测试数据集
 
@@ -160,9 +160,7 @@ sh gen-tpch-data.sh
 
 #### 7.3.1 准备 `doris-cluster.conf` 文件
 
-在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `doris-cluster.conf` 文件中。
-
-文件位置和 `load-tpch-data.sh` 平级。
+在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `conf/doris-cluster.conf` 文件中。
 
 文件内容包括 FE 的 ip，HTTP 端口，用户名，密码以及待导入数据的 DB 名称：
 
@@ -178,15 +176,15 @@ export USER='root'
 # Doris password
 export PASSWORD=''
 # The database where TPC-H tables located
-export DB='tpch1'
+export DB='tpch'
 ```
 
 #### 7.3.2 执行以下脚本生成创建 TPC-H 表
 
 ```shell
-sh create-tpch-tables.sh
+sh bin/create-tpch-tables.sh
 ```
-或者复制 [create-tpch-tables.sql](https://github.com/apache/incubator-doris/blob/master/tools/tpch-tools/create-tpch-tables.sql) 中的建表语句，在 Doris 中执行。
+或者复制 [create-tpch-tables.sql](https://github.com/apache/doris/blob/master/tools/tpch-tools/ddl/create-tpch-tables.sql) 中的建表语句，在 Doris 中执行。
 
 
 ### 7.4 导入数据
@@ -194,7 +192,7 @@ sh create-tpch-tables.sh
 通过下面的命令执行数据导入：
 
 ```shell
-sh ./load-tpch-data.sh
+sh bin/load-tpch-data.sh
 ```
 
 ### 7.5 检查导入数据
@@ -218,7 +216,7 @@ select count(*)  from  revenue0;
 执行上面的测试 SQL 或者 执行下面的命令
 
 ```
-./run-tpch-queries.sh
+sh bin/run-tpch-queries.sh
 ```
 
 >注意：
@@ -226,7 +224,3 @@ select count(*)  from  revenue0;
 >1. 目前Doris的查询优化器和统计信息功能还不完善，所以我们在TPC-H中重写了一些查询以适应Doris的执行框架，但不影响结果的正确性
 >
 >2. Doris 新的查询优化器将在后续的版本中发布
->3. 执行查询之前设置 `set mem_exec_limit=8G`
-
-
-

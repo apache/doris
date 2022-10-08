@@ -1048,22 +1048,15 @@ Status StorageEngine::execute_task(EngineTask* task) {
 
     {
         auto wrlocks = lock_related_tablets();
-        Status prepare_status = task->prepare();
-        if (prepare_status != Status::OK()) {
-            return prepare_status;
-        }
+        RETURN_IF_ERROR(task->prepare());
     }
 
     // do execute work without lock
-    Status exec_status = task->execute();
-    if (exec_status != Status::OK()) {
-        return exec_status;
-    }
+    RETURN_IF_ERROR(task->execute());
 
     {
         auto wrlocks = lock_related_tablets();
-        Status fin_status = task->finish();
-        return fin_status;
+        return task->finish();
     }
 }
 

@@ -85,3 +85,33 @@ jobs:
       - name: Build docs
         run: |
           cd docs && /bin/bash build_help_zip.sh
+      - name: Build
+        run: |
+          git clone https://github.com/apache/doris-website.git website
+          rm -rf website/docs
+          cp -R docs/en/docs website/
+          rm -rf website/community
+          cp -R docs/en/community website/
+          rm -rf website/i18n/zh-CN/docusaurus-plugin-content-docs/*
+          mkdir  website/i18n/zh-CN/docusaurus-plugin-content-docs/current
+          cp -R docs/zh-CN/docs/* website/i18n/zh-CN/docusaurus-plugin-content-docs/current/
+          cp docs/dev.json website/i18n/zh-CN/docusaurus-plugin-content-docs/current.json
+          rm -rf  website/i18n/zh-CN/docusaurus-plugin-content-docs-community/*
+          mkdir website/i18n/zh-CN/docusaurus-plugin-content-docs-community/current
+          cp -R docs/zh-CN/community/* website/i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
+          cp -R docs/sidebarsCommunity.json website/
+          cp -R docs/sidebars.json website/
+          cp -R docs/images website/static/
+          sed '2,3d' website/versions.json > website/versions.json1
+          rm -rf website/versions.json
+          mv website/versions.json1 website/versions.json
+          sed '123,128d' website/docusaurus.config.js > website/docusaurus.config.js1
+          rm -rf website/docusaurus.config.js
+          mv website/docusaurus.config.js1 website/docusaurus.config.js
+          cd website
+          npm install -g npm@8.19.1
+          npm install -g yarn
+          yarn cache clean
+          yarn && yarn build   
+          cd ../
+          rm -rf website    

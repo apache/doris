@@ -65,11 +65,13 @@ import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -153,6 +155,8 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
+    private TPushAggOp pushDownAggNoGroupingOp = null;
+
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
@@ -171,7 +175,12 @@ public class OlapScanNode extends ScanNode {
 
     public void setIsPreAggregation(boolean isPreAggregation, String reason) {
         this.isPreAggregation = isPreAggregation;
-        this.reasonOfPreAggregation = reason;
+        this.reasonOfPreAggregation = this.reasonOfPreAggregation == null ? reason :
+                                      this.reasonOfPreAggregation + " " + reason;
+    }
+
+    public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
+        this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
     }
 
     public boolean isPreAggregation() {
@@ -231,9 +240,21 @@ public class OlapScanNode extends ScanNode {
         this.tupleIds = tupleIds;
     }
 
-    // only used for UT
+    // only used for UT and Nereids
     public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
         this.selectedPartitionIds = selectedPartitionIds;
+    }
+
+    /**
+     * Only used for Neredis to set rollup or materialized view selection result.
+     */
+    public void setSelectedIndexInfo(
+            long selectedIndexId,
+            boolean isPreAggregation,
+            String reasonOfPreAggregation) {
+        this.selectedIndexId = selectedIndexId;
+        this.isPreAggregation = isPreAggregation;
+        this.reasonOfPreAggregation = reasonOfPreAggregation;
     }
 
     /**
@@ -318,11 +339,11 @@ public class OlapScanNode extends ScanNode {
             }
             situation = "The key type of table is aggregated.";
             update = false;
-            break CHECK;
         } // CHECKSTYLE IGNORE THIS LINE
 
         if (update) {
             this.selectedIndexId = selectedIndexId;
+            updateSlotUniqueId();
             setIsPreAggregation(isPreAggregation, reasonOfDisable);
             updateColumnType();
             if (LOG.isDebugEnabled()) {
@@ -366,6 +387,28 @@ public class OlapScanNode extends ScanNode {
                 slotDescriptor.setColumn(mvColumn);
             }
         }
+    }
+
+    /**
+     * In some situation, we need use mv col unique id , because mv col unique and
+     * base col unique id is different.
+     * For example: select count(*) from table (table has a mv named mv1)
+     * if Optimizer deceide use mv1, we need updateSlotUniqueId.
+     */
+    private void updateSlotUniqueId() {
+        if (!olapTable.getEnableLightSchemaChange() || selectedIndexId == olapTable.getBaseIndexId()) {
+            return;
+        }
+        MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(selectedIndexId);
+        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            if (!slotDescriptor.isMaterialized()) {
+                continue;
+            }
+            Column baseColumn = slotDescriptor.getColumn();
+            Column mvColumn = meta.getColumnByName(baseColumn.getName());
+            slotDescriptor.setColumn(mvColumn);
+        }
+        LOG.debug("updateSlotUniqueId() slots: {}", desc.getSlots());
     }
 
     public OlapTable getOlapTable() {
@@ -696,6 +739,7 @@ public class OlapScanNode extends ScanNode {
         }
         final RollupSelector rollupSelector = new RollupSelector(analyzer, desc, olapTable);
         selectedIndexId = rollupSelector.selectBestRollup(selectedPartitionIds, conjuncts, isPreAggregation);
+        updateSlotUniqueId();
         LOG.debug("select best roll up cost: {} ms, best index id: {}",
                 (System.currentTimeMillis() - start), selectedIndexId);
     }
@@ -795,7 +839,8 @@ public class OlapScanNode extends ScanNode {
         StringBuilder output = new StringBuilder();
 
         String indexName = olapTable.getIndexNameById(selectedIndexId);
-        output.append(prefix).append("TABLE: ").append(olapTable.getName()).append("(").append(indexName).append(")");
+        output.append(prefix).append("TABLE: ").append(olapTable.getQualifiedName())
+                .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
@@ -888,6 +933,11 @@ public class OlapScanNode extends ScanNode {
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
+        msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
+
+        if (pushDownAggNoGroupingOp != null) {
+            msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        }
     }
 
     // export some tablets
@@ -1022,6 +1072,9 @@ public class OlapScanNode extends ScanNode {
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
             conjuncts.add(conjunct);
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                closePreAggregation(Column.DELETE_SIGN + " is used as conjuncts.");
+            }
         }
     }
 
@@ -1051,5 +1104,10 @@ public class OlapScanNode extends ScanNode {
         } else {
             return DataPartition.RANDOM;
         }
+    }
+
+    @VisibleForTesting
+    public String getReasonOfPreAggregation() {
+        return reasonOfPreAggregation;
     }
 }

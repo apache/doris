@@ -17,17 +17,34 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.ParserTestBase;
 
 import org.junit.jupiter.api.Test;
 
-public class ExpressionParserTest {
+public class ExpressionParserTest extends ParserTestBase {
     private static final NereidsParser PARSER = new NereidsParser();
 
+    /**
+     * This method is deprecated.
+     * <p>
+     * Please use utility functions `parsePlan `in {@link ParserTestBase}
+     * to get {@link org.apache.doris.nereids.util.PlanParseChecker}.
+     */
+    @Deprecated
     private void assertSql(String sql) {
         PARSER.parseSingle(sql);
     }
 
+    /**
+     * This method is deprecated.
+     * <p>
+     * Please use utility functions `parseExpression` in {@link ParserTestBase}
+     * to get {@link org.apache.doris.nereids.util.PlanParseChecker}.
+     */
+    @Deprecated
     private void assertExpr(String expr) {
         Expression expression = PARSER.parseExpression(expr);
         System.out.println(expression.toSql());
@@ -41,12 +58,18 @@ public class ExpressionParserTest {
 
     @Test
     public void testExprBetweenPredicate() {
-        String sql = "c BETWEEN a AND b";
-        assertExpr(sql);
+        parseExpression("c BETWEEN a AND b")
+                .assertEquals(
+                        new Between(
+                                new UnboundSlot("c"),
+                                new UnboundSlot("a"),
+                                new UnboundSlot("b")
+                        )
+                );
     }
 
     @Test
-    public void testInPredicate() throws Exception {
+    public void testInPredicate() {
         String in = "select * from test1 where d1 in (1, 2, 3)";
         assertSql(in);
 
@@ -55,7 +78,7 @@ public class ExpressionParserTest {
     }
 
     @Test
-    public void testSqlAnd() throws Exception {
+    public void testSqlAnd() {
         String sql = "select * from test1 where a > 1 and b > 1";
         assertSql(sql);
     }
@@ -100,6 +123,11 @@ public class ExpressionParserTest {
 
         String subtract = "3 - 2";
         assertExpr(subtract);
+
+        parseExpression("3 += 2")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("extraneous input '=' expecting {'(");
+
     }
 
     @Test
@@ -121,6 +149,12 @@ public class ExpressionParserTest {
 
         String min = "select min(a), min(b) as m from test1";
         assertSql(min);
+
+        String max = "select max(a), max(b) as m from test1";
+        assertSql(max);
+
+        String maxAndMin = "select max(a), min(b) from test1";
+        assertSql(maxAndMin);
     }
 
     @Test
@@ -131,7 +165,6 @@ public class ExpressionParserTest {
 
         String groupByWithFun1 = "select sum(a), b from test1 group by b";
         assertSql(groupByWithFun1);
-
 
         String groupByWithFun2 = "select sum(a), b, c+1 from test1 group by b, c";
         assertSql(groupByWithFun2);
@@ -238,5 +271,14 @@ public class ExpressionParserTest {
 
         String cast2 = "SELECT CAST(A AS INT) AS I FROM TEST;";
         assertSql(cast2);
+    }
+
+    @Test
+    public void testIsNull() {
+        String e1 = "a is null";
+        assertExpr(e1);
+
+        String e2 = "a is not null";
+        assertExpr(e2);
     }
 }

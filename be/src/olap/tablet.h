@@ -19,7 +19,9 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -111,7 +113,6 @@ public:
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
     size_t row_size() const;
-    int32_t field_index(const std::string& field_name) const;
 
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
@@ -156,15 +157,14 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    const std::vector<DeletePredicatePB>& delete_predicates() {
+    const std::vector<RowsetMetaSharedPtr> delete_predicates() {
         return _tablet_meta->delete_predicates();
     }
-    void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
-    bool version_for_load_deletion(const Version& version);
 
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
+    std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
@@ -229,8 +229,11 @@ public:
     TabletInfo get_tablet_info() const;
 
     void pick_candidate_rowsets_to_cumulative_compaction(
-            std::vector<RowsetSharedPtr>* candidate_rowsets);
-    void pick_candidate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+            std::vector<RowsetSharedPtr>* candidate_rowsets,
+            std::shared_lock<std::shared_mutex>& /* meta lock*/);
+    void pick_candidate_rowsets_to_base_compaction(
+            std::vector<RowsetSharedPtr>* candidate_rowsets,
+            std::shared_lock<std::shared_mutex>& /* meta lock*/);
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -286,6 +289,13 @@ public:
 
     TabletSchemaSPtr tablet_schema() const override;
 
+    TabletSchemaSPtr get_max_version_schema(std::lock_guard<std::shared_mutex>&);
+
+    // Find the related rowset with specified version and return its tablet schema
+    TabletSchemaSPtr tablet_schema(Version version) const {
+        return _tablet_meta->tablet_schema(version);
+    }
+
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                 const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
                                 int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
@@ -321,8 +331,10 @@ public:
     Status calc_delete_bitmap(RowsetId rowset_id,
                               const std::vector<segment_v2::SegmentSharedPtr>& segments,
                               const RowsetIdUnorderedSet* specified_rowset_ids,
-                              DeleteBitmapPtr delete_bitmap, bool check_pre_segments = false);
+                              DeleteBitmapPtr delete_bitmap, int64_t version,
+                              bool check_pre_segments = false);
 
+    Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
     RowsetIdUnorderedSet all_rs_id() const;
@@ -337,6 +349,8 @@ public:
                                      int64_t num_segments);
 
     bool check_all_rowset_segment();
+
+    void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
 private:
     Status _init_once_action();
@@ -365,9 +379,9 @@ private:
     bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
-    bool _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
-                                   const Slice& key, const Version& version,
-                                   DeleteBitmapPtr delete_bitmap);
+    Status _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+                                     const Slice& key, const Version& version,
+                                     DeleteBitmapPtr delete_bitmap, RowLocation* loc);
     void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
@@ -392,6 +406,13 @@ private:
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.
     mutable std::shared_mutex _meta_lock;
+
+    // In unique key table with MoW, we should guarantee that only one
+    // writer can update rowset and delete bitmap at the same time.
+    // We use a separate lock rather than _meta_lock, to avoid blocking read queries
+    // during publish_txn, which might take hundreds of milliseconds
+    mutable std::mutex _rowset_update_lock;
+
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsetis will be saved in _stale_rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
@@ -440,11 +461,14 @@ private:
     // Remote rowsets not shared by other BE. We can delete them when drop tablet.
     std::unordered_set<RowsetSharedPtr> _self_owned_remote_rowsets; // guarded by _meta_lock
 
+    // Max schema_version schema from Rowset or FE
+    TabletSchemaSPtr _max_version_schema;
+
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
 public:
     IntCounter* flush_bytes;
-    IntCounter* flush_count;
+    IntCounter* flush_finish_count;
     std::atomic<int64_t> publised_count = 0;
 };
 
@@ -567,10 +591,6 @@ inline double Tablet::bloom_filter_fpp() const {
 
 inline size_t Tablet::next_unique_id() const {
     return _schema->next_column_unique_id();
-}
-
-inline int32_t Tablet::field_index(const std::string& field_name) const {
-    return _schema->field_index(field_name);
 }
 
 inline size_t Tablet::row_size() const {

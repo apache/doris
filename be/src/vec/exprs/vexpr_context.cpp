@@ -17,8 +17,8 @@
 
 #include "vec/exprs/vexpr_context.h"
 
-#include "runtime/thread_context.h"
 #include "udf/udf_internal.h"
+#include "util/stack_util.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
@@ -32,7 +32,7 @@ VExprContext::VExprContext(VExpr* expr)
           _stale(false) {}
 
 VExprContext::~VExprContext() {
-    DCHECK(!_prepared || _closed);
+    DCHECK(!_prepared || _closed) << get_stack_trace();
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         delete _fn_contexts[i];
@@ -118,7 +118,7 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
         return Status::OK();
     }
     int result_column_id = -1;
-    vexpr_ctx->execute(block, &result_column_id);
+    RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
     return Block::filter_block(block, result_column_id, column_to_keep);
 }
 

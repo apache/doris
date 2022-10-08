@@ -46,17 +46,10 @@ FileScanNode::FileScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _scan_finished(false),
           _max_buffered_batches(32),
           _wait_scanner_timer(nullptr),
-          _runtime_filter_descs(tnode.runtime_filters) {
-    LOG(WARNING) << "file scan node runtime filter size=" << _runtime_filter_descs.size();
-}
+          _runtime_filter_descs(tnode.runtime_filters) {}
 
 Status FileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode, state));
-    auto& file_scan_node = tnode.file_scan_node;
-
-    if (file_scan_node.__isset.pre_filter_exprs) {
-        _pre_filter_texprs = file_scan_node.pre_filter_exprs;
-    }
 
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.resize(filter_size);
@@ -164,7 +157,7 @@ Status FileScanNode::_acquire_and_build_runtime_filter(RuntimeState* state) {
         }
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtimefilter;
         std::vector<VExpr*> vexprs;
-        runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
+        runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor);
         if (vexprs.empty()) {
             continue;
         }
@@ -180,7 +173,7 @@ Status FileScanNode::_acquire_and_build_runtime_filter(RuntimeState* state) {
             last_expr = new_node;
         }
         auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
-        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc());
+        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, _row_descriptor);
         if (UNLIKELY(!expr_status.OK())) {
             LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
             vexprs.clear();
@@ -402,11 +395,7 @@ Status FileScanNode::scanner_scan(const TFileScanRange& scan_range, ScannerCount
                // stop pushing more batch if
                // 1. too many batches in queue, or
                // 2. at least one batch in queue and memory exceed limit.
-               (_block_queue.size() >= _max_buffered_batches ||
-                (thread_context()
-                         ->_thread_mem_tracker_mgr->limiter_mem_tracker()
-                         ->any_limit_exceeded() &&
-                 !_block_queue.empty()))) {
+               (_block_queue.size() >= _max_buffered_batches || !_block_queue.empty())) {
             _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
         }
         // Process already set failed, so we just return OK

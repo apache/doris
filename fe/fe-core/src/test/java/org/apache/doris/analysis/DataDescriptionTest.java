@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -57,7 +57,7 @@ public class DataDescriptionTest {
     @Mocked
     private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
 
     @Before
     public void setUp() throws AnalysisException {
@@ -81,11 +81,11 @@ public class DataDescriptionTest {
                 minTimes = 0;
                 result = env;
 
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
 
@@ -128,7 +128,7 @@ public class DataDescriptionTest {
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null, null);
         desc.analyze("testDb");
-        Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
+        Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' FORMAT AS 'csv' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
         Assert.assertEquals("1 = 1", desc.getWhereExpr().toSql());
         Assert.assertEquals("1 = 1", desc.getDeleteCondition().toSql());
         Assert.assertEquals(",", desc.getColumnSeparator());

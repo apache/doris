@@ -23,16 +23,19 @@ suite("test_date_in_predicate") {
             CREATE TABLE IF NOT EXISTS ${tbName} (
                 c0 int,
                 c1 char(10),
-                c2 date
+                c2 date,
+                c3 datev2
             )
             UNIQUE KEY(c0)
             DISTRIBUTED BY HASH(c0) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql "insert into ${tbName} values(1, 'test1', '2000-01-01')"
-    sql "insert into ${tbName} values(2, 'test2', '2000-02-02')"
-    sql "insert into ${tbName} values(3, 'test3', '2000-03-02')"
+    sql "insert into ${tbName} values(1, 'test1', '2000-01-01', '2000-01-01')"
+    sql "insert into ${tbName} values(2, 'test2', '2000-02-02', '2000-02-02')"
+    sql "insert into ${tbName} values(3, 'test3', '2000-03-02', '2000-03-02')"
 
     qt_sql1 "select * from ${tbName} where c2 in ('2000-02-02')"
     qt_sql2 "select * from ${tbName} where c2 not in ('2000-02-02')"
+    qt_sql3 "select * from ${tbName} where c3 in ('2000-02-02')"
+    qt_sql4 "select * from ${tbName} where c3 not in ('2000-02-02')"
     sql "DROP TABLE ${tbName}"
 }

@@ -42,7 +42,7 @@ struct TrackerGroup {
 // Multiple groups are used to reduce the impact of locks.
 static std::vector<TrackerGroup> mem_tracker_pool(1000);
 
-MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, bool is_limiter) {
+MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile) {
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
@@ -58,30 +58,20 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, bool i
         _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
     }
 
-    _is_limiter = is_limiter;
-    if (!_is_limiter) {
-        if (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()) {
-            _label = fmt::format(
-                    "{} | {}", label,
-                    thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label());
-        } else {
-            _label = label + " | ";
-        }
-
-        _bind_group_num =
-                thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
-        {
-            std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
-            _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(
-                    mem_tracker_pool[_bind_group_num].trackers.end(), this);
-        }
-    } else {
-        _label = label;
+    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw() != nullptr);
+    MemTrackerLimiter* parent =
+            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw();
+    _label = fmt::format("[Observer] {} | {}", label, parent->label());
+    _bind_group_num = parent->group_num();
+    {
+        std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
+        _tracker_group_it = mem_tracker_pool[_bind_group_num].trackers.insert(
+                mem_tracker_pool[_bind_group_num].trackers.end(), this);
     }
 }
 
 MemTracker::~MemTracker() {
-    if (!_is_limiter) {
+    if (_bind_group_num != -1) {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_bind_group_num].group_lock);
         if (_tracker_group_it != mem_tracker_pool[_bind_group_num].trackers.end()) {
             mem_tracker_pool[_bind_group_num].trackers.erase(_tracker_group_it);
@@ -113,10 +103,31 @@ void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshot
 }
 
 std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
-    return fmt::format("MemTracker Label={}, Parent Label={}, Used={}, Peak={}", snapshot.label,
-                       snapshot.parent,
-                       PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
-                       PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES));
+    return fmt::format(
+            "MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)", snapshot.label,
+            snapshot.parent, PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
+            snapshot.cur_consumption, PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES),
+            snapshot.peak_consumption);
 }
 
+static std::unordered_map<std::string, std::shared_ptr<MemTracker>> global_mem_trackers;
+static std::mutex global_trackers_lock;
+
+std::shared_ptr<MemTracker> MemTracker::get_global_mem_tracker(const std::string& label) {
+    std::lock_guard<std::mutex> l(global_trackers_lock);
+    if (global_mem_trackers.find(label) != global_mem_trackers.end()) {
+        return global_mem_trackers[label];
+    } else {
+        global_mem_trackers.emplace(
+                label, std::make_shared<MemTracker>(fmt::format("[Global] {}", label)));
+        return global_mem_trackers[label];
+    }
+}
+
+void MemTracker::make_global_mem_tracker_snapshot(std::vector<MemTracker::Snapshot>* snapshots) {
+    std::lock_guard<std::mutex> l(global_trackers_lock);
+    for (auto& v : global_mem_trackers) {
+        snapshots->push_back(v.second->make_snapshot(1));
+    }
+}
 } // namespace doris

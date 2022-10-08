@@ -166,8 +166,8 @@ public class SingleNodePlannerTest {
             }
         };
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
-        Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
-        Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
+        Pair<TableRef, PlanNode> pair1 = Pair.of(tableRef1, scanNode1);
+        Pair<TableRef, PlanNode> pair2 = Pair.of(tableRef2, scanNode2);
         List<Pair<TableRef, PlanNode>> refPlans = Lists.newArrayList();
         refPlans.add(pair1);
         refPlans.add(pair2);
@@ -198,8 +198,8 @@ public class SingleNodePlannerTest {
                                              @Injectable SlotRef eqSlot1,
                                              @Injectable SlotRef eqSlot2,
                                              @Tested ExprSubstitutionMap exprSubstitutionMap) {
-        Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
-        Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
+        Pair<TableRef, PlanNode> pair1 = Pair.of(tableRef1, scanNode1);
+        Pair<TableRef, PlanNode> pair2 = Pair.of(tableRef2, scanNode2);
         List<Pair<TableRef, PlanNode>> refPlans = Lists.newArrayList();
         refPlans.add(pair1);
         refPlans.add(pair2);
@@ -298,8 +298,8 @@ public class SingleNodePlannerTest {
                                              @Injectable SlotRef eqSlot1,
                                              @Injectable SlotRef eqSlot2,
                                              @Tested ExprSubstitutionMap exprSubstitutionMap) {
-        Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
-        Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
+        Pair<TableRef, PlanNode> pair1 = Pair.of(tableRef1, scanNode1);
+        Pair<TableRef, PlanNode> pair2 = Pair.of(tableRef2, scanNode2);
         List<Pair<TableRef, PlanNode>> refPlans = Lists.newArrayList();
         refPlans.add(pair1);
         refPlans.add(pair2);
@@ -404,9 +404,9 @@ public class SingleNodePlannerTest {
                                                 @Injectable SlotRef eqT2Slot2,
                                                 @Injectable SlotRef eqT3Slot3,
                                                 @Tested ExprSubstitutionMap exprSubstitutionMap) {
-        Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
-        Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
-        Pair<TableRef, PlanNode> pair3 = new Pair<>(tableRef3, scanNode3);
+        Pair<TableRef, PlanNode> pair1 = Pair.of(tableRef1, scanNode1);
+        Pair<TableRef, PlanNode> pair2 = Pair.of(tableRef2, scanNode2);
+        Pair<TableRef, PlanNode> pair3 = Pair.of(tableRef3, scanNode3);
         List<Pair<TableRef, PlanNode>> refPlans = Lists.newArrayList();
         refPlans.add(pair1);
         refPlans.add(pair2);
@@ -566,9 +566,9 @@ public class SingleNodePlannerTest {
                                                  @Injectable SlotRef eqT2Slot2,
                                                  @Injectable SlotRef eqT3Slot3,
                                                  @Tested ExprSubstitutionMap exprSubstitutionMap) {
-        Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
-        Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
-        Pair<TableRef, PlanNode> pair3 = new Pair<>(tableRef3, scanNode3);
+        Pair<TableRef, PlanNode> pair1 = Pair.of(tableRef1, scanNode1);
+        Pair<TableRef, PlanNode> pair2 = Pair.of(tableRef2, scanNode2);
+        Pair<TableRef, PlanNode> pair3 = Pair.of(tableRef3, scanNode3);
         List<Pair<TableRef, PlanNode>> refPlans = Lists.newArrayList();
         refPlans.add(pair1);
         refPlans.add(pair2);
@@ -744,13 +744,13 @@ public class SingleNodePlannerTest {
                                        @Injectable SlotRef eqT6Slot6,
                                        @Injectable SlotRef eqT7Slot7,
                                        @Tested ExprSubstitutionMap exprSubstitutionMap) {
-        Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
-        Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
-        Pair<TableRef, PlanNode> pair3 = new Pair<>(tableRef3, scanNode3);
-        Pair<TableRef, PlanNode> pair4 = new Pair<>(tableRef4, scanNode4);
-        Pair<TableRef, PlanNode> pair5 = new Pair<>(tableRef5, scanNode5);
-        Pair<TableRef, PlanNode> pair6 = new Pair<>(tableRef6, scanNode6);
-        Pair<TableRef, PlanNode> pair7 = new Pair<>(tableRef7, scanNode7);
+        Pair<TableRef, PlanNode> pair1 = Pair.of(tableRef1, scanNode1);
+        Pair<TableRef, PlanNode> pair2 = Pair.of(tableRef2, scanNode2);
+        Pair<TableRef, PlanNode> pair3 = Pair.of(tableRef3, scanNode3);
+        Pair<TableRef, PlanNode> pair4 = Pair.of(tableRef4, scanNode4);
+        Pair<TableRef, PlanNode> pair5 = Pair.of(tableRef5, scanNode5);
+        Pair<TableRef, PlanNode> pair6 = Pair.of(tableRef6, scanNode6);
+        Pair<TableRef, PlanNode> pair7 = Pair.of(tableRef7, scanNode7);
         List<Pair<TableRef, PlanNode>> refPlans = Lists.newArrayList();
         refPlans.add(pair1);
         refPlans.add(pair2);
@@ -1028,10 +1028,10 @@ public class SingleNodePlannerTest {
                                           @Injectable SlotRef eqT3Slot3,
                                           @Injectable SlotRef eqT4Slot4,
                                           @Tested ExprSubstitutionMap exprSubstitutionMap) {
-        Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
-        Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
-        Pair<TableRef, PlanNode> pair3 = new Pair<>(tableRef3, scanNode3);
-        Pair<TableRef, PlanNode> pair4 = new Pair<>(tableRef4, scanNode4);
+        Pair<TableRef, PlanNode> pair1 = Pair.of(tableRef1, scanNode1);
+        Pair<TableRef, PlanNode> pair2 = Pair.of(tableRef2, scanNode2);
+        Pair<TableRef, PlanNode> pair3 = Pair.of(tableRef3, scanNode3);
+        Pair<TableRef, PlanNode> pair4 = Pair.of(tableRef4, scanNode4);
         List<Pair<TableRef, PlanNode>> refPlans = Lists.newArrayList();
         refPlans.add(pair3);
         refPlans.add(pair2);
@@ -1210,10 +1210,10 @@ public class SingleNodePlannerTest {
                                                             @Injectable SlotRef eqT3Slot3,
                                                             @Injectable SlotRef eqT4Slot4,
                                                             @Tested ExprSubstitutionMap exprSubstitutionMap) {
-        Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
-        Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
-        Pair<TableRef, PlanNode> pair3 = new Pair<>(tableRef3, scanNode3);
-        Pair<TableRef, PlanNode> pair4 = new Pair<>(tableRef4, scanNode4);
+        Pair<TableRef, PlanNode> pair1 = Pair.of(tableRef1, scanNode1);
+        Pair<TableRef, PlanNode> pair2 = Pair.of(tableRef2, scanNode2);
+        Pair<TableRef, PlanNode> pair3 = Pair.of(tableRef3, scanNode3);
+        Pair<TableRef, PlanNode> pair4 = Pair.of(tableRef4, scanNode4);
         List<Pair<TableRef, PlanNode>> refPlans = Lists.newArrayList();
         refPlans.add(pair3);
         refPlans.add(pair2);

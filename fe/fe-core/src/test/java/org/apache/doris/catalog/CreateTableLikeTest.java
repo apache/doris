@@ -80,10 +80,11 @@ public class CreateTableLikeTest {
     private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {
         List<String> newCreateTableStmt = Lists.newArrayList();
         List<String> newAddRollupStmt = Lists.newArrayList();
-        Env.getDdlStmt(newTable, newCreateTableStmt, null, newAddRollupStmt, false, true /* hide password */);
+        Env.getDdlStmt(newTable, newCreateTableStmt, null, newAddRollupStmt, false, true /* hide password */, -1L);
         List<String> existedTableStmt = Lists.newArrayList();
         List<String> existedAddRollupStmt = Lists.newArrayList();
-        Env.getDdlStmt(existedTable, existedTableStmt, null, existedAddRollupStmt, false, true /* hide password */);
+        Env.getDdlStmt(existedTable, existedTableStmt, null, existedAddRollupStmt, false, true /* hide password */,
+                -1L);
         Assert.assertEquals(newCreateTableStmt.get(0).replace(newTable.getName(), existedTable.getName()),
                 existedTableStmt.get(0));
         checkTableRollup(existedAddRollupStmt, newAddRollupStmt, newTable.getName(), existedTable.getName(),

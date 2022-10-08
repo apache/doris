@@ -69,10 +69,10 @@ Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle*
                                             IndexPageReader* reader) {
     Slice body;
     PageFooterPB footer;
-    std::unique_ptr<BlockCompressionCodec> local_compress_codec;
-    RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), local_compress_codec));
+    BlockCompressionCodec* local_compress_codec;
+    RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &local_compress_codec));
     RETURN_IF_ERROR(read_page(PagePointer(pp), handle, &body, &footer, INDEX_PAGE,
-                              local_compress_codec.get()));
+                              local_compress_codec, false));
     RETURN_IF_ERROR(reader->parse(body, footer.index_page_footer()));
     _mem_size += body.get_size();
     return Status::OK();
@@ -80,7 +80,7 @@ Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle*
 
 Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle, Slice* body,
                                       PageFooterPB* footer, PageTypePB type,
-                                      BlockCompressionCodec* codec) const {
+                                      BlockCompressionCodec* codec, bool pre_decode) const {
     PageReadOptions opts;
     opts.file_reader = _file_reader.get();
     opts.page_pointer = pp;
@@ -91,6 +91,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     opts.kept_in_memory = _kept_in_memory;
     opts.type = type;
     opts.encoding_info = _encoding_info;
+    opts.pre_decode = pre_decode;
 
     return PageIO::read_and_decompress_page(opts, handle, body, footer);
 }
@@ -100,14 +101,14 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
 Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     // there is not init() for IndexedColumnIterator, so do it here
     if (!_compress_codec) {
-        RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), _compress_codec));
+        RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), &_compress_codec));
     }
 
     PageHandle handle;
     Slice body;
     PageFooterPB footer;
     RETURN_IF_ERROR(
-            _reader->read_page(pp, &handle, &body, &footer, DATA_PAGE, _compress_codec.get()));
+            _reader->read_page(pp, &handle, &body, &footer, DATA_PAGE, _compress_codec, true));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
     PageDecoderOptions opts;
@@ -198,10 +199,12 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     Status st = _data_page.data_decoder->seek_at_or_after_value(key, exact_match);
     // return the first row of next page when not found
     if (st.is_not_found() && _reader->_has_index_page) {
-        if (_value_iter.move_next()) {
+        if (_value_iter.has_next()) {
             _seeked = true;
             *exact_match = false;
             _current_ordinal = _data_page.first_ordinal + _data_page.num_rows;
+            // move offset to the end of the page
+            _data_page.offset_in_page = _data_page.num_rows;
             return Status::OK();
         }
     }

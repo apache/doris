@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -60,7 +60,7 @@ public class VirtualSlotRefTest {
         String[] cols = {"k1", "k2", "k3"};
         slots = new ArrayList<>();
         for (String col : cols) {
-            SlotRef expr = new SlotRef(new TableName(InternalDataSource.INTERNAL_DS_NAME, "testdb", "t"), col);
+            SlotRef expr = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "testdb", "t"), col);
             slots.add(expr);
         }
         try {
@@ -68,7 +68,7 @@ public class VirtualSlotRefTest {
             f.setAccessible(true);
             Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            TableName tableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, "testdb", "t");
+            TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "testdb", "t");
             tableName.analyze(analyzerBase);
             td.setTable(analyzerBase.getTableOrAnalysisException(tableName));
             tupleByAlias.put("testdb.t", td);

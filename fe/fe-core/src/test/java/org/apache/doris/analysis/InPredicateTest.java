@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -28,7 +28,7 @@ import org.junit.Test;
 import java.util.List;
 
 public class InPredicateTest {
-    private static final String internalCtl = InternalDataSource.INTERNAL_DS_NAME;
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     /*
     InPredicate1: k1 in (1,2)
@@ -175,7 +175,7 @@ public class InPredicateTest {
         InPredicate union = inPredicate1.union(inPredicate2);
         Assert.assertEquals(slotRef1, union.getChild(0));
         Assert.assertTrue(union.isLiteralChildren());
-        Assert.assertEquals(2, union.getListChildren().size());
+        Assert.assertEquals(3, union.getListChildren().size());
         Assert.assertTrue(union.getListChildren().contains(literalChild1));
         Assert.assertTrue(union.getListChildren().contains(literalChild2));
         Assert.assertTrue(union.getListChildren().contains(literalChild5));

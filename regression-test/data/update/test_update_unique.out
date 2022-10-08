@@ -3,6 +3,10 @@
 1	2	1	1999-01-01
 2	2	1	1999-01-01
 
+-- !select_uniq_table --
+1	2	1	1998-01-01
+2	2	1	1998-01-01
+
 -- !desc_uniq_table --
 k	INT	Yes	true	\N	
 value1	INT	Yes	false	\N	REPLACE

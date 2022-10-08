@@ -20,7 +20,7 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -64,12 +64,12 @@ public class CatalogsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid catalog id format: " + catalogIdStr);
         }
 
-        DataSourceIf ds = env.getDataSourceMgr().getCatalog(catalogId);
-        if (ds == null) {
+        CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogId);
+        if (catalog == null) {
             throw new AnalysisException("Catalog " + catalogIdStr + " does not exist");
         }
 
-        return new DbsProcDir(env, ds);
+        return new DbsProcDir(env, catalog);
     }
 
     @Override
@@ -78,18 +78,18 @@ public class CatalogsProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<Long> catalogIds = env.getDataSourceMgr().getCatalogIds();
+        List<Long> catalogIds = env.getCatalogMgr().getCatalogIds();
         // get info
         List<List<Comparable>> catalogInfos = Lists.newArrayList();
         for (long catalogId : catalogIds) {
-            DataSourceIf ds = env.getDataSourceMgr().getCatalog(catalogId);
-            if (ds == null) {
+            CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogId);
+            if (catalog == null) {
                 continue;
             }
             List<Comparable> catalogInfo = Lists.newArrayList();
-            catalogInfo.add(ds.getId());
-            catalogInfo.add(ds.getName());
-            catalogInfo.add(ds.getDbNames().size());
+            catalogInfo.add(catalog.getId());
+            catalogInfo.add(catalog.getName());
+            catalogInfo.add(catalog.getDbNames().size());
             catalogInfos.add(catalogInfo);
         }
 

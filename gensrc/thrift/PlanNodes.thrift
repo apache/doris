@@ -55,6 +55,7 @@ enum TPlanNodeType {
   TABLE_FUNCTION_NODE,
   TABLE_VALUED_FUNCTION_SCAN_NODE,
   FILE_SCAN_NODE,
+  JDBC_SCAN_NODE,
 }
 
 // phases of an execution node
@@ -216,8 +217,8 @@ struct TEsScanRange {
 }
 
 struct TFileTextScanRangeParams {
-    1: optional string column_separator_str;
-    2: optional string line_delimiter_str;
+    1: optional string column_separator;
+    2: optional string line_delimiter;
 }
 
 struct TFileScanSlotInfo {
@@ -225,20 +226,53 @@ struct TFileScanSlotInfo {
     2: optional bool is_file_slot;
 }
 
-struct TFileScanRangeParams {
-  1: optional Types.TFileType file_type;
-  2: optional TFileFormatType format_type;
-  // use src_tuple_id to get all slots from src table include both file slot and partition slot.
-  3: optional Types.TTupleId src_tuple_id;
-  // num_of_columns_from_file can spilt the all_file_slot and all_partition_slot
-  4: optional i32 num_of_columns_from_file;
-  // all selected slots which may compose from file and partiton value.
-  5: optional list<TFileScanSlotInfo> required_slots;
+// descirbe how to read file
+struct TFileAttributes {
+    1: optional TFileTextScanRangeParams text_params;
+    //  it's usefull when format_type == FORMAT_JSON
+    2: optional bool strip_outer_array;
+    3: optional string jsonpaths;
+    4: optional string json_root;
+    5: optional bool num_as_string;
+    6: optional bool fuzzy_parse;
+    7: optional bool read_json_by_line;
+    // Whether read line by column defination, only for Hive
+    8: optional bool read_by_column_def;
+    // csv with header type
+    9: optional string header_type;
+}
 
-  6: optional THdfsParams hdfs_params;
-  7: optional TFileTextScanRangeParams text_params;
-  // properties for file such as s3 information
-  8: optional map<string, string> properties;
+struct TFileScanRangeParams {
+    1: optional Types.TFileType file_type;
+    2: optional TFileFormatType format_type;
+    // If this is for load job, src point to the source table and dest point to the doris table.
+    // If this is for query, only dest_tuple_id is set, including both file slot and partition slot.
+    3: optional Types.TTupleId src_tuple_id;
+    4: optional Types.TTupleId dest_tuple_id
+    // num_of_columns_from_file can spilt the all_file_slot and all_partition_slot
+    5: optional i32 num_of_columns_from_file;
+    // all selected slots which may compose from file and partition value.
+    6: optional list<TFileScanSlotInfo> required_slots;
+
+    7: optional THdfsParams hdfs_params;
+    // properties for file such as s3 information
+    8: optional map<string, string> properties;
+
+    // The convert exprt map for load job
+    // desc slot id -> expr
+    9: optional map<Types.TSlotId, Exprs.TExpr> expr_of_dest_slot
+    10: optional map<Types.TSlotId, Exprs.TExpr> default_value_of_src_slot
+    // This is the mapping of dest slot id and src slot id in load expr
+    // It excludes the slot id which has the transform expr
+    11: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
+
+    // strictMode is a boolean
+    // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
+    12: optional bool strict_mode
+
+    13: optional list<Types.TNetworkAddress> broker_addresses
+    14: optional TFileAttributes file_attributes
+    15: optional Exprs.TExpr pre_filter_exprs
 }
 
 struct TFileRangeDesc {
@@ -252,7 +286,9 @@ struct TFileRangeDesc {
     4: optional list<string> columns_from_path;
 }
 
-// HDFS file scan range
+// TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
+//  TFileScanRangeParams: describe how to read and convert file
+//  list<TFileRangeDesc>: file location and range
 struct TFileScanRange {
     1: optional list<TFileRangeDesc> ranges
     2: optional TFileScanRangeParams params
@@ -312,6 +348,12 @@ struct TOdbcScanNode {
   8: optional string query_string
 }
 
+struct TJdbcScanNode {
+  1: optional Types.TTupleId tuple_id
+  2: optional string table_name
+  3: optional string query_string
+}
+
 
 struct TBrokerScanNode {
     1: required Types.TTupleId tuple_id
@@ -324,7 +366,6 @@ struct TBrokerScanNode {
 
 struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
-    2: optional list<Exprs.TExpr> pre_filter_exprs
 }
 
 struct TEsScanNode {
@@ -423,6 +464,13 @@ struct TSortInfo {
   4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
 }
 
+enum TPushAggOp {
+	NONE = 0,
+	MINMAX = 1,
+	COUNT = 2,
+	MIX = 3
+}
+
 struct TOlapScanNode {
   1: required Types.TTupleId tuple_id
   2: required list<string> key_column_name
@@ -436,6 +484,8 @@ struct TOlapScanNode {
   // When scan match sort_info, we can push limit into OlapScanNode.
   // It's limit for scanner instead of scanNode so we add a new limit.
   10: optional i64 sort_limit
+  11: optional bool enable_unique_key_merge_on_write
+  12: optional TPushAggOp push_down_agg_type_opt
 }
 
 struct TEqJoinCondition {
@@ -560,7 +610,8 @@ struct TAggregationNode {
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
-  8: optional bool is_first_phase;
+  8: optional bool is_first_phase
+  9: optional bool use_fixed_length_serialization_opt
 }
 
 struct TRepeatNode {
@@ -885,6 +936,7 @@ struct TPlanNode {
 
   // file scan node
   44: optional TFileScanNode file_scan_node
+  45: optional TJdbcScanNode jdbc_scan_node
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

@@ -349,7 +349,7 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 修改 BE 配置 streaming_load_max_mb 为 16000 即可。
 ```
 
-Stream load 的默认超时为 300秒，按照 Doris 目前最大的导入限速来看，约超过 3G 的文件就需要修改导入任务默认超时时间了。
+Stream load 的默认超时为 600秒，按照 Doris 目前最大的导入限速来看，约超过 3G 的文件就需要修改导入任务默认超时时间了。
 
 ```text
 导入任务超时时间 = 导入数据量 / 10M/s （具体的平均导入速度需要用户根据自己的集群情况计算）
@@ -381,7 +381,7 @@ timeout = 1000s 等于 10G / 10M/s
 - step3：创建导入任务
 
   ```shell
-  curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8000/api/bj_sales/store_sales/_stream_load
+  curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8030/api/bj_sales/store_sales/_stream_load
   ```
 
 ## 常见问题

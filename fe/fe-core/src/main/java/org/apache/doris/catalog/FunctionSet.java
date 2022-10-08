@@ -1200,7 +1200,7 @@ public class FunctionSet<T> {
         if (!(descArgTypes[0] instanceof ScalarType)
                 || !(candicateArgTypes[0] instanceof ScalarType)) {
             if (candicateArgTypes[0] instanceof ArrayType) {
-                return candicateArgTypes[0].matchesType(descArgTypes[0]);
+                return descArgTypes[0].matchesType(candicateArgTypes[0]);
             }
 
             return false;
@@ -2653,6 +2653,10 @@ public class FunctionSet<T> {
                         "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
         }
 
+    }
+
+    public Map<String, List<Function>> getVectorizedFunctions() {
+        return ImmutableMap.copyOf(vectorizedFunctions);
     }
 
     public List<Function> getBulitinFunctions() {

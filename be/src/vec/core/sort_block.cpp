@@ -20,8 +20,6 @@
 
 #include "vec/core/sort_block.h"
 
-#include <pdqsort.h>
-
 #include "vec/columns/column_string.h"
 #include "vec/common/typeid_cast.h"
 
@@ -65,8 +63,9 @@ struct PartialSortingLess {
     }
 };
 
-void sort_block(Block& block, const SortDescription& description, UInt64 limit) {
-    if (!block) {
+void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
+                UInt64 limit) {
+    if (!src_block) {
         return;
     }
 
@@ -76,18 +75,19 @@ void sort_block(Block& block, const SortDescription& description, UInt64 limit) 
 
         const IColumn* column =
                 !description[0].column_name.empty()
-                        ? block.get_by_name(description[0].column_name).column.get()
-                        : block.safe_get_by_position(description[0].column_number).column.get();
+                        ? src_block.get_by_name(description[0].column_name).column.get()
+                        : src_block.safe_get_by_position(description[0].column_number).column.get();
 
         IColumn::Permutation perm;
         column->get_permutation(reverse, limit, description[0].nulls_direction, perm);
 
-        size_t columns = block.columns();
+        size_t columns = src_block.columns();
         for (size_t i = 0; i < columns; ++i) {
-            block.get_by_position(i).column = block.get_by_position(i).column->permute(perm, limit);
+            dest_block.replace_by_position(
+                    i, src_block.get_by_position(i).column->permute(perm, limit));
         }
     } else {
-        size_t size = block.rows();
+        size_t size = src_block.rows();
         IColumn::Permutation perm(size);
         for (size_t i = 0; i < size; ++i) {
             perm[i] = i;
@@ -98,20 +98,22 @@ void sort_block(Block& block, const SortDescription& description, UInt64 limit) 
         }
 
         ColumnsWithSortDescriptions columns_with_sort_desc =
-                get_columns_with_sort_description(block, description);
+                get_columns_with_sort_description(src_block, description);
         {
-            PartialSortingLess less(columns_with_sort_desc);
+            EqualFlags flags(size, 1);
+            EqualRange range {0, size};
 
-            if (limit) {
-                std::partial_sort(perm.begin(), perm.begin() + limit, perm.end(), less);
-            } else {
-                pdqsort(perm.begin(), perm.end(), less);
+            // TODO: ColumnSorter should be constructed only once.
+            for (size_t i = 0; i < columns_with_sort_desc.size(); i++) {
+                ColumnSorter sorter(columns_with_sort_desc[i], limit);
+                sorter.operator()(flags, perm, range, i == columns_with_sort_desc.size() - 1);
             }
         }
 
-        size_t columns = block.columns();
+        size_t columns = src_block.columns();
         for (size_t i = 0; i < columns; ++i) {
-            block.get_by_position(i).column = block.get_by_position(i).column->permute(perm, limit);
+            dest_block.replace_by_position(
+                    i, src_block.get_by_position(i).column->permute(perm, limit));
         }
     }
 }

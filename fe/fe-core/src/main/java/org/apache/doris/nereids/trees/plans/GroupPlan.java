@@ -53,7 +53,7 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
     }
 
@@ -84,7 +84,7 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public LogicalProperties computeLogicalProperties(Plan... inputs) {
+    public LogicalProperties computeLogicalProperties() {
         throw new IllegalStateException("GroupPlan can not compute logical properties."
                 + " You should invoke GroupPlan.getLogicalProperties()");
     }
@@ -98,4 +98,5 @@ public class GroupPlan extends LogicalLeaf {
     public String toString() {
         return "GroupPlan( " + group.getGroupId() + " )";
     }
+
 }

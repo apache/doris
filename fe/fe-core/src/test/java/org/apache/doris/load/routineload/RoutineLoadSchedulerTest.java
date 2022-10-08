@@ -26,7 +26,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -54,7 +54,7 @@ public class RoutineLoadSchedulerTest {
     TResourceInfo tResourceInfo;
 
     @Test
-    public void testNormalRunOneCycle(@Mocked Env env, @Mocked InternalDataSource ds,
+    public void testNormalRunOneCycle(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable RoutineLoadManager routineLoadManager, @Injectable SystemInfoService systemInfoService,
             @Injectable Database database, @Injectable RoutineLoadDesc routineLoadDesc,
             @Mocked StreamLoadPlanner planner, @Injectable OlapTable olapTable)
@@ -89,10 +89,10 @@ public class RoutineLoadSchedulerTest {
                 routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
                 minTimes = 0;
                 result = routineLoadJobList;
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(1L);
@@ -127,7 +127,7 @@ public class RoutineLoadSchedulerTest {
         }
     }
 
-    public void functionTest(@Mocked Env env, @Mocked InternalDataSource ds,
+    public void functionTest(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Mocked SystemInfoService systemInfoService, @Injectable Database database)
             throws DdlException, InterruptedException {
         new Expectations() {
@@ -151,10 +151,10 @@ public class RoutineLoadSchedulerTest {
                 env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
-                env.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 systemInfoService.getBackendIds(true);

@@ -48,6 +48,7 @@ PROPERTIES ("key"="value", ...);
 - 仓库的创建，依赖于已存在的 broker 或者直接通过AWS s3 协议访问云存储，或者直接访问HDFS
 - 如果是只读仓库，则只能在仓库上进行恢复。如果不是，则可以进行备份和恢复操作。
 - 根据 broker 或者S3、hdfs的不同类型，PROPERTIES 有所不同，具体见示例。
+- ON LOCATION ,如果是 S3 , 这里后面跟的是 Bucket Name。
 
 ### Example
 

@@ -62,6 +62,12 @@ public class LargeIntLiteral extends LiteralExpr {
         analysisDone();
     }
 
+    public LargeIntLiteral(BigInteger v) {
+        super();
+        type = Type.LARGEINT;
+        value = v;
+    }
+
     public LargeIntLiteral(String value) throws AnalysisException {
         super();
         BigInteger bigInt;
@@ -192,7 +198,7 @@ public class LargeIntLiteral extends LiteralExpr {
             return new FloatLiteral(new Double(value.doubleValue()), targetType);
         } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
             return new DecimalLiteral(new BigDecimal(value));
-        } else if (targetType.isNumericType()) {
+        } else if (targetType.isIntegerType()) {
             try {
                 return new IntLiteral(value.longValueExact(), targetType);
             } catch (ArithmeticException e) {

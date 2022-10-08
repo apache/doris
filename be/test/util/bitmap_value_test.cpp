@@ -45,6 +45,18 @@ TEST(BitmapValueTest, bitmap_union) {
     empty3 |= bitmap;
     EXPECT_EQ(3, empty3.cardinality());
 
+    BitmapValue empty4;
+    empty4.fastunion({&empty});
+    EXPECT_EQ(0, empty4.cardinality());
+    empty4.fastunion({&single});
+    EXPECT_EQ(1, empty4.cardinality());
+    BitmapValue empty5;
+    empty5.fastunion({&bitmap});
+    EXPECT_EQ(3, empty3.cardinality());
+    BitmapValue empty6;
+    empty6.fastunion({&empty, &single, &bitmap});
+    EXPECT_EQ(3, empty3.cardinality());
+
     BitmapValue single2(1025);
     single2 |= empty;
     EXPECT_EQ(1, single2.cardinality());
@@ -53,6 +65,18 @@ TEST(BitmapValueTest, bitmap_union) {
     BitmapValue single3(1027);
     single3 |= bitmap;
     EXPECT_EQ(4, single3.cardinality());
+
+    BitmapValue single4(1025);
+    single4.fastunion({&empty});
+    EXPECT_EQ(1, single4.cardinality());
+    single4.fastunion({&single});
+    EXPECT_EQ(2, single4.cardinality());
+    BitmapValue single5(1027);
+    single5.fastunion({&bitmap});
+    EXPECT_EQ(4, single5.cardinality());
+    BitmapValue single6(1027);
+    single6.fastunion({&empty, &single, &bitmap});
+    EXPECT_EQ(4, single6.cardinality());
 
     BitmapValue bitmap2;
     bitmap2.add(1024);
@@ -64,6 +88,17 @@ TEST(BitmapValueTest, bitmap_union) {
     EXPECT_EQ(3, bitmap2.cardinality());
     bitmap2 |= bitmap;
     EXPECT_EQ(5, bitmap2.cardinality());
+
+    BitmapValue bitmap3;
+    bitmap3.add(1024);
+    bitmap3.add(2048);
+    bitmap3.add(4096);
+    bitmap3.fastunion({&empty});
+    EXPECT_EQ(3, bitmap3.cardinality());
+    bitmap3.fastunion({&single});
+    EXPECT_EQ(3, bitmap3.cardinality());
+    bitmap3.fastunion({&bitmap});
+    EXPECT_EQ(5, bitmap3.cardinality());
 }
 
 TEST(BitmapValueTest, bitmap_intersect) {

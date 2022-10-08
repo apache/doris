@@ -17,18 +17,20 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.SlotExtractor;
-
-import com.google.common.base.Preconditions;
+import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -51,11 +53,20 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
      *    A      B
      */
     public final List<Plan> joinInputs = new ArrayList<>();
-    public final List<Expression> conjuncts = new ArrayList<>();
+    public final List<Expression> conjunctsForAllHashJoins = new ArrayList<>();
+    private List<Expression> conjunctsKeepInFilter = new ArrayList<>();
 
-    public Plan reorderJoinsAccordingToConditions() {
-        Preconditions.checkArgument(joinInputs.size() >= 2);
-        return reorderJoinsAccordingToConditions(joinInputs, conjuncts);
+    /**
+     * reorderJoinsAccordingToConditions
+     *
+     * @return join or filter
+     */
+    public Optional<Plan> reorderJoinsAccordingToConditions() {
+        if (joinInputs.size() >= 2) {
+            Plan root = reorderJoinsAccordingToConditions(joinInputs, conjunctsForAllHashJoins);
+            return Optional.of(PlanUtils.filterOrSelf(conjunctsKeepInFilter, root));
+        }
+        return Optional.empty();
     }
 
     /**
@@ -74,24 +85,17 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
      */
     private Plan reorderJoinsAccordingToConditions(List<Plan> joinInputs, List<Expression> conjuncts) {
         if (joinInputs.size() == 2) {
-            Set<Slot> joinOutput = getJoinOutput(joinInputs.get(0), joinInputs.get(1));
-            Map<Boolean, List<Expression>> split = splitConjuncts(conjuncts, joinOutput);
-            List<Expression> joinConditions = split.get(true);
-            List<Expression> nonJoinConditions = split.get(false);
+            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
+                    joinInputs.get(0).getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
+                    joinInputs.get(1).getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
+                    conjuncts);
+            List<Expression> joinConditions = pair.first;
+            conjunctsKeepInFilter = pair.second;
 
-            Optional<Expression> cond;
-            if (joinConditions.isEmpty()) {
-                cond = Optional.empty();
-            } else {
-                cond = Optional.of(ExpressionUtils.and(joinConditions));
-            }
-
-            LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, cond, joinInputs.get(0), joinInputs.get(1));
-            if (nonJoinConditions.isEmpty()) {
-                return join;
-            } else {
-                return new LogicalFilter(ExpressionUtils.and(nonJoinConditions), join);
-            }
+            return new LogicalJoin<>(JoinType.INNER_JOIN,
+                    new ArrayList<>(),
+                    ExpressionUtils.optionalAnd(joinConditions),
+                    joinInputs.get(0), joinInputs.get(1));
         }
         // input size >= 3;
         Plan left = joinInputs.get(0);
@@ -104,7 +108,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
             Set<Slot> joinOutput = getJoinOutput(left, right);
             Optional<Expression> joinCond = conjuncts.stream()
                     .filter(expr -> {
-                        Set<Slot> exprInputSlots = SlotExtractor.extractSlot(expr);
+                        Set<Slot> exprInputSlots = expr.getInputSlots();
                         if (exprInputSlots.isEmpty()) {
                             return false;
                         }
@@ -123,19 +127,15 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
         }).findFirst();
 
         Plan right = rightOpt.orElseGet(() -> candidate.get(1));
-        Set<Slot> joinOutput = getJoinOutput(left, right);
-        Map<Boolean, List<Expression>> split = splitConjuncts(conjuncts, joinOutput);
-        List<Expression> joinConditions = split.get(true);
-        List<Expression> nonJoinConditions = split.get(false);
-
-        Optional<Expression> cond;
-        if (joinConditions.isEmpty()) {
-            cond = Optional.empty();
-        } else {
-            cond = Optional.of(ExpressionUtils.and(joinConditions));
-        }
-
-        LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, cond, left, right);
+        Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
+                joinInputs.get(0).getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
+                joinInputs.get(1).getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
+                conjuncts);
+        List<Expression> joinConditions = pair.first;
+        List<Expression> nonJoinConditions = pair.second;
+        LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
+                ExpressionUtils.optionalAnd(joinConditions),
+                left, right);
 
         List<Plan> newInputs = new ArrayList<>();
         newInputs.add(join);
@@ -146,7 +146,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     private Map<Boolean, List<Expression>> splitConjuncts(List<Expression> conjuncts, Set<Slot> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 // TODO: support non equal to conditions.
-                expr -> expr instanceof EqualTo && slots.containsAll(SlotExtractor.extractSlot(expr))));
+                expr -> expr instanceof EqualTo && slots.containsAll(expr.getInputSlots())));
     }
 
     private Set<Slot> getJoinOutput(Plan left, Plan right) {
@@ -165,10 +165,10 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     }
 
     @Override
-    public Void visitLogicalFilter(LogicalFilter<Plan> filter, Void context) {
+    public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
         Plan child = filter.child();
         if (child instanceof LogicalJoin) {
-            conjuncts.addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
+            conjunctsForAllHashJoins.addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
         }
 
         child.accept(this, context);
@@ -176,7 +176,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
     }
 
     @Override
-    public Void visitLogicalJoin(LogicalJoin<Plan, Plan> join, Void context) {
+    public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         if (join.getJoinType() != JoinType.CROSS_JOIN && join.getJoinType() != JoinType.INNER_JOIN) {
             return null;
         }
@@ -184,11 +184,23 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
         join.left().accept(this, context);
         join.right().accept(this, context);
 
-        join.getCondition().ifPresent(cond -> conjuncts.addAll(ExpressionUtils.extractConjunction(cond)));
-        if (!(join.left() instanceof LogicalJoin)) {
+        conjunctsForAllHashJoins.addAll(join.getHashJoinConjuncts());
+        if (join.getOtherJoinCondition().isPresent()) {
+            conjunctsForAllHashJoins.addAll(ExpressionUtils.extractConjunction(join.getOtherJoinCondition().get()));
+        }
+
+        Plan leftChild = join.left();
+        if (join.left() instanceof LogicalFilter) {
+            leftChild = join.left().child(0);
+        }
+        if (leftChild instanceof GroupPlan) {
             joinInputs.add(join.left());
         }
-        if (!(join.right() instanceof LogicalJoin)) {
+        Plan rightChild = join.right();
+        if (join.right() instanceof LogicalFilter) {
+            rightChild = join.right().child(0);
+        }
+        if (rightChild instanceof GroupPlan) {
             joinInputs.add(join.right());
         }
         return null;

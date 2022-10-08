@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -43,7 +44,7 @@ public class InsertArrayStmtTest {
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(RUNNING_DIR);
         connectContext = UtFrameUtils.createDefaultCtx();
-        connectContext.getSessionVariable().setEnableArrayType(true);
+        Config.enable_array_type = true;
         createDatabase("create database test;");
     }
 

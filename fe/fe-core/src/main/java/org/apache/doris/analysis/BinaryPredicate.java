@@ -309,7 +309,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
         if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
-            return Type.DATETIMEV2;
+            return Type.DATEV2;
         } else if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
             return ScalarType.createDatetimeV2Type(Math.max(t1.getScalarScale(), t2.getScalarScale()));
         } else if (t1.isDatetimeV2()) {
@@ -329,6 +329,9 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
             if (e.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
                 throw new AnalysisException("Bitmap type dose not support operand: " + toSql());
+            }
+            if (e.getType().isArrayType()) {
+                throw new AnalysisException("Array type dose not support operand: " + toSql());
             }
         }
 
@@ -376,18 +379,12 @@ public class BinaryPredicate extends Predicate implements Writable {
         // When int column compares with string, Mysql will convert string to int.
         // So it is also compatible with Mysql.
 
-        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 == PrimitiveType.STRING)) {
-            Expr rightChild = getChild(1);
-            Long parsedLong = Type.tryParseToLong(rightChild);
-            if (parsedLong != null) {
-                return Type.BIGINT;
+        if (t1.isStringType() || t2.isStringType()) {
+            if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT) && Type.canParseTo(getChild(1), t1)) {
+                return Type.fromPrimitiveType(t1);
             }
-        }
-        if ((t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
-            Expr leftChild = getChild(0);
-            Long parsedLong = Type.tryParseToLong(leftChild);
-            if (parsedLong != null) {
-                return Type.BIGINT;
+            if ((t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT) && Type.canParseTo(getChild(0), t2)) {
+                return Type.fromPrimitiveType(t2);
             }
         }
 
@@ -517,7 +514,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (rhs == null) {
             return null;
         }
-        return new Pair<SlotId, SlotId>(lhs.getSlotId(), rhs.getSlotId());
+        return Pair.of(lhs.getSlotId(), rhs.getSlotId());
     }
 
 

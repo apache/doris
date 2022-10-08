@@ -95,15 +95,16 @@ And a Fragment will be further divided into multiple Instances. Instance is the 
 
 ## View query plan
 
-You can view the execution plan of a SQL through the following two commands.
+You can view the execution plan of a SQL through the following three commands.
 
-- `EXPLAIN GRAPH select ...;`
+- `EXPLAIN GRAPH select ...;` OR `DESC GRAPH select ...;`
 - `EXPLAIN select ...;`
+- `EXPLAIN VERBOSE select ...;`
 
 The first command displays a query plan graphically. This command can more intuitively display the tree structure of the query plan and the division of Fragments:
 
 ```sql
-mysql> desc graph select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.k1 = tbl2.k1 group by tbl1.k1 order by tbl1.k1;
+mysql> explain graph select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.k1 = tbl2.k1 group by tbl1.k1 order by tbl1.k1;
 +---------------------------------------------------------------------------------------------------------------------------------+
 | Explain String                                                                                                                  |
 +---------------------------------------------------------------------------------------------------------------------------------+
@@ -285,6 +286,177 @@ mysql> explain select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.k1 = tbl
 |      avgRowSize=8.0                                                              |
 |      numNodes=6                                                                  |
 +----------------------------------------------------------------------------------+
+```
+
+The third command `explain verbose select ...;` gives you more details than the second command.
+
+```sql
+mysql> explain verbose select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.k1 = tbl2.k1 group by tbl1.k1 order by tbl1.k1;
++---------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Explain String                                                                                                                                          |
++---------------------------------------------------------------------------------------------------------------------------------------------------------+
+| PLAN FRAGMENT 0                                                                                                                                         |
+|   OUTPUT EXPRS:<slot 5> <slot 3> `tbl1`.`k1` | <slot 6> <slot 4> sum(`tbl1`.`k2`)                                                                       |
+|   PARTITION: UNPARTITIONED                                                                                                                              |
+|                                                                                                                                                         |
+|   VRESULT SINK                                                                                                                                          |
+|                                                                                                                                                         |
+|   6:VMERGING-EXCHANGE                                                                                                                                   |
+|      limit: 65535                                                                                                                                       |
+|      tuple ids: 3                                                                                                                                       |
+|                                                                                                                                                         |
+| PLAN FRAGMENT 1                                                                                                                                         |
+|                                                                                                                                                         |
+|   PARTITION: HASH_PARTITIONED: `default_cluster:test`.`tbl1`.`k2`                                                                                       |
+|                                                                                                                                                         |
+|   STREAM DATA SINK                                                                                                                                      |
+|     EXCHANGE ID: 06                                                                                                                                     |
+|     UNPARTITIONED                                                                                                                                       |
+|                                                                                                                                                         |
+|   4:VTOP-N                                                                                                                                              |
+|   |  order by: <slot 5> <slot 3> `tbl1`.`k1` ASC                                                                                                        |
+|   |  offset: 0                                                                                                                                          |
+|   |  limit: 65535                                                                                                                                       |
+|   |  tuple ids: 3                                                                                                                                       |
+|   |                                                                                                                                                     |
+|   3:VAGGREGATE (update finalize)                                                                                                                        |
+|   |  output: sum(<slot 8>)                                                                                                                              |
+|   |  group by: <slot 7>                                                                                                                                 |
+|   |  cardinality=-1                                                                                                                                     |
+|   |  tuple ids: 2                                                                                                                                       |
+|   |                                                                                                                                                     |
+|   2:VHASH JOIN                                                                                                                                          |
+|   |  join op: INNER JOIN(BROADCAST)[Tables are not in the same group]                                                                                   |
+|   |  equal join conjunct: CAST(`tbl1`.`k1` AS DATETIME) = `tbl2`.`k1`                                                                                   |
+|   |  runtime filters: RF000[in_or_bloom] <- `tbl2`.`k1`                                                                                                 |
+|   |  cardinality=0                                                                                                                                      |
+|   |  vec output tuple id: 4  |  tuple ids: 0 1                                                                                                          |
+|   |                                                                                                                                                     |
+|   |----5:VEXCHANGE                                                                                                                                      |
+|   |       tuple ids: 1                                                                                                                                  |
+|   |                                                                                                                                                     |
+|   0:VOlapScanNode                                                                                                                                       |
+|      TABLE: tbl1(null), PREAGGREGATION: OFF. Reason: the type of agg on StorageEngine's Key column should only be MAX or MIN.agg expr: sum(`tbl1`.`k2`) |
+|      runtime filters: RF000[in_or_bloom] -> CAST(`tbl1`.`k1` AS DATETIME)                                                                               |
+|      partitions=0/1, tablets=0/0, tabletList=                                                                                                           |
+|      cardinality=0, avgRowSize=20.0, numNodes=1                                                                                                         |
+|      tuple ids: 0                                                                                                                                       |
+|                                                                                                                                                         |
+| PLAN FRAGMENT 2                                                                                                                                         |
+|                                                                                                                                                         |
+|   PARTITION: HASH_PARTITIONED: `default_cluster:test`.`tbl2`.`k2`                                                                                       |
+|                                                                                                                                                         |
+|   STREAM DATA SINK                                                                                                                                      |
+|     EXCHANGE ID: 05                                                                                                                                     |
+|     UNPARTITIONED                                                                                                                                       |
+|                                                                                                                                                         |
+|   1:VOlapScanNode                                                                                                                                       |
+|      TABLE: tbl2(null), PREAGGREGATION: OFF. Reason: null                                                                                               |
+|      partitions=0/1, tablets=0/0, tabletList=                                                                                                           |
+|      cardinality=0, avgRowSize=16.0, numNodes=1                                                                                                         |
+|      tuple ids: 1                                                                                                                                       |
+|                                                                                                                                                         |
+| Tuples:                                                                                                                                                 |
+| TupleDescriptor{id=0, tbl=tbl1, byteSize=32, materialized=true}                                                                                         |
+|   SlotDescriptor{id=0, col=k1, type=DATE}                                                                                                               |
+|     parent=0                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=16                                                                                                                                         |
+|     byteOffset=16                                                                                                                                       |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=1                                                                                                                                           |
+|                                                                                                                                                         |
+|   SlotDescriptor{id=2, col=k2, type=INT}                                                                                                                |
+|     parent=0                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=4                                                                                                                                          |
+|     byteOffset=0                                                                                                                                        |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=0                                                                                                                                           |
+|                                                                                                                                                         |
+|                                                                                                                                                         |
+| TupleDescriptor{id=1, tbl=tbl2, byteSize=16, materialized=true}                                                                                         |
+|   SlotDescriptor{id=1, col=k1, type=DATETIME}                                                                                                           |
+|     parent=1                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=16                                                                                                                                         |
+|     byteOffset=0                                                                                                                                        |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=0                                                                                                                                           |
+|                                                                                                                                                         |
+|                                                                                                                                                         |
+| TupleDescriptor{id=2, tbl=null, byteSize=32, materialized=true}                                                                                         |
+|   SlotDescriptor{id=3, col=null, type=DATE}                                                                                                             |
+|     parent=2                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=16                                                                                                                                         |
+|     byteOffset=16                                                                                                                                       |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=1                                                                                                                                           |
+|                                                                                                                                                         |
+|   SlotDescriptor{id=4, col=null, type=BIGINT}                                                                                                           |
+|     parent=2                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=8                                                                                                                                          |
+|     byteOffset=0                                                                                                                                        |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=0                                                                                                                                           |
+|                                                                                                                                                         |
+|                                                                                                                                                         |
+| TupleDescriptor{id=3, tbl=null, byteSize=32, materialized=true}                                                                                         |
+|   SlotDescriptor{id=5, col=null, type=DATE}                                                                                                             |
+|     parent=3                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=16                                                                                                                                         |
+|     byteOffset=16                                                                                                                                       |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=1                                                                                                                                           |
+|                                                                                                                                                         |
+|   SlotDescriptor{id=6, col=null, type=BIGINT}                                                                                                           |
+|     parent=3                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=8                                                                                                                                          |
+|     byteOffset=0                                                                                                                                        |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=0                                                                                                                                           |
+|                                                                                                                                                         |
+|                                                                                                                                                         |
+| TupleDescriptor{id=4, tbl=null, byteSize=48, materialized=true}                                                                                         |
+|   SlotDescriptor{id=7, col=k1, type=DATE}                                                                                                               |
+|     parent=4                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=16                                                                                                                                         |
+|     byteOffset=16                                                                                                                                       |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=1                                                                                                                                           |
+|                                                                                                                                                         |
+|   SlotDescriptor{id=8, col=k2, type=INT}                                                                                                                |
+|     parent=4                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=4                                                                                                                                          |
+|     byteOffset=0                                                                                                                                        |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=0                                                                                                                                           |
+|                                                                                                                                                         |
+|   SlotDescriptor{id=9, col=k1, type=DATETIME}                                                                                                           |
+|     parent=4                                                                                                                                            |
+|     materialized=true                                                                                                                                   |
+|     byteSize=16                                                                                                                                         |
+|     byteOffset=32                                                                                                                                       |
+|     nullIndicatorByte=0                                                                                                                                 |
+|     nullIndicatorBit=-1                                                                                                                                 |
+|     slotIdx=2                                                                                                                                           |
++---------------------------------------------------------------------------------------------------------------------------------------------------------+
+160 rows in set (0.00 sec)
 ```
 
 > The information displayed in the query plan is still being standardized and improved, and we will introduce it in detail in subsequent articles.

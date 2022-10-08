@@ -397,8 +397,8 @@ CONCAT_PIPE: '||';
 HAT: '^';
 COLON: ':';
 ARROW: '->';
-HENT_START: '/*+';
-HENT_END: '*/';
+HINT_START: '/*+';
+HINT_END: '*/';
 
 STRING
     : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''
@@ -430,16 +430,6 @@ EXPONENT_VALUE
 
 DECIMAL_VALUE
     : DECIMAL_DIGITS {isValidDecimal()}?
-    ;
-
-FLOAT_LITERAL
-    : DIGIT+ EXPONENT? 'F'
-    | DECIMAL_DIGITS EXPONENT? 'F' {isValidDecimal()}?
-    ;
-
-DOUBLE_LITERAL
-    : DIGIT+ EXPONENT? 'D'
-    | DECIMAL_DIGITS EXPONENT? 'D' {isValidDecimal()}?
     ;
 
 BIGDECIMAL_LITERAL

@@ -1,81 +1,224 @@
+---
+{
+    "title": "Tablet Local Debug",
+    "language": "zh-CN"
+}
+---
 
-During the online operation of Doris, various bugs may occur for various reasons, e.g., inconsistent replicas, version diffs in the data, etc. At this point, it is necessary to replicate the online tablet data to the local environment and then locate the problem.
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
 
-In this case, you need to copy the online tablet copy data to the local environment for replication and then locate the problem.
+  http://www.apache.org/licenses/LICENSE-2.0
 
-## 1\. Prepare the environment
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
 
-Deploy a single-node Doris cluster locally, with the same deployment version as the online cluster.
+# Tablet Local Debug
 
-If the online deployment is DORIS-1.0.1, deploy DORIS-1.0.1 in the local environment as well.
+During the online operation of Doris, various bugs may occur due to various reasons. For example: the replica is inconsistent, the data exists in the version diff, etc.
 
-After deploying the cluster, create a local table that is the same as the online one, but the changes that need to be made are that the local table has only one copy of the tablet, and the version, version_hash need to be specified.
+At this time, it is necessary to copy the copy data of the tablet online to the local environment for reproduction, and then locate the problem.
 
-If the problem is to locate inconsistent data, you can build three different tables corresponding to each copy online.
+## 1. Get information about the tablet
 
-## 2\. Copy Data
+The tablet id can be confirmed by the BE log, and then the information can be obtained by the following command (assuming the tablet id is 10020).
 
-To find the machine where the copy of online tablet is located, find the method, you can find the machine where the corresponding copy is located with the following two commands.
-
-* show tablet meta data
-```show tablet 10011```
-```
-mysql> show tablet 10011;
-+-------------------------------+-----------+---------------+-----------+-------+---------+-------------+---------+--------+-------+------------------------------------------------------------+
-| DbName                        | TableName | PartitionName | IndexName | DbId  | TableId | PartitionId | IndexId | IsSync | Order | DetailCmd                                                  |
-+-------------------------------+-----------+---------------+-----------+-------+---------+-------------+---------+--------+-------+------------------------------------------------------------+
-| default_cluster:test_query_qa | baseall   | baseall       | baseall   | 10007 | 10009   | 10008       | 10010   | true   | 0     | SHOW PROC '/dbs/10007/10009/partitions/10008/10010/10011'; |
-+-------------------------------+-----------+---------------+-----------+-------+---------+-------------+---------+--------+-------+------------------------------------------------------------+
-1 row in set (0.00 sec)
-```
-* Execute the `DetailCmd` command, locate the BE ip：
-
-```SHOW PROC '/dbs/10007/10009/partitions/10008/10010/10011';```
-```
-mysql> SHOW PROC '/dbs/10007/10009/partitions/10008/10010/10011';
-+-----------+-----------+---------+-------------------+------------------+---------------+------------+----------+----------+--------+-------+--------------+----------------------+-------------------------------------------------+---------------------------------------------------------------+
-| ReplicaId | BackendId | Version | LstSuccessVersion | LstFailedVersion | LstFailedTime | SchemaHash | DataSize | RowCount | State  | IsBad | VersionCount | PathHash             | MetaUrl                                         | CompactionStatus                                              |
-+-----------+-----------+---------+-------------------+------------------+---------------+------------+----------+----------+--------+-------+--------------+----------------------+-------------------------------------------------+---------------------------------------------------------------+
-| 10012     | 10003     | 2       | 2                 | -1               | NULL          | 945014548  | 2195     | 5        | NORMAL | false | 2            | 844142863681807094   | http://192.168.0.2:8001/api/meta/header/10011 | http://192.168.0.2:8001/api/compaction/show?tablet_id=10011 |
-| 10013     | 10002     | 2       | 2                 | -1               | NULL          | 945014548  | 2195     | 5        | NORMAL | false | 2            | -6740067817150249792 | http://192.168.0.1:8001/api/meta/header/10011  | http://192.168.0.1:8001/api/compaction/show?tablet_id=10011  |
-| 10014     | 10005     | 2       | 2                 | -1               | NULL          | 945014548  | 2195     | 5        | NORMAL | false | 2            | 4758004238194195485  | http://192.168.0.3:8001/api/meta/header/10011  | http://192.168.0.3:8001/api/compaction/show?tablet_id=10011  |
-+-----------+-----------+---------+-------------------+------------------+---------------+------------+----------+----------+--------+-------+--------------+----------------------+-------------------------------------------------+---------------------------------------------------------------+
-3 rows in set (0.01 sec)
-```
-* Log in to the corresponding machine and find the directory where the replica is located.
+Get information such as DbId/TableId/PartitionId where the tablet is located.
 
 ```
-ll ./data.HDD/data/0/10011/945014548/
-total 4
--rw-rw-r-- 1 palo-qa palo-qa 2195 Jul 14 20:16 0200000000000018bb4a69226c414ace42487209dc145dbb_0.dat
+mysql> show tablet 10020\G
+*************************** 1. row ***************************
+       DbName: default_cluster:db1
+    TableName: tbl1
+PartitionName: tbl1
+    IndexName: tbl1
+         DbId: 10004
+      TableId: 10016
+  PartitionId: 10015
+      IndexId: 10017
+       IsSync: true
+        Order: 1
+    DetailCmd: SHOW PROC '/dbs/10004/10016/partitions/10015/10017/10020';
 ```
 
-Then replica the directory to the local counterpart with the scp command.
-
-## 3\. Download meta data
-
-Get the metadata of the replica
+Execute `DetailCmd` in the previous step to obtain information such as BackendId/SchemHash.
 
 ```
-wget http://host:be_http_port/api/meta/header/$tablet_id?byte_to_base64=true -O meta_data
+mysql>  SHOW PROC '/dbs/10004/10016/partitions/10015/10017/10020'\G
+*************************** 1. row ***************************
+        ReplicaId: 10021
+        BackendId: 10003
+          Version: 3
+LstSuccessVersion: 3
+ LstFailedVersion: -1
+    LstFailedTime: NULL
+       SchemaHash: 785778507
+    LocalDataSize: 780
+   RemoteDataSize: 0
+         RowCount: 2
+            State: NORMAL
+            IsBad: false
+     VersionCount: 3
+         PathHash: 7390150550643804973
+          MetaUrl: http://192.168.10.1:8040/api/meta/header/10020
+ CompactionStatus: http://192.168.10.1:8040/api/compaction/show?tablet_id=10020
 ```
 
-## 4\. Modify meta data
-
-Take the metadata downloaded online and modify it to identify the online data copied in step 2.
-
-In the same way download the tablet metadata from the local deployment cluster, and according to the correspondence, change the `table_id, tablet_id, partition_id, schema_hash, shard_id` in the metadata to the same case as local, other fields do not need to be changed.
-
-## 5\. Take effect
-
-(1)  Stop the local be in order to take effect the metadata.
-
-(2)  Delete the metadata in the local be by the command, and take effect the new metadata at the same time.
-```
-./lib/meta_tool --root_path=/home/doris/be --operation=get_meta --tablet_id=10027 --schema_hash=112641656
-./lib/meta_tool --root_path=/home/doris/be --operation=delete_meta --tablet_id=10027 --schema_hash=112641656
-./lib/meta_tool --root_path=/home/doris/be --operation=load_meta --json_meta_path=/home/doris/error/tablet/112641656_1
+Create tablet snapshot and get table creation statement
 
 ```
+mysql> admin copy tablet 10020 properties("backend_id" = "10003", "version" = "2")\G
+*************************** 1. row ***************************
+         TabletId: 10020
+        BackendId: 10003
+               Ip: 192.168.10.1
+             Path: /path/to/be/storage/snapshot/20220830101353.2.3600
+ExpirationMinutes: 60
+  CreateTableStmt: CREATE TABLE `tbl1` (
+  `k1` int(11) NULL,
+  `k2` int(11) NULL
+) ENGINE=OLAP
+DUPLICATE KEY(`k1`, `k2`)
+DISTRIBUTED BY HASH(k1) BUCKETS 1
+PROPERTIES (
+"replication_num" = "1",
+"version_info" = "2"
+);
+```
 
-(3) Restart be query the corresponding data.
+The `admin copy tablet` command can generate a snapshot file of the corresponding replica and version for the specified tablet. Snapshot files are stored in the `Path` directory of the BE node indicated by the `Ip` field.
+
+There will be a directory named tablet id under this directory, which will be packaged as a whole for later use. (Note that the directory is kept for a maximum of 60 minutes, after which it is automatically deleted).
+
+```
+cd /path/to/be/storage/snapshot/20220830101353.2.3600
+tar czf 10020.tar.gz 10020/
+```
+
+The command will also generate the table creation statement corresponding to the tablet at the same time. Note that this table creation statement is not the original table creation statement, its bucket number and replica number are both 1, and the `versionInfo` field is specified. This table building statement is used later when loading the tablet locally.
+
+So far, we have obtained all the necessary information, the list is as follows:
+
+1. Packaged tablet data, such as 10020.tar.gz.
+2. Create a table statement.
+
+## 2. Load Tablet locally
+
+1. Build a local debugging environment
+
+     Deploy a single-node Doris cluster (1FE, 1BE) locally, and the deployment version is the same as the online cluster. If the online deployment version is DORIS-1.1.1, the local environment also deploys the DORIS-1.1.1 version.
+
+2. Create a table
+
+     Create a table in the local environment using the create table statement from the previous step.
+
+3. Get the tablet information of the newly created table
+
+     Because the number of buckets and replicas of the newly created table is 1, there will only be one tablet with one replica:
+    
+    ```
+    mysql> show tablets from tbl1\G
+    *************************** 1. row ***************************
+                   TabletId: 10017
+                  ReplicaId: 10018
+                  BackendId: 10003
+                 SchemaHash: 44622287
+                    Version: 1
+          LstSuccessVersion: 1
+           LstFailedVersion: -1
+              LstFailedTime: NULL
+              LocalDataSize: 0
+             RemoteDataSize: 0
+                   RowCount: 0
+                      State: NORMAL
+    LstConsistencyCheckTime: NULL
+               CheckVersion: -1
+               VersionCount: -1
+                   PathHash: 7390150550643804973
+                    MetaUrl: http://192.168.10.1:8040/api/meta/header/10017
+           CompactionStatus: http://192.168.10.1:8040/api/compaction/show?tablet_id=10017
+    ```
+    
+    ```
+    mysql> show tablet 10017\G
+    *************************** 1. row ***************************
+           DbName: default_cluster:db1
+        TableName: tbl1
+    PartitionName: tbl1
+        IndexName: tbl1
+             DbId: 10004
+          TableId: 10015
+      PartitionId: 10014
+          IndexId: 10016
+           IsSync: true
+            Order: 0
+        DetailCmd: SHOW PROC '/dbs/10004/10015/partitions/10014/10016/10017';
+    ```
+    
+    Here we will record the following information:
+    
+    * TableId
+    * PartitionId
+    * TabletId
+    * SchemaHash
+
+    At the same time, we also need to go to the data directory of the BE node in the debugging environment to confirm the shard id where the new tablet is located:
+    
+    ```
+    cd /path/to/storage/data/*/10017 && pwd
+    ```
+    
+    This command will enter the directory where the tablet 10017 is located and display the path. Here we will see a path similar to the following:
+    
+    ```
+    /path/to/storage/data/0/10017
+    ```
+    
+    where `0` is the shard id.
+        
+4. Modify Tablet Data
+
+    Unzip the tablet data package obtained in the first step. The editor opens the 10017.hdr.json file, and modifies the following fields to the information obtained in the previous step:
+    
+    ```
+    "table_id":10015
+    "partition_id":10014
+    "tablet_id":10017
+    "schema_hash":44622287
+    "shard_id":0
+    ```
+
+5. Load the tablet
+
+     First, stop the debug environment's BE process (./bin/stop_be.sh). Then copy all the .dat files in the same level directory of the 10017.hdr.json file to the `/path/to/storage/data/0/10017/44622287` directory. This directory is the directory where the debugging environment tablet we obtained in step 3 is located. `10017/44622287` are the tablet id and schema hash respectively.
+    
+     Delete the original tablet meta with the `meta_tool` tool. The tool is located in the `be/lib` directory.
+    
+    ```
+    ./lib/meta_tool --root_path=/path/to/storage --operation=delete_meta --tablet_id=10017 --schema_hash=44622287
+    ```
+    
+    Where `/path/to/storage` is the data root directory of BE. If the deletion is successful, the delete successfully log will appear.
+    
+    Load the new tablet meta via the `meta_tool` tool.
+        
+    ```
+    ./lib/meta_tool --root_path=/path/to/storage --operation=load_meta --json_meta_path=/path/to/10017.hdr.json
+    ```
+    
+    If the load is successful, the load successfully log will appear.
+    
+6. Verification
+
+     Restart the debug environment's BE process (./bin/start_be.sh). Query the table, if correct, you can query the data of the loaded tablet, or reproduce the online problem.

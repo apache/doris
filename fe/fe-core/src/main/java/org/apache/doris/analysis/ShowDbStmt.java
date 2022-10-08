@@ -22,15 +22,15 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
 
 // Show database statement.
 public class ShowDbStmt extends ShowStmt {
-    private static final TableName TABLE_NAME =
-            new TableName(InternalDataSource.INTERNAL_DS_NAME, InfoSchemaDb.DATABASE_NAME, "schemata");
+    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+            InfoSchemaDb.DATABASE_NAME, "schemata");
     private static final String DB_COL = "Database";
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()

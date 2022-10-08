@@ -23,6 +23,7 @@ import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.RandomDistributionInfo;
@@ -31,10 +32,10 @@ import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.datasource.DataSourceIf;
-import org.apache.doris.datasource.EsExternalDataSource;
-import org.apache.doris.datasource.HMSExternalDataSource;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.sync.SyncJob;
@@ -120,7 +121,8 @@ public class GsonUtils {
             .of(Resource.class, "clazz")
             .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
             .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName())
-            .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName());
+            .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
+            .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
@@ -144,11 +146,11 @@ public class GsonUtils {
                     Policy.class, "clazz").registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
             .registerSubtype(StoragePolicy.class, StoragePolicy.class.getSimpleName());
 
-    private static RuntimeTypeAdapterFactory<DataSourceIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-                    DataSourceIf.class, "clazz")
-            .registerSubtype(InternalDataSource.class, InternalDataSource.class.getSimpleName())
-            .registerSubtype(HMSExternalDataSource.class, HMSExternalDataSource.class.getSimpleName())
-            .registerSubtype(EsExternalDataSource.class, EsExternalDataSource.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    CatalogIf.class, "clazz")
+            .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
+            .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
+            .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.

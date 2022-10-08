@@ -53,6 +53,8 @@ CONF_String(priority_networks, "");
 CONF_mInt64(tc_use_memory_min, "10737418240");
 // free memory rate.[0-100]
 CONF_mInt64(tc_free_memory_rate, "20");
+// tcmallc aggressive_memory_decommit
+CONF_mBool(tc_enable_aggressive_memory_decommit, "false");
 
 // Bound on the total amount of bytes allocated to thread caches.
 // This bound is not strict, so it is possible for the cache to go over this bound
@@ -159,7 +161,7 @@ CONF_mInt32(status_report_interval, "5");
 // if true, each disk will have a separate thread pool for scanner
 CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
-CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
+CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of olap scanner thread pool size
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
@@ -253,7 +255,7 @@ CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
-CONF_Bool(enable_vectorized_alter_table, "false");
+CONF_Bool(enable_vectorized_alter_table, "true");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
@@ -431,6 +433,8 @@ CONF_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in b
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 CONF_Int32(max_free_io_buffers, "128");
 
+// Whether to disable the memory cache pool,
+// including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
 // Whether to allocate chunk using mmap. If you enable this, you'd better to
@@ -446,9 +450,15 @@ CONF_Bool(use_mmap_allocate_chunk, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "20%");
+CONF_mString(chunk_reserved_bytes_limit, "10%");
 // 1024, The minimum chunk allocator size (in bytes)
 CONF_Int32(min_chunk_reserved_bytes, "1024");
+// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
+// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
+// of gperftools tcmalloc central lock.
+// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
+// gperftools tcmalloc.
+CONF_mBool(disable_chunk_allocator_in_vec, "false");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -506,6 +516,13 @@ CONF_mInt64(memtable_max_buffer_size, "419430400");
 // user should set these configs properly if necessary.
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
 CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
+
+// If the memory consumption of load jobs exceed load_process_max_memory_limit,
+// all load jobs will hang there to wait for memtable flush. We should have a
+// soft limit which can trigger the memtable flush for the load channel who
+// consumes lagest memory size before we reach the hard limit. The soft limit
+// might avoid all load jobs hang at the same time.
+CONF_Int32(load_process_soft_mem_limit_percent, "50");
 
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -695,6 +712,12 @@ CONF_Validator(max_send_batch_parallelism_per_job,
 CONF_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
 CONF_Int32(send_batch_thread_pool_queue_size, "102400");
+// number of download cache thread pool size
+CONF_Int32(download_cache_thread_pool_thread_num, "48");
+// number of download cache thread pool queue size
+CONF_Int32(download_cache_thread_pool_queue_size, "102400");
+// download cache buffer size
+CONF_Int64(download_cache_buffer_size, "10485760");
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -706,7 +729,7 @@ CONF_mInt32(max_segment_num_per_rowset, "200");
 // The connection timeout when connecting to external table such as odbc table.
 CONF_mInt32(external_table_connect_timeout_sec, "30");
 
-// The capacity of lur cache in segment loader.
+// The capacity of lru cache in segment loader.
 // Althought it is called "segment cache", but it caches segments in rowset granularity.
 // So the value of this config should corresponding to the number of rowsets on this BE.
 CONF_mInt32(segment_cache_capacity, "1000000");
@@ -785,6 +808,11 @@ CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
 CONF_Validator(string_type_length_soft_limit_bytes,
                [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
+CONF_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
+
+CONF_Validator(jsonb_type_length_soft_limit_bytes,
+               [](const int config) -> bool { return config > 0 && config <= 2147483643; });
+
 // used for olap scanner to save memory, when the size of unused_object_pool
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 CONF_Int32(object_pool_buffer_size, "100");
@@ -792,7 +820,12 @@ CONF_Int32(object_pool_buffer_size, "100");
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
 CONF_Bool(parquet_predicate_push_down, "true");
-CONF_Int32(parquet_header_max_size, "8388608");
+// Max size of parquet page header in bytes
+CONF_mInt32(parquet_header_max_size_mb, "1");
+// Max buffer size for parquet row group
+CONF_mInt32(parquet_rowgroup_max_buffer_mb, "128");
+// Max buffer size for parquet chunk column
+CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
@@ -812,10 +845,11 @@ CONF_Int32(quick_compaction_min_rowsets, "10");
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
+CONF_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 CONF_Int32(concurrency_per_dir, "2");
-CONF_mInt64(cooldown_lag_time_sec, "10800");        // 3h
-CONF_mInt64(max_sub_cache_file_size, "1073741824"); // 1GB
-CONF_mInt64(file_cache_alive_time_sec, "604800");   // 1 week
+CONF_mInt64(cooldown_lag_time_sec, "10800");       // 3h
+CONF_mInt64(max_sub_cache_file_size, "104857600"); // 100MB
+CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
@@ -827,12 +861,33 @@ CONF_Validator(file_cache_type, [](const std::string config) -> bool {
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
 CONF_Bool(enable_time_lut, "true");
+CONF_Bool(enable_simdjson_reader, "false");
 
 CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
 CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+
+// If set to true, the new scan node framework will be used.
+// This config should be removed when the new scan node is ready.
+CONF_Bool(enable_new_scan_node, "true");
+
+// limit the queue of pending batches which will be sent by a single nodechannel
+CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
+
+// Max waiting time to wait the "plan fragment start" rpc.
+// If timeout, the fragment will be cancelled.
+// This parameter is usually only used when the FE loses connection,
+// and the BE can automatically cancel the relevant fragment after the timeout,
+// so as to avoid occupying the execution thread for a long time.
+CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
+
+// Temp config. True to use new file scan node to do load job. Will remove after fully test.
+CONF_Bool(enable_new_load_scan_node, "false");
+
+// Temp config. True to use new file scanner. Will remove after fully test.
+CONF_Bool(enable_new_file_scanner, "false");
 
 #ifdef BE_TEST
 // test s3
@@ -844,7 +899,6 @@ CONF_String(test_s3_region, "region");
 CONF_String(test_s3_bucket, "bucket");
 CONF_String(test_s3_prefix, "prefix");
 #endif
-
 } // namespace config
 
 } // namespace doris

@@ -37,7 +37,7 @@ under the License.
 
 ## 下载代码编译
 
-1. 从 https://github.com/apache/incubator-doris.git 下载源码到本地
+1. 从 https://github.com/apache/doris.git 下载源码到本地
 
 2. 使用 VSCode 打开代码 `/fe` 目录
 
@@ -72,7 +72,7 @@ example:
 ## 编译
 
 其他文章已经介绍的比较清楚了：
-* [使用 LDB toolchain 编译](../../docs/install/source-install/compilation-with-ldb-toolchain.md)
+* [使用 LDB toolchain 编译](/docs/install/source-install/compilation-with-ldb-toolchain)
 * ......
 
 为了进行调试，需要在 fe 启动时，加上调试的参数，比如 `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005` 。

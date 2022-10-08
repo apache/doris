@@ -150,8 +150,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
             String tblName = dbTableName.getTbl();
             checkShowAnalyzePriv(dbName, tblName);
 
-            Database db = analyzer.getEnv()
-                    .getInternalDataSource().getDbOrAnalysisException(dbName);
+            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
             Table table = db.getTableOrAnalysisException(tblName);
             dbId = db.getId();
             tblIds.add(table.getId());
@@ -162,8 +161,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
 
-            Database db = analyzer.getEnv()
-                    .getInternalDataSource().getDbOrAnalysisException(dbName);
+            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
 
             db.readLock();
             try {

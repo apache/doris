@@ -20,12 +20,11 @@
 
 #include "vec/data_types/data_type_string.h"
 
-#include "gen_cpp/data.pb.h"
-#include "vec/columns/column_const.h"
+#include <string_view>
+
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
-#include "vec/io/io_helper.h"
 
 #ifdef __SSE2__
 #include <emmintrin.h>
@@ -42,7 +41,6 @@ static inline void read(IColumn& column, Reader&& reader) {
     size_t old_offsets_size = offsets.size();
     try {
         reader(data);
-        data.push_back(0);
         offsets.push_back(data.size());
     } catch (...) {
         offsets.resize_assume_reserved(old_offsets_size);
@@ -85,16 +83,46 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 // binary: <size array> | total length | <value array>
 //  <size array> : row num | offset1 |offset2 | ...
 //  <value array> : <value1> | <value2 | ...
-int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                          int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
+
+    if (be_exec_version == 0) {
+        return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
+               data_column.get_chars().size() + column.size();
+    }
+
     return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
            data_column.get_chars().size();
 }
 
-char* DataTypeString::serialize(const IColumn& column, char* buf) const {
+char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
+
+    if (be_exec_version == 0) {
+        // row num
+        *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
+        buf += sizeof(IColumn::Offset);
+        // offsets
+        for (int i = 0; i < column.size(); i++) {
+            *reinterpret_cast<IColumn::Offset*>(buf) = data_column.get_offsets()[i] + i + 1;
+            buf += sizeof(IColumn::Offset);
+        }
+        // total length
+        *reinterpret_cast<uint64_t*>(buf) = data_column.get_chars().size() + column.size();
+        buf += sizeof(uint64_t);
+        // values
+        for (int i = 0; i < column.size(); i++) {
+            auto data = data_column.get_data_at(i);
+            memcpy(buf, data.data, data.size);
+            buf += data.size;
+            *buf = '\0';
+            buf++;
+        }
+        return buf;
+    }
 
     // row num
     *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
@@ -113,10 +141,34 @@ char* DataTypeString::serialize(const IColumn& column, char* buf) const {
     return buf;
 }
 
-const char* DataTypeString::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeString::deserialize(const char* buf, IColumn* column,
+                                        int be_exec_version) const {
     ColumnString* column_string = assert_cast<ColumnString*>(column);
     ColumnString::Chars& data = column_string->get_chars();
     ColumnString::Offsets& offsets = column_string->get_offsets();
+
+    if (be_exec_version == 0) {
+        // row num
+        IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+        buf += sizeof(IColumn::Offset);
+        // offsets
+        offsets.resize(row_num);
+        for (int i = 0; i < row_num; i++) {
+            offsets[i] = *reinterpret_cast<const IColumn::Offset*>(buf) - i - 1;
+            buf += sizeof(IColumn::Offset);
+        }
+        // total length
+        uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
+        buf += sizeof(uint64_t);
+        // values
+        data.resize(value_len - row_num);
+        for (int i = 0; i < row_num; i++) {
+            memcpy(data.data() + offsets[i - 1], buf, offsets[i] - offsets[i - 1]);
+            buf += offsets[i] - offsets[i - 1] + 1;
+        }
+
+        return buf;
+    }
 
     // row num
     IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);

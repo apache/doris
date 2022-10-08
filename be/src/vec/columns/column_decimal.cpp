@@ -27,6 +27,7 @@
 #include "vec/common/exception.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
+#include "vec/core/sort_block.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -35,7 +36,7 @@ namespace doris::vectorized {
 
 template <typename T>
 int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) const {
-    auto& other = static_cast<const Self&>(rhs_);
+    auto& other = assert_cast<const Self&>(rhs_);
     const T& a = data[n];
     const T& b = other.data[m];
 
@@ -121,6 +122,55 @@ void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 template <typename T>
+void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                                const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+                                              const uint8_t* __restrict null_data) const {
+    auto s = hashes.size();
+    DCHECK(s == size());
+
+    if constexpr (!std::is_same_v<T, Decimal128>) {
+        DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+    } else {
+        if (type == TYPE_DECIMALV2) {
+            auto decimalv2_do_crc = [&](size_t i) {
+                const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+                int64_t int_val = dec_val.int_value();
+                int32_t frac_val = dec_val.frac_value();
+                hashes[i] = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hashes[i]);
+                hashes[i] = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hashes[i]);
+            };
+
+            if (null_data == nullptr) {
+                for (size_t i = 0; i < s; i++) {
+                    decimalv2_do_crc(i);
+                }
+            } else {
+                for (size_t i = 0; i < s; i++) {
+                    if (null_data[i] == 0) decimalv2_do_crc(i);
+                }
+            }
+        } else {
+            DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+        }
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
+                                                const uint8_t* __restrict null_data) const {
+    auto s = size();
+    for (int i = 0; i < s; i++) {
+        hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
+                                               hashes[i]);
+    }
+}
+
+template <typename T>
 void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
                                        IColumn::Permutation& res) const {
 #if 1 /// TODO: perf test
@@ -157,7 +207,7 @@ MutableColumnPtr ColumnDecimal<T>::clone_resized(size_t size) const {
     auto res = this->create(0, scale);
 
     if (size > 0) {
-        auto& new_col = static_cast<Self&>(*res);
+        auto& new_col = assert_cast<Self&>(*res);
         new_col.data.resize(size);
 
         size_t count = std::min(this->size(), size);
@@ -322,6 +372,39 @@ void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
 
     min = NearestFieldType<T>(cur_min, scale);
     max = NearestFieldType<T>(cur_max, scale);
+}
+
+template <typename T>
+void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                   IColumn::Permutation& perms, EqualRange& range,
+                                   bool last_column) const {
+    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
+}
+
+template <typename T>
+void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
+                                        int nan_direction_hint, int direction,
+                                        std::vector<uint8>& cmp_res,
+                                        uint8* __restrict filter) const {
+    auto sz = this->size();
+    DCHECK(cmp_res.size() == sz);
+    const auto& cmp_base = assert_cast<const ColumnDecimal<T>&>(rhs).get_data()[rhs_row_id];
+
+    size_t begin = simd::find_zero(cmp_res, 0);
+    while (begin < sz) {
+        size_t end = simd::find_one(cmp_res, begin + 1);
+        for (size_t row_id = begin; row_id < end; row_id++) {
+            auto value_a = get_data()[row_id];
+            int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
+            if (res * direction < 0) {
+                filter[row_id] = 1;
+                cmp_res[row_id] = 1;
+            } else if (res * direction > 0) {
+                cmp_res[row_id] = 1;
+            }
+        }
+        begin = simd::find_zero(cmp_res, end + 1);
+    }
 }
 
 template <>

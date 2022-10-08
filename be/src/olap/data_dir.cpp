@@ -871,11 +871,16 @@ void DataDir::perform_remote_tablet_gc() {
     for (auto& [key, resource] : tablet_gc_kvs) {
         auto tablet_id = key.substr(REMOTE_TABLET_GC_PREFIX.size());
         auto fs = io::FileSystemMap::instance()->get(resource);
-        auto st = fs->delete_directory(DATA_PREFIX + "/" + tablet_id);
+        if (!fs) {
+            LOG(WARNING) << "could not get file system. resource_id=" << resource;
+            continue;
+        }
+        auto st = fs->delete_directory(DATA_PREFIX + '/' + tablet_id);
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
         } else {
-            LOG(WARNING) << st;
+            LOG(WARNING) << "failed to perform remote tablet gc. tablet_id=" << tablet_id
+                         << ", reason: " << st;
         }
     }
     for (const auto& key : deleted_keys) {

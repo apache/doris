@@ -223,7 +223,10 @@ add_library(leveldb STATIC IMPORTED)
 set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libleveldb.a)
 
 add_library(jemalloc STATIC IMPORTED)
-set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
+set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libjemalloc_doris.a)
+
+add_library(jemalloc_arrow STATIC IMPORTED)
+set_target_properties(jemalloc_arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
 
 add_library(brotlicommon STATIC IMPORTED)
 set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
@@ -328,6 +331,9 @@ set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(minizip STATIC IMPORTED)
 set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
+add_library(simdjson STATIC IMPORTED)
+set_target_properties(simdjson PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libsimdjson.a)
+
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
@@ -415,6 +421,10 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
+if (RECORD_COMPILER_SWITCHES)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -frecord-gcc-switches")
+endif()
+
 function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
     if (CUSTUM_LINKER_COMMAND STREQUAL "ld")
         execute_process(COMMAND ${CMAKE_C_COMPILER} -fuse-ld=${LINKER_COMMAND} -Wl,--version ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
@@ -429,6 +439,7 @@ endfunction()
 set(CUSTUM_LINKER_COMMAND "ld")
 # TODO: mold will link fail on thirdparty brpc now, waiting for investigation.
 # TRY_TO_CHANGE_LINKER("mold" "mold")
+
 TRY_TO_CHANGE_LINKER("lld" "LLD")
 TRY_TO_CHANGE_LINKER("gold" "GNU gold")
 if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
@@ -449,7 +460,7 @@ if (COMPILER_GCC)
 endif ()
 
 if (COMPILER_CLANG)
-    add_compile_options (-fcolor-diagnostics)
+    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
     endif()
@@ -673,6 +684,7 @@ set(COMMON_THIRDPARTY
     roaring
     fmt
     jemalloc
+    jemalloc_arrow
     brotlicommon
     brotlidec
     brotlienc
@@ -701,6 +713,7 @@ set(COMMON_THIRDPARTY
     hdfs3
     xml2
     lzma
+    simdjson
 )
 
 if (${MAKE_TEST} STREQUAL "ON")

@@ -23,7 +23,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/exception.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
 
@@ -66,10 +65,6 @@ public:
     void get(size_t, Field& res) const override { data->get(0, res); }
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
-
-    StringRef get_data_at_with_terminating_zero(size_t) const override {
-        return data->get_data_at_with_terminating_zero(0);
-    }
 
     UInt64 get64(size_t) const override { return data->get64(0); }
 
@@ -132,6 +127,15 @@ public:
         data->update_hash_with_value(0, hash);
     }
 
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
@@ -164,6 +168,11 @@ public:
     }
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
+    }
 
     void get_extremes(Field& min, Field& max) const override { data->get_extremes(min, max); }
 

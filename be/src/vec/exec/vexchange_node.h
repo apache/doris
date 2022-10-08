@@ -20,7 +20,7 @@
 #include <memory>
 
 #include "exec/exec_node.h"
-#include "vec/exec/vsort_exec_exprs.h"
+#include "vec/common/sort/vsort_exec_exprs.h"
 
 namespace doris {
 namespace vectorized {

@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile UDF 
+# This script is used to compile UDF
 # Usage:
 #    sh build-udf.sh             build udf without clean.
 #    sh build-udf.sh --clean     clean previous output and build.
@@ -26,20 +26,23 @@
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export UDF_HOME=${ROOT}
-export DORIS_HOME=$(cd ../..; printf %s "$PWD")
-echo ${DORIS_HOME}
+export UDF_HOME="${ROOT}"
+DORIS_HOME="$(
+    cd ../..
+    printf %s "${PWD}"
+)"
+export DORIS_HOME
+echo "${DORIS_HOME}"
 
-. ${DORIS_HOME}/env.sh
+. "${DORIS_HOME}/env.sh"
 
-PARALLEL=$[$(nproc)/4+1]
+PARALLEL="$(($(nproc) / 4 + 1))"
 
 # Check args
 usage() {
-  echo "
+    echo "
 Usage: $0 <options>
   Optional options:
      --clean            clean and build target
@@ -48,80 +51,93 @@ Usage: $0 <options>
     $0                                 build UDF without clean
     $0 --clean                         clean and build UDF
   "
-  exit 1
+    exit 1
 }
 
-OPTS=$(getopt \
-  -n $0 \
-  -o '' \
-  -o 'h' \
-  -l 'clean' \
-  -l 'help' \
-  -- "$@")
-
-if [ $? != 0 ] ; then
+if ! OPTS="$(getopt \
+    -n "$0" \
+    -o '' \
+    -o 'h' \
+    -l 'clean' \
+    -l 'help' \
+    -- "$@")"; then
     usage
 fi
 
-eval set -- "$OPTS"
+eval set -- "${OPTS}"
 
 BUILD_UDF=1
 CLEAN=0
 HELP=0
-if [ $# == 1 ] ; then
+if [[ "$#" == 1 ]]; then
     # default
     CLEAN=0
 else
     CLEAN=0
     while true; do
         case "$1" in
-            --clean) CLEAN=1 ; shift ;;
-            -h) HELP=1; shift ;;
-            --help) HELP=1; shift ;;
-            --) shift ;  break ;;
-            *) echo "Internal error" ; exit 1 ;;
+        --clean)
+            CLEAN=1
+            shift
+            ;;
+        -h)
+            HELP=1
+            shift
+            ;;
+        --help)
+            HELP=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Internal error"
+            exit 1
+            ;;
         esac
     done
 fi
 
-if [[ ${HELP} -eq 1 ]]; then
+if [[ "${HELP}" -eq 1 ]]; then
     usage
     exit
 fi
 
 echo "Get params:
-    CLEAN       -- $CLEAN
+    CLEAN       -- ${CLEAN}
 "
 
-cd ${UDF_HOME}
+cd "${UDF_HOME}"
 # Clean and build UDF
-if [ ${BUILD_UDF} -eq 1 ] ; then
-    CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
+if [[ "${BUILD_UDF}" -eq 1 ]]; then
+    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
     echo "Build UDF: ${CMAKE_BUILD_TYPE}"
-    CMAKE_BUILD_DIR=${UDF_HOME}/build_${CMAKE_BUILD_TYPE}
-    if [ ${CLEAN} -eq 1 ]; then
-        rm -rf $CMAKE_BUILD_DIR
-        rm -rf ${UDF_HOME}/output/
+    CMAKE_BUILD_DIR="${UDF_HOME}/build_${CMAKE_BUILD_TYPE}"
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        rm -rf "${CMAKE_BUILD_DIR}"
+        rm -rf "${UDF_HOME}/output"
     fi
-    mkdir -p ${CMAKE_BUILD_DIR}
-    cd ${CMAKE_BUILD_DIR}
-    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ../
-    ${BUILD_SYSTEM} -j${PARALLEL} 
-    ${BUILD_SYSTEM} install
-    cd ${UDF_HOME}
+    mkdir -p "${CMAKE_BUILD_DIR}"
+    cd "${CMAKE_BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" ../
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+    cd "${UDF_HOME}"
 fi
 
 # Clean and prepare output dir
-DORIS_OUTPUT=${DORIS_HOME}/output/
-mkdir -p ${DORIS_OUTPUT}
+DORIS_OUTPUT="${DORIS_HOME}/output"
+mkdir -p "${DORIS_OUTPUT}"
 
 #Copy UDF
-if [ ${BUILD_UDF} -eq 1 ]; then
-    install -d ${DORIS_OUTPUT}/contrib/udf/lib
-    for dir in $(ls ${CMAKE_BUILD_DIR}/src)
-    do
-      mkdir -p ${DORIS_OUTPUT}/contrib/udf/lib/$dir
-      cp -r -p ${CMAKE_BUILD_DIR}/src/$dir/*.so ${DORIS_OUTPUT}/contrib/udf/lib/$dir/
+if [[ "${BUILD_UDF}" -eq 1 ]]; then
+    install -d "${DORIS_OUTPUT}/contrib/udf/lib"
+    for dir in "${CMAKE_BUILD_DIR}/src"/*; do
+        dir="$(basename "${dir}")"
+        mkdir -p "${DORIS_OUTPUT}/contrib/udf/lib/${dir}"
+        cp -r -p "${CMAKE_BUILD_DIR}/src/${dir}"/*.so "${DORIS_OUTPUT}/contrib/udf/lib/${dir}"/
     done
 fi
 
@@ -129,8 +145,8 @@ echo "***************************************"
 echo "Successfully build Doris UDF"
 echo "***************************************"
 
-if [[ ! -z ${DORIS_POST_BUILD_HOOK} ]]; then
-    eval ${DORIS_POST_BUILD_HOOK}
+if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
+    eval "${DORIS_POST_BUILD_HOOK}"
 fi
 
 exit 0

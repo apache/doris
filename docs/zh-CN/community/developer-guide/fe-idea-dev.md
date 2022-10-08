@@ -28,61 +28,47 @@ under the License.
 
 ## 1.环境准备
 
-从 https://github.com/apache/incubator-doris.git 下载源码到本地
+JDK1.8+, IntelliJ IDEA
 
-安装 JDK1.8+ ，使用 IntelliJ IDEA 打开 FE.
+1. 从 https://github.com/apache/doris.git 下载源码到本地
 
-### thrift
+2. 使用IntelliJ IDEA 打开代码根目录
 
-如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
+3. 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
 
-安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
+        安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
+    
+        Windows: 
+           1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+           2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
+        
+        MacOS: 
+           1. 下载：`brew install thrift@0.13.0`
+           2. 建立软链接： 
+              `mkdir -p ./thirdparty/installed/bin`
+              # ARM架构macOS
+              `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+              # Intel架构macOS
+              `ln -s /usr/local/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+        
+        注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
+           1. `brew tap-new $USER/local-tap`
+           2. `brew extract --version='0.13.0' thrift $USER/local-tap`
+           3. `brew install thrift@0.13.0`
+        参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
 
-#### Windows 下载
+4. 如果是Mac 或者 Linux 环境 可以通过 如下命令自动生成代码：
 
-1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
+    ```
+    cd fe
+    mvn generate-sources
+    ```
 
-#### MacOS 下载
+    如果出现错误，则执行：
 
-下载：`brew install thrift@0.13.0`
-
-注：macOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
-
-1. `brew tap-new $USER/local-tap`
-2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-3. `brew install thrift@0.13.0`
-
-参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
-
-#### 建立软链接
-
-位于 Doris **根**目录下
-
-`mkdir -p ./thirdparty/installed/bin`
-
-ARM架构macOS
-
-`ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
-
-Intel架构macOS
-
-`ln -s /usr/local/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
-
-### 自动生成代码：
-
-如果是Mac 或者 Linux 环境 可以通过 如下命令生成
-
-```
-cd fe
-mvn generate-sources
-```
-
-如果出现错误，则执行：
-
-```
-cd fe && mvn clean install -DskipTests
-```
+    ```
+    cd fe && mvn clean install -DskipTests
+    ```
 
 或者通过图形界面运行 maven 命令生成
 
@@ -90,28 +76,8 @@ cd fe && mvn clean install -DskipTests
 
 如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
-#### arm mac compile failed
-
-如果在m1 mac上进行自动生成代码会出现如下错误
-
-```
-[ERROR] Failed to execute goal org.xolstice.maven.plugins:protobuf-maven-plugin:0.6.1:compile (grpc-build) on project apm-network: Unable to resolve artifact: Missing:
-[ERROR] 1) com.google.protobuf:protoc:exe:osx-aarch_64:3.14.0
-[ERROR] 1 required artifact is missing.
-```
-
-ptotobuf3.14.0和protoc-gen-grpc-java1.30.0没有aarch64的版本，根据[grpc社区issue](https://github.com/grpc/grpc-java/issues/7690)的建议下载x86版本并使用rosetta转译
-
-1. 打开`doris/fe/fe-core/pom.xml`
-2. 将`<protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>`修改成`<protocArtifact>com.google.protobuf:protoc:3.14.0:exe:osx-x86_64</protocArtifact>`
-3. 将`<pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>`修改成`<pluginArtifact>io.grpc:protoc-gen-grpc-java:1.30.0:exe:osx-x86_64</pluginArtifact>`
-4. 打开终端输入`softwareupdate --install-rosetta`
-
-### help文档
-
-如果还未生成过help文档，需要跳转到docs目录，执行`sh build_help_zip.sh`，
-
-然后将build中的help-resource.zip拷贝到fe/fe-core/target/classes中
+5. 如果还未生成过help文档，需要跳转到docs目录，执行`sh build_help_zip.sh`，
+   然后将build中的help-resource.zip拷贝到fe/fe-core/target/classes中
 
 ## 2.调试
 
@@ -125,9 +91,82 @@ ptotobuf3.14.0和protoc-gen-grpc-java1.30.0没有aarch64的版本，根据[grpc�
 
 ## 3.配置conf/fe.conf
 
-配置在 `conf/fe.conf`，你可以根据自己的需要进行修改
+下面是我自己的配置，你可以根据自己的需要进行修改(注意：如果使用`Mac`开发，由于`docker for Mac`不支持`Host`模式，需要使用`-p`方式暴露`be`端口，同时`fe.conf`的`priority_networks`配置为容器内可访问的Ip，例如WIFI的Ip)
 
-(注意：如果使用`Mac`开发，由于`docker for Mac`不支持`Host`模式，需要使用`-p`方式暴露`be`端口，同时`fe.conf`的`priority_networks`配置为容器内可访问的Ip，例如WIFI的Ip)
+```
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+#####################################################################
+## The uppercase properties are read and exported by bin/start_fe.sh.
+## To see all Frontend configurations,
+## see fe/src/org/apache/doris/common/Config.java
+#####################################################################
+
+# the output dir of stderr and stdout 
+LOG_DIR = ${DORIS_HOME}/log
+
+DATE = `date +%Y%m%d-%H%M%S`
+JAVA_OPTS="-Xmx2048m -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$DORIS_HOME/log/fe.gc.log.$DATE"
+
+# For jdk 9+, this JAVA_OPTS will be used as default JVM options
+JAVA_OPTS_FOR_JDK_9="-Xmx4096m -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xlog:gc*:$DORIS_HOME/log/fe.gc.log.$DATE:time"
+
+##
+## the lowercase properties are read by main program.
+##
+
+# INFO, WARN, ERROR, FATAL
+sys_log_level = INFO
+
+# store metadata, create it if it is not exist.
+# Default value is ${DORIS_HOME}/doris-meta
+# meta_dir = ${DORIS_HOME}/doris-meta
+
+http_port = 8030
+rpc_port = 9020
+query_port = 9030
+edit_log_port = 9010
+mysql_service_nio_enabled = true
+
+# Choose one if there are more than one ip except loopback address. 
+# Note that there should at most one ip match this list.
+# If no ip match this rule, will choose one randomly.
+# use CIDR format, e.g. 10.10.10.0/24
+# Default value is empty.
+# priority_networks = 10.10.10.0/24;192.168.0.0/16
+
+# Advanced configurations 
+# log_roll_size_mb = 1024
+# sys_log_dir = ${DORIS_HOME}/log
+# sys_log_roll_num = 10
+# sys_log_verbose_modules = 
+# audit_log_dir = ${DORIS_HOME}/log
+# audit_log_modules = slow_query, query
+# audit_log_roll_num = 10
+# meta_delay_toleration_second = 10
+# qe_max_connection = 1024
+# max_conn_per_user = 100
+# qe_query_timeout_second = 300
+# qe_slow_log_ms = 5000
+
+```
+
+
 
 ## 4.设置环境变量
 

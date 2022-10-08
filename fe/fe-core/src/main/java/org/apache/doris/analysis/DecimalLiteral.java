@@ -159,9 +159,6 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(value.longValue());
                 break;
             case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
                 buffer = ByteBuffer.allocate(12);
                 buffer.order(ByteOrder.LITTLE_ENDIAN);
 
@@ -170,6 +167,19 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(integerValue);
                 buffer.putInt(fracValue);
                 break;
+            case DECIMAL32:
+                buffer = ByteBuffer.allocate(4);
+                buffer.order(ByteOrder.LITTLE_ENDIAN);
+                buffer.putInt(value.unscaledValue().intValue());
+                break;
+            case DECIMAL64:
+                buffer = ByteBuffer.allocate(8);
+                buffer.order(ByteOrder.LITTLE_ENDIAN);
+                buffer.putLong(value.unscaledValue().longValue());
+                break;
+            case DECIMAL128:
+                LargeIntLiteral tmp = new LargeIntLiteral(value.unscaledValue());
+                return tmp.getHashValue(type);
             default:
                 return super.getHashValue(type);
         }

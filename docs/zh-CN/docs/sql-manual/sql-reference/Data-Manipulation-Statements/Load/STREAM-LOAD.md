@@ -99,7 +99,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 11. exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
-12. format: 指定导入数据格式，默认是csv，支持json格式。
+12. format: 指定导入数据格式，默认是csv，也支持：csv_with_names(支持csv文件行首过滤)，csv_with_names_and_types(支持csv文件前两行过滤) 或 json格式。
 
 13. jsonpaths: 导入json方式分为：简单模式和匹配模式。
     
@@ -133,7 +133,13 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 20. read_json_by_line: 布尔类型，为true表示支持每行读取一个json对象，默认值为false。
     
 21. send_batch_parallelism: 整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
-    
+
+22. hidden_columns: 用于指定导入数据中包含的隐藏列，在Header中不包含columns时生效，多个hidden column用逗号分割。
+       ```
+           hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
+           系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
+       ```
+
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
         Status: 导入最后的状态。

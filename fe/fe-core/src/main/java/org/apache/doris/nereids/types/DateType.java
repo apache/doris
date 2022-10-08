@@ -18,17 +18,28 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
  * Date type in Nereids.
  */
 public class DateType extends PrimitiveType {
 
-    public static DateType INSTANCE = new DateType();
+    public static final DateType INSTANCE = new DateType();
+
+    private static final int WIDTH = 16;
+
+    private DateType() {
+    }
 
     @Override
     public Type toCatalogDataType() {
         return Type.DATE;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }
 

@@ -67,6 +67,14 @@ public class CancelLoadStmtTest extends TestWithFeService {
         Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label'",
                 stmt.toString());
 
+        SlotRef labelSlotRefUpper = new SlotRef(null, "LABEL");
+        BinaryPredicate labelBinaryPredicateUpper = new BinaryPredicate(BinaryPredicate.Operator.EQ, labelSlotRefUpper,
+                labelStringLiteral);
+        CancelLoadStmt stmtUpper = new CancelLoadStmt(null, labelBinaryPredicateUpper);
+        stmtUpper.analyze(analyzer);
+        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `LABEL` = 'doris_test_label'",
+                stmtUpper.toString());
+
         BinaryPredicate stateBinaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef,
                 stateStringLiteral);
         stmt = new CancelLoadStmt(null, stateBinaryPredicate);

@@ -31,4 +31,45 @@ suite("test_delete") {
     qt_sql """select count(c2) from ${tableName} where c1 = 'abcdef';"""
     qt_sql """select count(c1) from ${tableName};"""
     qt_sql """select count(c1) from ${tableName} where c1 = 'abcdef';"""
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    sql """ CREATE TABLE delete_regression_test (k1 varchar(190) NOT NULL COMMENT "", k2 DATEV2 NOT NULL COMMENT "", k3 DATETIMEV2 NOT NULL COMMENT "", k4 DATETIMEV2(3) NOT NULL COMMENT "", v1 DATEV2 NOT NULL COMMENT "", v2 DATETIMEV2 NOT NULL COMMENT "", v3 DATETIMEV2(3) NOT NULL COMMENT "" ) ENGINE=OLAP DUPLICATE KEY(k1, k2, k3, k4) COMMENT "OLAP" DISTRIBUTED BY HASH(k1, k2, k3, k4) BUCKETS 3
+    PROPERTIES ( "replication_num" = "1" );"""
+
+    sql """ INSERT INTO delete_regression_test VALUES ('abcdef','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111'),('abcdef','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111'); """
+    sql """ delete from ${tableName} where k2 = '2022-08-16' """
+    qt_sql """select * from ${tableName};"""
+    sql """ delete from delete_regression_test where k1 = 'abcdef' """
+
+    sql """ INSERT INTO ${tableName} VALUES ('abcdef','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111'),('abcdef','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111'); """
+    sql """ delete from delete_regression_test where k3 = '2022-08-16 11:11:11' """
+    qt_sql """select * from ${tableName};"""
+    sql """ delete from delete_regression_test where k1 = 'abcdef' """
+
+    sql """ INSERT INTO ${tableName} VALUES ('abcdef','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111'),('abcdef','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111'); """
+    sql """ delete from ${tableName} where k4 = '2022-08-16 11:11:11' """
+    qt_sql """select * from ${tableName};"""
+    sql """ delete from ${tableName} where k4 = '2022-08-16 11:11:11.111' """
+    qt_sql """select * from ${tableName};"""
+    sql """ delete from delete_regression_test where k1 = 'abcdef' """
+
+    sql """ INSERT INTO ${tableName} VALUES ('abcdef','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111'),('abcdef','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111'); """
+    sql """ delete from ${tableName} where v1 = '2022-08-16' """
+    qt_sql """select * from ${tableName};"""
+    sql """ delete from delete_regression_test where k1 = 'abcdef' """
+
+    sql """ INSERT INTO ${tableName} VALUES ('abcdef','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111'),('abcdef','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111'); """
+    sql """ delete from ${tableName} where v2 = '2022-08-16 11:11:11' """
+    qt_sql """select * from ${tableName};"""
+    sql """ delete from delete_regression_test where k1 = 'abcdef' """
+
+    sql """ INSERT INTO ${tableName} VALUES ('abcdef','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111','2022-08-16','2022-08-16 11:11:11.111111','2022-08-16 11:11:11.111111'),('abcdef','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111','2022-08-12','2022-08-16 12:11:11.111111','2022-08-16 12:11:11.111111'); """
+    sql """ delete from ${tableName} where v3 = '2022-08-16 11:11:11' """
+    qt_sql """select * from ${tableName};"""
+    sql """ delete from ${tableName} where v3 = '2022-08-16 11:11:11.111' """
+    qt_sql """select * from ${tableName};"""
+    sql """ delete from delete_regression_test where k1 = 'abcdef' """
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
 }

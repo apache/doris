@@ -22,7 +22,6 @@
 #include <string>
 
 #include "common/logging.h"
-#include "util/logging.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -250,15 +249,15 @@ TEST_F(DateTimeValueTest, check_date) {
     EXPECT_TRUE(value.from_date_int64(19880201));
 
     value._month = 0;
-    EXPECT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
-                                            value.minute(), value.second(), value.microsecond(),
-                                            value.type()));
+    EXPECT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._month = 2;
 
     value._day = 0;
-    EXPECT_FALSE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
-                                            value.minute(), value.second(), value.microsecond(),
-                                            value.type()));
+    EXPECT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),
+                                           value.minute(), value.second(), value.microsecond(),
+                                           value.type()));
     value._year = 1987;
     value._day = 29;
     EXPECT_TRUE(DateTimeValue::check_range(value.year(), value.month(), value.day(), value.hour(),

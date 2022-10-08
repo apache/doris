@@ -18,13 +18,19 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
  * Datetime type in Nereids.
  */
 public class DateTimeType extends PrimitiveType {
 
-    public static DateTimeType INSTANCE = new DateTimeType();
+    public static final DateTimeType INSTANCE = new DateTimeType();
+
+    private static final int WIDTH = 16;
+
+    private DateTimeType() {
+    }
 
     @Override
     public Type toCatalogDataType() {
@@ -34,5 +40,10 @@ public class DateTimeType extends PrimitiveType {
     @Override
     public boolean equals(Object o) {
         return o instanceof DateTimeType;
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
     }
 }

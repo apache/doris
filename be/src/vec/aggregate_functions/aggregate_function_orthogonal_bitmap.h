@@ -45,8 +45,11 @@ public:
 
         if constexpr (IsNumber<T>) {
             bitmap.update(data_col.get_element(row_num), bitmap_value);
-        } else {
-            bitmap.update(StringValue(data_col.get_data_at(row_num)), bitmap_value);
+        }
+        if constexpr (std::is_same_v<T, std::string_view>) {
+            // TODO: rethink here we really need to do a virtual function call
+            auto sr = data_col.get_data_at(row_num);
+            bitmap.update(std::string_view {sr.data, sr.size}, bitmap_value);
         }
     }
 
@@ -57,8 +60,10 @@ public:
                 const auto& col = static_cast<const ColVecData&>(*columns[idx]);
                 if constexpr (IsNumber<T>) {
                     bitmap.add_key(col.get_element(row_num));
-                } else {
-                    bitmap.add_key(StringValue(col.get_data_at(row_num)));
+                }
+                if constexpr (std::is_same_v<T, std::string_view>) {
+                    auto sr = col.get_data_at(row_num);
+                    bitmap.add_key(std::string_view {sr.data, sr.size});
                 }
             }
             first_init = false;

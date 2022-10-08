@@ -40,15 +40,19 @@ DATETIME, CHAR, VARCHAR, STRING
 ```
 ### notice
 
-please open `enable_array_type` before use ARRAY
+We should turn on the switch for the ARRAY types feature with the following command before use:
+
+```
+$ mysql-client > admin set frontend config("enable_array_type"="true");
+```
+
+In this way the config will be reset after the FE process restarts. For permanent setting, you can add config `enable_array_type=true` inside fe.conf.
 
 ### example
 
 Create table example:
 
 ```
-mysql> set enable_array_type=true;
-
 mysql> CREATE TABLE `array_test` (
   `id` int(11) NULL COMMENT "",
   `c_array` ARRAY<int(11)> NULL COMMENT ""
@@ -69,6 +73,7 @@ Insert data example:
 mysql> INSERT INTO `array_test` VALUES (1, [1,2,3,4,5]);
 mysql> INSERT INTO `array_test` VALUES (2, array(6,7,8)), (3, array()), (4, null);
 ```
+Note: The above sql supports the array() function only in non-vectorized scenarios, but not in vectorized scenarios.
 
 Select data example:
 
@@ -86,4 +91,4 @@ mysql> SELECT * FROM `array_test`;
 
 ### keywords
 
-    ARRAY, array_contains, array_position, element_at
+    ARRAY

@@ -93,8 +93,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
-    public static final String ENABLE_NEREIDS_CBO = "enable_nereids_cbo";
-
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
@@ -195,10 +193,13 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
-    static final String ENABLE_ARRAY_TYPE = "enable_array_type";
-
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
 
+    public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
+
+    public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
+
+    public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
 
@@ -210,6 +211,20 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
+
+    public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
+
+    public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
+
+    public static final String SKIP_STORAGE_ENGINE_MERGE = "skip_storage_engine_merge";
+
+    public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
+
+    public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
+
+    public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
+
+    public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -340,8 +355,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
 
+    // 1024 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE)
-    public int batchSize = 1024;
+    public int batchSize = 992;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
     public boolean disableStreamPreaggregations = false;
@@ -355,6 +371,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
 
+    @VariableMgr.VarAttr(name = FRAGMENT_TRANSMISSION_COMPRESSION_CODEC)
+    public String fragmentTransmissionCompressionCodec = "lz4";
+
     /*
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
@@ -363,7 +382,7 @@ public class SessionVariable implements Serializable, Writable {
     public int parallelExecInstanceNum = 1;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
-    public boolean enableInsertStrict = false;
+    public boolean enableInsertStrict = true;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
@@ -378,7 +397,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean forwardToMaster = true;
 
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
-    public long loadMemLimit = 0L;
+    public long loadMemLimit = 2 * 1024 * 1024 * 1024L; // 2GB as default
 
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
@@ -450,9 +469,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_CBO)
-    private boolean enableNereidsCBO = false;
-
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
     private boolean enableFoldConstantByBe = false;
 
@@ -497,9 +513,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_ARRAY_TYPE)
-    private boolean enableArrayType = false;
-
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -508,6 +521,11 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
     private boolean enableNereidsPlanner = false;
+
+    @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
+    private boolean nereidsStarSchemaSupport = true;
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
+    private boolean enableNereidsRuntimeFilter = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
     private boolean enableNereidsReorderToEliminateCrossJoin = true;
@@ -528,6 +546,41 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
     public boolean enableFunctionPushdown;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
+    public boolean enableLocalExchange = false;
+
+
+    /**
+     * For debugg purpose, dont' merge unique key and agg key when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE)
+    public boolean skipStorageEngineMerge = false;
+
+    /**
+     * For debugg purpose, skip delte predicate when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
+    public boolean skipDeletePredicate = false;
+
+    // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
+    // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
+    // in nereids for some mistaken modification. You should set it on the
+    @VariableMgr.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER)
+    public boolean enableFallbackToOriginalPlanner = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
+    public boolean enableNewShuffleHashMethod = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
+    public boolean enablePushDownNoGroupAgg = true;
+
+    /**
+     * The current statistics are only used for CBO test,
+     * and are not available to users. (work in progress)
+     */
+    @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
+    public boolean enableCboStatistics = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -842,6 +895,10 @@ public class SessionVariable implements Serializable, Writable {
         this.showHiddenColumns = showHiddenColumns;
     }
 
+    public boolean skipStorageEngineMerge() {
+        return skipStorageEngineMerge;
+    }
+
     public boolean isAllowPartitionColumnNullable() {
         return allowPartitionColumnNullable;
     }
@@ -918,8 +975,20 @@ public class SessionVariable implements Serializable, Writable {
         this.enableVectorizedEngine = enableVectorizedEngine;
     }
 
+    public boolean enablePushDownNoGroupAgg() {
+        return enablePushDownNoGroupAgg;
+    }
+
     public boolean getEnableFunctionPushdown() {
         return this.enableFunctionPushdown;
+    }
+
+    public boolean getEnableLocalExchange() {
+        return enableLocalExchange;
+    }
+
+    public boolean getEnableCboStatistics() {
+        return enableCboStatistics;
     }
 
     /**
@@ -1024,24 +1093,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
     }
 
-    public boolean isEnableNereidsCBO() {
-        return enableNereidsCBO;
-    }
-
-    public void setEnableNereidsCBO(boolean enableNereidsCBO) {
-        this.enableNereidsCBO = enableNereidsCBO;
-    }
-
     public void setDisableJoinReorder(boolean disableJoinReorder) {
         this.disableJoinReorder = disableJoinReorder;
-    }
-
-    public boolean isEnableArrayType() {
-        return enableArrayType;
-    }
-
-    public void setEnableArrayType(boolean enableArrayType) {
-        this.enableArrayType = enableArrayType;
     }
 
     /**
@@ -1055,6 +1108,18 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
         this.enableNereidsPlanner = enableNereidsPlanner;
+    }
+
+    public boolean isNereidsStarSchemaSupport() {
+        return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
+    }
+
+    public boolean isEnableNereidsRuntimeFilter() {
+        return enableNereidsRuntimeFilter;
+    }
+
+    public void setEnableNereidsRuntimeFilter(boolean enableNereidsRuntimeFilter) {
+        this.enableNereidsRuntimeFilter = enableNereidsRuntimeFilter;
     }
 
     public boolean isEnableNereidsReorderToEliminateCrossJoin() {
@@ -1083,6 +1148,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableRemoveNoConjunctsRuntimeFilterPolicy(boolean enableRemoveNoConjunctsRuntimeFilterPolicy) {
         this.enableRemoveNoConjunctsRuntimeFilterPolicy = enableRemoveNoConjunctsRuntimeFilterPolicy;
+    }
+
+    public void setFragmentTransmissionCompressionCodec(String codec) {
+        this.fragmentTransmissionCompressionCodec = codec;
     }
 
     // Serialize to thrift object
@@ -1128,6 +1197,13 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
+        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
+        tResult.setEnableLocalExchange(enableLocalExchange);
+        tResult.setEnableNewShuffleHashMethod(enableNewShuffleHashMethod);
+
+        tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
+
+        tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         return tResult;
     }

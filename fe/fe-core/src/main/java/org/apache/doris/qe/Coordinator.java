@@ -115,6 +115,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -153,8 +154,6 @@ public class Coordinator {
 
     // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
-
-    private final Set<Long> alreadySentBackendIds = Sets.newHashSet();
 
     // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
@@ -251,6 +250,7 @@ public class Coordinator {
 
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
+        this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
             this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
@@ -263,7 +263,7 @@ public class Coordinator {
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
-        this.assignedRuntimeFilters = analyzer.getAssignedRuntimeFilter();
+        this.assignedRuntimeFilters = planner.getRuntimeFilters();
     }
 
     // Used for broker load task/export task/update coordinator
@@ -394,7 +394,6 @@ public class Coordinator {
             }
             this.exportFiles.clear();
             this.needCheckBackendExecStates.clear();
-            this.alreadySentBackendIds.clear();
         } finally {
             lock.unlock();
         }
@@ -421,7 +420,6 @@ public class Coordinator {
             }
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getDestFragment().getFragmentId());
             params.inputFragments.add(fragment.getFragmentId());
-
         }
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
@@ -662,7 +660,7 @@ public class Coordinator {
                 }
                 states.scopedSpan = new ScopedSpan(span);
                 states.unsetFields();
-                futures.add(Pair.create(states, states.execRemoteFragmentsAsync()));
+                futures.add(Pair.of(states, states.execRemoteFragmentsAsync()));
             }
             waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
 
@@ -676,7 +674,7 @@ public class Coordinator {
                                 .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
                     }
                     states.scopedSpan = new ScopedSpan(span);
-                    futures.add(Pair.create(states, states.execPlanFragmentStartAsync()));
+                    futures.add(Pair.of(states, states.execPlanFragmentStartAsync()));
                 }
                 waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
             }
@@ -687,13 +685,14 @@ public class Coordinator {
         }
     }
 
-    private void waitRpc(List<Pair<BackendExecStates, Future<PExecPlanFragmentResult>>> futures, long timeoutMs,
+    private void waitRpc(List<Pair<BackendExecStates, Future<PExecPlanFragmentResult>>> futures, long leftTimeMs,
             String operation) throws RpcException, UserException {
-        if (timeoutMs <= 0) {
+        if (leftTimeMs <= 0) {
             throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
                     (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout));
         }
 
+        long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
         for (Pair<BackendExecStates, Future<PExecPlanFragmentResult>> pair : futures) {
             TStatusCode code;
             String errMsg = null;
@@ -718,8 +717,7 @@ public class Coordinator {
                 code = TStatusCode.INTERNAL_ERROR;
             } catch (TimeoutException e) {
                 exception = e;
-                errMsg = "timeout when waiting for " + operation + " RPC. Elapse(sec): "
-                        + ((System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout);
+                errMsg = "timeout when waiting for " + operation + " RPC. Wait(sec): " + timeoutMs / 1000;
                 code = TStatusCode.TIMEOUT;
             }
 
@@ -746,9 +744,6 @@ public class Coordinator {
             } finally {
                 pair.first.scopedSpan.endSpan();
             }
-
-            // succeed to send the plan fragment, update the "alreadySentBackendIds"
-            alreadySentBackendIds.add(pair.first.beId);
         }
     }
 
@@ -1021,7 +1016,6 @@ public class Coordinator {
 
                 int bucketSeq = 0;
                 int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
-                TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
 
                 // when left table is empty, it's bucketset is empty.
                 // set right table destination address to the address of left table
@@ -1030,6 +1024,8 @@ public class Coordinator {
                     bucketNum = 1;
                     destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                 }
+                // process bucket shuffle join on fragment without scan node
+                TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
                 while (bucketSeq < bucketNum) {
                     TPlanFragmentDestination dest = new TPlanFragmentDestination();
 
@@ -1397,7 +1393,7 @@ public class Coordinator {
             fatherPlan = newPlan;
             newPlan = newPlan.getChild(0);
         }
-        return new Pair<PlanNode, PlanNode>(fatherPlan, newPlan);
+        return Pair.of(fatherPlan, newPlan);
     }
 
     private <K, V> V findOrInsert(HashMap<K, V> m, final K key, final V defaultVal) {
@@ -1447,7 +1443,7 @@ public class Coordinator {
             // 2. different scanNode id scan different scanRange which belong to the scanNode id
             // 3. split how many scanRange one instance should scan, same bucket do not split to different instance
             Pair<Integer, Map<Integer, List<TScanRangeParams>>> filteredScanRanges
-                    = Pair.create(scanRanges.getKey(), filteredNodeScanRanges);
+                    = Pair.of(scanRanges.getKey(), filteredNodeScanRanges);
 
             if (!addressToScanRanges.containsKey(address)) {
                 addressToScanRanges.put(address, Lists.newArrayList());
@@ -1525,7 +1521,7 @@ public class Coordinator {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode,
                         idToBackend, addressToBackendID);
             }
-            if (!(fragmentContainsColocateJoin | fragmentContainsBucketShuffleJoin)) {
+            if (!(fragmentContainsColocateJoin || fragmentContainsBucketShuffleJoin)) {
                 computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost);
             }
         }
@@ -1981,7 +1977,7 @@ public class Coordinator {
                     }
                 }
                 Pair<Integer, Map<Integer, List<TScanRangeParams>>> filteredScanRanges
-                        = Pair.create(scanRanges.getKey(), filteredNodeScanRanges);
+                        = Pair.of(scanRanges.getKey(), filteredNodeScanRanges);
 
                 if (!addressToScanRanges.containsKey(address)) {
                     addressToScanRanges.put(address, Lists.newArrayList());
@@ -2079,15 +2075,11 @@ public class Coordinator {
          * This information can be obtained from the cache of BE.
          */
         public void unsetFields() {
-            if (alreadySentBackendIds.contains(backend.getId())) {
-                this.rpcParams.unsetDescTbl();
-                this.rpcParams.unsetCoord();
-                this.rpcParams.unsetQueryGlobals();
-                this.rpcParams.unsetResourceInfo();
-                this.rpcParams.setIsSimplifiedParam(true);
-            } else {
-                this.rpcParams.setIsSimplifiedParam(false);
-            }
+            this.rpcParams.unsetDescTbl();
+            this.rpcParams.unsetCoord();
+            this.rpcParams.unsetQueryGlobals();
+            this.rpcParams.unsetResourceInfo();
+            this.rpcParams.setIsSimplifiedParam(true);
         }
 
         // update profile.
@@ -2222,6 +2214,7 @@ public class Coordinator {
             try {
                 TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
                 for (BackendExecState state : states) {
+                    state.initiated = true;
                     paramsList.addToParamsList(state.rpcParams);
                 }
                 return BackendServiceProxy.getInstance()

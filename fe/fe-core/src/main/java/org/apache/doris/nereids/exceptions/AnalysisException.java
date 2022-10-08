@@ -46,7 +46,6 @@ public class AnalysisException extends RuntimeException {
         this.plan = plan;
     }
 
-
     public AnalysisException(String message, Throwable cause) {
         this(message, cause, Optional.empty(), Optional.empty(), Optional.empty());
     }

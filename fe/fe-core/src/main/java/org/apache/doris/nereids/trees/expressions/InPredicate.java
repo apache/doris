@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -38,10 +39,10 @@ public class InPredicate extends Expression {
     private final Expression compareExpr;
     private final List<Expression> options;
 
-    public InPredicate(Expression compareExpr, List<Expression> optionsList) {
-        super(new Builder<Expression>().add(compareExpr).addAll(optionsList).build().toArray(new Expression[0]));
+    public InPredicate(Expression compareExpr, List<Expression> options) {
+        super(new Builder<Expression>().add(compareExpr).addAll(options).build().toArray(new Expression[0]));
         this.compareExpr = Objects.requireNonNull(compareExpr, "Compare Expr cannot be null");
-        this.options = ImmutableList.copyOf(Objects.requireNonNull(optionsList, "In list cannot be null"));
+        this.options = ImmutableList.copyOf(Objects.requireNonNull(options, "In list cannot be null"));
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -59,7 +60,7 @@ public class InPredicate extends Expression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public InPredicate withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() > 1);
         return new InPredicate(children.get(0), ImmutableList.copyOf(children).subList(1, children.size()));
     }
@@ -102,5 +103,17 @@ public class InPredicate extends Expression {
 
     public List<Expression> getOptions() {
         return options;
+    }
+
+    /**
+     * Return true when all children are Literal , otherwise, return false.
+     */
+    public boolean isLiteralChildren() {
+        for (Expression expression : options) {
+            if (!(expression instanceof Literal)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -47,6 +47,13 @@ RowBlock::~RowBlock() {
 
 void RowBlock::init(const RowBlockInfo& block_info) {
     _info = block_info;
+    // Sometimes info.column_ids is not set, which means all columns in the schema
+    // but some logic depends on column_ids, init here to avoid many if elses
+    if (_info.column_ids.empty()) {
+        for (uint32_t col_id = 0; col_id < _schema->num_columns(); ++col_id) {
+            _info.column_ids.push_back(col_id);
+        }
+    }
     _null_supported = block_info.null_supported;
     _capacity = _info.row_num;
     _compute_layout();

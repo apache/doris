@@ -18,9 +18,16 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -28,7 +35,9 @@ import java.util.Objects;
 /**
  * Not expression: not a.
  */
-public class Not extends Expression implements UnaryExpression {
+public class Not extends Expression implements UnaryExpression, ExpectsInputTypes, PropagateNullable {
+
+    public static final List<AbstractDataType> EXPECTS_INPUT_TYPES = ImmutableList.of(BooleanType.INSTANCE);
 
     public Not(Expression child) {
         super(child);
@@ -37,6 +46,11 @@ public class Not extends Expression implements UnaryExpression {
     @Override
     public boolean nullable() throws UnboundException {
         return child().nullable();
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        return child().getDataType();
     }
 
     @Override
@@ -75,5 +89,10 @@ public class Not extends Expression implements UnaryExpression {
     public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Not(children.get(0));
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        return EXPECTS_INPUT_TYPES;
     }
 }

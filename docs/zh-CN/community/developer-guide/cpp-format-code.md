@@ -66,8 +66,8 @@ centos yum安装的clang-format版本过老，支持的StyleOption太少，建�
 
 LDB toolchain:
 
-如果使用[LDB toolchain](../../docs/install/source-install/compilation-with-ldb-toolchain.md)，
-最新版本的[LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases)（>= v0.11）已经包含了预编译的clang-format
+如果使用 [LDB toolchain](/docs/install/source-install/compilation-with-ldb-toolchain)，
+最新版本的 [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases)（>= v0.11）已经包含了预编译的clang-format
 13.0.1的二进制文件。
 
 ### clang-format插件

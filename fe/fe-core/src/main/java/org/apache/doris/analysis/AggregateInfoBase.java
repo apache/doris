@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -106,6 +107,16 @@ public abstract class AggregateInfoBase {
         intermediateTupleDesc = createTupleDesc(analyzer, false);
         if (requiresIntermediateTuple(aggregateExprs, groupingExprs.size() == 0)) {
             outputTupleDesc = createTupleDesc(analyzer, true);
+            // save the output and intermediate slots info into global desc table
+            // after creaing the plan, we can call materializeIntermediateSlots method
+            // to set the materialized info to intermediate slots based on output slots.
+            ArrayList<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
+            ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc.getSlots();
+            HashMap<SlotDescriptor, SlotDescriptor> mapping = new HashMap<>();
+            for (int i = 0; i < outputSlots.size(); ++i) {
+                mapping.put(outputSlots.get(i), intermediateSlots.get(i));
+            }
+            analyzer.getDescTbl().addSlotMappingInfo(mapping);
         } else {
             outputTupleDesc = intermediateTupleDesc;
         }
@@ -132,6 +143,11 @@ public abstract class AggregateInfoBase {
         boolean isGroupingSet = !groupingExprs.isEmpty()
                 && groupingExprs.get(groupingExprs.size() - 1) instanceof VirtualSlotRef;
 
+        // the agg node may output slots from child outer join node
+        // to make the agg node create the output tuple desc correctly, we need change the slots' to nullable
+        // from all outer join nullable side temporarily
+        // after create the output tuple we need revert the change by call analyzer.changeSlotsToNotNullable(slots)
+        List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(result);
@@ -177,6 +193,7 @@ public abstract class AggregateInfoBase {
                 }
             }
         }
+        analyzer.changeSlotsToNotNullable(slots);
 
         if (LOG.isTraceEnabled()) {
             String prefix = (isOutputTuple ? "result " : "intermediate ");

@@ -21,10 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-
-import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Optional;
@@ -48,11 +45,4 @@ public abstract class LogicalLeaf extends AbstractLogicalPlan implements LeafPla
     }
 
     public abstract List<Slot> computeOutput();
-
-
-    @Override
-    public LogicalProperties computeLogicalProperties(Plan... inputs) {
-        Preconditions.checkArgument(inputs.length == 0);
-        return new LogicalProperties(() -> computeOutput());
-    }
 }

@@ -75,7 +75,10 @@ public class KeysDesc implements Writable {
                 if (cols.stream().noneMatch(col -> col.getName().equalsIgnoreCase(keyName))) {
                     throw new AnalysisException("Key column[" + keyName + "] doesn't exist.");
                 }
-                throw new AnalysisException("Key columns should be a ordered prefix of the schema.");
+                throw new AnalysisException("Key columns should be a ordered prefix of the schema."
+                        + " KeyColumns[" + i + "] (starts from zero) is " + keyName + ", "
+                        + "but corresponding column is " + name  + " in the previous "
+                        + "columns declaration.");
             }
 
             if (cols.get(i).getAggregateType() != null) {

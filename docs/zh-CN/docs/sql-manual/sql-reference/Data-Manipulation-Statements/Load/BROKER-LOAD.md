@@ -358,7 +358,7 @@ WITH BROKER broker_name
    )
    WITH HDFS
    (
-       "username"="user",
+       "hadoop.username"="user",
        "password"="pass"
    )
    PROPERTIES
@@ -385,7 +385,7 @@ WITH BROKER broker_name
    ) 
    WITH HDFS
    (
-       "username"="user",
+       "hadoop.username"="user",
        "password"="pass"
    )
    ```

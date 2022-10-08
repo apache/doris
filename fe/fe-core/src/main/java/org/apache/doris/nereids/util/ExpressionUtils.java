@@ -18,18 +18,29 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -77,6 +88,18 @@ public class ExpressionUtils {
         }
     }
 
+    public static Optional<Expression> optionalAnd(List<Expression> expressions) {
+        if (expressions.isEmpty()) {
+            return Optional.empty();
+        } else {
+            return Optional.of(ExpressionUtils.and(expressions));
+        }
+    }
+
+    public static Optional<Expression> optionalAnd(Expression... expressions) {
+        return optionalAnd(Lists.newArrayList(expressions));
+    }
+
     public static Expression and(List<Expression> expressions) {
         return combine(And.class, expressions);
     }
@@ -119,20 +142,145 @@ public class ExpressionUtils {
 
         return distinctExpressions.stream()
                 .reduce(type == And.class ? And::new : Or::new)
-                .orElse(new BooleanLiteral(type == And.class));
+                .orElse(BooleanLiteral.of(type == And.class));
     }
 
     /**
-     * Check whether lhs and rhs (both are List of SlotReference) are intersecting.
+     * Check whether lhs and rhs are intersecting.
      */
-    public static boolean isIntersecting(List<SlotReference> lhs, List<SlotReference> rhs) {
-        for (SlotReference lSlot : lhs) {
-            for (SlotReference rSlot : rhs) {
-                if (lSlot.equals(rSlot)) {
-                    return true;
-                }
+    public static <T> boolean isIntersecting(Set<T> lhs, List<T> rhs) {
+        for (T rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Check whether lhs and rhs are intersecting.
+     */
+    public static <T> boolean isIntersecting(Set<T> lhs, Set<T> rhs) {
+        for (T rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Choose the minimum slot from input parameter.
+     */
+    public static Slot selectMinimumColumn(List<Slot> slots) {
+        Preconditions.checkArgument(!slots.isEmpty());
+        Slot minSlot = null;
+        for (Slot slot : slots) {
+            if (minSlot == null) {
+                minSlot = slot;
+            } else {
+                int slotDataTypeWidth = slot.getDataType().width();
+                minSlot = minSlot.getDataType().width() > slotDataTypeWidth ? slot : minSlot;
+            }
+        }
+        return minSlot;
+    }
+
+    /**
+     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
+     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
+     * <p>
+     * for example:
+     * - SlotReference to a column:
+     * col
+     * - Cast on SlotReference:
+     * cast(int_col as string)
+     * cast(cast(int_col as long) as string)
+     *
+     * @param expr input expression
+     * @return Return Optional[ExprId] of underlying slot reference if input expression is a slot or cast on slot.
+     *         Otherwise, return empty optional result.
+     */
+    public static Optional<ExprId> isSlotOrCastOnSlot(Expression expr) {
+        while (expr instanceof Cast) {
+            expr = expr.child(0);
+        }
+
+        if (expr instanceof SlotReference) {
+            return Optional.of(((SlotReference) expr).getExprId());
+        } else {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     * For example.
+     * <pre>
+     * input expression: a > 1
+     * replaceMap: a -> b + c
+     *
+     * output:
+     * b + c > 1
+     * </pre>
+     */
+    public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
+        return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+    }
+
+    public static List<Expression> replace(List<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        return exprs.stream()
+                .map(expr -> replace(expr, replaceMap))
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    private static class ExpressionReplacer
+            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
+        public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
+
+        private ExpressionReplacer() {
+        }
+
+        @Override
+        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
+            if (replaceMap.containsKey(expr)) {
+                return replaceMap.get(expr);
+            }
+            return super.visit(expr, replaceMap);
+        }
+    }
+
+    /**
+     * merge arguments into an expression array
+     * @param arguments instance of Expression or Expression Array
+     * @return Expression Array
+     */
+    public static List<Expression> mergeArguments(Object... arguments) {
+        Builder<Expression> builder = ImmutableList.builder();
+        for (Object argument : arguments) {
+            if (argument instanceof Expression[]) {
+                builder.addAll(Arrays.asList((Expression[]) argument));
+            } else {
+                builder.add((Expression) argument);
+            }
+        }
+        return builder.build();
+    }
+
+    public static boolean isAllLiteral(Expression... children) {
+        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean isAllLiteral(List<Expression> children) {
+        return children.stream().allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean hasNullLiteral(List<Expression> children) {
+        return children.stream().anyMatch(c -> c instanceof NullLiteral);
+    }
+
+    public static boolean isAllNullLiteral(List<Expression> children) {
+        return children.stream().allMatch(c -> c instanceof NullLiteral);
     }
 }

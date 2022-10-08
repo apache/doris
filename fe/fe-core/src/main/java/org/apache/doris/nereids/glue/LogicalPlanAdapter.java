@@ -22,6 +22,7 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.ArrayList;
@@ -81,5 +82,9 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     public String toDigest() {
         // TODO: generate real digest
         return "";
+    }
+
+    public static LogicalPlanAdapter of(Plan plan) {
+        return new LogicalPlanAdapter((LogicalPlan) plan);
     }
 }

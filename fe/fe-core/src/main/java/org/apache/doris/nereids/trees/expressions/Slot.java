@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+
+import java.util.List;
+
 /**
  * Abstract class for all slot in expression.
  */
@@ -28,6 +32,10 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
     }
 
     public Slot withNullable(boolean newNullable) {
+        throw new RuntimeException("Do not implement");
+    }
+
+    public Slot withQualifier(List<String> qualifiers) {
         throw new RuntimeException("Do not implement");
     }
 }

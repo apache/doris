@@ -25,7 +25,13 @@ suite("test_current_timestamp") {
             id TINYINT,
             name CHAR(10) NOT NULL DEFAULT "zs",
             dt_0 DATETIME,
-            dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP
+            dt_2 DATETIMEV2,
+            dt_4 DATETIMEV2(3),
+            dt_6 DATETIMEV2(6),
+            dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
+            dt_3 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
+            dt_5 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
+            dt_7 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
         )
         COMMENT "test current_timestamp table"
         DISTRIBUTED BY HASH(id)
@@ -33,23 +39,29 @@ suite("test_current_timestamp") {
     """
     
     // test insert into.
-    sql " insert into ${tableName} (id,name,dt_0) values (1,'aa',current_timestamp()); "
-    sql " insert into ${tableName} (id,name,dt_0) values (2,'bb',current_timestamp()); "
-    sql " insert into ${tableName} (id,name,dt_0) values (3,'cc',current_timestamp()); "
-    sql " insert into ${tableName} (id,name,dt_0) values (4,'dd',current_timestamp()); "
+    sql " insert into ${tableName} (id,name,dt_0,dt_2,dt_4,dt_6) values (1,'aa',current_timestamp(),current_timestamp(),current_timestamp(),current_timestamp()); "
+    sql " insert into ${tableName} (id,name,dt_0,dt_2,dt_4,dt_6) values (2,'bb',current_timestamp(),current_timestamp(),current_timestamp(),current_timestamp()); "
+    sql " insert into ${tableName} (id,name,dt_0,dt_2,dt_4,dt_6) values (3,'cc',current_timestamp(),current_timestamp(),current_timestamp(),current_timestamp()); "
+    sql " insert into ${tableName} (id,name,dt_0,dt_2,dt_4,dt_6) values (4,'dd',current_timestamp(),current_timestamp(),current_timestamp(),current_timestamp()); "
 
     qt_insert_into """ select count(*) from ${tableName} where to_date(dt_0) = to_date(dt_1); """
+    qt_insert_into """ select count(*) from ${tableName} where to_date(dt_2) = to_date(dt_3); """
+    qt_insert_into """ select count(*) from ${tableName} where to_date(dt_4) = to_date(dt_5); """
+    qt_insert_into """ select count(*) from ${tableName} where to_date(dt_6) = to_date(dt_7); """
 
     // test stream load.
     streamLoad {
         table "${tableName}"
 
         set 'column_separator', ','
-        set 'columns', 'id, name, dt_0 = current_timestamp()'
+        set 'columns', 'id, name, dt_0 = current_timestamp(), dt_2 = current_timestamp(), dt_4 = current_timestamp(), dt_6 = current_timestamp()'
 
         file 'test_current_timestamp_streamload.csv'
 
         time 10000 // limit inflight 10s
     }
     qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_0) = to_date(dt_1); """
+    qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_2) = to_date(dt_3); """
+    qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_4) = to_date(dt_5); """
+    qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_6) = to_date(dt_7); """
  }

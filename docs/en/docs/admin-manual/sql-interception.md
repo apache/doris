@@ -48,13 +48,18 @@ SQL block rule CRUD
 ```sql
 CREATE SQL_BLOCK_RULE test_rule 
 PROPERTIES(
-  "sql"="select * from order_analysis",
+  "sql"="select \\* from order_analysis",
   "global"="false",
   "enable"="true",
   "sqlHash"=""
 )
 ```
+> Notes:
+>
+> That the sql statement here does not end with a semicolon
+
 When we execute the sql that we defined in the rule just now, an exception error will be returned. An example is as follows:
+
 ```sql
 mysql> select * from order_analysis;
 ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule: order_analysis_rule

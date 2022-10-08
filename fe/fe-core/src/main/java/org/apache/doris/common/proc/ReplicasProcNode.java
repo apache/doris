@@ -33,12 +33,10 @@ import java.util.List;
  * show replicas' detail info within a tablet
  */
 public class ReplicasProcNode implements ProcNodeInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("ReplicaId").add("BackendId").add("Version")
-            .add("LstSuccessVersion").add("LstFailedVersion")
-            .add("LstFailedTime").add("SchemaHash").add("DataSize").add("RowCount").add("State")
-            .add("IsBad").add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
-            .build();
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("ReplicaId")
+            .add("BackendId").add("Version").add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
+            .add("SchemaHash").add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State").add("IsBad")
+            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus").build();
 
     private long tabletId;
     private List<Replica> replicas;
@@ -77,6 +75,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
                                         String.valueOf(replica.getSchemaHash()),
                                         String.valueOf(replica.getDataSize()),
+                                        String.valueOf(replica.getRemoteDataSize()),
                                         String.valueOf(replica.getRowCount()),
                                         String.valueOf(replica.getState()),
                                         String.valueOf(replica.isBad()),

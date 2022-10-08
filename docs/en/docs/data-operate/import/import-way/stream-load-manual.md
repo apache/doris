@@ -312,7 +312,7 @@ By default, BE does not record Stream Load records. If you want to view records 
 
 	The timeout time of the import task (in seconds) will be cancelled by the system if the import task is not completed within the set timeout time, and will become CANCELLED.
 
-	At present, Stream load does not support custom import timeout time. All Stream load import timeout time is uniform. The default timeout time is 300 seconds. If the imported source file can no longer complete the import within the specified time, the FE parameter ```stream_load_default_timeout_second``` needs to be adjusted.
+	At present, Stream load does not support custom import timeout time. All Stream load import timeout time is uniform. The default timeout time is 600 seconds. If the imported source file can no longer complete the import within the specified time, the FE parameter ```stream_load_default_timeout_second``` needs to be adjusted.
 
 ### BE configuration
 
@@ -335,7 +335,7 @@ For example, the size of the file to be imported is 15G
 Modify the BE configuration streaming_load_max_mb to 16000
 ```
 
-Stream load default timeout is 300 seconds, according to Doris currently the largest import speed limit, about more than 3G files need to modify the import task default timeout.
+Stream load default timeout is 600 seconds, according to Doris currently the largest import speed limit, about more than 3G files need to modify the import task default timeout.
 
 ```
 Import Task Timeout = Import Data Volume / 10M / s (Specific Average Import Speed Requires Users to Calculate Based on Their Cluster Conditions)
@@ -365,7 +365,7 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 + Step 3: Create Import Tasks
 
     ```
-    curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8000/api/bj_sales/store_sales/_stream_load
+    curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8030/api/bj_sales/store_sales/_stream_load
     ```
 
 ## Common Questions

@@ -155,6 +155,8 @@ Parameter | Description
 
 An important ability of `Doris On ES` is the push-down of filter conditions: The filtering conditions are pushed to ES, so that only the data that really meets the conditions will be returned, which can significantly improve query performance and reduce CPU, memory, and IO utilization of Doris and ES
 
+`enable_new_es_dsl`Represents whether to use the new dsl generation logic, subsequent bug fixes and iterations are development in the new dsl, default to `true`, can be changed in `fe.conf`
+
 The following operators (Operators) will be optimized to the following ES Query:
 
 | SQL syntax  | ES 5.x+ syntax | 

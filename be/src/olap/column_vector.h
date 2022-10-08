@@ -233,6 +233,13 @@ public:
      */
     void get_offset_by_length(size_t start_idx, size_t size);
 
+    // From `start_idx`, put `size` ordinals to _item_offsets
+    // Ex:
+    // original _item_offsets: 0 3 5 9; ordinals to be added: 100 105 111; size: 3; start_idx: 3
+    // --> _item_offsets: 0 3 5 9 (9 + 105 - 100) (9 + 111 - 100)
+    // _item_offsets becomes 0 3 5 9 14 20
+    void put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx, size_t size);
+
     size_t get_item_size(size_t start_idx, size_t size) {
         return *(_offsets->scalar_cell_ptr(start_idx + size)) -
                *(_offsets->scalar_cell_ptr(start_idx));

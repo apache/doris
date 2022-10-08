@@ -17,7 +17,7 @@
 
 #include "util/sm3.h"
 
-#include "util/logging.h"
+#include "common/logging.h"
 
 namespace doris {
 

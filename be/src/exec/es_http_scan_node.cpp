@@ -48,7 +48,7 @@ EsHttpScanNode::EsHttpScanNode(ObjectPool* pool, const TPlanNode& tnode, const D
 EsHttpScanNode::~EsHttpScanNode() {}
 
 Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(ScanNode::init(tnode));
+    RETURN_IF_ERROR(ScanNode::init(tnode, state));
 
     // use TEsScanNode
     _properties = tnode.es_scan_node.properties;
@@ -124,6 +124,11 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
+
+    if (_properties.find(ESScanReader::KEY_QUERY_DSL) != _properties.end()) {
+        RETURN_IF_ERROR(start_scanners());
+        return Status::OK();
+    }
 
     // if conjunct is constant, compute direct and set eos = true
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {

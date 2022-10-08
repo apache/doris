@@ -21,18 +21,28 @@ import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
+import com.google.gson.annotations.SerializedName;
+
 public class MVRefreshTriggerInfo {
+    @SerializedName("refreshTrigger")
     private RefreshTrigger refreshTrigger;
+    @SerializedName("intervalTrigger")
     private MVRefreshIntervalTriggerInfo intervalTrigger;
 
-    public MVRefreshTriggerInfo(MVRefreshIntervalTriggerInfo trigger) {
-        this.intervalTrigger = trigger;
-        this.refreshTrigger = RefreshTrigger.INTERVAL;
-    }
+    // For deserialization
+    public MVRefreshTriggerInfo() {}
 
     public MVRefreshTriggerInfo(RefreshTrigger trigger) {
-        this.intervalTrigger = null;
-        this.refreshTrigger = trigger;
+        this(trigger, null);
+    }
+
+    public MVRefreshTriggerInfo(MVRefreshIntervalTriggerInfo trigger) {
+        this(RefreshTrigger.INTERVAL, trigger);
+    }
+
+    public MVRefreshTriggerInfo(RefreshTrigger refreshTrigger, MVRefreshIntervalTriggerInfo intervalTrigger) {
+        this.refreshTrigger = refreshTrigger;
+        this.intervalTrigger = intervalTrigger;
     }
 
     void analyze(Analyzer analyzer) throws UserException {
@@ -47,6 +57,10 @@ public class MVRefreshTriggerInfo {
 
     public RefreshTrigger getRefreshTrigger() {
         return refreshTrigger;
+    }
+
+    public MVRefreshIntervalTriggerInfo getIntervalTrigger() {
+        return intervalTrigger;
     }
 
     @Override

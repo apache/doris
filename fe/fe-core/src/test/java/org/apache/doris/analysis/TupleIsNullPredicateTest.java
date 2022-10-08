@@ -30,7 +30,7 @@ public class TupleIsNullPredicateTest {
         List<TupleId> tupleIds = Lists.newArrayList();
         tupleIds.add(new TupleId(20));
         tupleIds.add(new TupleId(21));
-        TupleIsNullPredicate tupleIsNullPredicate = new TupleIsNullPredicate(tupleIds);
+        TupleIsNullPredicate tupleIsNullPredicate = new TupleIsNullPredicate(tupleIds, null);
         Assert.assertFalse(tupleIsNullPredicate.isBoundByTupleIds(Lists.newArrayList(new TupleId(1))));
     }
 }

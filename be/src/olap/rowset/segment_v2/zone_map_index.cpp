@@ -29,7 +29,8 @@ namespace doris {
 
 namespace segment_v2 {
 
-ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field) : _field(field) {
+template <PrimitiveType Type>
+TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(Field* field) : _field(field) {
     _page_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
     _page_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
     _reset_zone_map(&_page_zone_map);
@@ -38,35 +39,44 @@ ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field) : _field(field) {
     _reset_zone_map(&_segment_zone_map);
 }
 
-void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
+template <PrimitiveType Type>
+void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count) {
     if (count > 0) {
         _page_zone_map.has_not_null = true;
     }
-    const char* vals = reinterpret_cast<const char*>(values);
-    for (int i = 0; i < count; ++i) {
-        if (_field->compare(_page_zone_map.min_value, vals) > 0) {
-            _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value, vals);
-        }
-        if (_field->compare(_page_zone_map.max_value, vals) < 0) {
-            _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value, vals);
-        }
-        vals += _field->size();
+    using ValType =
+            std::conditional_t<Type == TYPE_DATE, uint24_t,
+                               typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
+    const ValType* vals = reinterpret_cast<const ValType*>(values);
+    auto [min, max] = std::minmax_element(vals, vals + count);
+    if (unaligned_load<ValType>(min) < unaligned_load<ValType>(_page_zone_map.min_value)) {
+        _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value,
+                                                 reinterpret_cast<const void*>(min));
+    }
+    if (unaligned_load<ValType>(max) > unaligned_load<ValType>(_page_zone_map.max_value)) {
+        _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value,
+                                                 reinterpret_cast<const void*>(max));
     }
 }
 
-void ZoneMapIndexWriter::moidfy_index_before_flush(struct doris::segment_v2::ZoneMap& zone_map) {
+template <PrimitiveType Type>
+void TypedZoneMapIndexWriter<Type>::moidfy_index_before_flush(
+        struct doris::segment_v2::ZoneMap& zone_map) {
     _field->modify_zone_map_index(zone_map.max_value);
 }
 
-void ZoneMapIndexWriter::reset_page_zone_map() {
+template <PrimitiveType Type>
+void TypedZoneMapIndexWriter<Type>::reset_page_zone_map() {
     _page_zone_map.pass_all = true;
 }
 
-void ZoneMapIndexWriter::reset_segment_zone_map() {
+template <PrimitiveType Type>
+void TypedZoneMapIndexWriter<Type>::reset_segment_zone_map() {
     _segment_zone_map.pass_all = true;
 }
 
-Status ZoneMapIndexWriter::flush() {
+template <PrimitiveType Type>
+Status TypedZoneMapIndexWriter<Type>::flush() {
     // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _page_zone_map.min_value) > 0) {
         _field->type_info()->direct_copy(_segment_zone_map.min_value, _page_zone_map.min_value);
@@ -96,7 +106,9 @@ Status ZoneMapIndexWriter::flush() {
     return Status::OK();
 }
 
-Status ZoneMapIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) {
+template <PrimitiveType Type>
+Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
+                                             ColumnIndexMetaPB* index_meta) {
     index_meta->set_type(ZONE_MAP_INDEX);
     ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
     // store segment zone map
@@ -152,5 +164,45 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     return Status::OK();
 }
 
+#define APPLY_FOR_PRIMITITYPE(M) \
+    M(TYPE_TINYINT)              \
+    M(TYPE_SMALLINT)             \
+    M(TYPE_INT)                  \
+    M(TYPE_BIGINT)               \
+    M(TYPE_LARGEINT)             \
+    M(TYPE_FLOAT)                \
+    M(TYPE_DOUBLE)               \
+    M(TYPE_CHAR)                 \
+    M(TYPE_DATE)                 \
+    M(TYPE_DATETIME)             \
+    M(TYPE_DATEV2)               \
+    M(TYPE_DATETIMEV2)           \
+    M(TYPE_VARCHAR)              \
+    M(TYPE_STRING)               \
+    M(TYPE_DECIMAL32)            \
+    M(TYPE_DECIMAL64)            \
+    M(TYPE_DECIMAL128)
+
+Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res) {
+    switch (field->type()) {
+#define M(NAME)                                              \
+    case OLAP_FIELD_##NAME: {                                \
+        res.reset(new TypedZoneMapIndexWriter<NAME>(field)); \
+        return Status::OK();                                 \
+    }
+        APPLY_FOR_PRIMITITYPE(M)
+#undef M
+    case OLAP_FIELD_TYPE_DECIMAL: {
+        res.reset(new TypedZoneMapIndexWriter<TYPE_DECIMALV2>(field));
+        return Status::OK();
+    }
+    case OLAP_FIELD_TYPE_BOOL: {
+        res.reset(new TypedZoneMapIndexWriter<TYPE_BOOLEAN>(field));
+        return Status::OK();
+    }
+    default:
+        return Status::InvalidArgument("Invalid type!");
+    }
+}
 } // namespace segment_v2
 } // namespace doris

@@ -19,6 +19,7 @@
 
 #include <string_view>
 
+#include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "vec/columns/column_set.h"
 #include "vec/core/field.h"
@@ -29,22 +30,18 @@
 namespace doris::vectorized {
 
 VInPredicate::VInPredicate(const TExprNode& node)
-        : VExpr(node), _is_not_in(node.in_predicate.is_not_in), _is_prepare(false) {}
+        : VExpr(node), _is_not_in(node.in_predicate.is_not_in) {}
 
 Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                              VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
-    if (_is_prepare) {
-        return Status::OK();
-    }
     if (_children.size() < 1) {
         return Status::InternalError("no Function operator in.");
     }
 
     _expr_name =
             fmt::format("({} {} set)", _children[0]->expr_name(), _is_not_in ? "not_in" : "in");
-    _is_prepare = true;
 
     DCHECK(_children.size() >= 1);
     ColumnsWithTypeAndName argument_template;
@@ -85,7 +82,7 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
-        _children[i]->execute(context, block, &column_id);
+        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
     }
     // call function

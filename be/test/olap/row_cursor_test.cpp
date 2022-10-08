@@ -24,7 +24,6 @@
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/mem_pool.h"
-#include "util/logging.h"
 #include "util/types.h"
 
 namespace doris {

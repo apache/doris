@@ -41,7 +41,6 @@ public:
     virtual std::string debug_string() const override;
 
 private:
-    bool _is_prepare;
     bool _has_case_expr;
     bool _has_else_expr;
 

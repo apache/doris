@@ -146,7 +146,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         // get all groups
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
-            Database db = env.getInternalDataSource().getDbNullable(groupId.dbId);
+            Database db = env.getInternalCatalog().getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }
@@ -214,7 +214,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
-            Database db = env.getInternalDataSource().getDbNullable(groupId.dbId);
+            Database db = env.getInternalCatalog().getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }
@@ -385,6 +385,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 if (!seqIndexes.isEmpty()) {
                     srcBeId = beId;
                     hasUnavailableBe = true;
+                    LOG.info("find unavailable backend {} in colocate group: {}", beId, groupId);
                     break;
                 }
             }
@@ -394,7 +395,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                             unavailableBeIds, statistic, flatBackendsPerBucketSeq);
 
             // if there is only one available backend and no unavailable bucketId to relocate, end the outer loop
-            if (backendWithReplicaNum.size() <= 1) {
+            if (backendWithReplicaNum.size() <= 1 && !hasUnavailableBe) {
                 break;
             }
 

@@ -243,7 +243,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION,KW_NGRAM_BF, KW_QUANTILE_STATE, KW_QUANTILE_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILD, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN, KW_CURRENT_TIMESTAMP,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT, KW_COMPLETE,
-    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
+    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COPY, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DATEV2, KW_DATETIMEV2, KW_DAY, KW_DECIMAL, KW_DECIMALV3, KW_DECOMMISSION, KW_DEFAULT, KW_DEFERRED, KW_DEMAND, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_UPDATE, KW_DIAGNOSE, KW_DISK, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_ENABLE, KW_ENCRYPTKEY, KW_ENCRYPTKEYS, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
@@ -253,12 +253,12 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_HASH, KW_HAVING, KW_HDFS, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IMMEDIATE, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERSECT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL, KW_ISOLATION,
-    KW_JOB, KW_JOIN,
+    KW_JOB, KW_JOIN, KW_JSON,
     KW_KEY, KW_KEYS, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LIST, KW_LOAD,
     KW_LOCAL, KW_LOCATION, KW_LOCK, KW_LOW_PRIORITY, KW_LATERAL,
     KW_MAP, KW_MATERIALIZED, KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
-    KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NEVER, KW_NEXT, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
+    KW_NAME, KW_NAMES, KW_NATURAL, KW_NEGATIVE, KW_NEVER, KW_NEXT, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OUTFILE, KW_OVER,
     KW_PARAMETER, KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_LDAP_ADMIN_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
     KW_PLUGIN, KW_PLUGINS, KW_POLICY,
@@ -279,7 +279,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_YEAR,
     KW_NOT_NULL,
     KW_CATALOG, KW_CATALOGS,
-    KW_SWITCH;
+    KW_SWITCH,
+    KW_ANALYZE;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -304,7 +305,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -446,6 +447,7 @@ nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
+nonterminal KeysDesc opt_mv_keys;
 
 nonterminal PartitionKeyDesc partition_key_desc;
 nonterminal PartitionKeyDesc list_partition_key_desc;
@@ -765,6 +767,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | clean_stmt:stmt
     {: RESULT = stmt; :}
+    | analyze_stmt:stmt
+    {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
         RESULT = new EmptyStmt();
@@ -809,6 +813,10 @@ refresh_stmt ::=
     | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv KW_COMPLETE
     {:
         RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
+    :}
+    | KW_REFRESH KW_CATALOG ident:catalogName
+    {:
+        RESULT = new RefreshCatalogStmt(catalogName);
     :}
     ;
 
@@ -1335,6 +1343,16 @@ opt_mv_refersh_info ::=
     :}
     ;
 
+opt_mv_keys ::=
+    {:
+        RESULT = new KeysDesc(KeysType.DUP_KEYS, Lists.newArrayList());
+    :}
+    | KW_KEY LPAREN ident_list:keys RPAREN
+    {:
+        RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
+    :}
+    ;
+
 // Create Statement
 create_stmt ::=
     /* Database */
@@ -1459,12 +1477,13 @@ create_stmt ::=
     :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
-         opt_partition:partition
-         opt_distribution:distribution
-         opt_properties:tblProperties
+         opt_mv_keys:keyDesc
+         opt_partition:partitionDesc
+         opt_distribution:distributionDesc
+         opt_properties:properties
          KW_AS query_stmt:query
     {:
-        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, partition, distribution, tblProperties, query);
+        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, partitionDesc, distributionDesc, properties, query);
     :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type_with_arguments:indexTypeWithArguments opt_comment:comment
     {:
@@ -2062,6 +2081,14 @@ show_create_routine_load_stmt ::=
     | KW_SHOW KW_ALL KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowCreateRoutineLoadStmt(jobLabel, true);
+    :}
+    ;
+
+// analyze statment
+analyze_stmt ::=
+    KW_ANALYZE opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    {:
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
     :}
     ;
 
@@ -3105,14 +3132,14 @@ show_param ::=
         RESULT = new ShowSyncJobStmt(dbName);
     :}
     /* show table stats */
-    | KW_TABLE KW_STATS opt_table_name:tbl
+    | KW_TABLE KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowTableStatsStmt(tbl);
+        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
     :}
     /* show column stats */
-    | KW_COLUMN KW_STATS table_name:tbl
+    | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowColumnStatsStmt(tbl);
+        RESULT = new ShowColumnStatsStmt(tbl, partitionNames);
     :}
     /* show table creation statement */
     | KW_TABLE KW_CREATION opt_db:db opt_wild_where
@@ -3127,6 +3154,15 @@ show_param ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_ON table_name:tableName
     {:
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
+    :}
+    /* show analyze job */
+    | KW_ANALYZE integer_list:jobIds
+    {:
+        RESULT = new ShowAnalyzeStmt(jobIds);
+    :}
+    | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
     :}
     ;
 
@@ -4594,6 +4630,12 @@ join_operator ::=
   {: RESULT = JoinOperator.RIGHT_ANTI_JOIN; :}
   | KW_CROSS KW_JOIN
   {: RESULT = JoinOperator.CROSS_JOIN; :}
+  | KW_NATURAL KW_JOIN
+  {:
+      if (RESULT == null) {
+          throw new AnalysisException("natural join is not supported, please use inner join instead.");
+      }
+  :}
   ;
 
 opt_inner ::=
@@ -4764,12 +4806,16 @@ order_by_elements ::=
   order_by_element:e
   {:
     ArrayList<OrderByElement> list = new ArrayList<OrderByElement>();
-    list.add(e);
+    if (!(e.getExpr() instanceof NullLiteral)) {
+        list.add(e);
+    }
     RESULT = list;
   :}
   | order_by_elements:list COMMA order_by_element:e
   {:
-    list.add(e);
+    if (!(e.getExpr() instanceof NullLiteral)) {
+        list.add(e);
+    }
     RESULT = list;
   :}
   ;
@@ -4853,36 +4899,32 @@ type ::=
   {: RESULT = Type.QUANTILE_STATE; :}
   | KW_STRING
   {: RESULT = ScalarType.createStringType(); :}
+  | KW_JSON
+  {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_VARCHAR LPAREN ident_or_text:lenStr RPAREN
   {: ScalarType type = ScalarType.createVarcharType(lenStr);
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
   {: RESULT = new ArrayType(value_type); :}
-  | KW_ARRAY LESSTHAN KW_NOT_NULL LPAREN type:value_type RPAREN GREATERTHAN
-  {: RESULT = new ArrayType(value_type, false); :}
   | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
   {: RESULT = new StructType(fields); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createCharType(len.intValue());
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_CHAR LPAREN ident_or_text:lenStr RPAREN
   {: ScalarType type = ScalarType.createCharType(lenStr);
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_CHAR
@@ -4909,7 +4951,6 @@ type ::=
   {: RESULT = ScalarType.createDecimalV3Type(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
-     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_ALL
@@ -5644,6 +5685,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminShowTabletStorageFormatStmt(true);
     :}
+    | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
+    {:
+        RESULT = new AdminCopyTabletStmt(tabletId, properties);
+    :}
     ;
 
 truncate_stmt ::=
@@ -5819,6 +5864,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_CONVERT:id
     {: RESULT = id; :}
+    | KW_COPY:id
+    {: RESULT = id; :}
     | KW_CREATION:id
     {: RESULT = id; :}
     | KW_DATA:id
@@ -5902,6 +5949,8 @@ keyword ::=
     | KW_ISOLATION:id
     {: RESULT = id; :}
     | KW_JOB:id
+    {: RESULT = id; :}
+    | KW_JSON:id
     {: RESULT = id; :}
     | KW_ENCRYPTKEY:id
     {: RESULT = id; :}

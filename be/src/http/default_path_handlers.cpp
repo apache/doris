@@ -31,6 +31,7 @@
 #include "http/web_page_handler.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/debug_util.h"
+#include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 #include "util/thread.h"
 
@@ -87,10 +88,8 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
               << PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->limit(),
                                       TUnit::BYTES)
               << std::endl
-              << "Mem Consumption: "
-              << PrettyPrinter::print(ExecEnv::GetInstance()->process_mem_tracker()->consumption(),
-                                      TUnit::BYTES)
-              << std::endl
+              << "Physical Mem From Perf: "
+              << PrettyPrinter::print(PerfCounters::get_vm_rss(), TUnit::BYTES) << std::endl
               << "</pre>";
 
     (*output) << "<pre>";
@@ -155,6 +154,7 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     std::vector<MemTracker::Snapshot> snapshots;
     ExecEnv::GetInstance()->process_mem_tracker()->make_snapshot(&snapshots, cur_level,
                                                                  upper_level);
+    MemTracker::make_global_mem_tracker_snapshot(&snapshots);
     for (const auto& item : snapshots) {
         string limit_str = item.limit == -1 ? "none" : AccurateItoaKMGT(item.limit);
         string current_consumption_normalize = AccurateItoaKMGT(item.cur_consumption);

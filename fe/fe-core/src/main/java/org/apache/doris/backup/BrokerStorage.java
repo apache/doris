@@ -609,7 +609,7 @@ public class BrokerStorage extends BlobStorage {
     }
 
     public Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> result = new Pair<>(null, null);
+        Pair<TPaloBrokerService.Client, TNetworkAddress> result = Pair.of(null, null);
         FsBroker broker;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();

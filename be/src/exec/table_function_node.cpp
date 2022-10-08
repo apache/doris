@@ -286,8 +286,9 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                 TupleDescriptor* child_tuple_desc = child_rowdesc.tuple_descriptors()[tuple_idx];
                 TupleDescriptor* parent_tuple_desc = parent_rowdesc.tuple_descriptors()[tuple_idx];
 
-                Tuple* child_tuple = _cur_child_tuple_row->get_tuple(
-                        child_rowdesc.get_tuple_idx(child_tuple_desc->id()));
+                auto tuple_idx = child_rowdesc.get_tuple_idx(child_tuple_desc->id());
+                RETURN_IF_INVALID_TUPLE_IDX(child_tuple_desc->id(), tuple_idx);
+                Tuple* child_tuple = _cur_child_tuple_row->get_tuple(tuple_idx);
 
                 // The child tuple is nullptr, only when the child tuple is from outer join. so we directly set
                 // parent_tuple have same tuple_idx nullptr to mock the behavior
@@ -299,13 +300,22 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                         SlotDescriptor* child_slot_desc = child_tuple_desc->slots()[j];
                         SlotDescriptor* parent_slot_desc = parent_tuple_desc->slots()[j];
 
-                        if (_output_slot_ids[parent_slot_desc->id()] &&
-                            !child_tuple->is_null(child_slot_desc->null_indicator_offset()) &&
-                            child_slot_desc->type().is_string_type()) {
+                        if (child_tuple->is_null(child_slot_desc->null_indicator_offset())) {
+                            continue;
+                        }
+                        if (child_slot_desc->type().is_string_type()) {
                             void* dest_slot = tuple_ptr->get_slot(parent_slot_desc->tuple_offset());
-                            RawValue::write(child_tuple->get_slot(child_slot_desc->tuple_offset()),
-                                            dest_slot, parent_slot_desc->type(),
-                                            row_batch->tuple_data_pool());
+                            if (_output_slot_ids[parent_slot_desc->id()]) {
+                                // deep coopy
+                                RawValue::write(
+                                        child_tuple->get_slot(child_slot_desc->tuple_offset()),
+                                        dest_slot, parent_slot_desc->type(),
+                                        row_batch->tuple_data_pool());
+                            } else {
+                                // clear for unused slot
+                                StringValue* dest = reinterpret_cast<StringValue*>(dest_slot);
+                                dest->replace(nullptr, 0);
+                            }
                         }
                     }
                     parent_tuple_row->set_tuple(tuple_idx, tuple_ptr);

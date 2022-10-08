@@ -96,6 +96,8 @@ public:
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        cntl.Reset();
     }
 
     static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
@@ -122,6 +124,7 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
         cntl.Reset();
         cid = cntl.call_id();
     }
@@ -183,8 +186,11 @@ public:
     virtual Status open_wait();
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
-    virtual Status add_row(const BlockRow& block_row, int64_t tablet_id) {
-        LOG(FATAL) << "add block row to NodeChannel not supported";
+
+    virtual Status add_block(vectorized::Block* block,
+                             const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                             std::vector<int64_t>>& payload) {
+        LOG(FATAL) << "add block to NodeChannel not supported";
         return Status::OK();
     }
 
@@ -283,7 +289,7 @@ protected:
 
     // limit _pending_batches size
     std::atomic<size_t> _pending_batches_bytes {0};
-    size_t _max_pending_batches_bytes {10 * 1024 * 1024};
+    size_t _max_pending_batches_bytes {(size_t)config::nodechannel_pending_queue_max_bytes};
     std::mutex _pending_batches_lock;          // reuse for vectorized
     std::atomic<int> _pending_batches_num {0}; // reuse for vectorized
 
@@ -443,6 +449,8 @@ private:
     // set stop_processing is we want to stop the whole process now.
     Status _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap,
                           int* filtered_rows, bool* stop_processing);
+    bool _validate_cell(const TypeDescriptor& type, const std::string& col_name, void* slot,
+                        size_t slot_index, fmt::memory_buffer& error_msg, RowBatch* batch);
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.

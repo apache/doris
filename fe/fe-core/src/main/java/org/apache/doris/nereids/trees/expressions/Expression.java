@@ -17,28 +17,43 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Abstract class for all Expression in Nereids.
  */
-public abstract class Expression extends AbstractTreeNode<Expression> {
+public abstract class Expression extends AbstractTreeNode<Expression> implements ComputeNullable {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private static final String INPUT_CHECK_ERROR_MESSAGE = "argument %d requires %s type, however '%s' is of %s type";
 
     public Expression(Expression... children) {
         super(children);
+    }
+
+    public Expression(List<Expression> children) {
+        super(Optional.empty(), children);
     }
 
     public DataType getDataType() throws UnboundException {
@@ -49,8 +64,29 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new UnboundException("sql");
     }
 
-    public boolean nullable() throws UnboundException {
-        throw new UnboundException("nullable");
+    public TypeCheckResult checkInputDataTypes() {
+        if (this instanceof ExpectsInputTypes) {
+            ExpectsInputTypes expectsInputTypes = (ExpectsInputTypes) this;
+            return checkInputDataTypes(children, expectsInputTypes.expectedInputTypes());
+        }
+        return TypeCheckResult.SUCCESS;
+    }
+
+    private TypeCheckResult checkInputDataTypes(List<Expression> inputs, List<AbstractDataType> inputTypes) {
+        Preconditions.checkArgument(inputs.size() == inputTypes.size());
+        List<String> errorMessages = Lists.newArrayList();
+        for (int i = 0; i < inputs.size(); i++) {
+            Expression input = inputs.get(i);
+            AbstractDataType inputType = inputTypes.get(i);
+            if (!inputType.acceptsType(input.getDataType())) {
+                errorMessages.add(String.format(INPUT_CHECK_ERROR_MESSAGE,
+                        i + 1, inputType.simpleString(), input.toSql(), input.getDataType().simpleString()));
+            }
+        }
+        if (!errorMessages.isEmpty()) {
+            return new TypeCheckResult(false, StringUtils.join(errorMessages, ", "));
+        }
+        return TypeCheckResult.SUCCESS;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -95,6 +131,23 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new RuntimeException("Do not implement uncheckedCastTo");
     }
 
+    /**
+     * Get all the input slots of the expression.
+     * <p>
+     * Note that the input slots of subquery's inner plan is not included.
+     */
+    public final Set<Slot> getInputSlots() {
+        return collect(Slot.class::isInstance);
+    }
+
+    public boolean isLiteral() {
+        return this instanceof Literal;
+    }
+
+    public boolean isNullLiteral() {
+        return this instanceof NullLiteral;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -110,5 +163,12 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     @Override
     public int hashCode() {
         return 0;
+    }
+
+    /**
+     * This expression has unbound symbols or not.
+     */
+    public boolean hasUnbound() {
+        return this.anyMatch(Unbound.class::isInstance);
     }
 }

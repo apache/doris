@@ -245,7 +245,7 @@ private:
     PageHead _pages;
     ordinal_t _first_rowid = 0;
 
-    std::unique_ptr<BlockCompressionCodec> _compress_codec;
+    BlockCompressionCodec* _compress_codec;
 
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
@@ -295,7 +295,7 @@ public:
         }
         return Status::OK();
     }
-    ordinal_t get_next_rowid() const override { return _length_writer->get_next_rowid(); }
+    ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
 
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
@@ -303,12 +303,10 @@ private:
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
-    std::unique_ptr<ScalarColumnWriter> _length_writer;
+    std::unique_ptr<ScalarColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
     ColumnWriterOptions _opts;
-    ordinal_t _current_length_page_first_ordinal = 0;
-    ordinal_t _length_sum_in_cur_page = 0;
 };
 
 } // namespace segment_v2

@@ -92,6 +92,10 @@ protected:
     Status _fill_dest_block(vectorized::Block* dest_block, bool* eof);
     virtual Status _init_src_block();
 
+    bool is_null(const Slice& slice);
+    bool is_array(const Slice& slice);
+    bool check_array_format(std::vector<Slice>& split_values);
+
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
 
@@ -119,6 +123,9 @@ protected:
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
 
+    // dest slot desc index to src slot desc index
+    std::unordered_map<int, int> _dest_slot_to_src_slot_index;
+
     // to filter src tuple directly
     // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node,
     // and will be converted to `_pre_filter_ctxs` when scanner is open.
@@ -142,6 +149,7 @@ protected:
     std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
     std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
     vectorized::Block _src_block;
+    bool _src_block_mem_reuse = false;
     int _num_of_columns_from_file;
 
     // slot_ids for parquet predicate push down are in tuple desc

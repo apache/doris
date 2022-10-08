@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
+import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ProfileManager;
@@ -29,6 +31,8 @@ import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -41,6 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.json.simple.JSONObject;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -59,6 +64,14 @@ import javax.servlet.http.HttpServletResponse;
 
 /*
  * Used to return query information and query profile.
+ * base: /rest/v2/manager/query
+ * 1. /query_info
+ * 2. /sql/{query_id}
+ * 3. /profile/{format}/{query_id}
+ * 4. /trace_id/{trace_id}
+ * 5. /profile/fragments/{query_id}
+ * 6. /current_queries
+ * 7. /kill/{query_id}
  */
 @RestController
 @RequestMapping("/rest/v2/manager/query")
@@ -82,12 +95,14 @@ public class QueryProfileAction extends RestBaseController {
     private static final String FRAGMENT_ID = "fragment_id";
     private static final String INSTANCE_ID = "instance_id";
 
-    public static final ImmutableList<String> QUERY_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add(QUERY_ID).add(NODE).add(USER).add(DEFAULT_DB).add(SQL_STATEMENT)
-            .add(QUERY_TYPE).add(START_TIME).add(END_TIME).add(TOTAL).add(QUERY_STATE)
-            .build();
+    private static final String FRONTEND = "Frontend";
 
-    private List<String> requestAllFe(String httpPath, Map<String, String> arguments, String authorization) {
+    public static final ImmutableList<String> QUERY_TITLE_NAMES = new ImmutableList.Builder<String>().add(QUERY_ID)
+            .add(NODE).add(USER).add(DEFAULT_DB).add(SQL_STATEMENT).add(QUERY_TYPE).add(START_TIME).add(END_TIME)
+            .add(TOTAL).add(QUERY_STATE).build();
+
+    private List<String> requestAllFe(String httpPath, Map<String, String> arguments, String authorization,
+            HttpMethod method) {
         List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
         ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
                 .put(NodeAction.AUTHORIZATION, authorization).build();
@@ -95,7 +110,12 @@ public class QueryProfileAction extends RestBaseController {
         for (Pair<String, Integer> ipPort : frontends) {
             String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
             try {
-                String data = HttpUtils.parseResponse(HttpUtils.doGet(url, header));
+                String data = null;
+                if (method == HttpMethod.GET) {
+                    data = HttpUtils.parseResponse(HttpUtils.doGet(url, header));
+                } else if (method == HttpMethod.POST) {
+                    data = HttpUtils.parseResponse(HttpUtils.doPost(url, header, null));
+                }
                 if (!Strings.isNullOrEmpty(data) && !data.equals("{}")) {
                     dataList.add(data);
                 }
@@ -132,12 +152,12 @@ public class QueryProfileAction extends RestBaseController {
             arguments.put(SEARCH_PARA, search);
             arguments.put(IS_ALL_NODE_PARA, "false");
 
-            List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION));
+            List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION),
+                    HttpMethod.GET);
             for (String data : dataList) {
                 try {
-                    NodeAction.NodeInfo nodeInfo = GsonUtils.GSON.fromJson(data,
-                            new TypeToken<NodeAction.NodeInfo>() {
-                            }.getType());
+                    NodeAction.NodeInfo nodeInfo = GsonUtils.GSON.fromJson(data, new TypeToken<NodeAction.NodeInfo>() {
+                    }.getType());
                     queries.addAll(nodeInfo.getRows());
                 } catch (Exception e) {
                     LOG.warn("parse query info error: {}", data, e);
@@ -187,7 +207,8 @@ public class QueryProfileAction extends RestBaseController {
             String httpPath = "/rest/v2/manager/query/sql/" + queryId;
             ImmutableMap<String, String> arguments = ImmutableMap.<String, String>builder()
                     .put(IS_ALL_NODE_PARA, "false").build();
-            List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION));
+            List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION),
+                    HttpMethod.GET);
             if (!dataList.isEmpty()) {
                 try {
                     String sql = JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("sql").getAsString();
@@ -279,7 +300,8 @@ public class QueryProfileAction extends RestBaseController {
                 }
             }
         } else {
-            String queryId = ProfileManager.getInstance().getQueryIdByTraceId(traceId);
+            ExecuteEnv env = ExecuteEnv.getInstance();
+            String queryId = env.getScheduler().getQueryIdByTraceId(traceId);
             if (Strings.isNullOrEmpty(queryId)) {
                 return ResponseEntityBuilder.badRequest("Not found");
             }
@@ -402,7 +424,8 @@ public class QueryProfileAction extends RestBaseController {
         if (!Strings.isNullOrEmpty(instanceId)) {
             builder.put(INSTANCE_ID, instanceId);
         }
-        List<String> dataList = requestAllFe(httpPath, builder.build(), request.getHeader(NodeAction.AUTHORIZATION));
+        List<String> dataList = requestAllFe(httpPath, builder.build(), request.getHeader(NodeAction.AUTHORIZATION),
+                HttpMethod.GET);
         Map<String, String> result = Maps.newHashMap();
         if (!dataList.isEmpty()) {
             try {
@@ -413,5 +436,87 @@ public class QueryProfileAction extends RestBaseController {
             }
         }
         return ResponseEntityBuilder.ok(result);
+    }
+
+    /**
+     * return the result of CurrentQueryStatementsProcNode.
+     *
+     * @param request
+     * @param response
+     * @param isAllNode
+     * @return
+     */
+    @RequestMapping(path = "/current_queries", method = RequestMethod.GET)
+    public Object currentQueries(HttpServletRequest request, HttpServletResponse response,
+            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
+        if (isAllNode) {
+            // Get current queries from all FE
+            String httpPath = "/rest/v2/manager/query/current_queries";
+            Map<String, String> arguments = Maps.newHashMap();
+            arguments.put(IS_ALL_NODE_PARA, "false");
+            List<List<String>> queries = Lists.newArrayList();
+            List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION),
+                    HttpMethod.GET);
+            for (String data : dataList) {
+                try {
+                    NodeAction.NodeInfo nodeInfo = GsonUtils.GSON.fromJson(data, new TypeToken<NodeAction.NodeInfo>() {
+                    }.getType());
+                    queries.addAll(nodeInfo.getRows());
+                } catch (Exception e) {
+                    LOG.warn("parse query info error: {}", data, e);
+                }
+            }
+            List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+            titles.add(0, FRONTEND);
+            return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(titles, queries));
+        } else {
+            try {
+                CurrentQueryStatementsProcNode node = new CurrentQueryStatementsProcNode();
+                ProcResult result = node.fetchResult();
+                // add frontend info at first column.
+                List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
+                titles.add(0, FRONTEND);
+                List<List<String>> rows = result.getRows();
+                String feIp = FrontendOptions.getLocalHostAddress();
+                for (List<String> row : rows) {
+                    row.add(0, feIp);
+                }
+                return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(titles, rows));
+            } catch (AnalysisException e) {
+                return ResponseEntityBuilder.badRequest(e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * kill queries with specific query id
+     *
+     * @param request
+     * @param response
+     * @param queryId
+     * @return
+     */
+    @RequestMapping(path = "/kill/{query_id}", method = RequestMethod.POST)
+    public Object killQuery(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable("query_id") String queryId,
+            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
+        if (isAllNode) {
+            // Get current queries from all FE
+            String httpPath = "/rest/v2/manager/query/kill/" + queryId;
+            Map<String, String> arguments = Maps.newHashMap();
+            arguments.put(IS_ALL_NODE_PARA, "false");
+            requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION), HttpMethod.POST);
+            return ResponseEntityBuilder.ok();
+        }
+
+        ExecuteEnv env = ExecuteEnv.getInstance();
+        env.getScheduler().cancelQuery(queryId);
+        return ResponseEntityBuilder.ok();
     }
 }

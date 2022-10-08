@@ -165,6 +165,18 @@ struct TQueryOptions {
   44: optional bool trim_tailing_spaces_for_external_table_query = false
 
   45: optional bool enable_function_pushdown;
+
+  46: optional string fragment_transmission_compression_codec;
+
+  47: optional bool enable_local_exchange;
+
+  // For debug purpose, dont' merge unique key and agg key when reading data.
+  48: optional bool skip_storage_engine_merge = false
+
+  // For debug purpose, skip delete predicates when reading data
+  49: optional bool skip_delete_predicate = false
+
+  50: optional bool enable_new_shuffle_hash_method
 }
     
 
@@ -256,7 +268,9 @@ struct TQueryGlobals {
   3: optional string time_zone
 
   // Set to true if in a load plan, the max_filter_ratio is 0.0
-  4: optional bool load_zero_tolerance = false;
+  4: optional bool load_zero_tolerance = false
+
+  5: optional i32 nano_seconds
 }
 
 
@@ -501,6 +515,9 @@ struct TCondition {
     1:  required string column_name
     2:  required string condition_op
     3:  required list<string> condition_values
+    // In delete condition, the different column may have same column name, need
+    // using unique id to distinguish them
+    4:  optional i32 column_unique_id
 }
 
 struct TExportStatusResult {

@@ -16,13 +16,8 @@
 // under the License.
 
 #include "exprs/encryption_functions.h"
-#include "runtime/string_search.hpp"
 #include "util/encryption_util.h"
-#include "util/string_util.h"
-#include "vec/common/pod_array_fwd.h"
 #include "vec/functions/function_string.h"
-#include "vec/functions/function_string_to_string.h"
-#include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -93,16 +88,16 @@ public:
 template <typename Impl, bool is_encrypt>
 static void exectue_result(std::vector<const ColumnString::Offsets*>& offsets_list,
                            std::vector<const ColumnString::Chars*>& chars_list, size_t i,
-                           EncryptionMode& encryption_mode, const char* iv_raw,
+                           EncryptionMode& encryption_mode, const char* iv_raw, int iv_length,
                            ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
                            NullMap& null_map) {
-    int src_size = (*offsets_list[0])[i] - (*offsets_list[0])[i - 1] - 1;
+    int src_size = (*offsets_list[0])[i] - (*offsets_list[0])[i - 1];
     const auto src_raw =
             reinterpret_cast<const char*>(&(*chars_list[0])[(*offsets_list[0])[i - 1]]);
-    int key_size = (*offsets_list[1])[i] - (*offsets_list[1])[i - 1] - 1;
+    int key_size = (*offsets_list[1])[i] - (*offsets_list[1])[i - 1];
     const auto key_raw =
             reinterpret_cast<const char*>(&(*chars_list[1])[(*offsets_list[1])[i - 1]]);
-    if (*src_raw == '\0' && src_size == 0) {
+    if (src_size == 0) {
         StringOP::push_null_string(i, result_data, result_offset, null_map);
         return;
     }
@@ -115,7 +110,7 @@ static void exectue_result(std::vector<const ColumnString::Offsets*>& offsets_li
     int ret_code = 0;
 
     ret_code = Impl::exectue_impl(encryption_mode, (unsigned char*)src_raw, src_size,
-                                  (unsigned char*)key_raw, key_size, iv_raw, true,
+                                  (unsigned char*)key_raw, key_size, iv_raw, iv_length, true,
                                   (unsigned char*)p.get());
 
     if (ret_code < 0) {
@@ -143,7 +138,7 @@ struct EncryptionAndDecryptTwoImpl {
             }
             EncryptionMode encryption_mode = mode;
             exectue_result<Impl, is_encrypt>(offsets_list, chars_list, i, encryption_mode, nullptr,
-                                             result_data, result_offset, null_map);
+                                             0, result_data, result_offset, null_map);
         }
         return Status::OK();
     }
@@ -167,12 +162,13 @@ struct EncryptionAndDecryptFourImpl {
             }
 
             EncryptionMode encryption_mode = mode;
-            int mode_size = (*offsets_list[3])[i] - (*offsets_list[3])[i - 1] - 1;
+            int mode_size = (*offsets_list[3])[i] - (*offsets_list[3])[i - 1];
+            int iv_size = (*offsets_list[2])[i] - (*offsets_list[2])[i - 1];
             const auto mode_raw =
                     reinterpret_cast<const char*>(&(*chars_list[3])[(*offsets_list[3])[i - 1]]);
             const auto iv_raw =
                     reinterpret_cast<const char*>(&(*chars_list[2])[(*offsets_list[2])[i - 1]]);
-            if (*mode_raw != '\0' || mode_size != 0) {
+            if (mode_size != 0) {
                 std::string mode_str(mode_raw, mode_size);
                 if constexpr (is_sm_mode) {
                     if (sm4_mode_map.count(mode_str) == 0) {
@@ -190,7 +186,7 @@ struct EncryptionAndDecryptFourImpl {
             }
 
             exectue_result<Impl, is_encrypt>(offsets_list, chars_list, i, encryption_mode, iv_raw,
-                                             result_data, result_offset, null_map);
+                                             iv_size, result_data, result_offset, null_map);
         }
         return Status::OK();
     }
@@ -199,18 +195,18 @@ struct EncryptionAndDecryptFourImpl {
 struct EncryptImpl {
     static int exectue_impl(EncryptionMode mode, const unsigned char* source,
                             uint32_t source_length, const unsigned char* key, uint32_t key_length,
-                            const char* iv, bool padding, unsigned char* encrypt) {
-        return EncryptionUtil::encrypt(mode, source, source_length, key, key_length, iv, true,
-                                       encrypt);
+                            const char* iv, int iv_length, bool padding, unsigned char* encrypt) {
+        return EncryptionUtil::encrypt(mode, source, source_length, key, key_length, iv, iv_length,
+                                       true, encrypt);
     }
 };
 
 struct DecryptImpl {
     static int exectue_impl(EncryptionMode mode, const unsigned char* source,
                             uint32_t source_length, const unsigned char* key, uint32_t key_length,
-                            const char* iv, bool padding, unsigned char* encrypt) {
-        return EncryptionUtil::decrypt(mode, source, source_length, key, key_length, iv, true,
-                                       encrypt);
+                            const char* iv, int iv_length, bool padding, unsigned char* encrypt) {
+        return EncryptionUtil::decrypt(mode, source, source_length, key, key_length, iv, iv_length,
+                                       true, encrypt);
     }
 };
 
@@ -232,22 +228,29 @@ struct AESDecryptName {
 
 void register_function_encryption(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionEncryptionAndDecrypt<
-            EncryptionAndDecryptTwoImpl<EncryptImpl, SM4_128_ECB, true>, SM4EncryptName>>();
+            EncryptionAndDecryptTwoImpl<EncryptImpl, EncryptionMode::SM4_128_ECB, true>,
+            SM4EncryptName>>();
     factory.register_function<FunctionEncryptionAndDecrypt<
-            EncryptionAndDecryptTwoImpl<DecryptImpl, SM4_128_ECB, false>, SM4DecryptName>>();
+            EncryptionAndDecryptTwoImpl<DecryptImpl, EncryptionMode::SM4_128_ECB, false>,
+            SM4DecryptName>>();
     factory.register_function<FunctionEncryptionAndDecrypt<
-            EncryptionAndDecryptTwoImpl<EncryptImpl, AES_128_ECB, true>, AESEncryptName>>();
+            EncryptionAndDecryptTwoImpl<EncryptImpl, EncryptionMode::AES_128_ECB, true>,
+            AESEncryptName>>();
     factory.register_function<FunctionEncryptionAndDecrypt<
-            EncryptionAndDecryptTwoImpl<DecryptImpl, AES_128_ECB, false>, AESDecryptName>>();
+            EncryptionAndDecryptTwoImpl<DecryptImpl, EncryptionMode::AES_128_ECB, false>,
+            AESDecryptName>>();
 
     factory.register_function<FunctionEncryptionAndDecrypt<
-            EncryptionAndDecryptFourImpl<EncryptImpl, SM4_128_ECB, true, true>, SM4EncryptName>>();
+            EncryptionAndDecryptFourImpl<EncryptImpl, EncryptionMode::SM4_128_ECB, true, true>,
+            SM4EncryptName>>();
     factory.register_function<FunctionEncryptionAndDecrypt<
-            EncryptionAndDecryptFourImpl<DecryptImpl, SM4_128_ECB, false, true>, SM4DecryptName>>();
+            EncryptionAndDecryptFourImpl<DecryptImpl, EncryptionMode::SM4_128_ECB, false, true>,
+            SM4DecryptName>>();
     factory.register_function<FunctionEncryptionAndDecrypt<
-            EncryptionAndDecryptFourImpl<EncryptImpl, AES_128_ECB, true, false>, AESEncryptName>>();
+            EncryptionAndDecryptFourImpl<EncryptImpl, EncryptionMode::AES_128_ECB, true, false>,
+            AESEncryptName>>();
     factory.register_function<FunctionEncryptionAndDecrypt<
-            EncryptionAndDecryptFourImpl<DecryptImpl, AES_128_ECB, false, false>,
+            EncryptionAndDecryptFourImpl<DecryptImpl, EncryptionMode::AES_128_ECB, false, false>,
             AESDecryptName>>();
 }
 

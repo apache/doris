@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
@@ -42,10 +43,10 @@ public class DefaultValueExprDef {
      * generate a FunctionCallExpr
      * @return FunctionCallExpr of exprName
      */
-    public FunctionCallExpr getExpr() {
+    public FunctionCallExpr getExpr(Type type) {
         FunctionCallExpr expr = new FunctionCallExpr(exprName, new FunctionParams(null));
         try {
-            expr.analyzeImplForDefaultValue();
+            expr.analyzeImplForDefaultValue(type);
         } catch (AnalysisException e) {
             LOG.warn("analyzeImplForDefaultValue fail: {}", e);
         }

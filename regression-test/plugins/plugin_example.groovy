@@ -32,3 +32,23 @@ Suite.metaClass.testPlugin = { String info /* param */ ->
 }
 
 logger.info("Added 'testPlugin' function to Suite")
+
+Suite.metaClass.check2_doris = { Object res1, Object res2 /* param */ ->
+
+    logger.debug("res1: ${res1}".toString())
+    logger.debug("res2: ${res2}".toString())
+    res1 = res1.toString().toList().sort()
+    res2 = res2.toString().toList().sort()
+    if (res1 != res2) {
+        assert res1.size() == res2.size(): "res1 length: ${res1.size()}, res2 length: ${res2.size()}".toString()
+        int maxSize = res1.size()
+        for(i in java.util.stream.LongStream.range(0, maxSize)) {
+            assert res1[i].size() != res2[i].size(): "result[${i}] size mismatch"
+            assert res1[i] == res2[i]: "result[${i}] data mismatch"
+        }
+    }
+
+    return true
+}
+
+logger.info("Added 'check2_doris' function to Suite")

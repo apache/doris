@@ -42,7 +42,6 @@ VUnionNode::VUnionNode(ObjectPool* pool, const TPlanNode& tnode, const Descripto
 Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
-    DCHECK_EQ(_conjunct_ctxs.size(), 0);
     // Create const_expr_ctx_lists_ from thrift exprs.
     auto& const_texpr_lists = tnode.union_node.const_expr_lists;
     for (auto& texprs : const_texpr_lists) {
@@ -67,7 +66,7 @@ Status VUnionNode::prepare(RuntimeState* state) {
             ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     // Prepare const expr lists.
     for (const std::vector<VExprContext*>& exprs : _const_expr_lists) {
-        RETURN_IF_ERROR(VExpr::prepare(exprs, state, row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(exprs, state, _row_descriptor));
     }
 
     // Prepare result expr lists.
@@ -107,8 +106,9 @@ Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
         _child_eos = false;
     }
     DCHECK_EQ(block->rows(), 0);
-    RETURN_IF_ERROR_AND_CHECK_SPAN(child(_child_idx)->get_next(state, block, &_child_eos),
-                                   child(_child_idx)->get_next_span(), _child_eos);
+    RETURN_IF_ERROR_AND_CHECK_SPAN(
+            child(_child_idx)->get_next_after_projects(state, block, &_child_eos),
+            child(_child_idx)->get_next_span(), _child_eos);
     if (_child_eos) {
         // Even though the child is at eos, it's not OK to close() it here. Once we close
         // the child, the row batches that it produced are invalid. Marking the batch as
@@ -128,8 +128,8 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
     bool mem_reuse = block->mem_reuse();
     MutableBlock mblock =
             mem_reuse ? MutableBlock::build_mutable_block(block)
-                      : MutableBlock(Block(
-                                VectorizedUtils::create_columns_with_type_and_name(row_desc())));
+                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
+                                _row_descriptor)));
 
     Block child_block;
     while (has_more_materialized() && mblock.rows() <= state->batch_size()) {
@@ -149,7 +149,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         child_block.clear();
         // The first batch from each child is always fetched here.
         RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(_child_idx)->get_next(state, &child_block, &_child_eos),
+                child(_child_idx)->get_next_after_projects(state, &child_block, &_child_eos),
                 child(_child_idx)->get_next_span(), _child_eos);
         SCOPED_TIMER(_materialize_exprs_evaluate_timer);
         if (child_block.rows() > 0) {
@@ -184,8 +184,8 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     bool mem_reuse = block->mem_reuse();
     MutableBlock mblock =
             mem_reuse ? MutableBlock::build_mutable_block(block)
-                      : MutableBlock(Block(
-                                VectorizedUtils::create_columns_with_type_and_name(row_desc())));
+                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
+                                _row_descriptor)));
     for (; _const_expr_list_idx < _const_expr_lists.size(); ++_const_expr_list_idx) {
         Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),

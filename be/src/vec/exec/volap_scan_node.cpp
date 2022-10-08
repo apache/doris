@@ -103,7 +103,6 @@ Status VOlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
         _runtime_filter_ctxs[i].runtimefilter = runtime_filter;
         _runtime_filter_ready_flag[i] = false;
-        _rf_locks.push_back(std::make_unique<std::mutex>());
     }
 
     return Status::OK();
@@ -235,11 +234,7 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
 
     _runtime_state = state;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        IRuntimeFilter* runtime_filter = nullptr;
-        state->runtime_filter_mgr()->get_consume_filter(_runtime_filter_descs[i].filter_id,
-                                                        &runtime_filter);
-        DCHECK(runtime_filter != nullptr);
-        runtime_filter->init_profile(_runtime_profile.get());
+        _runtime_filter_ctxs[i].runtimefilter->init_profile(_runtime_profile.get());
     }
     return Status::OK();
 }
@@ -259,13 +254,7 @@ Status VOlapScanNode::open(RuntimeState* state) {
 
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        auto& filter_desc = _runtime_filter_descs[i];
-        IRuntimeFilter* runtime_filter = nullptr;
-        state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
-        DCHECK(runtime_filter != nullptr);
-        if (runtime_filter == nullptr) {
-            continue;
-        }
+        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtimefilter;
         bool ready = runtime_filter->is_ready();
         if (!ready) {
             ready = runtime_filter->await();
@@ -285,6 +274,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapScanNode::transfer_thread");
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     Status status = Status::OK();
 
     if (_vconjunct_ctx_ptr) {
@@ -365,6 +355,16 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
                 }
             } else {
                 if (_scanner_done) {
+                    // We should close eof scanners before transfer done, otherwise,
+                    // they are closed until scannode is closed. Because plan is closed
+                    // after the plan is finished, so query profile would leak stats from
+                    // scanners closed by scannode::close.
+                    while (!_volap_scanners.empty()) {
+                        auto scanner = _volap_scanners.front();
+                        _volap_scanners.pop_front();
+                        DCHECK(scanner->need_to_close());
+                        scanner->close(state);
+                    }
                     break;
                 }
             }
@@ -374,10 +374,12 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
             _add_blocks(blocks);
         }
     }
-    telemetry::set_span_attribute(span, _scanner_sched_counter);
 
     VLOG_CRITICAL << "TransferThread finish.";
-    _transfer_done = true;
+    {
+        std::unique_lock<std::mutex> l(_blocks_lock);
+        _transfer_done = true;
+    }
     _block_added_cv.notify_all();
     {
         std::unique_lock<std::mutex> l(_scan_blocks_lock);
@@ -387,9 +389,8 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
-    START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
-                         "VOlapScanNode::scanner_thread");
-    SCOPED_ATTACH_TASK(_runtime_state);
+    // SCOPED_ATTACH_TASK(_runtime_state); // TODO Recorded on an independent tracker
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     Thread::set_self_name("volap_scanner");
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
@@ -410,9 +411,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         scanner->set_opened();
     }
 
-    /*
-    // the following code will cause coredump when running tpcds_sf1 sqls,
-    // disable temporariy to avoid it, SHOULD BE FIX LATER
     std::vector<VExpr*> vexprs;
     auto& scanner_filter_apply_marks = *scanner->mutable_runtime_filter_marks();
     DCHECK(scanner_filter_apply_marks.size() == _runtime_filter_descs.size());
@@ -427,55 +425,18 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             /// `_runtime_filter_ready_flag` to ensure `_vconjunct_ctx_ptr` will be updated only
             /// once after any runtime_filters are ready.
             /// 3. finally, just copy this new VExprContext to scanner and use it to filter data.
-            IRuntimeFilter* runtime_filter = nullptr;
-            state->runtime_filter_mgr()->get_consume_filter(_runtime_filter_descs[i].filter_id,
-                                                            &runtime_filter);
+            IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtimefilter;
             DCHECK(runtime_filter != nullptr);
             bool ready = runtime_filter->is_ready();
             if (ready) {
-                runtime_filter->get_prepared_vexprs(&vexprs, row_desc());
+                runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor);
                 scanner_filter_apply_marks[i] = true;
                 if (!_runtime_filter_ready_flag[i] && !vexprs.empty()) {
-                    std::unique_lock<std::mutex> l(*(_rf_locks[i]));
+                    std::lock_guard<std::shared_mutex> l(_rf_lock);
                     if (!_runtime_filter_ready_flag[i]) {
                         // Use all conjuncts and new arrival runtime filters to construct a new
                         // expression tree here.
-                        auto last_expr =
-                                _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
-                        for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
-                            if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
-                                continue;
-                            }
-                            TExprNode texpr_node;
-                            texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-                            texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
-                            texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
-                            VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
-                            new_node->add_child(last_expr);
-                            new_node->add_child(vexprs[j]);
-                            last_expr = new_node;
-                            _rf_vexpr_set.insert(vexprs[j]);
-                        }
-                        auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
-                        auto expr_status = new_vconjunct_ctx_ptr->prepare(state, row_desc());
-                        // If error occurs in `prepare` or `open` phase, discard these runtime
-                        // filters directly.
-                        if (UNLIKELY(!expr_status.OK())) {
-                            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
-                            vexprs.clear();
-                            break;
-                        }
-                        expr_status = new_vconjunct_ctx_ptr->open(state);
-                        if (UNLIKELY(!expr_status.OK())) {
-                            LOG(WARNING) << "Something wrong for runtime filters: " << expr_status;
-                            vexprs.clear();
-                            break;
-                        }
-                        if (_vconjunct_ctx_ptr) {
-                            _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
-                        }
-                        _vconjunct_ctx_ptr.reset(new VExprContext*);
-                        *(_vconjunct_ctx_ptr.get()) = new_vconjunct_ctx_ptr;
+                        _append_rf_into_conjuncts(state, vexprs);
                         _runtime_filter_ready_flag[i] = true;
                     }
                 }
@@ -485,14 +446,14 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
 
     if (!vexprs.empty()) {
         if (*scanner->vconjunct_ctx_ptr()) {
-            (*scanner->vconjunct_ctx_ptr())->close(state);
-            *scanner->vconjunct_ctx_ptr() = nullptr;
+            scanner->discard_conjuncts();
         }
-        WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
-                      "Something wrong for runtime filters: ");
-        scanner->set_use_pushdown_conjuncts(true);
+        {
+            std::shared_lock<std::shared_mutex> l(_rf_lock);
+            WARN_IF_ERROR((*_vconjunct_ctx_ptr)->clone(state, scanner->vconjunct_ctx_ptr()),
+                          "Something wrong for runtime filters: ");
+        }
     }
-    */
 
     std::vector<Block*> blocks;
 
@@ -516,8 +477,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             num_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
-            status = Status::Cancelled("Cancelled");
-            LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
+            status = Status::Cancelled(
+                    "Scan thread cancelled, cause query done, maybe reach limit.");
             break;
         }
 
@@ -786,10 +747,7 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
 }
 
 static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
-    if ((slot->type().is_date_type() || slot->type().is_date_v2_type() ||
-         slot->type().is_datetime_v2_type()) &&
-        (expr->type().is_date_type() || expr->type().is_date_v2_type() ||
-         expr->type().is_datetime_v2_type())) {
+    if (slot->type().is_date_type() && expr->type().is_date_type()) {
         return true;
     }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
@@ -833,29 +791,6 @@ Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_r
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          reinterpret_cast<char*>(&date_value)));
         }
-    } else if constexpr (PrimitiveType == TYPE_DATEV2) {
-        DateV2Value<DateTimeV2ValueType> datetimev2_value =
-                *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
-        if constexpr (IsFixed) {
-            if (datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
-                DateV2Value<DateV2ValueType> date_v2;
-                date_v2.set_date_uint32(
-                        binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
-                        TIME_PART_LENGTH);
-                func(temp_range, &date_v2);
-            }
-        } else {
-            doris::vectorized::DateV2Value<DateV2ValueType> date_v2;
-            date_v2.set_date_uint32(
-                    binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
-                    TIME_PART_LENGTH);
-            if (!datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
-                if (fn_name == "lt" || fn_name == "ge") {
-                    ++date_v2;
-                }
-            }
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child), &date_v2);
-        }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
                          (PrimitiveType == TYPE_DATETIMEV2) || (PrimitiveType == TYPE_TINYINT) ||
@@ -863,7 +798,7 @@ Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_r
                          (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
                          (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
                          (PrimitiveType == TYPE_DECIMAL128) || (PrimitiveType == TYPE_STRING) ||
-                         (PrimitiveType == TYPE_BOOLEAN)) {
+                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
             func(temp_range,
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
@@ -879,9 +814,12 @@ Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_r
 }
 
 bool VOlapScanNode::is_key_column(const std::string& key_name) {
-    // all column in dup_keys table olap scan node threat
+    // all column in dup_keys table or unique_keys with merge on write table olap scan node threat
     // as key column
-    if (_olap_scan_node.keyType == TKeysType::DUP_KEYS) {
+    if (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
+        (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
+         _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
+         _olap_scan_node.enable_unique_key_merge_on_write)) {
         return true;
     }
 
@@ -895,7 +833,6 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
         _transfer_done = true;
         return Status::OK();
     }
-    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     // ranges constructed from scan keys
     std::vector<std::unique_ptr<OlapScanRange>> cond_ranges;
@@ -939,7 +876,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
 
         if (config::doris_scan_range_max_mb > 0) {
             size_based_scanners_per_tablet = std::max(
-                    1, (int)tablet->tablet_footprint() / config::doris_scan_range_max_mb << 20);
+                    1, (int)(tablet->tablet_footprint() / (config::doris_scan_range_max_mb << 20)));
         }
 
         int ranges_per_scanner =
@@ -970,8 +907,6 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     }
     COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
     COUNTER_SET(_num_scanners, static_cast<int64_t>(_volap_scanners.size()));
-    telemetry::set_span_attribute(span, _num_disks_accessed_counter);
-    telemetry::set_span_attribute(span, _num_scanners);
 
     // init progress
     std::stringstream ss;
@@ -1023,11 +958,8 @@ Status VOlapScanNode::close(RuntimeState* state) {
         scanner->close(state);
     }
 
-    for (auto& filter_desc : _runtime_filter_descs) {
-        IRuntimeFilter* runtime_filter = nullptr;
-        state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
-        DCHECK(runtime_filter != nullptr);
-        runtime_filter->consumer_close();
+    for (auto& filter_ctx : _runtime_filter_ctxs) {
+        filter_ctx.runtimefilter->consumer_close();
     }
 
     for (auto& ctx : _stale_vexpr_ctxs) {
@@ -1114,7 +1046,6 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
             _block_consumed_cv.notify_all();
             *eos = true;
-            LOG(INFO) << "VOlapScanNode ReachedLimit.";
         } else {
             *eos = false;
         }
@@ -1203,20 +1134,12 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     }
 
     // post volap scanners to thread-pool
-    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    ThreadPoolToken* thread_token = nullptr;
-    if (_limit > -1 && _limit < 1024) {
-        thread_token = state->get_query_fragments_ctx()->get_serial_token();
-    } else {
-        thread_token = state->get_query_fragments_ctx()->get_token();
-    }
+    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
     auto iter = olap_scanners.begin();
     if (thread_token != nullptr) {
         while (iter != olap_scanners.end()) {
-            auto s = thread_token->submit_func([this, scanner = *iter, parent_span = cur_span] {
-                opentelemetry::trace::Scope scope {parent_span};
-                this->scanner_thread(scanner);
-            });
+            auto s = thread_token->submit_func(
+                    [this, scanner = *iter] { this->scanner_thread(scanner); });
             if (s.ok()) {
                 (*iter)->start_wait_worker_timer();
                 COUNTER_UPDATE(_scanner_sched_counter, 1);
@@ -1231,10 +1154,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
         PriorityThreadPool* remote_thread_pool = state->exec_env()->remote_scan_thread_pool();
         while (iter != olap_scanners.end()) {
             PriorityThreadPool::Task task;
-            task.work_function = [this, scanner = *iter, parent_span = cur_span] {
-                opentelemetry::trace::Scope scope {parent_span};
-                this->scanner_thread(scanner);
-            };
+            task.work_function = [this, scanner = *iter] { this->scanner_thread(scanner); };
             task.priority = _nice;
             task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
             (*iter)->start_wait_worker_timer();
@@ -1279,7 +1199,6 @@ Status VOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         COUNTER_UPDATE(_tablet_counter, 1);
     }
-    telemetry::set_current_span_attribute(_tablet_counter);
 
     return Status::OK();
 }
@@ -1828,7 +1747,14 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
 
 Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector<VExpr*>& vexprs) {
     if (!vexprs.empty()) {
-        auto last_expr = _vconjunct_ctx_ptr ? (*_vconjunct_ctx_ptr)->root() : vexprs[0];
+        VExpr* last_expr = nullptr;
+        if (_vconjunct_ctx_ptr) {
+            last_expr = (*_vconjunct_ctx_ptr)->root();
+        } else {
+            DCHECK(_rf_vexpr_set.find(vexprs[0]) == _rf_vexpr_set.end());
+            last_expr = vexprs[0];
+            _rf_vexpr_set.insert(vexprs[0]);
+        }
         for (size_t j = _vconjunct_ctx_ptr ? 0 : 1; j < vexprs.size(); j++) {
             if (_rf_vexpr_set.find(vexprs[j]) != _rf_vexpr_set.end()) {
                 continue;
@@ -1863,7 +1789,7 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
         if (_vconjunct_ctx_ptr) {
             (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
         }
-        RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(state, row_desc()));
+        RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(state, _row_descriptor));
         RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(state));
         if (_vconjunct_ctx_ptr) {
             (*(_vconjunct_ctx_ptr.get()))->mark_as_stale();
@@ -1874,4 +1800,9 @@ Status VOlapScanNode::_append_rf_into_conjuncts(RuntimeState* state, std::vector
     }
     return Status::OK();
 }
+
+std::string VOlapScanNode::get_name() {
+    return fmt::format("VOlapScanNode({0})", _olap_scan_node.table_name);
+}
+
 } // namespace doris::vectorized

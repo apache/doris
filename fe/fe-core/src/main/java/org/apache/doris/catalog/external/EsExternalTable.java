@@ -19,7 +19,7 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.datasource.EsExternalDataSource;
+import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -37,7 +37,7 @@ public class EsExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(EsExternalTable.class);
 
-    private final EsExternalDataSource ds;
+    private final EsExternalCatalog catalog;
     private final String dbName;
     private boolean initialized = false;
     private EsTable esTable;
@@ -48,12 +48,12 @@ public class EsExternalTable extends ExternalTable {
      * @param id Table id.
      * @param name Table name.
      * @param dbName Database name.
-     * @param ds HMSExternalDataSource.
+     * @param catalog HMSExternalDataSource.
      */
-    public EsExternalTable(long id, String name, String dbName, EsExternalDataSource ds) {
+    public EsExternalTable(long id, String name, String dbName, EsExternalCatalog catalog) {
         super(id, name);
         this.dbName = dbName;
-        this.ds = ds;
+        this.catalog = catalog;
         this.type = TableType.ES_EXTERNAL_TABLE;
     }
 
@@ -66,7 +66,7 @@ public class EsExternalTable extends ExternalTable {
     }
 
     private void init() {
-        fullSchema = EsUtil.genColumnsFromEs(ds.getEsRestClient(), name, null);
+        fullSchema = EsUtil.genColumnsFromEs(catalog.getEsRestClient(), name, null);
         esTable = toEsTable();
     }
 
@@ -126,15 +126,15 @@ public class EsExternalTable extends ExternalTable {
     private EsTable toEsTable() {
         EsTable esTable = new EsTable(this.id, this.name, this.fullSchema, TableType.ES_EXTERNAL_TABLE);
         esTable.setIndexName(name);
-        esTable.setClient(ds.getEsRestClient());
-        esTable.setUserName(ds.getUsername());
-        esTable.setPasswd(ds.getPassword());
-        esTable.setEnableDocValueScan(ds.isEnableDocValueScan());
-        esTable.setEnableKeywordSniff(ds.isEnableKeywordSniff());
-        esTable.setNodesDiscovery(ds.isEnableNodesDiscovery());
-        esTable.setHttpSslEnabled(ds.isEnableSsl());
-        esTable.setSeeds(ds.getNodes());
-        esTable.setHosts(String.join(",", ds.getNodes()));
+        esTable.setClient(catalog.getEsRestClient());
+        esTable.setUserName(catalog.getUsername());
+        esTable.setPasswd(catalog.getPassword());
+        esTable.setEnableDocValueScan(catalog.isEnableDocValueScan());
+        esTable.setEnableKeywordSniff(catalog.isEnableKeywordSniff());
+        esTable.setNodesDiscovery(catalog.isEnableNodesDiscovery());
+        esTable.setHttpSslEnabled(catalog.isEnableSsl());
+        esTable.setSeeds(catalog.getNodes());
+        esTable.setHosts(String.join(",", catalog.getNodes()));
         esTable.syncTableMetaData();
         return esTable;
     }

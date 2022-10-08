@@ -193,7 +193,7 @@ public class ExportStmt extends StatementBase {
     }
 
     private void checkTable(Env env) throws AnalysisException {
-        Database db = env.getInternalDataSource().getDbOrAnalysisException(tblName.getDb());
+        Database db = env.getInternalCatalog().getDbOrAnalysisException(tblName.getDb());
         Table table = db.getTableOrAnalysisException(tblName.getTbl());
         table.readLock();
         try {
@@ -207,6 +207,7 @@ public class ExportStmt extends StatementBase {
             switch (tblType) {
                 case MYSQL:
                 case ODBC:
+                case JDBC:
                 case OLAP:
                     break;
                 case BROKER:
@@ -244,7 +245,7 @@ public class ExportStmt extends StatementBase {
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {
-                throw new AnalysisException("Invalid export path. please use valid 'S3://' path.");
+                throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
             }
         } else if (type == StorageBackend.StorageType.HDFS) {
             if (schema == null || !schema.equalsIgnoreCase("hdfs")) {

@@ -193,7 +193,7 @@ public class ShowAlterStmt extends ShowStmt {
     }
 
     public void handleShowAlterTable(Analyzer analyzer) throws UserException {
-        DatabaseIf db = analyzer.getEnv().getInternalDataSource().getDbOrAnalysisException(dbName);
+        DatabaseIf db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
 
         // build proc path
         StringBuilder sb = new StringBuilder();

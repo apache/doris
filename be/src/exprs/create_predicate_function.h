@@ -39,7 +39,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         using CppType = typename PrimitiveTypeTraits<type>::CppType;
-        using Set = std::conditional_t<std::is_same_v<CppType, StringValue>, StringValueSet,
+        using Set = std::conditional_t<std::is_same_v<CppType, StringValue>, StringSet,
                                        HybridSet<type, is_vec>>;
         return new (std::nothrow) Set();
     };

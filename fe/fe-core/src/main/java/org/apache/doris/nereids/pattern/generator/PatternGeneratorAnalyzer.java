@@ -76,6 +76,7 @@ public class PatternGeneratorAnalyzer {
     private String doGenerate() {
         Map<ClassDeclaration, Set<String>> planClassMap = parentClassMap.entrySet().stream()
                 .filter(kv -> kv.getValue().contains("org.apache.doris.nereids.trees.plans.Plan"))
+                .filter(kv -> !kv.getKey().name.equals("GroupPlan"))
                 .filter(kv -> !Modifier.isAbstract(kv.getKey().modifiers.mod)
                         && kv.getKey() instanceof ClassDeclaration)
                 .collect(Collectors.toMap(kv -> (ClassDeclaration) kv.getKey(), kv -> kv.getValue()));

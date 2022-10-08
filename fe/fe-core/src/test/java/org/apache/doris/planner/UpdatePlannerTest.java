@@ -33,7 +33,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.update.UpdatePlanner;
 
 import com.google.common.collect.Lists;
@@ -63,7 +63,7 @@ public class UpdatePlannerTest {
                                                                  @Injectable Column shadowV1,
                                                                  @Injectable Analyzer analyzer) {
         List<Expr> setExprs = Lists.newArrayList();
-        TableName tableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "test");
+        TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "test");
         SlotRef slotRef = new SlotRef(tableName, "V1");
         IntLiteral intLiteral = new IntLiteral(1);
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
@@ -125,7 +125,7 @@ public class UpdatePlannerTest {
                                             @Injectable Column newV2,
                                             @Injectable Analyzer analyzer) throws AnalysisException {
         List<Expr> setExprs = Lists.newArrayList();
-        TableName tableName = new TableName(InternalDataSource.INTERNAL_DS_NAME, null, "test");
+        TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "test");
         SlotRef slotRef = new SlotRef(tableName, "V1");
         IntLiteral intLiteral = new IntLiteral(1);
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,

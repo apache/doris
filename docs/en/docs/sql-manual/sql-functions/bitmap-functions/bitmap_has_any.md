@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`B00LEAN BITMAP_HAS_ANY(BITMAP lhs, BITMAP rhs)`
+`BOOLEAN BITMAP_HAS_ANY(BITMAP lhs, BITMAP rhs)`
 
 Calculate whether there are intersecting elements in the two Bitmap columns. The return value is Boolean.
 

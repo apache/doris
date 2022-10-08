@@ -20,6 +20,7 @@
 #include <atomic>
 #include <string>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
@@ -52,35 +53,31 @@ public:
         return false;
     }
 
-    void set_thread_token(int cpu_limit) {
-        if (cpu_limit > 0) {
-            // For now, cpu_limit will be the max concurrency of the scan thread pool token.
-            _thread_token = _exec_env->limited_scan_thread_pool()->new_token(
-                    ThreadPool::ExecutionMode::CONCURRENT, cpu_limit);
-        }
-    }
-    void set_serial_thread_token() {
-        _serial_thread_token = _exec_env->limited_scan_thread_pool()->new_token(
-                ThreadPool::ExecutionMode::SERIAL, 1);
+    void set_thread_token(int concurrency, bool is_serial) {
+        _thread_token = _exec_env->limited_scan_thread_pool()->new_token(
+                is_serial ? ThreadPool::ExecutionMode::SERIAL
+                          : ThreadPool::ExecutionMode::CONCURRENT,
+                concurrency);
     }
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
 
-    ThreadPoolToken* get_serial_token() { return _serial_thread_token.get(); }
-
-    void set_ready_to_execute() {
+    void set_ready_to_execute(bool is_cancelled) {
         {
             std::lock_guard<std::mutex> l(_start_lock);
+            _is_cancelled = is_cancelled;
             _ready_to_execute = true;
         }
         _start_cond.notify_all();
     }
 
-    void wait_for_start() {
+    bool wait_for_start() {
+        int wait_time = config::max_fragment_start_wait_time_seconds;
         std::unique_lock<std::mutex> l(_start_lock);
-        while (!_ready_to_execute.load()) {
-            _start_cond.wait(l);
+        while (!_ready_to_execute.load() && !_is_cancelled.load() && --wait_time > 0) {
+            _start_cond.wait_for(l, std::chrono::seconds(1));
         }
+        return _ready_to_execute.load() && !_is_cancelled.load();
     }
 
 public:
@@ -114,16 +111,12 @@ private:
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
     std::unique_ptr<ThreadPoolToken> _thread_token;
 
-    // A token used to submit olap scanner to the "_limited_scan_thread_pool" serially, it used for
-    // query like `select * limit 1`, this query used for limit the max scaner thread to 1 to avoid
-    // this query cost too much resource
-    std::unique_ptr<ThreadPoolToken> _serial_thread_token;
-
     std::mutex _start_lock;
     std::condition_variable _start_cond;
     // Only valid when _need_wait_execution_trigger is set to true in FragmentExecState.
     // And all fragments of this query will start execution when this is set to true.
     std::atomic<bool> _ready_to_execute {false};
+    std::atomic<bool> _is_cancelled {false};
 };
 
 } // namespace doris

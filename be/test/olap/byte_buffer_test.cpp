@@ -24,7 +24,6 @@
 
 #include "common/configbase.h"
 #include "olap/file_helper.h"
-#include "util/logging.h"
 
 namespace doris {
 

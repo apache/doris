@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
+
+import com.google.common.base.Preconditions;
 
 import java.util.Objects;
 
@@ -34,11 +36,9 @@ public class ListQuery extends SubqueryExpr implements LeafExpression {
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
-        // TODO:
-        // For multiple lines, struct type is returned, in the form of splicing,
-        // but it seems that struct type is not currently supported
-        throw new UnboundException("not support");
+    public DataType getDataType() {
+        Preconditions.checkArgument(queryPlan.getOutput().size() == 1);
+        return queryPlan.getOutput().get(0).getDataType();
     }
 
     @Override

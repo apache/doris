@@ -19,10 +19,6 @@
 
 namespace doris::vectorized {
 
-VEsHttpScanner::~VEsHttpScanner() {
-    close();
-}
-
 Status VEsHttpScanner::get_next(std::vector<vectorized::MutableColumnPtr>& columns,
                                 MemPool* tuple_pool, bool* eof,
                                 const std::map<std::string, std::string>& docvalue_context) {

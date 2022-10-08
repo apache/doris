@@ -18,28 +18,58 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
  * The slot range required for expression analyze.
+ *
+ * slots: The symbols used at this level are stored in slots.
+ * outerScope: The scope information corresponding to the parent is stored in outerScope.
+ * ownerSubquery: The subquery corresponding to ownerSubquery.
+ * subqueryToOuterCorrelatedSlots: The slots correlated in the subquery,
+ *                                 only the slots that cannot be resolved at this level.
+ *
+ * eg:
+ * t1(k1, v1) / t2(k2, v2)
+ * select * from t1 where t1.k1 = (select sum(k2) from t2 where t1.v1 = t2.v2);
+ *
+ * When analyzing subquery:
+ *
+ * slots: k2, v2;
+ * outerScope:
+ *      slots: k1, v1;
+ *      outerScope: Optional.empty();
+ *      ownerSubquery: Optionsl.empty();
+ *      subqueryToOuterCorrelatedSlots: empty();
+ * ownerSubquery: subquery((select sum(k2) from t2 where t1.v1 = t2.v2));
+ * subqueryToOuterCorrelatedSlots: (subquery, v1);
  */
 public class Scope {
     private final Optional<Scope> outerScope;
     private final List<Slot> slots;
 
-    public Scope(Optional<Scope> outerScope, List<Slot> slots) {
+    private final Optional<SubqueryExpr> ownerSubquery;
+    private List<Slot> correlatedSlots;
+
+    public Scope(Optional<Scope> outerScope, List<Slot> slots, Optional<SubqueryExpr> subqueryExpr) {
         this.outerScope = outerScope;
         this.slots = slots;
+        this.ownerSubquery = subqueryExpr;
+        this.correlatedSlots = new ArrayList<>();
     }
 
     public Scope(List<Slot> slots) {
         this.outerScope = Optional.empty();
         this.slots = slots;
+        this.ownerSubquery = Optional.empty();
+        this.correlatedSlots = new ArrayList<>();
     }
 
     public List<Slot> getSlots() {
@@ -50,8 +80,17 @@ public class Scope {
         return outerScope;
     }
 
+    public Optional<SubqueryExpr> getSubquery() {
+        return ownerSubquery;
+    }
+
+    public List<Slot> getCorrelatedSlots() {
+        return correlatedSlots;
+    }
+
     /**
      * generate scope link from inner to outer.
+     * Used for multi-level subquery parsing.
      */
     public List<Scope> toScopeLink() {
         Scope scope = this;

@@ -17,14 +17,11 @@
 
 #include "vec/olap/vcollect_iterator.h"
 
-#include <memory>
-
-#include "olap/rowset/beta_rowset_reader.h"
+#include "common/status.h"
+#include "util/defer_op.h"
 
 namespace doris {
 namespace vectorized {
-
-VCollectIterator::~VCollectIterator() {}
 
 #define RETURN_IF_NOT_EOF_AND_OK(stmt)                                                  \
     do {                                                                                \
@@ -68,9 +65,10 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
         return Status::OK();
     } else if (_merge) {
         DCHECK(!rs_readers.empty());
+        bool have_multiple_child = false;
         for (auto [c_iter, r_iter] = std::pair {_children.begin(), rs_readers.begin()};
              c_iter != _children.end();) {
-            auto s = (*c_iter)->init();
+            auto s = (*c_iter)->init(have_multiple_child);
             if (!s.ok()) {
                 delete (*c_iter);
                 c_iter = _children.erase(c_iter);
@@ -79,6 +77,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
                     return s;
                 }
             } else {
+                have_multiple_child = true;
                 ++c_iter;
                 ++r_iter;
             }
@@ -135,11 +134,8 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     const IteratorRowRef& rhs_ref = *rhs->current_row_ref();
 
     int cmp_res = UNLIKELY(lhs->compare_columns())
-                          ? lhs_ref.block->compare_at(lhs_ref.row_pos, rhs_ref.row_pos,
-                                                      lhs->compare_columns(), *rhs_ref.block, -1)
-                          : lhs_ref.block->compare_at(lhs_ref.row_pos, rhs_ref.row_pos,
-                                                      lhs->tablet_schema().num_key_columns(),
-                                                      *rhs_ref.block, -1);
+                          ? lhs_ref.compare(rhs_ref, lhs->compare_columns())
+                          : lhs_ref.compare(rhs_ref, lhs->tablet_schema().num_key_columns());
     if (cmp_res != 0) {
         return UNLIKELY(_is_reverse) ? cmp_res < 0 : cmp_res > 0;
     }
@@ -192,15 +188,22 @@ VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader
                                                  TabletReader* reader)
         : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
-    _block = std::make_shared<Block>(_schema.create_block(
-            _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
-    _ref.block = _block;
-    _ref.row_pos = 0;
-    _ref.is_same = false;
 }
 
-Status VCollectIterator::Level0Iterator::init() {
-    return _refresh_current_row();
+Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
+    _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref() &&
+                       config::enable_storage_vectorization;
+    if (!_get_data_by_ref) {
+        _block = std::make_shared<Block>(_schema.create_block(
+                _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+    }
+    auto st = _refresh_current_row();
+    if (_get_data_by_ref && _block_view.size()) {
+        _ref = _block_view[0];
+    } else {
+        _ref = {_block, 0, false};
+    }
+    return st;
 }
 
 int64_t VCollectIterator::Level0Iterator::version() const {
@@ -209,42 +212,50 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 
 Status VCollectIterator::Level0Iterator::_refresh_current_row() {
     do {
-        if (_block->rows() != 0 && _ref.row_pos < _block->rows()) {
+        if (!_is_empty() && _current_valid()) {
             return Status::OK();
         } else {
-            _ref.is_same = false;
-            _ref.row_pos = 0;
-            _block->clear_column_data();
-            auto res = _rs_reader->next_block(_block.get());
+            _reset();
+            auto res = _refresh();
             if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
                 return res;
             }
-            if (res.precise_code() == OLAP_ERR_DATA_EOF && _block->rows() == 0) {
-                _ref.row_pos = -1;
-                return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+            if (res.precise_code() == OLAP_ERR_DATA_EOF && _is_empty()) {
+                break;
             }
 
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
-                DCHECK_EQ(_block_row_locations.size(), _block->rows());
             }
         }
-    } while (_block->rows() != 0);
+    } while (!_is_empty());
     _ref.row_pos = -1;
+    _current = -1;
     return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
 }
 
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
-    _ref.row_pos++;
+    if (_get_data_by_ref) {
+        _current++;
+    } else {
+        _ref.row_pos++;
+    }
+
     RETURN_NOT_OK(_refresh_current_row());
+
+    if (_get_data_by_ref) {
+        _ref = _block_view[_current];
+    }
+
     *ref = _ref;
     return Status::OK();
 }
 
 Status VCollectIterator::Level0Iterator::next(Block* block) {
-    if (UNLIKELY(_ref.block->rows() > 0 && _ref.row_pos == 0)) {
+    CHECK(!_get_data_by_ref);
+    if (_ref.row_pos == 0 && _ref.block != nullptr && UNLIKELY(_ref.block->rows() > 0)) {
         block->swap(*_ref.block);
-        _ref.row_pos = -1;
+        _ref.reset();
         return Status::OK();
     } else {
         auto res = _rs_reader->next_block(block);
@@ -262,7 +273,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
 }
 
 RowLocation VCollectIterator::Level0Iterator::current_row_location() {
-    RowLocation& segment_row_id = _block_row_locations[_ref.row_pos];
+    RowLocation& segment_row_id = _block_row_locations[_get_data_by_ref ? _current : _ref.row_pos];
     return RowLocation(_rs_reader->rowset()->rowset_id(), segment_row_id.segment_id,
                        segment_row_id.row_id);
 }
@@ -287,7 +298,7 @@ VCollectIterator::Level1Iterator::Level1Iterator(
           _merge(merge),
           _is_reverse(is_reverse),
           _skip_same(skip_same) {
-    _ref.row_pos = -1; // represent eof
+    _ref.reset();
     _batch_size = reader->_batch_size;
 }
 
@@ -303,7 +314,9 @@ VCollectIterator::Level1Iterator::~Level1Iterator() {
         while (!_heap->empty()) {
             auto child = _heap->top();
             _heap->pop();
-            if (child) delete child;
+            if (child) {
+                delete child;
+            }
         }
     }
 }
@@ -315,7 +328,7 @@ VCollectIterator::Level1Iterator::~Level1Iterator() {
 //      Others when error happens
 Status VCollectIterator::Level1Iterator::next(IteratorRowRef* ref) {
     if (UNLIKELY(_cur_child == nullptr)) {
-        _ref.row_pos = -1;
+        _ref.reset();
         return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     }
     if (_merge) {
@@ -348,7 +361,7 @@ int64_t VCollectIterator::Level1Iterator::version() const {
     return -1;
 }
 
-Status VCollectIterator::Level1Iterator::init() {
+Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
     if (_children.empty()) {
         return Status::OK();
     }
@@ -392,11 +405,12 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
         if (!_heap->empty()) {
             _cur_child = _heap->top();
         } else {
+            _ref.reset();
             _cur_child = nullptr;
-            _ref.row_pos = -1;
             return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         }
     } else {
+        _ref.reset();
         _cur_child = nullptr;
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
@@ -444,20 +458,29 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     auto target_columns = block->mutate_columns();
     size_t column_count = block->columns();
     IteratorRowRef cur_row = _ref;
+    IteratorRowRef pre_row_ref = _ref;
+
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
         _block_row_locations.resize(_batch_size);
     }
+    int continuous_row_in_block = 0;
     do {
-        const auto& src_block = cur_row.block;
-        assert(src_block->columns() == column_count);
-        for (size_t i = 0; i < column_count; ++i) {
-            target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
-                                           cur_row.row_pos);
-        }
         if (UNLIKELY(_reader->_reader_context.record_rowids)) {
             _block_row_locations[target_block_row] = _cur_child->current_row_location();
         }
         ++target_block_row;
+        ++continuous_row_in_block;
+        // cur block finished, copy before merge_next cause merge_next will
+        // clear block column data
+        if (pre_row_ref.row_pos + continuous_row_in_block == pre_row_ref.block->rows()) {
+            const auto& src_block = pre_row_ref.block;
+            for (size_t i = 0; i < column_count; ++i) {
+                target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                     pre_row_ref.row_pos, continuous_row_in_block);
+            }
+            continuous_row_in_block = 0;
+            pre_row_ref.reset();
+        }
         auto res = _merge_next(&cur_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
@@ -470,7 +493,32 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
-    } while (target_block_row < _batch_size);
+        if (target_block_row >= _batch_size) {
+            if (continuous_row_in_block > 0) {
+                const auto& src_block = pre_row_ref.block;
+                for (size_t i = 0; i < column_count; ++i) {
+                    target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                         pre_row_ref.row_pos,
+                                                         continuous_row_in_block);
+                }
+            }
+            return Status::OK();
+        }
+        if (continuous_row_in_block == 0) {
+            pre_row_ref = _ref;
+            continue;
+        }
+        // copy row if meet a new block
+        if (cur_row.block != pre_row_ref.block) {
+            const auto& src_block = pre_row_ref.block;
+            for (size_t i = 0; i < column_count; ++i) {
+                target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                     pre_row_ref.row_pos, continuous_row_in_block);
+            }
+            continuous_row_in_block = 0;
+            pre_row_ref = cur_row;
+        }
+    } while (true);
 
     return Status::OK();
 }

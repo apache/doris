@@ -22,6 +22,8 @@
 #include <memory>
 #include <string>
 
+#include "agent/heartbeat_server.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_bitmap.h"
 namespace doris::vectorized {
 TEST(ColumnComplexTest, BasicTest) {
@@ -44,4 +46,62 @@ TEST(ColumnComplexTest, BasicTest) {
 TEST(ColumnComplexType, DataTypeBitmapTest) {
     std::make_shared<DataTypeBitMap>();
 }
+
+class ColumnBitmapTest : public testing::Test {
+public:
+    virtual void SetUp() override {}
+    virtual void TearDown() override {}
+
+    void check_bitmap_column(const IColumn& l, const IColumn& r) {
+        ASSERT_EQ(l.size(), r.size());
+        const auto& l_col = assert_cast<const ColumnBitmap&>(l);
+        const auto& r_col = assert_cast<const ColumnBitmap&>(r);
+        for (size_t i = 0; i < l_col.size(); ++i) {
+            auto& l_bitmap = const_cast<BitmapValue&>(l_col.get_element(i));
+            auto& r_bitmap = const_cast<BitmapValue&>(r_col.get_element(i));
+            ASSERT_EQ(l_bitmap.xor_cardinality(r_bitmap), 0);
+        }
+    }
+
+    void check_serialize_and_deserialize(MutableColumnPtr& col) {
+        auto column = assert_cast<ColumnBitmap*>(col.get());
+        auto size = _bitmap_type.get_uncompressed_serialized_bytes(
+                *column, HeartbeatServer::max_be_exec_version);
+        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+        auto result =
+                _bitmap_type.serialize(*column, buf.get(), HeartbeatServer::max_be_exec_version);
+        ASSERT_EQ(result, buf.get() + size);
+
+        auto column2 = _bitmap_type.create_column();
+        _bitmap_type.deserialize(buf.get(), column2.get(), HeartbeatServer::max_be_exec_version);
+        check_bitmap_column(*column, *column2.get());
+    }
+
+private:
+    DataTypeBitMap _bitmap_type;
+};
+
+TEST_F(ColumnBitmapTest, SerializeAndDeserialize) {
+    auto column = _bitmap_type.create_column();
+
+    // empty column
+    check_serialize_and_deserialize(column);
+
+    // bitmap with lots of rows
+    const size_t row_size = 20000;
+    auto& data = assert_cast<ColumnBitmap&>(*column.get()).get_data();
+    data.resize(row_size);
+    check_serialize_and_deserialize(column);
+
+    // bitmap with values case 1
+    data[0].add(10);
+    data[0].add(1000000);
+    check_serialize_and_deserialize(column);
+
+    // bitmap with values case 2
+    data[row_size - 1].add(33333);
+    data[row_size - 1].add(0);
+    check_serialize_and_deserialize(column);
+}
+
 } // namespace doris::vectorized

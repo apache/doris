@@ -707,7 +707,7 @@ public class DataDescription {
             }
         }
 
-        Pair<String, List<String>> functionPair = new Pair<String, List<String>>(functionName, args);
+        Pair<String, List<String>> functionPair = Pair.of(functionName, args);
         columnToHadoopFunction.put(columnName, functionPair);
     }
 
@@ -917,13 +917,16 @@ public class DataDescription {
         if (columnSeparator != null) {
             sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
         }
-        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
-            sb.append(" COLUMNS FROM PATH AS (");
-            Joiner.on(", ").appendTo(sb, columnsFromPath).append(")");
+        if (fileFormat != null && !fileFormat.isEmpty()) {
+            sb.append(" FORMAT AS '" + fileFormat + "'");
         }
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");
             Joiner.on(", ").appendTo(sb, fileFieldNames).append(")");
+        }
+        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
+            sb.append(" COLUMNS FROM PATH AS (");
+            Joiner.on(", ").appendTo(sb, columnsFromPath).append(")");
         }
         if (columnMappingList != null && !columnMappingList.isEmpty()) {
             sb.append(" SET (");

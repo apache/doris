@@ -19,6 +19,10 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.IdGenerator;
 
+import com.google.common.annotations.VisibleForTesting;
+
+import java.lang.reflect.Field;
+
 /**
  * The util of named expression.
  */
@@ -30,5 +34,15 @@ public class NamedExpressionUtil {
 
     public static ExprId newExprId() {
         return ID_GENERATOR.getNextId();
+    }
+
+    /**
+     *  Reset Id Generator
+     */
+    @VisibleForTesting
+    public static void clear() throws Exception {
+        Field nextId = ID_GENERATOR.getClass().getSuperclass().getDeclaredField("nextId");
+        nextId.setAccessible(true);
+        nextId.setInt(ID_GENERATOR, 0);
     }
 }

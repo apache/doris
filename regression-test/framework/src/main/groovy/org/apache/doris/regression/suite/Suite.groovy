@@ -25,14 +25,17 @@ import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.ExplainAction
+import org.apache.doris.regression.action.RestoreAction
 import org.apache.doris.regression.action.StreamLoadAction
 import org.apache.doris.regression.action.SuiteAction
 import org.apache.doris.regression.action.TestAction
+import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import groovy.util.logging.Slf4j
 
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
@@ -44,6 +47,7 @@ import static org.apache.doris.regression.util.DataUtils.sortByToString
 
 import java.io.File
 
+@Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
     final String name
@@ -296,6 +300,38 @@ class Suite implements GroovyInterceptable {
         return remotePath;
     }
 
+    String getS3Region() {
+        String s3Region = context.config.otherConfigs.get("s3Region");
+        return s3Region
+    }
+
+    String getS3BucketName() {
+        String s3BucketName = context.config.otherConfigs.get("s3BucketName");
+        return s3BucketName
+    }
+
+    String getS3Endpoint() {
+        String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
+        return s3Endpoint
+    }
+
+    String getS3AK() {
+        String ak = context.config.otherConfigs.get("ak");
+        return ak
+    }
+
+    String getS3SK() {
+        String sk = context.config.otherConfigs.get("sk");
+        return sk
+    }
+
+    String getS3Url() {
+        String s3BucketName = context.config.otherConfigs.get("s3BucketName");
+        String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
+        String s3Url = "http://${s3BucketName}.${s3Endpoint}"
+        return s3Url
+    }
+
     int getTotalLine(String filePath) {
         def file = new File(filePath)
         int lines = 0;
@@ -320,6 +356,14 @@ class Suite implements GroovyInterceptable {
 
     void streamLoad(Closure actionSupplier) {
         runAction(new StreamLoadAction(context), actionSupplier)
+    }
+
+    void restore(Closure actionSupplier) {
+        runAction(new RestoreAction(context), actionSupplier)
+    }
+
+    void httpTest(Closure actionSupplier) {
+        runAction(new HttpCliAction(context), actionSupplier)
     }
 
     void runAction(SuiteAction action, Closure actionSupplier) {
@@ -371,6 +415,7 @@ class Suite implements GroovyInterceptable {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
             }
             if (errorMsg != null) {
+                logger.warn("expect results: " + expectCsvResults + "\nrealResults: " + realResults)
                 throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
             }
         }

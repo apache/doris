@@ -276,6 +276,8 @@ private:
 
     void _cooldown_tasks_producer_callback();
 
+    void _cache_file_cleaner_tasks_producer_callback();
+
 private:
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
@@ -398,6 +400,8 @@ private:
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
+
+    scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
 
     std::unique_ptr<ThreadPool> _cooldown_thread_pool;
 

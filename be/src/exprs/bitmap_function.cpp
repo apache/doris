@@ -169,6 +169,16 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
     }
     return serialize(ctx, &bitmap);
 }
+StringVal BitmapFunctions::bitmap_hash64(doris_udf::FunctionContext* ctx,
+                                         const doris_udf::StringVal& src) {
+    BitmapValue bitmap;
+    if (!src.is_null) {
+        uint64_t hash_value = 0;
+        murmur_hash3_x64_64(src.ptr, src.len, 0, &hash_value);
+        bitmap.add(hash_value);
+    }
+    return serialize(ctx, &bitmap);
+}
 
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
@@ -822,10 +832,19 @@ void BitmapFunctions::orthogonal_bitmap_count_merge(FunctionContext* context, co
 // finalize for ORTHOGONAL_BITMAP_UNION_COUNT(bitmap)
 BigIntVal BitmapFunctions::orthogonal_bitmap_count_finalize(FunctionContext* context,
                                                             const StringVal& src) {
-    auto* pval = reinterpret_cast<int64_t*>(src.ptr);
-    int64_t result = *pval;
-    delete pval;
-    return result;
+    if (src.is_null) {
+        return BigIntVal::null();
+    } else if (src.len == sizeof(int64_t)) {
+        auto* pval = reinterpret_cast<int64_t*>(src.ptr);
+        BigIntVal result = BigIntVal(*pval);
+        delete pval;
+        return result;
+    } else {
+        auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+        BigIntVal result = BigIntVal(src_bitmap->cardinality());
+        delete src_bitmap;
+        return result;
+    }
 }
 
 // This is a serialize function for orthogonal_bitmap_intersect_count(bitmap,t,t).

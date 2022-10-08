@@ -87,7 +87,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.task.PushTask;
-import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -296,7 +295,7 @@ public class Load {
         // resource info
         if (ConnectContext.get() != null) {
             job.setResourceInfo(ConnectContext.get().toResourceCtx());
-            job.setExecMemLimit(ConnectContext.get().getSessionVariable().getMaxExecMemByte());
+            job.setExecMemLimit(ConnectContext.get().getSessionVariable().getLoadMemLimit());
         }
 
         // job properties
@@ -610,7 +609,7 @@ public class Load {
                              * (A, B, C) SET (__doris_shadow_B = substitute(B))
                              */
                             columnToHadoopFunction.put(column.getName(),
-                                    Pair.create("substitute", Lists.newArrayList(originCol)));
+                                    Pair.of("substitute", Lists.newArrayList(originCol)));
                             ImportColumnDesc importColumnDesc
                                     = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
                             parsedColumnExprList.add(importColumnDesc);
@@ -636,7 +635,7 @@ public class Load {
                      * ->
                      * (A, B, C) SET (__DORIS_DELETE_SIGN__ = 0)
                      */
-                    columnToHadoopFunction.put(column.getName(), Pair.create("default_value",
+                    columnToHadoopFunction.put(column.getName(), Pair.of("default_value",
                             Lists.newArrayList(column.getDefaultValue())));
                     ImportColumnDesc importColumnDesc = null;
                     try {
@@ -798,7 +797,7 @@ public class Load {
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
-        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, false, false);
+        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false, false);
     }
 
     /*
@@ -806,13 +805,13 @@ public class Load {
      * And it must be called in same db lock when planing.
      */
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
-                                   Map<String, Pair<String, List<String>>> columnToHadoopFunction,
-                                   Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-                                   Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
-                                   TFileFormatType formatType, boolean useVectorizedLoad) throws UserException {
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
+            Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad)
+            throws UserException {
         rewriteColumns(columnDescs);
-        initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer,
-                srcTupleDesc, slotDescByName, params, formatType, useVectorizedLoad, true);
+        initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer, srcTupleDesc, slotDescByName,
+                srcSlotIds, formatType, hiddenColumns, useVectorizedLoad, true);
     }
 
     /*
@@ -824,11 +823,10 @@ public class Load {
      * 5. init slot descs and expr map for load plan
      */
     private static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
-                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
-                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
-                                    TFileFormatType formatType, boolean useVectorizedLoad,
-                                    boolean needInitSlotAndAnalyzeExprs) throws UserException {
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
+            Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad,
+            boolean needInitSlotAndAnalyzeExprs) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         // skip the mapping columns not exist in schema
@@ -863,6 +861,16 @@ public class Load {
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
+            }
+            if (hiddenColumns != null) {
+                for (String columnName : hiddenColumns) {
+                    Column column = tbl.getColumn(columnName);
+                    if (column != null && !column.isVisible()) {
+                        ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
+                        LOG.debug("add hidden column {} to stream load task", column.getName());
+                        copiedColumnExprs.add(columnDesc);
+                    }
+                }
             }
         }
         // generate a map for checking easily
@@ -977,7 +985,7 @@ public class Load {
                     slotDesc.setIsNullable(true);
                 }
                 slotDesc.setIsMaterialized(true);
-                params.addToSrcSlotIds(slotDesc.getId().asInt());
+                srcSlotIds.add(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
         }
@@ -2227,7 +2235,7 @@ public class Load {
 
     public void replayQuorumLoadJob(LoadJob job, Env env) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = env.getInternalDataSource().getDbOrMetaException(job.getDbId());
+        Database db = env.getInternalCatalog().getDbOrMetaException(job.getDbId());
 
         List<Long> tableIds = Lists.newArrayList();
         long tblId = job.getTableId();
@@ -2323,7 +2331,7 @@ public class Load {
     }
 
     public void replayClearRollupInfo(ReplicaPersistInfo info, Env env) throws MetaNotFoundException {
-        Database db = env.getInternalDataSource().getDbOrMetaException(info.getDbId());
+        Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {

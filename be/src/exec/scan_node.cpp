@@ -62,6 +62,7 @@ void ScanNode::_peel_pushed_vconjunct(RuntimeState* state,
         vectorized::VExpr* new_conjunct_expr_root = vectorized::VectorizedUtils::dfs_peel_conjunct(
                 state, *_vconjunct_ctx_ptr, conjunct_expr_root, leaf_index, checker);
         if (new_conjunct_expr_root == nullptr) {
+            (*_vconjunct_ctx_ptr)->close(state);
             _vconjunct_ctx_ptr.reset(nullptr);
         } else {
             (*_vconjunct_ctx_ptr)->set_root(new_conjunct_expr_root);

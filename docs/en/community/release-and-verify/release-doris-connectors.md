@@ -198,7 +198,7 @@ Keys to verify the Release Candidate:
 https://downloads.apache.org/doris/KEYS
 
 Look at here for how to verify this release candidate:
-http://doris.apache.org/community/release-and-verify/release-verify.html
+hhttps://doris.apache.org/zh-CN/community/release-and-verify/release-verify
 
 The vote will be open for at least 72 hours or until necessary number of votes are reached.
 

@@ -46,9 +46,9 @@ column_name1 op { value | value_list } [ AND column_name2 op { value | value_lis
 说明：
 
 1. op 的可选类型包括：=, >, <, >=, <=, !=, in, not in
-2.  只能指定 key 列上的条件。
-3.  当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
-4.  条件之间只能是“与”的关系。若希望达成“或”的关系，需要将条件分写在两个 DELETE 语句中。
+2. 使用聚合类的表模型（AGGREGATE、UNIQUE）只能指定 key 列上的条件。
+3. 当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
+4. 条件之间只能是“与”的关系。若希望达成“或”的关系，需要将条件分写在两个 DELETE 语句中。
 5. 如果为分区表，可以指定分区，如不指定，且会话变量 delete_without_partition 为 true，则会应用到所有分区。如果是单分区表，可以不指定。
 
 注意：

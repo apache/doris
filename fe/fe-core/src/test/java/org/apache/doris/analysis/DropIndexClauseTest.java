@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -36,14 +36,16 @@ public class DropIndexClauseTest {
 
     @Test
     public void testNormal() throws UserException {
-        DropIndexClause clause = new DropIndexClause("index1", false, new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "table"), false);
+        DropIndexClause clause = new DropIndexClause("index1", false,
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), false);
         clause.analyze(analyzer);
         Assert.assertEquals("DROP INDEX index1 ON `db`.`table`", clause.toSql());
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoIndex() throws UserException {
-        DropIndexClause clause = new DropIndexClause("", false, new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "table"), false);
+        DropIndexClause clause = new DropIndexClause("", false,
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), false);
         clause.analyze(analyzer);
     }
 }

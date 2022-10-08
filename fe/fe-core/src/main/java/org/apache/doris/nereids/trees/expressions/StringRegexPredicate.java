@@ -18,17 +18,30 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.TypeCollection;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Objects;
 
 /**
  * string regex expression.
  * Such as: like, regexp
  */
-public abstract class StringRegexPredicate extends Expression implements BinaryExpression {
+public abstract class StringRegexPredicate extends Expression implements BinaryExpression, ImplicitCastInputTypes {
+
+    // used in interface expectedInputTypes to avoid new list in each time it be called
+    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
+            TypeCollection.CHARACTER_TYPE_COLLECTION,
+            TypeCollection.CHARACTER_TYPE_COLLECTION
+    );
 
     /**
      * like or regexp
@@ -50,6 +63,11 @@ public abstract class StringRegexPredicate extends Expression implements BinaryE
     @Override
     public DataType getDataType() throws UnboundException {
         return BooleanType.INSTANCE;
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        return EXPECTED_INPUT_TYPES;
     }
 
     @Override

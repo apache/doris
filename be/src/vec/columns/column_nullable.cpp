@@ -20,12 +20,13 @@
 
 #include "vec/columns/column_nullable.h"
 
+#include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/nan_utils.h"
-#include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 
@@ -43,11 +44,66 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 }
 
+MutableColumnPtr ColumnNullable::get_shrinked_column() {
+    return ColumnNullable::create(get_nested_column_ptr()->get_shrinked_column(),
+                                  get_null_map_column_ptr());
+}
+
 void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
     if (is_null_at(n))
         hash.update(0);
     else
         get_nested_column().update_hash_with_value(n, hash);
+}
+
+void ColumnNullable::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                              const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto s = hashes.size();
+    DCHECK(s == size());
+    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+    if (doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(real_null_data), s) == s) {
+        nested_column->update_hashes_with_value(hashes, nullptr);
+    } else {
+        for (int i = 0; i < s; ++i) {
+            if (real_null_data[i] != 0) hashes[i].update(0);
+        }
+        nested_column->update_hashes_with_value(hashes, real_null_data);
+    }
+}
+
+void ColumnNullable::update_crcs_with_value(std::vector<uint64_t>& hashes,
+                                            doris::PrimitiveType type,
+                                            const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto s = hashes.size();
+    DCHECK(s == size());
+    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+    if (!has_null()) {
+        nested_column->update_crcs_with_value(hashes, type, nullptr);
+    } else {
+        for (int i = 0; i < s; ++i) {
+            if (real_null_data[i] != 0) {
+                hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
+            }
+        }
+        nested_column->update_crcs_with_value(hashes, type, real_null_data);
+    }
+}
+
+void ColumnNullable::update_hashes_with_value(uint64_t* __restrict hashes,
+                                              const uint8_t* __restrict null_data) const {
+    DCHECK(null_data == nullptr);
+    auto s = size();
+    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+    if (doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(real_null_data), s) == s) {
+        nested_column->update_hashes_with_value(hashes, nullptr);
+    } else {
+        for (int i = 0; i < s; ++i) {
+            if (real_null_data[i] != 0) hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
+        }
+        nested_column->update_hashes_with_value(hashes, real_null_data);
+    }
 }
 
 MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
@@ -491,6 +547,13 @@ void ColumnNullable::check_consistency() const {
     }
 }
 
+void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                 IColumn::Permutation& perms, EqualRange& range,
+                                 bool last_column) const {
+    sorter->sort_column(static_cast<const ColumnNullable&>(*this), flags, perms, range,
+                        last_column);
+}
+
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
     if (is_column_nullable(*column)) return column;
 
@@ -507,6 +570,16 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     if (is_column_nullable(*column)) {
         return reinterpret_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
     }
+
+    if (is_column_const(*column)) {
+        auto& column_nested = assert_cast<const ColumnConst&>(*column).get_data_column_ptr();
+        if (is_column_nullable(*column_nested)) {
+            return ColumnConst::create(
+                    assert_cast<const ColumnNullable&>(*column_nested).get_nested_column_ptr(),
+                    column->size());
+        }
+    }
+
     return column;
 }
 

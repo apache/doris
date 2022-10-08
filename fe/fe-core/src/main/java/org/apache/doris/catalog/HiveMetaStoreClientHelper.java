@@ -813,6 +813,12 @@ public class HiveMetaStoreClientHelper {
             default:
                 break;
         }
+        if (lowerCaseType.startsWith("array")) {
+            if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
+                return ArrayType.create(innerType, true);
+            }
+        }
         if (lowerCaseType.startsWith("char")) {
             ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
             Matcher match = digitPattern.matcher(lowerCaseType);

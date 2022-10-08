@@ -42,7 +42,8 @@ Status PrimaryKeyIndexBuilder::init() {
 
 Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     RETURN_IF_ERROR(_primary_key_index_builder->add(&key));
-    _bloom_filter_index_builder->add_values(&key, 1);
+    Slice key_without_seq = Slice(key.get_data(), key.get_size() - _seq_col_length);
+    _bloom_filter_index_builder->add_values(&key_without_seq, 1);
     // the key is already sorted, so the first key is min_key, and
     // the last key is max_key.
     if (UNLIKELY(_num_rows == 0)) {
@@ -59,17 +60,27 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
     // finish primary key index
     RETURN_IF_ERROR(_primary_key_index_builder->finish(meta->mutable_primary_key_index()));
 
+    // set min_max key
+    meta->set_min_key(_min_key.ToString());
+    meta->set_max_key(_max_key.ToString());
+
     // finish bloom filter index
     RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
     return _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index());
 }
 
-Status PrimaryKeyIndexReader::parse(io::FileReaderSPtr file_reader,
-                                    const segment_v2::PrimaryKeyIndexMetaPB& meta) {
+Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
+                                          const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
     RETURN_IF_ERROR(_index_reader->load(!config::disable_storage_page_cache, false));
 
+    _index_parsed = true;
+    return Status::OK();
+}
+
+Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
+                                       const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse bloom filter
     segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
     segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
@@ -78,8 +89,8 @@ Status PrimaryKeyIndexReader::parse(io::FileReaderSPtr file_reader,
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));
     RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));
+    _bf_parsed = true;
 
-    _parsed = true;
     return Status::OK();
 }
 

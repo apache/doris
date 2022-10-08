@@ -55,7 +55,7 @@ public class NullSafeEqual extends ComparisonPredicate {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public NullSafeEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new NullSafeEqual(children.get(0), children.get(1));
     }
@@ -64,4 +64,5 @@ public class NullSafeEqual extends ComparisonPredicate {
     public ComparisonPredicate commute() {
         return new NullSafeEqual(right(), left());
     }
+
 }

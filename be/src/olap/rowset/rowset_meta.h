@@ -233,8 +233,6 @@ public:
 
     bool delete_flag() const { return _rowset_meta_pb.delete_flag(); }
 
-    void set_delete_flag(bool delete_flag) { _rowset_meta_pb.set_delete_flag(delete_flag); }
-
     int64_t creation_time() const { return _rowset_meta_pb.creation_time(); }
 
     void set_creation_time(int64_t creation_time) {
@@ -341,6 +339,7 @@ public:
     int64_t oldest_write_timestamp() const { return _rowset_meta_pb.oldest_write_timestamp(); }
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
+
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
         DCHECK(_schema == nullptr);
         _schema = TabletSchemaCache::instance()->insert(tablet_schema->to_key());
@@ -395,7 +394,7 @@ private:
 
 private:
     RowsetMetaPB _rowset_meta_pb;
-    std::shared_ptr<TabletSchema> _schema = nullptr;
+    TabletSchemaSPtr _schema = nullptr;
     RowsetId _rowset_id;
     io::FileSystemPtr _fs;
     bool _is_removed_from_rowset_meta = false;

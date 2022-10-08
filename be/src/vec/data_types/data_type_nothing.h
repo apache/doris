@@ -48,9 +48,12 @@ public:
     size_t get_size_of_value_in_memory() const override { return 0; }
     bool can_be_inside_nullable() const override { return true; }
 
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override { return 0; }
-    char* serialize(const IColumn& column, char* buf) const override;
-    const char* deserialize(const char* buf, IColumn* column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override {
+        return 0;
+    }
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
 
     [[noreturn]] Field get_default() const override {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();

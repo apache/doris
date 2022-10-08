@@ -83,6 +83,9 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _node_info = *node;
 
+    _load_info = "load_id=" + print_id(_parent->_load_id) +
+                 ", txn_id=" + std::to_string(_parent->_txn_id);
+
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
 
@@ -90,7 +93,7 @@ Status NodeChannel::init(RuntimeState* state) {
                                                                         _node_info.brpc_port);
     if (_stub == nullptr) {
         LOG(WARNING) << "Get rpc stub failed, host=" << _node_info.host
-                     << ", port=" << _node_info.brpc_port;
+                     << ", port=" << _node_info.brpc_port << ", " << channel_info();
         _cancelled = true;
         return Status::InternalError("get rpc stub failed");
     }
@@ -110,10 +113,7 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
     _timeout_watch.start();
-    _max_pending_batches_bytes = _parent->_load_mem_limit / 20; //TODO: session variable percent
 
-    _load_info = "load_id=" + print_id(_parent->_load_id) +
-                 ", txn_id=" + std::to_string(_parent->_txn_id);
     return Status::OK();
 }
 
@@ -153,7 +153,7 @@ void NodeChannel::open() {
 }
 
 void NodeChannel::_cancel_with_msg(const std::string& msg) {
-    LOG(WARNING) << msg;
+    LOG(WARNING) << channel_info() << ", " << msg;
     {
         std::lock_guard<SpinLock> l(_cancel_msg_lock);
         if (_cancel_msg == "") {
@@ -176,7 +176,7 @@ Status NodeChannel::open_wait() {
         ss << "failed to open tablet writer, error=" << berror(_open_closure->cntl.ErrorCode())
            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
-        LOG(WARNING) << ss.str();
+        LOG(WARNING) << ss.str() << " " << channel_info();
         return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
                                      berror(_open_closure->cntl.ErrorCode()),
                                      _open_closure->cntl.ErrorText());
@@ -196,6 +196,7 @@ Status NodeChannel::open_wait() {
         // add batch closure
         _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
         _add_batch_closure->addFailedHandler([this](bool is_last_rpc) {
+            SCOPED_ATTACH_TASK(_state);
             std::lock_guard<std::mutex> l(this->_closed_lock);
             if (this->_is_closed) {
                 // if the node channel is closed, no need to call `mark_as_failed`,
@@ -217,6 +218,7 @@ Status NodeChannel::open_wait() {
 
         _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
                                                      bool is_last_rpc) {
+            SCOPED_ATTACH_TASK(_state);
             std::lock_guard<std::mutex> l(this->_closed_lock);
             if (this->_is_closed) {
                 // if the node channel is closed, no need to call the following logic,
@@ -292,7 +294,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
             return Status::InternalError("add row failed. {}", _cancel_msg);
         } else {
-            return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
+            return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
         }
     }
 
@@ -302,8 +304,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
     while (!_cancelled && _pending_batches_num > 0 &&
-           (_pending_batches_bytes > _max_pending_batches_bytes ||
-            _parent->_mem_tracker->limit_exceeded(_max_pending_batches_bytes))) {
+           _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -317,6 +318,10 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
             //To simplify the add_row logic, postpone adding batch into req until the time of sending req
             _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
             _pending_batches_num++;
+            VLOG_DEBUG << "OlapTableSink:" << _parent << " NodeChannel:" << this
+                       << " pending_batches_bytes:" << _pending_batches_bytes
+                       << " jobid:" << std::to_string(_state->load_job_id())
+                       << " tabletid:" << tablet_id << " loadinfo:" << _load_info;
         }
 
         _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
@@ -376,8 +381,8 @@ Status NodeChannel::close_wait(RuntimeState* state) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
             return Status::InternalError("wait close failed. {}", _cancel_msg);
         } else {
-            return st.clone_and_prepend(
-                    "already stopped, skip waiting for close. cancelled/!eos: ");
+            return std::move(
+                    st.prepend("already stopped, skip waiting for close. cancelled/!eos: "));
         }
     }
 
@@ -468,8 +473,9 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
 }
 
 void NodeChannel::try_send_batch(RuntimeState* state) {
-    SCOPED_ATTACH_TASK(state);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     AddBatchReq send_batch;
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
@@ -574,12 +580,19 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_batch_by_http";
         _add_batch_closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
         _add_batch_closure->cntl.http_request().set_content_type("application/json");
-        _brpc_http_stub->tablet_writer_add_batch_by_http(
-                &_add_batch_closure->cntl, NULL, &_add_batch_closure->result, _add_batch_closure);
+        {
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _brpc_http_stub->tablet_writer_add_batch_by_http(&_add_batch_closure->cntl, NULL,
+                                                             &_add_batch_closure->result,
+                                                             _add_batch_closure);
+        }
     } else {
         _add_batch_closure->cntl.http_request().Clear();
-        _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
-                                       &_add_batch_closure->result, _add_batch_closure);
+        {
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
+                                           &_add_batch_closure->result, _add_batch_closure);
+        }
     }
     _next_packet_seq++;
 }
@@ -840,6 +853,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_HLL:
         case TYPE_OBJECT:
         case TYPE_STRING:
+        case TYPE_ARRAY:
             _need_validate_data = true;
             break;
         default:
@@ -1206,6 +1220,112 @@ Status OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch,
     return Status::OK();
 }
 
+bool OlapTableSink::_validate_cell(const TypeDescriptor& type, const std::string& col_name,
+                                   void* slot, size_t slot_index, fmt::memory_buffer& error_msg,
+                                   RowBatch* batch) {
+    switch (type.type) {
+    case TYPE_CHAR:
+    case TYPE_VARCHAR: {
+        // Fixed length string
+        StringValue* str_val = (StringValue*)slot;
+        if (str_val->len > type.len) {
+            fmt::format_to(error_msg, "{}", "the length of input is too long than schema. ");
+            fmt::format_to(error_msg, "column_name: {}; ", col_name);
+            fmt::format_to(error_msg, "input str: [{}] ", std::string(str_val->ptr, str_val->len));
+            fmt::format_to(error_msg, "schema length: {}; ", type.len);
+            fmt::format_to(error_msg, "actual length: {}; ", str_val->len);
+            return false;
+        }
+        // padding 0 to CHAR field
+        if (type.type == TYPE_CHAR && str_val->len < type.len) {
+            auto new_ptr = (char*)batch->tuple_data_pool()->allocate(type.len);
+            memcpy(new_ptr, str_val->ptr, str_val->len);
+            memset(new_ptr + str_val->len, 0, type.len - str_val->len);
+
+            str_val->ptr = new_ptr;
+            str_val->len = type.len;
+        }
+        break;
+    }
+    case TYPE_STRING: {
+        StringValue* str_val = (StringValue*)slot;
+        if (str_val->len > config::string_type_length_soft_limit_bytes) {
+            fmt::format_to(error_msg, "{}", "the length of input is too long than schema. ");
+            fmt::format_to(error_msg, "column_name: {}; ", col_name);
+            fmt::format_to(error_msg, "first 128 bytes of input str: [{}] ",
+                           std::string(str_val->ptr, 128));
+            fmt::format_to(error_msg, "schema length: {}; ",
+                           config::string_type_length_soft_limit_bytes);
+            fmt::format_to(error_msg, "actual length: {}; ", str_val->len);
+            return false;
+        }
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        DecimalV2Value dec_val(reinterpret_cast<const PackedInt128*>(slot)->value);
+        if (dec_val.greater_than_scale(type.scale)) {
+            int code = dec_val.round(&dec_val, type.scale, HALF_UP);
+            reinterpret_cast<PackedInt128*>(slot)->value = dec_val.value();
+            if (code != E_DEC_OK) {
+                fmt::format_to(error_msg, "round one decimal failed.value={}; ",
+                               dec_val.to_string());
+                return false;
+            }
+        }
+        if (dec_val > _max_decimalv2_val[slot_index] || dec_val < _min_decimalv2_val[slot_index]) {
+            fmt::format_to(error_msg, "decimal value is not valid for definition, column={}",
+                           col_name);
+            fmt::format_to(error_msg, ", value={}", dec_val.to_string());
+            fmt::format_to(error_msg, ", precision={}, scale={}; ", type.precision, type.scale);
+            return false;
+        }
+        break;
+    }
+    case TYPE_HLL: {
+        Slice* hll_val = (Slice*)slot;
+        if (!HyperLogLog::is_valid(*hll_val)) {
+            fmt::format_to(error_msg, "Content of HLL type column is invalid. column name: {}; ",
+                           col_name);
+            return false;
+        }
+        break;
+    }
+    case TYPE_ARRAY: {
+        auto array_val = (CollectionValue*)slot;
+        DCHECK(type.children.size() == 1);
+        auto nested_type = type.children[0];
+        if (nested_type.type != TYPE_ARRAY && nested_type.type != TYPE_CHAR &&
+            nested_type.type != TYPE_VARCHAR && nested_type.type != TYPE_STRING) {
+            break;
+        }
+        auto iter = array_val->iterator(nested_type.type);
+        while (iter.has_next()) {
+            auto data = iter.get();
+            // validate array nested element is nullable
+            if (data == nullptr) {
+                if (!type.contains_null) {
+                    fmt::format_to(error_msg,
+                                   "null element for null nested column of ARRAY, column={}, "
+                                   "type={} ",
+                                   col_name, type.debug_string());
+                    return false;
+                }
+            } else {
+                // validate array nested element data
+                if (!_validate_cell(nested_type, col_name, data, slot_index, error_msg, batch)) {
+                    fmt::format_to(error_msg, "ARRAY or elements invalid");
+                    return false;
+                }
+            }
+            iter.next();
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return true;
+}
 Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap,
                                      int* filtered_rows, bool* stop_processing) {
     for (int row_no = 0; row_no < batch->num_rows(); ++row_no) {
@@ -1224,87 +1344,7 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
                 continue;
             }
             void* slot = tuple->get_slot(desc->tuple_offset());
-            switch (desc->type().type) {
-            case TYPE_CHAR:
-            case TYPE_VARCHAR: {
-                // Fixed length string
-                StringValue* str_val = (StringValue*)slot;
-                if (str_val->len > desc->type().len) {
-                    fmt::format_to(error_msg, "{}",
-                                   "the length of input is too long than schema. ");
-                    fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                    fmt::format_to(error_msg, "input str: [{}] ",
-                                   std::string(str_val->ptr, str_val->len));
-                    fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
-                    fmt::format_to(error_msg, "actual length: {}; ", str_val->len);
-                    row_valid = false;
-                    continue;
-                }
-                // padding 0 to CHAR field
-                if (desc->type().type == TYPE_CHAR && str_val->len < desc->type().len) {
-                    auto new_ptr = (char*)batch->tuple_data_pool()->allocate(desc->type().len);
-                    memcpy(new_ptr, str_val->ptr, str_val->len);
-                    memset(new_ptr + str_val->len, 0, desc->type().len - str_val->len);
-
-                    str_val->ptr = new_ptr;
-                    str_val->len = desc->type().len;
-                }
-                break;
-            }
-            case TYPE_STRING: {
-                StringValue* str_val = (StringValue*)slot;
-                if (str_val->len > config::string_type_length_soft_limit_bytes) {
-                    fmt::format_to(error_msg, "{}",
-                                   "the length of input is too long than schema. ");
-                    fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                    fmt::format_to(error_msg, "first 128 bytes of input str: [{}] ",
-                                   std::string(str_val->ptr, 128));
-                    fmt::format_to(error_msg, "schema length: {}; ",
-                                   config::string_type_length_soft_limit_bytes);
-                    fmt::format_to(error_msg, "actual length: {}; ", str_val->len);
-                    row_valid = false;
-                    continue;
-                }
-                break;
-            }
-            case TYPE_DECIMALV2: {
-                DecimalV2Value dec_val(reinterpret_cast<const PackedInt128*>(slot)->value);
-                if (dec_val.greater_than_scale(desc->type().scale)) {
-                    int code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
-                    reinterpret_cast<PackedInt128*>(slot)->value = dec_val.value();
-                    if (code != E_DEC_OK) {
-                        fmt::format_to(error_msg, "round one decimal failed.value={}; ",
-                                       dec_val.to_string());
-                        row_valid = false;
-                        continue;
-                    }
-                }
-                if (dec_val > _max_decimalv2_val[i] || dec_val < _min_decimalv2_val[i]) {
-                    fmt::format_to(error_msg,
-                                   "decimal value is not valid for definition, column={}",
-                                   desc->col_name());
-                    fmt::format_to(error_msg, ", value={}", dec_val.to_string());
-                    fmt::format_to(error_msg, ", precision={}, scale={}; ", desc->type().precision,
-                                   desc->type().scale);
-                    row_valid = false;
-                    continue;
-                }
-                break;
-            }
-            case TYPE_HLL: {
-                Slice* hll_val = (Slice*)slot;
-                if (!HyperLogLog::is_valid(*hll_val)) {
-                    fmt::format_to(error_msg,
-                                   "Content of HLL type column is invalid. column name: {}; ",
-                                   desc->col_name());
-                    row_valid = false;
-                    continue;
-                }
-                break;
-            }
-            default:
-                break;
-            }
+            row_valid = _validate_cell(desc->type(), desc->col_name(), slot, i, error_msg, batch);
         }
 
         if (!row_valid) {
@@ -1321,6 +1361,7 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
 void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(state);
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
