@@ -130,7 +130,7 @@ CREATE DATABASE example_db;
 >    SHOW CREATE ROUTINE LOAD
 > ```
 
-数据库创建完成之后，可以通过 [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.html#show-databases) 查看数据库信息。
+数据库创建完成之后，可以通过 [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.md#show-databases) 查看数据库信息。
 
 ```sql
 mysql> SHOW DATABASES;
