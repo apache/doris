@@ -179,6 +179,7 @@ public class TupleDescriptor {
      */
     public void computeSampleTabletIds(List<Long> tabletIds, TableSample tableSample) {
         if (table.getType() != TableType.OLAP) {
+            LOG.info("sample table type {} is not OLAP", table.getType());
             return;
         }
         sampleTabletIds.addAll(tabletIds);
@@ -191,9 +192,9 @@ public class TupleDescriptor {
         long totalRows = 0; // The total number of partition rows hit
         long totalTablet = 0; // The total number of tablets in the hit partition
         if (tableSample.isPercent()) {
-            sampleRows = (long) Math.max(olapTable.getRowCount() * (tableSample.getSampleValues() / 100.0), 1);
+            sampleRows = (long) Math.max(olapTable.getRowCount() * (tableSample.getSampleValue() / 100.0), 1);
         } else {
-            sampleRows = Math.max(tableSample.getSampleValues(), 1);
+            sampleRows = Math.max(tableSample.getSampleValue(), 1);
         }
 
         // calculate the number of tablets by each partition
@@ -206,6 +207,9 @@ public class TupleDescriptor {
                 continue;
             }
 
+            // Skip partitions with row count < row count / 2 expected to be sampled per partition.
+            // It can be expected to sample a smaller number of partitions to avoid uneven distribution
+            // of sampling results.
             if (p.getBaseIndex().getRowCount() < (avgRowsPerPartition / 2)) {
                 continue;
             }
