@@ -229,11 +229,11 @@ public class GroupExpression {
     public String toString() {
         StringBuilder builder = new StringBuilder();
         builder.append(ownerGroup.getGroupId())
-                .append("(plan=" + plan.toString() + ") children:[");
+                .append("(plan=" + plan.toString() + ") children=[");
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");
         }
-        builder.append("]");
+        builder.append("] stats=");
         builder.append(ownerGroup.getStatistics());
         return builder.toString();
     }

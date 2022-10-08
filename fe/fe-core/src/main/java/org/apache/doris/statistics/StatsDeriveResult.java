@@ -155,4 +155,12 @@ public class StatsDeriveResult {
                 .append(", width=").append(width).append(")");
         return builder.toString();
     }
+
+    public static String toString(StatsDeriveResult stats) {
+        if (stats == null) {
+            return "null";
+        } else {
+            return stats.toString();
+        }
+    }
 }
