@@ -249,14 +249,13 @@ Status ExecNode::open(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
+    RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
     if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
         typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         return Expr::open(_conjunct_ctxs, state);
     } else {
         return Status::OK();
     }
-    RETURN_IF_ERROR(Expr::open(_conjunct_ctxs, state));
-    return vectorized::VExpr::open(_projections, state);
 }
 
 Status ExecNode::reset(RuntimeState* state) {
