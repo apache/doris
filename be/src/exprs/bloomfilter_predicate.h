@@ -300,23 +300,6 @@ struct DateFindOp : public CommonFindOp<DateTimeValue> {
     }
 };
 
-struct DateV2FindOp : public CommonFindOp<vectorized::DateV2Value<vectorized::DateV2ValueType>> {
-    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        return bloom_filter.test(
-                Slice((char*)data,
-                      sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>)));
-    }
-};
-
-struct DateTimeV2FindOp
-        : public CommonFindOp<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>> {
-    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        return bloom_filter.test(Slice(
-                (char*)data,
-                sizeof(doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>)));
-    }
-};
-
 struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         auto packed_decimal = *static_cast<const decimal12_t*>(data);
