@@ -32,7 +32,7 @@ BROKER LOAD
 
 ### Description
 
-该命令主要用于通过 Broker 服务进程来导入远端存储（如S3、HDFS）上的数据。
+该命令主要用于通过 Broker 服务进程读取远端存储（如S3、HDFS）上的数据导入到 Doris 表里。
 
 ```sql
 LOAD LABEL load_label
