@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -32,16 +33,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Planner rule that pushes a SemoJoin down in a tree past a LogicalJoin
- * in order to trigger other rules that will convert {@code SemiJoin}s.
- *
  * <ul>
  * <li>SemiJoin(LogicalJoin(X, Y), Z) -> LogicalJoin(SemiJoin(X, Z), Y)
  * <li>SemiJoin(LogicalJoin(X, Y), Z) -> LogicalJoin(X, SemiJoin(Y, Z))
  * </ul>
- * <p>
- * Whether this first or second conversion is applied depends on
- * which operands actually participate in the semi-join.
  */
 public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
 
@@ -57,7 +52,9 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return leftSemiLogicalJoin(logicalJoin(), group())
+        return logicalJoin(logicalJoin(), group())
+                .when(topJoin -> topJoin.getJoinType() == JoinType.LEFT_SEMI_JOIN
+                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN)
                 .whenNot(topJoin -> topJoin.left().getJoinType().isSemiOrAntiJoin())
                 .when(this::conditionChecker)
                 .then(topSemiJoin -> {

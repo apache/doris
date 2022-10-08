@@ -722,14 +722,12 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                     .error(status);
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            int submit_tablets = 0;
             if (config::enable_quick_compaction && config::quick_compaction_batch_size > 0) {
                 for (int i = 0; i < succ_tablet_ids.size(); i++) {
                     TabletSharedPtr tablet =
                             StorageEngine::instance()->tablet_manager()->get_tablet(
                                     succ_tablet_ids[i]);
                     if (tablet != nullptr) {
-                        submit_tablets++;
                         tablet->publised_count++;
                         if (tablet->publised_count % config::quick_compaction_batch_size == 0) {
                             StorageEngine::instance()->submit_quick_compaction_task(tablet);
@@ -855,6 +853,14 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 case TTabletMetaType::INMEMORY:
                     if (tablet_meta_info.storage_policy.empty()) {
                         tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
+                                tablet_meta_info.is_in_memory);
+                        // The field is_in_memory should not be in the tablet_schema.
+                        // it should be in the tablet_meta.
+                        for (auto rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                            rowset_meta->tablet_schema()->set_is_in_memory(
+                                    tablet_meta_info.is_in_memory);
+                        }
+                        tablet->get_max_version_schema(wrlock)->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
                     } else {
                         LOG(INFO) << "set tablet cooldown resource "

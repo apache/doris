@@ -44,14 +44,19 @@ public:
     MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
-             const RowsetIdUnorderedSet& rowset_ids, bool support_vec = false);
+             const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
+             const std::shared_ptr<MemTrackerLimiter>& tracker, bool support_vec = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet->tablet_id(); }
     KeysType keys_type() const { return _tablet->keys_type(); }
-    size_t memory_usage() const { return _mem_tracker->consumption(); }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker_hook() const { return _mem_tracker_hook; }
+    size_t memory_usage() const { return _mem_tracker_manual->consumption(); }
 
-    inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
+    inline void insert(const Tuple* tuple) {
+        SCOPED_ATTACH_TASK(_mem_tracker_hook, ThreadContext::TaskType::LOAD);
+        (this->*_insert_fn)(tuple);
+    }
     // insert tuple from (row_pos) to (row_pos+num_rows)
     void insert(const vectorized::Block* block, const std::vector<int>& row_idxs);
 
@@ -156,7 +161,8 @@ private:
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker_manual;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker_hook;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
     std::unique_ptr<MemPool> _buffer_mem_pool;
@@ -210,6 +216,7 @@ private:
 
     DeleteBitmapPtr _delete_bitmap;
     RowsetIdUnorderedSet _rowset_ids;
+    int64_t _cur_max_version;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {

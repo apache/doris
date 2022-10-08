@@ -84,7 +84,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
-    MutableColumnPtr get_shinked_column() override;
+    MutableColumnPtr get_shrinked_column() override;
 
     Field operator[](size_t n) const override {
         assert(n < size());
@@ -153,6 +153,17 @@ public:
         offsets.push_back(new_size);
     }
 
+    void insert_data_without_reserve(const char* pos, size_t length) {
+        const size_t old_size = chars.size();
+        const size_t new_size = old_size + length;
+
+        if (length) {
+            chars.resize(new_size);
+            memcpy(chars.data() + old_size, pos, length);
+        }
+        offsets.push_back_without_reserve(new_size);
+    }
+
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         size_t new_size = 0;
@@ -168,9 +179,8 @@ public:
         for (size_t i = 0; i < num; i++) {
             uint32_t len = len_array[i];
             uint32_t start_offset = start_offset_array[i];
-            if (len) {
-                memcpy(data + offset, data_array + start_offset, len);
-            }
+            // memcpy will deal len == 0, not do it here
+            memcpy(data + offset, data_array + start_offset, len);
             offset += len;
             offsets.push_back(offset);
         }
@@ -197,27 +207,75 @@ public:
         }
     }
 
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t num, uint32_t /*dict_num*/) override {
-        size_t new_size = 0;
-        for (size_t i = start_index; i < start_index + num; i++) {
-            int32_t codeword = data_array[i];
-            new_size += dict[codeword].size;
-        }
+    void insert_many_continuous_strings(const StringRef* strings, size_t num) {
+        DCHECK_NE(num, 0);
+        offsets.reserve(offsets.size() + num);
+        std::vector<const char*> start_points(1);
+        auto& head = strings[0];
+        start_points[0] = head.data;
+        size_t new_size = head.size;
+        const char* cursor = head.data + new_size;
+        std::vector<const char*> end_points;
 
         const size_t old_size = chars.size();
+        size_t offset = old_size;
+        offset += new_size;
+        offsets.push_back(offset);
+        if (num == 1) {
+            end_points.push_back(cursor);
+        } else {
+            for (size_t i = 1; i < num; i++) {
+                auto& str = strings[i];
+                if (cursor != str.data) {
+                    end_points.push_back(cursor);
+                    start_points.push_back(str.data);
+                    cursor = str.data;
+                }
+                size_t sz = str.size;
+                offset += sz;
+                new_size += sz;
+                cursor += sz;
+                offsets.push_back_without_reserve(offset);
+            }
+            end_points.push_back(cursor);
+        }
+        DCHECK_EQ(end_points.size(), start_points.size());
+
         chars.resize(old_size + new_size);
 
+        size_t num_range = start_points.size();
         Char* data = chars.data();
-        size_t offset = old_size;
-        for (size_t i = start_index; i < start_index + num; i++) {
-            int32_t codeword = data_array[i];
-            uint32_t len = dict[codeword].size;
+
+        offset = old_size;
+        for (size_t i = 0; i < num_range; i++) {
+            uint32_t len = end_points[i] - start_points[i];
             if (len) {
-                memcpy(data + offset, dict[codeword].data, len);
+                memcpy(data + offset, start_points[i], len);
                 offset += len;
             }
-            offsets.push_back(offset);
+        }
+    }
+
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
+                               size_t num, uint32_t /*dict_num*/) override {
+        size_t offset_size = offsets.size();
+        size_t old_size = chars.size();
+        size_t new_size = old_size;
+        offsets.resize(offsets.size() + num);
+
+        for (size_t i = 0; i < num; i++) {
+            int32_t codeword = data_array[i + start_index];
+            new_size += dict[codeword].size;
+            offsets[offset_size + i] = new_size;
+        }
+
+        chars.resize(new_size);
+
+        for (size_t i = start_index; i < start_index + num; i++) {
+            int32_t codeword = data_array[i];
+            auto& src = dict[codeword];
+            memcpy(chars.data() + old_size, src.data, src.size);
+            old_size += src.size;
         }
     }
 
@@ -372,6 +430,10 @@ public:
             offsets[self_row] = offsets[self_row - 1];
         }
     }
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
 };
 
 } // namespace doris::vectorized

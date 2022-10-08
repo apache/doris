@@ -301,14 +301,15 @@ index ecd6dab..1aaa220 100644
  }  // namespace sdk
 diff --git a/sdk/src/common/threadlocal.cc b/sdk/src/common/threadlocal.cc
 new file mode 100644
-index 0000000..1f8b6b1
+index 0000000..ec2038b
 --- /dev/null
 +++ b/sdk/src/common/threadlocal.cc
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,83 @@
 +// Copyright The OpenTelemetry Authors
 +// SPDX-License-Identifier: Apache-2.0
 +
 +#include <opentelemetry/common/threadlocal.h>
++#include "opentelemetry/sdk/common/global_log_handler.h"
 +
 +#include <pthread.h>
 +#include <memory>
@@ -360,7 +361,7 @@ index 0000000..1f8b6b1
 +    std::stringstream ss;
 +    ss << "[thread local] pthread_key_create() failed, cannot add destructor to thread: "
 +       << "error " << ret;
-+    fprintf(stderr, "%s\n", ss.str().c_str());
++    OTEL_INTERNAL_LOG_ERROR(ss.str());
 +  }
 +}
 +
@@ -382,7 +383,7 @@ index 0000000..1f8b6b1
 +    std::stringstream ss;
 +    ss << "[thread local] pthread_setspecific() failed, cannot update destructor list: "
 +       << "error " << ret;
-+    fprintf(stderr, "%s\n", ss.str().c_str());
++    OTEL_INTERNAL_LOG_ERROR(ss.str());
 +  }
 +}
 +}  // namespace internal_threadlocal

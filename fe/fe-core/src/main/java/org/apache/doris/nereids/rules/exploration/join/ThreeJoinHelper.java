@@ -20,17 +20,13 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -44,19 +40,17 @@ abstract class ThreeJoinHelper {
     protected final GroupPlan b;
     protected final GroupPlan c;
 
-    protected final Set<Slot> aOutput;
-    protected final Set<Slot> bOutput;
-    protected final Set<Slot> cOutput;
+    protected final Set<Slot> aOutputSet;
+    protected final Set<Slot> bOutputSet;
+    protected final Set<Slot> cOutputSet;
+    protected final Set<Slot> bottomJoinOutputSet;
 
-    protected final List<NamedExpression> allProjects = Lists.newArrayList();
+    protected final List<NamedExpression> insideProjects = Lists.newArrayList();
 
-    protected final List<Expression> allHashJoinConjuncts = Lists.newArrayList();
-    protected final List<Expression> allNonHashJoinConjuncts = Lists.newArrayList();
-
-    protected final List<Expression> newBottomHashJoinConjuncts = Lists.newArrayList();
+    protected List<Expression> newBottomHashJoinConjuncts;
     protected final List<Expression> newBottomNonHashJoinConjuncts = Lists.newArrayList();
 
-    protected final List<Expression> newTopHashJoinConjuncts = Lists.newArrayList();
+    protected List<Expression> newTopHashJoinConjuncts;
     protected final List<Expression> newTopNonHashJoinConjuncts = Lists.newArrayList();
 
     /**
@@ -70,72 +64,13 @@ abstract class ThreeJoinHelper {
         this.b = b;
         this.c = c;
 
-        aOutput = a.getOutputSet();
-        bOutput = b.getOutputSet();
-        cOutput = c.getOutputSet();
+        aOutputSet = a.getOutputSet();
+        bOutputSet = b.getOutputSet();
+        cOutputSet = c.getOutputSet();
+        bottomJoinOutputSet = bottomJoin.getOutputSet();
 
         Preconditions.checkArgument(!topJoin.getHashJoinConjuncts().isEmpty(), "topJoin hashJoinConjuncts must exist.");
         Preconditions.checkArgument(!bottomJoin.getHashJoinConjuncts().isEmpty(),
                 "bottomJoin hashJoinConjuncts must exist.");
-
-        allHashJoinConjuncts.addAll(topJoin.getHashJoinConjuncts());
-        allHashJoinConjuncts.addAll(bottomJoin.getHashJoinConjuncts());
-        topJoin.getOtherJoinCondition().ifPresent(otherJoinCondition -> allNonHashJoinConjuncts.addAll(
-                ExpressionUtils.extractConjunction(otherJoinCondition)));
-        bottomJoin.getOtherJoinCondition().ifPresent(otherJoinCondition -> allNonHashJoinConjuncts.addAll(
-                ExpressionUtils.extractConjunction(otherJoinCondition)));
-    }
-
-    @SafeVarargs
-    public final void initAllProject(LogicalProject<? extends Plan>... projects) {
-        for (LogicalProject<? extends Plan> project : projects) {
-            allProjects.addAll(project.getProjects());
-        }
-    }
-
-    /**
-     * Get the onCondition of newTopJoin and newBottomJoin.
-     */
-    public boolean initJoinOnCondition() {
-        // Ignore join with some OnClause like:
-        // Join C = B + A for above example.
-        // TODO: also need for otherJoinCondition
-        for (Expression topJoinOnClauseConjunct : topJoin.getHashJoinConjuncts()) {
-            Set<Slot> topJoinUsedSlot = topJoinOnClauseConjunct.collect(SlotReference.class::isInstance);
-            if (ExpressionUtils.isIntersecting(topJoinUsedSlot, aOutput) && ExpressionUtils.isIntersecting(
-                    topJoinUsedSlot, bOutput) && ExpressionUtils.isIntersecting(topJoinUsedSlot, cOutput)) {
-                return false;
-            }
-        }
-
-        Set<Slot> newBottomJoinSlots = new HashSet<>(aOutput);
-        newBottomJoinSlots.addAll(cOutput);
-        for (Expression hashConjunct : allHashJoinConjuncts) {
-            Set<SlotReference> slots = hashConjunct.collect(SlotReference.class::isInstance);
-            if (newBottomJoinSlots.containsAll(slots)) {
-                newBottomHashJoinConjuncts.add(hashConjunct);
-            } else {
-                newTopHashJoinConjuncts.add(hashConjunct);
-            }
-        }
-        for (Expression nonHashConjunct : allNonHashJoinConjuncts) {
-            Set<SlotReference> slots = nonHashConjunct.collect(SlotReference.class::isInstance);
-            if (newBottomJoinSlots.containsAll(slots)) {
-                newBottomNonHashJoinConjuncts.add(nonHashConjunct);
-            } else {
-                newTopNonHashJoinConjuncts.add(nonHashConjunct);
-            }
-        }
-        // newBottomJoinOnCondition/newTopJoinOnCondition is empty. They are cross join.
-        // Example:
-        // A: col1, col2. B: col2, col3. C: col3, col4
-        // (A & B on A.col2=B.col2) & C on B.col3=C.col3.
-        // (A & B) & C -> (A & C) & B.
-        // (A & C) will be cross join (newBottomJoinOnCondition is empty)
-        if (newBottomHashJoinConjuncts.isEmpty() || newTopHashJoinConjuncts.isEmpty()) {
-            return false;
-        }
-
-        return true;
     }
 }

@@ -25,7 +25,7 @@ void MergeSorterState::build_merge_tree(SortDescription& sort_description) {
     }
 
     if (sorted_blocks.size() > 1) {
-        for (auto& cursor : cursors) priority_queue.push(SortCursor(&cursor));
+        for (auto& cursor : cursors) priority_queue.push(MergeSortCursor(&cursor));
     }
 }
 
@@ -72,25 +72,27 @@ Status MergeSorterState::merge_sort_read(doris::RuntimeState* state,
     return Status::OK();
 }
 
-Status Sorter::partial_sort(Block& block) {
-    if (_vsort_exec_exprs.need_materialize_tuple()) {
+Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
+    size_t num_cols = src_block.columns();
+    if (_materialize_sort_exprs) {
         auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
         std::vector<int> valid_column_ids(output_tuple_expr_ctxs.size());
         for (int i = 0; i < output_tuple_expr_ctxs.size(); ++i) {
-            RETURN_IF_ERROR(output_tuple_expr_ctxs[i]->execute(&block, &valid_column_ids[i]));
+            RETURN_IF_ERROR(output_tuple_expr_ctxs[i]->execute(&src_block, &valid_column_ids[i]));
         }
 
         Block new_block;
         for (auto column_id : valid_column_ids) {
-            new_block.insert(block.get_by_position(column_id));
+            new_block.insert(src_block.get_by_position(column_id));
         }
-        block.swap(new_block);
+        dest_block.swap(new_block);
     }
 
     _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
+    Block* result_block = _materialize_sort_exprs ? &dest_block : &src_block;
     for (int i = 0; i < _sort_description.size(); i++) {
         const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
-        RETURN_IF_ERROR(ordering_expr->execute(&block, &_sort_description[i].column_number));
+        RETURN_IF_ERROR(ordering_expr->execute(result_block, &_sort_description[i].column_number));
 
         _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
         _sort_description[i].nulls_direction =
@@ -99,24 +101,36 @@ Status Sorter::partial_sort(Block& block) {
 
     {
         SCOPED_TIMER(_partial_sort_timer);
-        sort_block(block, _sort_description, _offset + _limit);
+        if (_materialize_sort_exprs) {
+            sort_block(dest_block, dest_block, _sort_description, _offset + _limit);
+        } else {
+            sort_block(src_block, dest_block, _sort_description, _offset + _limit);
+        }
+        src_block.clear_column_data(num_cols);
     }
 
     return Status::OK();
 }
 
-FullSorter::FullSorter(SortDescription& sort_description, VSortExecExprs& vsort_exec_exprs,
-                       int limit, int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
+FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+                       ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
-        : Sorter(sort_description, vsort_exec_exprs, limit, offset, pool, is_asc_order,
-                 nulls_first),
+        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _state(std::unique_ptr<MergeSorterState>(new MergeSorterState(row_desc, offset))) {}
 
-Status FullSorter::append_block(Block* block, bool* mem_reuse) {
+Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
     {
         SCOPED_TIMER(_merge_block_timer);
-        _state->unsorted_block->merge(*block);
+        auto& data = _state->unsorted_block->get_columns_with_type_and_name();
+        const auto& arrival_data = block->get_columns_with_type_and_name();
+        auto sz = block->rows();
+        for (int i = 0; i < data.size(); ++i) {
+            DCHECK(data[i].type->equals(*(arrival_data[i].type)));
+            data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz);
+        }
+        block->clear_column_data();
     }
     if (_reach_limit()) {
         RETURN_IF_ERROR(_do_sort());
@@ -148,8 +162,10 @@ Status FullSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
 }
 
 Status FullSorter::_do_sort() {
-    Block block = _state->unsorted_block->to_block(0);
-    RETURN_IF_ERROR(partial_sort(block));
+    Block* src_block = _state->unsorted_block.get();
+    Block desc_block = src_block->clone_without_columns();
+    RETURN_IF_ERROR(partial_sort(*src_block, desc_block));
+
     // dispose TOP-N logic
     if (_limit != -1) {
         // Here is a little opt to reduce the mem uasge, we build a max heap
@@ -157,92 +173,21 @@ Status FullSorter::_do_sort() {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows < _limit) {
-            _state->sorted_blocks.emplace_back(std::move(block));
-            _state->num_rows += block.rows();
+            _state->num_rows += desc_block.rows();
+            _state->sorted_blocks.emplace_back(std::move(desc_block));
             _block_priority_queue.emplace(_pool->add(
-                    new SortCursorImpl(_state->sorted_blocks.back(), _sort_description)));
+                    new MergeSortCursorImpl(_state->sorted_blocks.back(), _sort_description)));
         } else {
-            SortBlockCursor block_cursor(_pool->add(new SortCursorImpl(block, _sort_description)));
+            MergeSortBlockCursor block_cursor(
+                    _pool->add(new MergeSortCursorImpl(desc_block, _sort_description)));
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                _state->sorted_blocks.emplace_back(std::move(block));
+                _state->sorted_blocks.emplace_back(std::move(desc_block));
                 _block_priority_queue.push(block_cursor);
             }
         }
     } else {
         // dispose normal sort logic
-        _state->sorted_blocks.emplace_back(std::move(block));
-    }
-    _state->reset_block();
-    return Status::OK();
-}
-
-TopNSorter::TopNSorter(SortDescription& sort_description, VSortExecExprs& vsort_exec_exprs,
-                       int limit, int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
-                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
-        : Sorter(sort_description, vsort_exec_exprs, limit, offset, pool, is_asc_order,
-                 nulls_first),
-          _state(std::unique_ptr<MergeSorterState>(new MergeSorterState(row_desc, offset))) {}
-
-Status TopNSorter::append_block(Block* block, bool* mem_reuse) {
-    DCHECK(block->rows() > 0);
-    RETURN_IF_ERROR(_do_sort(block, mem_reuse));
-    return Status::OK();
-}
-
-Status TopNSorter::prepare_for_read() {
-    _state->build_merge_tree(_sort_description);
-    return Status::OK();
-}
-
-Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
-    if (_state->sorted_blocks.empty()) {
-        *eos = true;
-    } else if (_state->sorted_blocks.size() == 1) {
-        if (_offset != 0) {
-            _state->sorted_blocks[0].skip_num_rows(_offset);
-        }
-        block->swap(_state->sorted_blocks[0]);
-        *eos = true;
-    } else {
-        RETURN_IF_ERROR(_state->merge_sort_read(state, block, eos));
-    }
-    return Status::OK();
-}
-
-Status TopNSorter::_do_sort(Block* block, bool* mem_reuse) {
-    *mem_reuse = false;
-    RETURN_IF_ERROR(partial_sort(*block));
-    // dispose TOP-N logic
-    if (_limit != -1) {
-        // Here is a little opt to reduce the mem uasge, we build a max heap
-        // to order the block in _block_priority_queue.
-        // if one block totally greater the heap top of _block_priority_queue
-        // we can throw the block data directly.
-        if (_state->num_rows < _limit) {
-            Block sorted_block;
-            sorted_block.swap(*block);
-            _state->sorted_blocks.emplace_back(std::move(sorted_block));
-            _state->num_rows += sorted_block.rows();
-            _block_priority_queue.emplace(_pool->add(
-                    new SortCursorImpl(_state->sorted_blocks.back(), _sort_description)));
-        } else {
-            Block sorted_block;
-            sorted_block.swap(*block);
-            SortBlockCursor block_cursor(
-                    _pool->add(new SortCursorImpl(sorted_block, _sort_description)));
-            if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                _state->sorted_blocks.emplace_back(std::move(sorted_block));
-                _block_priority_queue.push(block_cursor);
-            } else {
-                *mem_reuse = true;
-                block->clear_column_data();
-            }
-        }
-    } else {
-        Block sorted_block;
-        sorted_block.swap(*block);
-        // dispose normal sort logic
-        _state->sorted_blocks.emplace_back(std::move(sorted_block));
+        _state->sorted_blocks.emplace_back(std::move(desc_block));
     }
     return Status::OK();
 }

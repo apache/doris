@@ -29,38 +29,40 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
     flush_untracked_mem<false>();
-    _task_id = task_id;
-    _fragment_instance_id = fragment_instance_id;
-    _limiter_tracker = mem_tracker;
+    _task_id_stack.push_back(task_id);
+    _fragment_instance_id_stack.push_back(fragment_instance_id);
+    _limiter_tracker_stack.push_back(mem_tracker);
     _limiter_tracker_raw = mem_tracker.get();
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker() {
+    DCHECK(!_limiter_tracker_stack.empty());
     flush_untracked_mem<false>();
-    _task_id = "";
-    _fragment_instance_id = TUniqueId();
-    _limiter_tracker = ExecEnv::GetInstance()->process_mem_tracker();
-    _limiter_tracker_raw = ExecEnv::GetInstance()->process_mem_tracker_raw();
+    _task_id_stack.pop_back();
+    _fragment_instance_id_stack.pop_back();
+    _limiter_tracker_stack.pop_back();
+    _limiter_tracker_raw = _limiter_tracker_stack.back().get();
 }
 
 void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
-    if (_fragment_instance_id != TUniqueId()) {
+    if (_fragment_instance_id_stack.back() != TUniqueId()) {
         ExecEnv::GetInstance()->fragment_mgr()->cancel(
-                _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
+                _fragment_instance_id_stack.back(), PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
                 cancel_details);
     }
 }
 
-void ThreadMemTrackerMgr::exceeded(Status failed_try_consume_st) {
+void ThreadMemTrackerMgr::exceeded(const std::string& failed_msg) {
     if (_cb_func != nullptr) {
         _cb_func();
     }
     if (is_attach_query()) {
-        auto st = _limiter_tracker_raw->mem_limit_exceeded(
+        auto cancel_msg = _limiter_tracker_raw->mem_limit_exceeded(
                 fmt::format("exec node:<{}>", last_consumer_tracker()),
-                _limiter_tracker_raw->parent().get(), failed_try_consume_st);
-        exceeded_cancel_task(st.get_error_msg());
+                _limiter_tracker_raw->parent().get(), failed_msg);
+        exceeded_cancel_task(cancel_msg);
         _check_limit = false; // Make sure it will only be canceled once
     }
 }
+
 } // namespace doris

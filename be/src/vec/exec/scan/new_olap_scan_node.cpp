@@ -290,7 +290,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 
         if (config::doris_scan_range_max_mb > 0) {
             size_based_scanners_per_tablet = std::max(
-                    1, (int)tablet->tablet_footprint() / config::doris_scan_range_max_mb << 20);
+                    1, (int)(tablet->tablet_footprint() / (config::doris_scan_range_max_mb << 20)));
         }
 
         int ranges_per_scanner =

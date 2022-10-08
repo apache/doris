@@ -19,13 +19,14 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
-public abstract class BinaryArithmetic extends BinaryOperator {
+public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable {
 
     private final Operator legacyOperator;
 

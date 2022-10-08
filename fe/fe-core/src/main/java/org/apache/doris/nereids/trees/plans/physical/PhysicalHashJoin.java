@@ -26,8 +26,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +41,10 @@ public class PhysicalHashJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+
+    private boolean shouldTranslateOutput = true;
+
+    private final List<Expression> filterConjuncts = Lists.newArrayList();
 
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
             Optional<Expression> condition, LogicalProperties logicalProperties,
@@ -68,11 +74,11 @@ public class PhysicalHashJoin<
      * @param condition join condition except hash join conjuncts
      */
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts, Optional<Expression> condition,
-            Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinConjuncts, condition,
-                groupExpression, logicalProperties, physicalProperties, leftChild, rightChild);
+                groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
     }
 
     @Override
@@ -85,8 +91,7 @@ public class PhysicalHashJoin<
         return Utils.toSqlString("PhysicalHashJoin",
                 "type", joinType,
                 "hashJoinCondition", hashJoinConjuncts,
-                "otherJoinCondition", otherJoinCondition
-        );
+                "otherJoinCondition", otherJoinCondition);
     }
 
     @Override
@@ -111,9 +116,21 @@ public class PhysicalHashJoin<
     }
 
     @Override
-    public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalProperties(
-            PhysicalProperties physicalProperties) {
+    public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinCondition,
-                Optional.empty(), getLogicalProperties(), physicalProperties, left(), right());
+                Optional.empty(), getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
+    }
+
+    public boolean isShouldTranslateOutput() {
+        return shouldTranslateOutput;
+    }
+
+    public void setShouldTranslateOutput(boolean shouldTranslateOutput) {
+        this.shouldTranslateOutput = shouldTranslateOutput;
+    }
+
+    public List<Expression> getFilterConjuncts() {
+        return filterConjuncts;
     }
 }

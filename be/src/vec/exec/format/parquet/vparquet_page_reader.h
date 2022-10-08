@@ -28,7 +28,10 @@ namespace doris::vectorized {
  */
 class PageReader {
 public:
-public:
+    struct Statistics {
+        int64_t decode_header_time = 0;
+    };
+
     PageReader(BufferedStreamReader* reader, uint64_t offset, uint64_t length);
     ~PageReader() = default;
 
@@ -42,14 +45,21 @@ public:
 
     Status get_page_data(Slice& slice);
 
+    Statistics& statistics() { return _statistics; }
+
     void seek_to_page(int64_t page_header_offset) {
         _offset = page_header_offset;
         _next_header_offset = page_header_offset;
+        _state = INITIALIZED;
     }
 
 private:
+    enum PageReaderState { INITIALIZED, HEADER_PARSED };
+
     BufferedStreamReader* _reader;
     tparquet::PageHeader _cur_page_header;
+    Statistics _statistics;
+    PageReaderState _state = INITIALIZED;
 
     uint64_t _offset = 0;
     uint64_t _next_header_offset = 0;

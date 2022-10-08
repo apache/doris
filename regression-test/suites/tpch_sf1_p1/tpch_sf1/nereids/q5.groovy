@@ -25,9 +25,8 @@ suite("tpch_sf1_q5_nereids") {
     sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
-    sql 'set disable_colocate_plan=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
-    sql 'set enable_bucket_shuffle_join=false'
     qt_select """
     select
         n_name,
@@ -57,7 +56,7 @@ suite("tpch_sf1_q5_nereids") {
 
     qt_select """
 
-    select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true) */
+    select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=2, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true) */
         n_name,
         sum(l_extendedprice * (1 - l_discount)) as revenue
     from

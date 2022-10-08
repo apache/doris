@@ -63,4 +63,4 @@ mysql> select weekday(cast(20190625 as date));
 +---------------------------------+
 ```
 ### keywords
-WEEKDAY
+    WEEKDAY

@@ -31,17 +31,17 @@ under the License.
 `VARCHAR ltrim(VARCHAR str)`
 
 
-将参数 str 中从开始部分连续出现的空格去掉
+将参数 str 中从左侧部分开始部分连续出现的空格去掉
 
 ### example
 
 ```
-mysql> SELECT ltrim('   ab d');
-+------------------+
-| ltrim('   ab d') |
-+------------------+
-| ab d             |
-+------------------+
+mysql> SELECT ltrim('   ab d') str;
++------+
+| str  |
++------+
+| ab d |
++------+
 ```
 ### keywords
-LTRIM
+    LTRIM

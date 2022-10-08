@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -39,11 +42,17 @@ public class ExpressionNormalization extends ExpressionRewrite {
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
             SimplifyCastRule.INSTANCE,
-            TypeCoercion.INSTANCE
+            CharacterLiteralTypeCoercion.INSTANCE,
+            TypeCoercion.INSTANCE,
+            FoldConstantRule.INSTANCE
     );
-    private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES);
 
-    public ExpressionNormalization() {
-        super(EXECUTOR);
+    public ExpressionNormalization(ConnectContext context) {
+        super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES, context));
+    }
+
+    public ExpressionNormalization(ConnectContext context, List<ExpressionRewriteRule> rules) {
+        super(new ExpressionRuleExecutor(rules, context));
     }
 }
+

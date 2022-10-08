@@ -73,6 +73,8 @@ public class ScalarType extends Type {
     // so the max available length is 2GB - 4
     public static final int MAX_STRING_LENGTH = 0x7fffffff - 4;
 
+    public static final int MAX_JSONB_LENGTH = 0x7fffffff - 4;
+
     // Hive, mysql, sql server standard.
     public static final int MAX_PRECISION = 38;
     public static final int MAX_DECIMAL32_PRECISION = 9;
@@ -154,6 +156,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case VARCHAR:
                 return createVarcharType();
+            case JSONB:
+                return createJsonbType();
             case STRING:
                 return createStringType();
             case HLL:
@@ -217,6 +221,8 @@ public class ScalarType extends Type {
                 return CHAR;
             case "VARCHAR":
                 return createVarcharType();
+            case "JSONB":
+                return createJsonbType();
             case "STRING":
             case "TEXT":
                 return createStringType();
@@ -468,6 +474,13 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createJsonbType() {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.JSONB);
+        type.len = MAX_JSONB_LENGTH;
+        return type;
+    }
+
     public static ScalarType createVarchar(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -513,6 +526,8 @@ public class ScalarType extends Type {
             return "VARCHAR(" + len + ")";
         } else if (type == PrimitiveType.STRING) {
             return "TEXT";
+        } else if (type == PrimitiveType.JSONB) {
+            return "JSON";
         }
         return type.toString();
     }
@@ -552,6 +567,9 @@ public class ScalarType extends Type {
             case DATETIMEV2:
                 stringBuilder.append("datetime").append("(").append(scale).append(")");
                 break;
+            case TIME:
+                stringBuilder.append("time");
+                break;
             case TIMEV2:
                 stringBuilder.append("time").append("(").append(scale).append(")");
                 break;
@@ -580,7 +598,13 @@ public class ScalarType extends Type {
             case STRING:
                 stringBuilder.append("text");
                 break;
+            case JSONB:
+                stringBuilder.append("json");
+                break;
             case ARRAY:
+                stringBuilder.append(type.toString().toLowerCase());
+                break;
+            case NULL_TYPE:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             default:
@@ -607,7 +631,8 @@ public class ScalarType extends Type {
             case VARCHAR:
             case CHAR:
             case HLL:
-            case STRING: {
+            case STRING:
+            case JSONB: {
                 scalarType.setLen(len);
                 break;
             }

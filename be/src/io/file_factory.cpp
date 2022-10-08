@@ -159,7 +159,7 @@ doris::Status doris::FileFactory::_new_file_reader(doris::ExecEnv* env, RuntimeP
         break;
     }
     default:
-        return Status::InternalError("UnSupport File Reader Type: " + std::to_string(type));
+        return Status::InternalError("Unsupported File Reader Type: " + std::to_string(type));
     }
 
     return Status::OK();
@@ -184,5 +184,37 @@ doris::Status doris::FileFactory::create_file_reader(doris::ExecEnv* env, Runtim
     RETURN_IF_ERROR(_new_file_reader(env, profile, params, range, file_reader_ptr));
     file_reader.reset(file_reader_ptr);
 
+    return Status::OK();
+}
+
+doris::Status doris::FileFactory::create_file_reader(RuntimeProfile* profile,
+                                                     const TFileScanRangeParams& params,
+                                                     const TFileRangeDesc& range,
+                                                     std::unique_ptr<FileReader>& file_reader,
+                                                     int64_t buffer_size) {
+    doris::TFileType::type type = params.file_type;
+    FileReader* file_reader_ptr;
+    switch (type) {
+    case TFileType::FILE_LOCAL: {
+        file_reader_ptr = new LocalFileReader(range.path, range.start_offset);
+        break;
+    }
+    case TFileType::FILE_S3: {
+        file_reader_ptr = new S3Reader(params.properties, range.path, range.start_offset);
+        break;
+    }
+    case TFileType::FILE_HDFS: {
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(params.hdfs_params, range.path,
+                                                        range.start_offset, &file_reader_ptr));
+        break;
+    }
+    default:
+        return Status::InternalError("Unsupported File Reader Type: " + std::to_string(type));
+    }
+    if (buffer_size > 0) {
+        file_reader.reset(new BufferedReader(profile, file_reader_ptr, buffer_size));
+    } else {
+        file_reader.reset(file_reader_ptr);
+    }
     return Status::OK();
 }

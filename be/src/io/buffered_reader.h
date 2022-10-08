@@ -87,26 +87,37 @@ private:
  */
 class BufferedStreamReader {
 public:
+    struct Statistics {
+        int64_t read_time = 0;
+        int64_t read_calls = 0;
+        int64_t read_bytes = 0;
+    };
+
     /**
      * Return the address of underlying buffer that locates the start of data between [offset, offset + bytes_to_read)
      * @param buf the buffer address to save the start address of data
      * @param offset start offset ot read in stream
      * @param bytes_to_read bytes to read
      */
-    virtual Status read_bytes(const uint8_t** buf, uint64_t offset, size_t* bytes_to_read) = 0;
+    virtual Status read_bytes(const uint8_t** buf, uint64_t offset, const size_t bytes_to_read) = 0;
     /**
      * Save the data address to slice.data, and the slice.size is the bytes to read.
      */
     virtual Status read_bytes(Slice& slice, uint64_t offset) = 0;
+    Statistics& statistics() { return _statistics; }
     virtual ~BufferedStreamReader() = default;
+
+protected:
+    Statistics _statistics;
 };
 
 class BufferedFileStreamReader : public BufferedStreamReader {
 public:
-    BufferedFileStreamReader(FileReader* file, uint64_t offset, uint64_t length);
+    BufferedFileStreamReader(FileReader* file, uint64_t offset, uint64_t length,
+                             size_t max_buf_size);
     ~BufferedFileStreamReader() override = default;
 
-    Status read_bytes(const uint8_t** buf, uint64_t offset, size_t* bytes_to_read) override;
+    Status read_bytes(const uint8_t** buf, uint64_t offset, const size_t bytes_to_read) override;
     Status read_bytes(Slice& slice, uint64_t offset) override;
 
 private:
@@ -115,12 +126,10 @@ private:
     uint64_t _file_start_offset;
     uint64_t _file_end_offset;
 
-    int64_t _file_position = -1;
     uint64_t _buf_start_offset = 0;
     uint64_t _buf_end_offset = 0;
     size_t _buf_size = 0;
-
-    Status seek(uint64_t position);
+    size_t _max_buf_size;
 };
 
 } // namespace doris

@@ -38,6 +38,22 @@ namespace doris::vectorized {
 
 using level_t = int16_t;
 
+struct RowRange {
+    RowRange() {}
+    RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
+
+    int64_t first_row;
+    int64_t last_row;
+};
+
+struct ParquetReadColumn {
+    ParquetReadColumn(int parquet_col_id, const std::string& file_slot_name)
+            : _parquet_col_id(parquet_col_id), _file_slot_name(file_slot_name) {};
+
+    int _parquet_col_id;
+    const std::string& _file_slot_name;
+};
+
 struct ParquetInt96 {
     uint64_t lo; // time of nanoseconds in a day
     uint32_t hi; // days from julian epoch

@@ -20,6 +20,10 @@ package org.apache.doris.nereids.cost;
 import org.apache.doris.common.Id;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecGather;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -31,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -42,6 +47,7 @@ import java.util.List;
  * Inspired by Presto.
  */
 public class CostCalculator {
+
     /**
      * Constructor.
      */
@@ -49,15 +55,9 @@ public class CostCalculator {
         PlanContext planContext = new PlanContext(groupExpression);
         CostEstimator costCalculator = new CostEstimator();
         CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
-        return costFormula(costEstimate);
-    }
 
-    private static double costFormula(CostEstimate costEstimate) {
-        double cpuCostWeight = 1;
-        double memoryCostWeight = 1;
-        double networkCostWeight = 1;
-        return costEstimate.getCpuCost() * cpuCostWeight + costEstimate.getMemoryCost() * memoryCostWeight
-                + costEstimate.getNetworkCost() * networkCostWeight;
+        CostWeight costWeight = new CostWeight(0.5, 2, 1.5);
+        return costWeight.calculate(costEstimate);
     }
 
     private static class CostEstimator extends PlanVisitor<CostEstimate, PlanContext> {
@@ -112,19 +112,47 @@ public class CostCalculator {
             return new CostEstimate(
                     childStatistics.computeSize(),
                     statistics.computeSize(),
-                    childStatistics.computeSize());
+                    0);
         }
 
         @Override
         public CostEstimate visitPhysicalDistribute(
                 PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
+            DistributionSpec spec = distribute.getDistributionSpec();
+            // shuffle
+            if (spec instanceof DistributionSpecHash) {
+                return new CostEstimate(
+                        childStatistics.computeSize(),
+                        0,
+                        childStatistics.computeSize());
+            }
 
+            // replicate
+            if (spec instanceof DistributionSpecReplicated) {
+                int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendIds(true).size();
+                int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+                beNumber = Math.max(1, beNumber);
+
+                return new CostEstimate(
+                        childStatistics.computeSize() * beNumber,
+                        childStatistics.computeSize() * beNumber * instanceNumber,
+                        childStatistics.computeSize() * beNumber * instanceNumber);
+            }
+
+            // gather
+            if (spec instanceof DistributionSpecGather) {
+                return new CostEstimate(
+                        childStatistics.computeSize(),
+                        0,
+                        childStatistics.computeSize());
+            }
+
+            // any
             return new CostEstimate(
                     childStatistics.computeSize(),
-                    statistics.computeSize(),
-                    childStatistics.computeSize());
+                    0,
+                    0);
         }
 
         @Override
@@ -142,25 +170,16 @@ public class CostCalculator {
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
             Preconditions.checkState(context.getChildrenStats().size() == 2);
 
-            StatsDeriveResult leftStatistics = context.getChildStatistics(0);
-            StatsDeriveResult rightStatistics = context.getChildStatistics(1);
-            List<Id> leftIds = context.getChildOutputIds(0);
-            List<Id> rightIds = context.getChildOutputIds(1);
+            CostEstimate inputCost = calculateJoinInputCost(context);
+            CostEstimate outputCost = calculateJoinOutputCost(physicalHashJoin);
 
             // TODO: handle some case
             // handle cross join, onClause is empty .....
             if (physicalHashJoin.getJoinType().isCrossJoin()) {
-                return new CostEstimate(
-                        leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds),
-                        rightStatistics.computeColumnSize(rightIds),
-                        0);
+                return CostEstimate.sum(inputCost, outputCost, outputCost);
             }
 
-            // TODO: network 0?
-            return new CostEstimate(
-                    (leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds)) / 2,
-                    rightStatistics.computeColumnSize(rightIds),
-                    0);
+            return CostEstimate.sum(inputCost, outputCost);
         }
 
         @Override
@@ -173,23 +192,31 @@ public class CostCalculator {
 
             StatsDeriveResult leftStatistics = context.getChildStatistics(0);
             StatsDeriveResult rightStatistics = context.getChildStatistics(1);
-            List<Id> leftIds = context.getChildOutputIds(0);
-            List<Id> rightIds = context.getChildOutputIds(1);
 
-            // TODO: handle some case
-            // handle cross join, onClause is empty .....
-            if (nestedLoopJoin.getJoinType().isCrossJoin()) {
-                return new CostEstimate(
-                        leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds),
-                        rightStatistics.computeColumnSize(rightIds),
-                        0);
-            }
-
-            // TODO: network 0?
             return new CostEstimate(
-                    (leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds)) / 2,
-                    rightStatistics.computeColumnSize(rightIds),
+                    leftStatistics.computeSize() * rightStatistics.computeSize(),
+                    rightStatistics.computeSize(),
                     0);
         }
+    }
+
+    private static CostEstimate calculateJoinInputCost(PlanContext context) {
+        StatsDeriveResult probeStats = context.getChildStatistics(0);
+        StatsDeriveResult buildStats = context.getChildStatistics(1);
+        List<Id> leftIds = context.getChildOutputIds(0);
+        List<Id> rightIds = context.getChildOutputIds(1);
+
+        double cpuCost = probeStats.computeColumnSize(leftIds) + buildStats.computeColumnSize(rightIds);
+        double memoryCost = buildStats.computeColumnSize(rightIds);
+
+        return CostEstimate.of(cpuCost, memoryCost, 0);
+    }
+
+    private static CostEstimate calculateJoinOutputCost(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin) {
+        StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
+
+        float size = outputStats.computeSize();
+        return CostEstimate.ofCpu(size);
     }
 }

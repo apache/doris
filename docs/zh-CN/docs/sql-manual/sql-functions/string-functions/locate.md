@@ -58,4 +58,4 @@ mysql> SELECT LOCATE('bar', 'foobarbar', 5);
 +-------------------------------+
 ```
 ### keywords
-LOCATE
+    LOCATE

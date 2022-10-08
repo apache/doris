@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.Count;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -36,13 +36,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -134,8 +132,12 @@ public class BindFunction implements AnalysisRuleFactory {
             return builder.build(functionName, unboundFunction.getArguments());
         }
 
+        /**
+         * gets the method for calculating the time.
+         * e.g. YEARS_ADD、YEARS_SUB、DAYS_ADD 、DAYS_SUB
+         */
         @Override
-        public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Env env) {
+        public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Env context) {
             String funcOpName;
             if (arithmetic.getFuncName() == null) {
                 // e.g. YEARS_ADD, MONTHS_SUB
@@ -144,24 +146,7 @@ public class BindFunction implements AnalysisRuleFactory {
             } else {
                 funcOpName = arithmetic.getFuncName();
             }
-
-            Expression left = arithmetic.left();
-            Expression right = arithmetic.right();
-
-            if (!left.getDataType().isDateType()) {
-                try {
-                    left = left.castTo(DateTimeType.INSTANCE);
-                } catch (Exception e) {
-                    // ignore
-                }
-                if (!left.getDataType().isDateType() && !arithmetic.getTimeUnit().isDateTimeUnit()) {
-                    left = arithmetic.left().castTo(DateType.INSTANCE);
-                }
-            }
-            if (!right.getDataType().isIntType()) {
-                right = right.castTo(IntegerType.INSTANCE);
-            }
-            return arithmetic.withFuncName(funcOpName).withChildren(ImmutableList.of(left, right));
+            return arithmetic.withFuncName(funcOpName.toLowerCase(Locale.ROOT));
         }
     }
 }

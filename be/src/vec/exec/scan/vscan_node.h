@@ -37,6 +37,7 @@ public:
             : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
     friend class VScanner;
     friend class NewOlapScanner;
+    friend class VFileScanner;
     friend class ScannerContext;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
@@ -146,8 +147,8 @@ protected:
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc;
-    const TupleDescriptor* _output_tuple_desc;
+    const TupleDescriptor* _input_tuple_desc = nullptr;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
 
     // These two values are from query_options
     int _max_scan_key_num;
@@ -193,7 +194,7 @@ protected:
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
     // column -> ColumnValueRange
-    std::map<std::string, ColumnValueRangeType> _colname_to_value_range;
+    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
@@ -203,9 +204,6 @@ protected:
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     bool _need_agg_finalize = true;
-
-    // TODO: should be moved to olap scan node?
-    std::vector<TCondition> _olap_filters;
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
@@ -289,8 +287,7 @@ private:
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     static Status _change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
                                       const ChangeFixedValueRangeFunc& func,
-                                      const std::string& fn_name, bool cast_date_to_datetime = true,
-                                      int slot_ref_child = -1);
+                                      const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
     Status _start_scanners(const std::list<VScanner*>& scanners);

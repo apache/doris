@@ -26,12 +26,17 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -168,6 +173,7 @@ public class ExpressionUtils {
      * Choose the minimum slot from input parameter.
      */
     public static Slot selectMinimumColumn(List<Slot> slots) {
+        Preconditions.checkArgument(!slots.isEmpty());
         Slot minSlot = null;
         for (Slot slot : slots) {
             if (minSlot == null) {
@@ -222,6 +228,13 @@ public class ExpressionUtils {
         return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
     }
 
+    public static List<Expression> replace(List<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        return exprs.stream()
+                .map(expr -> replace(expr, replaceMap))
+                .collect(ImmutableList.toImmutableList());
+    }
+
     private static class ExpressionReplacer
             extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
@@ -236,5 +249,38 @@ public class ExpressionUtils {
             }
             return super.visit(expr, replaceMap);
         }
+    }
+
+    /**
+     * merge arguments into an expression array
+     * @param arguments instance of Expression or Expression Array
+     * @return Expression Array
+     */
+    public static List<Expression> mergeArguments(Object... arguments) {
+        Builder<Expression> builder = ImmutableList.builder();
+        for (Object argument : arguments) {
+            if (argument instanceof Expression[]) {
+                builder.addAll(Arrays.asList((Expression[]) argument));
+            } else {
+                builder.add((Expression) argument);
+            }
+        }
+        return builder.build();
+    }
+
+    public static boolean isAllLiteral(Expression... children) {
+        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean isAllLiteral(List<Expression> children) {
+        return children.stream().allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean hasNullLiteral(List<Expression> children) {
+        return children.stream().anyMatch(c -> c instanceof NullLiteral);
+    }
+
+    public static boolean isAllNullLiteral(List<Expression> children) {
+        return children.stream().allMatch(c -> c instanceof NullLiteral);
     }
 }

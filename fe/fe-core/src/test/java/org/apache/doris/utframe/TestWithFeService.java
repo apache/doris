@@ -35,13 +35,17 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -69,7 +73,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.io.FileUtils;
 import org.junit.Assert;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -85,6 +88,9 @@ import java.net.ServerSocket;
 import java.net.SocketException;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -102,6 +108,7 @@ import java.util.UUID;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class TestWithFeService {
+    protected String dorisHome;
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
 
@@ -118,8 +125,8 @@ public abstract class TestWithFeService {
     public final void afterAll() throws Exception {
         runAfterAll();
         Env.getCurrentEnv().clear();
-        cleanDorisFeDir(runningDir);
         NamedExpressionUtil.clear();
+        cleanDorisFeDir();
     }
 
     @BeforeEach
@@ -234,10 +241,11 @@ public abstract class TestWithFeService {
             throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
             InterruptedException {
         // get DORIS_HOME
-        String dorisHome = System.getenv("DORIS_HOME");
+        dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
             dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
+        System.out.println("CREATE FE SERVER DIR: " + dorisHome);
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
         Config.edit_log_type = "local";
@@ -245,6 +253,7 @@ public abstract class TestWithFeService {
         if (!file.exists()) {
             file.mkdir();
         }
+        System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
         int feHttpPort = findValidPort();
         int feRpcPort = findValidPort();
@@ -348,9 +357,11 @@ public abstract class TestWithFeService {
         return be;
     }
 
-    protected void cleanDorisFeDir(String baseDir) {
+    protected void cleanDorisFeDir() {
         try {
-            FileUtils.deleteDirectory(new File(baseDir));
+            cleanDir(dorisHome + "/" + runningDir);
+            cleanDir(Config.plugin_dir);
+            cleanDir(Config.custom_config_dir);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -506,12 +517,12 @@ public abstract class TestWithFeService {
     protected void addRollup(String sql) throws Exception {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().alterTable(alterTableStmt);
+        // waiting alter job state: finished AND table state: normal
         checkAlterJob();
-        // waiting table state to normal
         Thread.sleep(100);
     }
 
-    private void checkAlterJob() throws InterruptedException {
+    private void checkAlterJob() throws InterruptedException, MetaNotFoundException {
         // check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
@@ -522,7 +533,33 @@ public abstract class TestWithFeService {
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+
+            // Add table state check in case of below Exception:
+            // there is still a short gap between "job finish" and "table become normal",
+            // so if user send next alter job right after the "job finish",
+            // it may encounter "table's state not NORMAL" error.
+            Database db =
+                    Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
+            OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
+            while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                Thread.sleep(1000);
+            }
         }
     }
 
+    // clear the specified dir
+    private void cleanDir(String dir) throws IOException {
+        File localDir = new File(dir);
+        if (localDir.exists()) {
+            Files.walk(Paths.get(dir))
+                    .sorted(Comparator.reverseOrder())
+                    .map(Path::toFile)
+                    .forEach(file -> {
+                        System.out.println("DELETE FE SERVER DIR: " + file.getAbsolutePath());
+                        file.delete();
+                    });
+        } else {
+            System.out.println("No need clean DIR: " + dir);
+        }
+    }
 }

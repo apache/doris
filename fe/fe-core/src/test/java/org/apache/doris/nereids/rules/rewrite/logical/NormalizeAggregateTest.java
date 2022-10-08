@@ -23,7 +23,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -93,15 +94,17 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
      * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
      *
      * after rewrite:
-     * LogicalProject ((sum((id * 1))#5 + 2) AS `(sum((id * 1)) + 2)`#4)
-     * +--LogicalAggregate (phase: [GLOBAL], output: [sum((id#0 * 1)) AS `sum((id * 1))`#5], groupBy: [name#2])
-     *    +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
+     * LogicalProject ( projects=[(sum((id * 1))#6 + 2) AS `(sum((id * 1)) + 2)`#4] )
+     * +--LogicalAggregate ( phase=LOCAL, outputExpr=[sum((id * 1)#5) AS `sum((id * 1))`#6], groupByExpr=[name#2] )
+     *    +--LogicalProject ( projects=[name#2, (id#0 * 1) AS `(id * 1)`#5] )
+     *       +--GroupPlan( GroupId#0 )
      */
     @Test
     public void testComplexFuncWithComplexOutputOfFunc() {
         NamedExpression key = rStudent.getOutput().get(2).toSlot();
         List<Expression> groupExpressionList = Lists.newArrayList(key);
-        Expression aggregateFunction = new Sum(new Multiply(rStudent.getOutput().get(0).toSlot(), new IntegerLiteral(1)));
+        Expression multiply = new Multiply(rStudent.getOutput().get(0).toSlot(), new IntegerLiteral(1));
+        Expression aggregateFunction = new Sum(multiply);
         Expression complexOutput = new Add(aggregateFunction, new IntegerLiteral(2));
         Alias output = new Alias(complexOutput, complexOutput.toSql());
         List<NamedExpression> outputExpressionList = Lists.newArrayList(output);
@@ -112,10 +115,14 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
                 .matchesFromRoot(
                         logicalProject(
                                 logicalAggregate(
-                                        logicalOlapScan()
+                                        logicalProject(
+                                            logicalOlapScan()
+                                        ).when(project -> project.getProjects().size() == 2)
+                                                .when(project -> project.getProjects().get(0) instanceof SlotReference)
+                                                .when(project -> project.getProjects().get(1).child(0).equals(multiply))
                                 ).when(FieldChecker.check("groupByExpressions", ImmutableList.of(key)))
                                         .when(aggregate -> aggregate.getOutputExpressions().size() == 1)
-                                        .when(aggregate -> aggregate.getOutputExpressions().get(0).child(0).equals(aggregateFunction))
+                                        .when(aggregate -> aggregate.getOutputExpressions().get(0).child(0) instanceof AggregateFunction)
                         ).when(project -> project.getProjects().size() == 1)
                                 .when(project -> project.getProjects().get(0) instanceof Alias)
                                 .when(project -> project.getProjects().get(0).getExprId().equals(output.getExprId()))

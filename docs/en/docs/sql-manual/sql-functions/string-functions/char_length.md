@@ -52,4 +52,4 @@ mysql> select char_length("中国");
 +-----------------------+
 ```
 ### keywords
-CHAR_LENGTH, CHARACTER_LENGTH
+    CHAR_LENGTH, CHARACTER_LENGTH

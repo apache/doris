@@ -19,6 +19,7 @@
 
 #include <arrow/array.h>
 #include <arrow/status.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <time.h>
 
 #include "io/file_writer.h"
@@ -37,6 +38,124 @@ ParquetOutputStream::~ParquetOutputStream() {
     arrow::Status st = Close();
     if (!st.ok()) {
         LOG(WARNING) << "close parquet file error: " << st.ToString();
+    }
+}
+
+void ParquetBuildHelper::build_schema_repetition_type(
+        parquet::Repetition::type& parquet_repetition_type,
+        const TParquetRepetitionType::type& column_repetition_type) {
+    switch (column_repetition_type) {
+    case TParquetRepetitionType::REQUIRED: {
+        parquet_repetition_type = parquet::Repetition::REQUIRED;
+        break;
+    }
+    case TParquetRepetitionType::REPEATED: {
+        parquet_repetition_type = parquet::Repetition::REPEATED;
+        break;
+    }
+    case TParquetRepetitionType::OPTIONAL: {
+        parquet_repetition_type = parquet::Repetition::OPTIONAL;
+        break;
+    }
+    default:
+        parquet_repetition_type = parquet::Repetition::UNDEFINED;
+    }
+}
+
+void ParquetBuildHelper::build_schema_data_type(parquet::Type::type& parquet_data_type,
+                                                const TParquetDataType::type& column_data_type) {
+    switch (column_data_type) {
+    case TParquetDataType::BOOLEAN: {
+        parquet_data_type = parquet::Type::BOOLEAN;
+        break;
+    }
+    case TParquetDataType::INT32: {
+        parquet_data_type = parquet::Type::INT32;
+        break;
+    }
+    case TParquetDataType::INT64: {
+        parquet_data_type = parquet::Type::INT64;
+        break;
+    }
+    case TParquetDataType::INT96: {
+        parquet_data_type = parquet::Type::INT96;
+        break;
+    }
+    case TParquetDataType::BYTE_ARRAY: {
+        parquet_data_type = parquet::Type::BYTE_ARRAY;
+        break;
+    }
+    case TParquetDataType::FLOAT: {
+        parquet_data_type = parquet::Type::FLOAT;
+        break;
+    }
+    case TParquetDataType::DOUBLE: {
+        parquet_data_type = parquet::Type::DOUBLE;
+        break;
+    }
+    case TParquetDataType::FIXED_LEN_BYTE_ARRAY: {
+        parquet_data_type = parquet::Type::FIXED_LEN_BYTE_ARRAY;
+        break;
+    }
+    default:
+        parquet_data_type = parquet::Type::UNDEFINED;
+    }
+}
+
+void ParquetBuildHelper::build_compression_type(
+        parquet::WriterProperties::Builder& builder,
+        const TParquetCompressionType::type& compression_type) {
+    switch (compression_type) {
+    case TParquetCompressionType::SNAPPY: {
+        builder.compression(parquet::Compression::SNAPPY);
+        break;
+    }
+    case TParquetCompressionType::GZIP: {
+        builder.compression(parquet::Compression::GZIP);
+        break;
+    }
+    case TParquetCompressionType::BROTLI: {
+        builder.compression(parquet::Compression::BROTLI);
+        break;
+    }
+    case TParquetCompressionType::ZSTD: {
+        builder.compression(parquet::Compression::ZSTD);
+        break;
+    }
+    case TParquetCompressionType::LZ4: {
+        builder.compression(parquet::Compression::LZ4);
+        break;
+    }
+    case TParquetCompressionType::LZO: {
+        builder.compression(parquet::Compression::LZO);
+        break;
+    }
+    case TParquetCompressionType::BZ2: {
+        builder.compression(parquet::Compression::BZ2);
+        break;
+    }
+    case TParquetCompressionType::UNCOMPRESSED: {
+        builder.compression(parquet::Compression::UNCOMPRESSED);
+        break;
+    }
+    default:
+        builder.compression(parquet::Compression::UNCOMPRESSED);
+    }
+}
+
+void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& builder,
+                                       const TParquetVersion::type& parquet_version) {
+    switch (parquet_version) {
+    case TParquetVersion::PARQUET_1_0: {
+        builder.version(parquet::ParquetVersion::PARQUET_1_0);
+        break;
+    }
+    case TParquetVersion::PARQUET_2_LATEST: {
+        builder.version(parquet::ParquetVersion::PARQUET_2_LATEST);
+        break;
+    }
+    default:
+        builder.version(parquet::ParquetVersion::PARQUET_1_0);
     }
 }
 
@@ -79,7 +198,6 @@ void ParquetOutputStream::set_written_len(int64_t written_len) {
     _written_len = written_len;
 }
 
-/// ParquetWriterWrapper
 ParquetWriterWrapper::ParquetWriterWrapper(FileWriter* file_writer,
                                            const std::vector<ExprContext*>& output_expr_ctxs,
                                            const std::map<std::string, std::string>& properties,
@@ -185,6 +303,55 @@ Status ParquetWriterWrapper::parse_schema(const std::vector<std::vector<std::str
     return Status::OK();
 }
 
+/// ParquetWriterWrapper
+ParquetWriterWrapper::ParquetWriterWrapper(FileWriter* file_writer,
+                                           const std::vector<ExprContext*>& output_expr_ctxs,
+                                           const std::vector<TParquetSchema>& parquet_schemas,
+                                           const TParquetCompressionType::type& compression_type,
+                                           const bool& parquet_disable_dictionary,
+                                           const TParquetVersion::type& parquet_version,
+                                           bool output_object_data)
+        : _output_expr_ctxs(output_expr_ctxs),
+          _cur_writed_rows(0),
+          _rg_writer(nullptr),
+          _output_object_data(output_object_data) {
+    _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
+    parse_properties(compression_type, parquet_disable_dictionary, parquet_version);
+    parse_schema(parquet_schemas);
+    init_parquet_writer();
+}
+
+void ParquetWriterWrapper::parse_properties(const TParquetCompressionType::type& compression_type,
+                                            const bool& parquet_disable_dictionary,
+                                            const TParquetVersion::type& parquet_version) {
+    parquet::WriterProperties::Builder builder;
+    ParquetBuildHelper::build_compression_type(builder, compression_type);
+    ParquetBuildHelper::build_version(builder, parquet_version);
+    if (parquet_disable_dictionary) {
+        builder.disable_dictionary();
+    } else {
+        builder.enable_dictionary();
+    }
+    _properties = builder.build();
+}
+
+void ParquetWriterWrapper::parse_schema(const std::vector<TParquetSchema>& parquet_schemas) {
+    parquet::schema::NodeVector fields;
+    parquet::Repetition::type parquet_repetition_type;
+    parquet::Type::type parquet_data_type;
+    for (int idx = 0; idx < parquet_schemas.size(); ++idx) {
+        ParquetBuildHelper::build_schema_repetition_type(
+                parquet_repetition_type, parquet_schemas[idx].schema_repetition_type);
+        ParquetBuildHelper::build_schema_data_type(parquet_data_type,
+                                                   parquet_schemas[idx].schema_data_type);
+        fields.push_back(parquet::schema::PrimitiveNode::Make(
+                parquet_schemas[idx].schema_column_name, parquet_repetition_type,
+                parquet::LogicalType::None(), parquet_data_type));
+        _schema = std::static_pointer_cast<parquet::schema::GroupNode>(
+                parquet::schema::GroupNode::Make("schema", parquet::Repetition::REQUIRED, fields));
+    }
+}
+
 Status ParquetWriterWrapper::write(const RowBatch& row_batch) {
     int num_rows = row_batch.num_rows();
     for (int i = 0; i < num_rows; ++i) {
@@ -215,22 +382,24 @@ parquet::RowGroupWriter* ParquetWriterWrapper::get_rg_writer() {
     return _rg_writer;
 }
 
+template <typename T>
+void ParquetWriterWrapper::write_int32_column(int index, T* item) {
+    parquet::RowGroupWriter* rgWriter = get_rg_writer();
+    parquet::Int32Writer* col_writer = static_cast<parquet::Int32Writer*>(rgWriter->column(index));
+    int32_t value = 0;
+    if (item != nullptr) {
+        value = *item;
+    }
+    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+}
+
 Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
     int num_columns = _output_expr_ctxs.size();
-    if (num_columns != _str_schema.size()) {
-        return Status::InternalError("project field size is not equal to schema column size");
-    }
     try {
         for (int index = 0; index < num_columns; ++index) {
             void* item = _output_expr_ctxs[index]->get_value(row);
             switch (_output_expr_ctxs[index]->root()->type().type) {
             case TYPE_BOOLEAN: {
-                if (_str_schema[index][1] != "boolean") {
-                    return Status::InvalidArgument(
-                            "project field type is boolean, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[index][2], _str_schema[index][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::BoolWriter* col_writer =
                         static_cast<parquet::BoolWriter*>(rgWriter->column(index));
@@ -242,34 +411,19 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 }
                 break;
             }
-            case TYPE_TINYINT:
-            case TYPE_SMALLINT:
+            case TYPE_TINYINT: {
+                write_int32_column(index, static_cast<int8_t*>(item));
+                break;
+            }
+            case TYPE_SMALLINT: {
+                write_int32_column(index, static_cast<int16_t*>(item));
+                break;
+            }
             case TYPE_INT: {
-                if (_str_schema[index][1] != "int32") {
-                    return Status::InvalidArgument(
-                            "project field type is tiny int/small int/int, should use int32,"
-                            " but the definition type of column {} is {}",
-                            _str_schema[index][2], _str_schema[index][1]);
-                }
-
-                parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::Int32Writer* col_writer =
-                        static_cast<parquet::Int32Writer*>(rgWriter->column(index));
-                if (item != nullptr) {
-                    col_writer->WriteBatch(1, nullptr, nullptr, static_cast<int32_t*>(item));
-                } else {
-                    int32_t default_int32 = 0;
-                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
-                }
+                write_int32_column(index, static_cast<int32_t*>(item));
                 break;
             }
             case TYPE_BIGINT: {
-                if (_str_schema[index][1] != "int64") {
-                    return Status::InvalidArgument(
-                            "project field type is big int, should use int64, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[index][2], _str_schema[index][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(index));
@@ -292,12 +446,6 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 return Status::InvalidArgument("do not support large int type.");
             }
             case TYPE_FLOAT: {
-                if (_str_schema[index][1] != "float") {
-                    return Status::InvalidArgument(
-                            "project field type is float, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[index][2], _str_schema[index][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::FloatWriter* col_writer =
                         static_cast<parquet::FloatWriter*>(rgWriter->column(index));
@@ -310,12 +458,6 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 break;
             }
             case TYPE_DOUBLE: {
-                if (_str_schema[index][1] != "double") {
-                    return Status::InvalidArgument(
-                            "project field type is double, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[index][2], _str_schema[index][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::DoubleWriter* col_writer =
                         static_cast<parquet::DoubleWriter*>(rgWriter->column(index));
@@ -329,12 +471,6 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             }
             case TYPE_DATETIME:
             case TYPE_DATE: {
-                if (_str_schema[index][1] != "int64") {
-                    return Status::InvalidArgument(
-                            "project field type is date/datetime, should use int64, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[index][2], _str_schema[index][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(index));
@@ -352,12 +488,6 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             case TYPE_HLL:
             case TYPE_OBJECT: {
                 if (_output_object_data) {
-                    if (_str_schema[index][1] != "byte_array") {
-                        return Status::InvalidArgument(
-                                "project field type is hll/bitmap, should use byte_array, "
-                                "but the definition type of column {} is {}",
-                                _str_schema[index][2], _str_schema[index][1]);
-                    }
                     parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::ByteArrayWriter* col_writer =
                             static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
@@ -382,12 +512,6 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             case TYPE_CHAR:
             case TYPE_VARCHAR:
             case TYPE_STRING: {
-                if (_str_schema[index][1] != "byte_array") {
-                    return Status::InvalidArgument(
-                            "project field type is char/varchar, should use byte_array, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[index][2], _str_schema[index][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
@@ -404,12 +528,6 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 break;
             }
             case TYPE_DECIMALV2: {
-                if (_str_schema[index][1] != "byte_array") {
-                    return Status::InvalidArgument(
-                            "project field type is decimal v2, should use byte_array, "
-                            "but the definition type of column {} is {}",
-                            _str_schema[index][2], _str_schema[index][1]);
-                }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
                         static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
@@ -461,7 +579,5 @@ void ParquetWriterWrapper::close() {
         LOG(WARNING) << "Parquet writer close error: " << e.what();
     }
 }
-
-ParquetWriterWrapper::~ParquetWriterWrapper() {}
 
 } // namespace doris

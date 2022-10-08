@@ -29,8 +29,6 @@
 #include "parquet_common.h"
 #include "schema_desc.h"
 #include "util/block_compression.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_nullable.h"
 #include "vparquet_page_reader.h"
 
 namespace doris::vectorized {
@@ -57,6 +55,15 @@ namespace doris::vectorized {
  */
 class ColumnChunkReader {
 public:
+    struct Statistics {
+        int64_t decompress_time = 0;
+        int64_t decompress_cnt = 0;
+        int64_t decode_header_time = 0;
+        int64_t decode_value_time = 0;
+        int64_t decode_dict_time = 0;
+        int64_t decode_level_time = 0;
+    };
+
     ColumnChunkReader(BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, cctz::time_zone* ctz);
     ~ColumnChunkReader() = default;
@@ -69,14 +76,25 @@ public:
 
     // Seek to the specific page, page_header_offset must be the start offset of the page header.
     void seek_to_page(int64_t page_header_offset) {
+        _remaining_num_values = 0;
         _page_reader->seek_to_page(page_header_offset);
+        _state = INITIALIZED;
     }
 
     // Seek to next page. Only read and parse the page header.
     Status next_page();
 
     // Skip current page(will not read and parse) if the page is filtered by predicates.
-    Status skip_page() { return _page_reader->skip_page(); }
+    Status skip_page() {
+        _remaining_num_values = 0;
+        if (_state == HEADER_PARSED) {
+            return _page_reader->skip_page();
+        }
+        if (_state != DATA_LOADED) {
+            return Status::Corruption("Should parse page header to skip page");
+        }
+        return Status::OK();
+    }
     // Skip some values(will not read and parse) in current page if the values are filtered by predicates.
     // when skip_data = false, the underlying decoder will not skip data,
     // only used when maintaining the consistency of _remaining_num_values.
@@ -85,6 +103,12 @@ public:
     // Load page data into the underlying container,
     // and initialize the repetition and definition level decoder for current page data.
     Status load_page_data();
+    Status load_page_data_idempotent() {
+        if (_state == DATA_LOADED) {
+            return Status::OK();
+        }
+        return load_page_data();
+    }
     // The remaining number of values in current page(including null values). Decreased when reading or skipping.
     uint32_t remaining_num_values() const { return _remaining_num_values; };
     // null values are generated from definition levels
@@ -114,11 +138,19 @@ public:
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
+    Statistics& statistics() {
+        _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
+        return _statistics;
+    }
+
 private:
+    enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED };
+
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();
 
+    ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema;
     level_t _max_rep_level;
     level_t _max_def_level;
@@ -141,6 +173,7 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
+    Statistics _statistics;
 };
 
 } // namespace doris::vectorized

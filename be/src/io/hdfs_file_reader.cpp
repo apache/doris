@@ -141,21 +141,25 @@ Status HdfsFileReader::read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, 
 
 Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
     if (position != _current_offset) {
-        int ret = hdfsSeek(_hdfs_fs, _hdfs_file, position);
-        if (ret != 0) { // check fseek return value
-            return Status::InternalError("hdfsSeek failed.(BE: {}) namenode:{}, path:{}, err: {}",
-                                         BackendOptions::get_localhost(), _namenode, _path,
-                                         hdfsGetLastError());
-        }
+        seek(position);
     }
 
-    *bytes_read = hdfsRead(_hdfs_fs, _hdfs_file, out, nbytes);
-    if (*bytes_read < 0) {
-        return Status::InternalError(
-                "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
+    int64_t has_read = 0;
+    char* cast_out = reinterpret_cast<char*>(out);
+    while (has_read < nbytes) {
+        int64_t loop_read = hdfsRead(_hdfs_fs, _hdfs_file, cast_out + has_read, nbytes - has_read);
+        if (loop_read < 0) {
+            return Status::InternalError(
+                    "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                    BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());
+        }
+        if (loop_read == 0) {
+            break;
+        }
+        has_read += loop_read;
     }
-    _current_offset += *bytes_read; // save offset with file
+    *bytes_read = has_read;
+    _current_offset += has_read; // save offset with file
     return Status::OK();
 }
 
@@ -191,6 +195,7 @@ Status HdfsFileReader::seek(int64_t position) {
         return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
                                      BackendOptions::get_localhost(), position, hdfsGetLastError());
     }
+    _current_offset = position;
     return Status::OK();
 }
 

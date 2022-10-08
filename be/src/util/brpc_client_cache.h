@@ -79,7 +79,7 @@ public:
 
     std::shared_ptr<T> get_new_client_no_cache(const std::string& host_port,
                                                const std::string& protocol = "baidu_std",
-                                               const std::string& connect_type = "pooled") {
+                                               const std::string& connect_type = "") {
         brpc::ChannelOptions options;
         if constexpr (std::is_same_v<T, PFunctionService_Stub>) {
             options.protocol = config::function_service_protocol;

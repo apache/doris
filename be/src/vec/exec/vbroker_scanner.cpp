@@ -30,10 +30,6 @@
 
 namespace doris::vectorized {
 
-bool is_null(const Slice& slice) {
-    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
-}
-
 VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
@@ -92,6 +88,10 @@ Status VBrokerScanner::_fill_dest_columns(const Slice& line,
     RETURN_IF_ERROR(_line_split_to_values(line));
     if (UNLIKELY(!_success)) {
         // If not success, which means we met an invalid row, return.
+        return Status::OK();
+    }
+
+    if (!check_array_format(_split_values)) {
         return Status::OK();
     }
 

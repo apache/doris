@@ -133,6 +133,10 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_STRING>::CppType>(
                     type_info, is_nullable));
             break;
+        case OLAP_FIELD_TYPE_JSONB:
+            local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_JSONB>::CppType>(
+                    type_info, is_nullable));
+            break;
         case OLAP_FIELD_TYPE_HLL:
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_HLL>::CppType>(
                     type_info, is_nullable));

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -32,10 +33,12 @@ import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.pattern.PatternMatcher;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -43,16 +46,20 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 
+import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * Utility to apply rules to plan and check output plan matches the expected pattern.
  */
 public class PlanChecker {
-    private ConnectContext connectContext;
+    private final ConnectContext connectContext;
     private CascadesContext cascadesContext;
 
     private Plan parsedPlan;
+
+    private PhysicalPlan physicalPlan;
 
     public PlanChecker(ConnectContext connectContext) {
         this.connectContext = connectContext;
@@ -88,7 +95,11 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker applyTopDown(RuleFactory rule) {
+    public PlanChecker applyTopDown(RuleFactory ruleFactory) {
+        return applyTopDown(ruleFactory.buildRules());
+    }
+
+    public PlanChecker applyTopDown(List<Rule> rule) {
         cascadesContext.topDownRewrite(rule);
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
@@ -96,6 +107,7 @@ public class PlanChecker {
 
     /**
      * apply a top down rewrite rule if you not care the ruleId
+     *
      * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
      * @return this checker, for call chaining of follow-up check
      */
@@ -118,6 +130,7 @@ public class PlanChecker {
 
     /**
      * apply a bottom up rewrite rule if you not care the ruleId
+     *
      * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
      * @return this checker, for call chaining of follow-up check
      */
@@ -130,6 +143,41 @@ public class PlanChecker {
         });
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
+    }
+
+    public PlanChecker rewrite() {
+        new NereidsRewriteJobExecutor(cascadesContext).execute();
+        return this;
+    }
+
+    public PlanChecker implement() {
+        Plan plan = transformToPhysicalPlan(cascadesContext.getMemo().getRoot());
+        Assertions.assertTrue(plan instanceof PhysicalPlan);
+        physicalPlan = ((PhysicalPlan) plan);
+        return this;
+    }
+
+    public PhysicalPlan getPhysicalPlan() {
+        return physicalPlan;
+    }
+
+    private Plan transformToPhysicalPlan(Group group) {
+        PhysicalPlan current = null;
+        loop:
+        for (Rule rule : RuleSet.IMPLEMENTATION_RULES) {
+            GroupExpressionMatching matching = new GroupExpressionMatching(rule.getPattern(),
+                    group.getLogicalExpression());
+            for (Plan plan : matching) {
+                Plan after = rule.transform(plan, cascadesContext).get(0);
+                if (after instanceof PhysicalPlan) {
+                    current = (PhysicalPlan) after;
+                    break loop;
+                }
+            }
+        }
+        Assertions.assertNotNull(current);
+        return current.withChildren(group.getLogicalExpression().children()
+                .stream().map(this::transformToPhysicalPlan).collect(Collectors.toList()));
     }
 
     public PlanChecker transform(PatternMatcher patternMatcher) {
@@ -165,24 +213,24 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker transform(Rule rule) {
-        return transform(cascadesContext.getMemo().getRoot(), rule);
+    // Exploration Rule.
+    public PlanChecker applyExploration(Rule rule) {
+        return applyExploration(cascadesContext.getMemo().getRoot(), rule);
     }
 
-    // Exploration Rule.
-    public PlanChecker transform(Group group, Rule rule) {
+    private PlanChecker applyExploration(Group group, Rule rule) {
         // copy groupExpressions can prevent ConcurrentModificationException
         for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
-            transformApply(logicalExpression, rule);
+            applyExploration(logicalExpression, rule);
         }
 
         for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
-            transformApply(physicalExpression, rule);
+            applyExploration(physicalExpression, rule);
         }
         return this;
     }
 
-    private void transformApply(GroupExpression groupExpression, Rule rule) {
+    private void applyExploration(GroupExpression groupExpression, Rule rule) {
         GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
 
         for (Plan before : matchResult) {
@@ -193,7 +241,7 @@ public class PlanChecker {
         }
 
         for (Group childGroup : groupExpression.children()) {
-            transform(childGroup, rule);
+            applyExploration(childGroup, rule);
         }
     }
 
@@ -207,6 +255,17 @@ public class PlanChecker {
     public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
         assertMatches(memo, () -> GroupMatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    public PlanChecker matchesExploration(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        Supplier<Boolean> asserter = () -> new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpressions().get(1)).iterator().hasNext();
+        Assertions.assertTrue(asserter.get(),
+                () -> "pattern not match, plan :\n"
+                        + memo.getRoot().getLogicalExpressions().get(1).getPlan().treeString()
+                        + "\n");
         return this;
     }
 
@@ -273,6 +332,14 @@ public class PlanChecker {
         return this;
     }
 
+    /**
+     * Check nereids planner could plan the input SQL without any exception.
+     */
+    public PlanChecker checkPlannerResult(String sql) {
+        return checkPlannerResult(sql, planner -> {
+        });
+    }
+
     public static PlanChecker from(ConnectContext connectContext) {
         return new PlanChecker(connectContext);
     }
@@ -293,4 +360,24 @@ public class PlanChecker {
     public Plan getPlan() {
         return cascadesContext.getMemo().copyOut();
     }
+
+    public PlanChecker printlnTree() {
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
+        return this;
+    }
+
+    public PlanChecker printlnExploration() {
+        System.out.println(
+                cascadesContext.getMemo().copyOut(cascadesContext.getMemo().getRoot().logicalExpressionsAt(1), false)
+                        .treeString());
+        return this;
+    }
+
+    public PlanChecker printlnOrigin() {
+        System.out.println(
+                cascadesContext.getMemo().copyOut(cascadesContext.getMemo().getRoot().logicalExpressionsAt(0), false)
+                        .treeString());
+        return this;
+    }
+
 }

@@ -49,6 +49,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
 
     _reader_context.batch_size = _batch_size;
     _reader_context.is_vec = true;
+    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         Status res = _vcollect_iter.add_child(rs_reader);
@@ -283,8 +284,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
 
     // do filter detete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
-        int delete_sign_idx =
-                (_sequence_col_idx == -1) ? target_columns.size() - 1 : target_columns.size() - 2;
+        int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);
         MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
@@ -414,7 +414,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 }
 
 ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function_filter) {
-    int32_t index = _tablet->field_index(function_filter._col_name);
+    int32_t index = _tablet_schema->field_index(function_filter._col_name);
     if (index < 0) {
         return nullptr;
     }

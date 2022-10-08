@@ -385,6 +385,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 if (!seqIndexes.isEmpty()) {
                     srcBeId = beId;
                     hasUnavailableBe = true;
+                    LOG.info("find unavailable backend {} in colocate group: {}", beId, groupId);
                     break;
                 }
             }
@@ -394,7 +395,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                             unavailableBeIds, statistic, flatBackendsPerBucketSeq);
 
             // if there is only one available backend and no unavailable bucketId to relocate, end the outer loop
-            if (backendWithReplicaNum.size() <= 1) {
+            if (backendWithReplicaNum.size() <= 1 && !hasUnavailableBe) {
                 break;
             }
 

@@ -119,9 +119,10 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vparquet_writer.reset(new VParquetWriterWrapper(
-                _file_writer_impl.get(), _output_vexpr_ctxs, _file_opts->file_properties,
-                _file_opts->schema, _output_object_data));
-        RETURN_IF_ERROR(_vparquet_writer->init());
+                _file_writer_impl.get(), _output_vexpr_ctxs, _file_opts->parquet_schemas,
+                _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
+                _file_opts->parquet_version, _output_object_data));
+        RETURN_IF_ERROR(_vparquet_writer->init_parquet_writer());
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -209,6 +210,7 @@ Status VFileResultWriter::append_block(Block& block) {
 Status VFileResultWriter::_write_parquet_file(const Block& block) {
     RETURN_IF_ERROR(_vparquet_writer->write(block));
     // split file if exceed limit
+    _current_written_bytes = _vparquet_writer->written_len();
     return _create_new_file_if_exceed_size();
 }
 
@@ -293,7 +295,13 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     break;
                 }
                 case TYPE_OBJECT:
-                case TYPE_HLL:
+                case TYPE_HLL: {
+                    if (!_output_object_data) {
+                        _plain_text_outstream << NULL_IN_CSV;
+                        break;
+                    }
+                    [[fallthrough]];
+                }
                 case TYPE_VARCHAR:
                 case TYPE_CHAR:
                 case TYPE_STRING: {
@@ -327,7 +335,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     break;
                 }
                 default: {
-                    // not supported type, like BITMAP, HLL, just export null
+                    // not supported type, like BITMAP, just export null
                     _plain_text_outstream << NULL_IN_CSV;
                 }
                 }
@@ -409,7 +417,6 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
 Status VFileResultWriter::_close_file_writer(bool done) {
     if (_vparquet_writer) {
         _vparquet_writer->close();
-        _current_written_bytes = _vparquet_writer->written_len();
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         _vparquet_writer.reset(nullptr);
     } else if (_file_writer_impl) {

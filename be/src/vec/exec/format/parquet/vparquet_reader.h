@@ -24,72 +24,85 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
+#include "exec/olap_common.h"
 #include "gen_cpp/parquet_types.h"
 #include "io/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vparquet_column_reader.h"
 #include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
 #include "vparquet_page_index.h"
 
 namespace doris::vectorized {
 
-//    struct Statistics {
-//        int32_t filtered_row_groups = 0;
-//        int32_t total_groups = 0;
-//        int64_t filtered_rows = 0;
-//        int64_t total_rows = 0;
-//        int64_t filtered_total_bytes = 0;
-//        int64_t total_bytes = 0;
-//    };
-class RowGroupReader;
-class PageIndex;
-
-struct RowRange {
-    int64_t first_row;
-    int64_t last_row;
-};
-
-class ParquetReadColumn {
-public:
-    friend class ParquetReader;
-    friend class RowGroupReader;
-    ParquetReadColumn(SlotDescriptor* slot_desc) : _slot_desc(slot_desc) {};
-    ~ParquetReadColumn() = default;
-
-private:
-    SlotDescriptor* _slot_desc;
-    //    int64_t start_offset;
-    //    int64_t chunk_size;
-};
-
 class ParquetReader : public GenericReader {
 public:
-    ParquetReader(FileReader* file_reader, int32_t num_of_columns_from_file, size_t batch_size,
-                  int64_t range_start_offset, int64_t range_size, cctz::time_zone* ctz);
+    struct Statistics {
+        int32_t filtered_row_groups = 0;
+        int32_t read_row_groups = 0;
+        int64_t filtered_group_rows = 0;
+        int64_t filtered_page_rows = 0;
+        int64_t read_rows = 0;
+        int64_t filtered_bytes = 0;
+        int64_t read_bytes = 0;
+        int64_t column_read_time = 0;
+        int64_t parse_meta_time = 0;
+    };
+
+    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, const std::vector<std::string>& column_names,
+                  size_t batch_size, cctz::time_zone* ctz);
 
     virtual ~ParquetReader();
+    // for test
+    void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
-    Status init_reader(const TupleDescriptor* tuple_desc,
-                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                       std::vector<ExprContext*>& conjunct_ctxs, const std::string& timezone);
+    Status init_reader(
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
-    Status get_next_block(Block* block, bool* eof) override;
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    // std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
 
     int64_t size() const { return _file_reader->size(); }
 
+    std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
+    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override;
+
+    Statistics& statistics() { return _statistics; }
+
 private:
+    struct ParquetProfile {
+        RuntimeProfile::Counter* filtered_row_groups;
+        RuntimeProfile::Counter* to_read_row_groups;
+        RuntimeProfile::Counter* filtered_group_rows;
+        RuntimeProfile::Counter* filtered_page_rows;
+        RuntimeProfile::Counter* filtered_bytes;
+        RuntimeProfile::Counter* to_read_bytes;
+        RuntimeProfile::Counter* column_read_time;
+        RuntimeProfile::Counter* parse_meta_time;
+
+        RuntimeProfile::Counter* file_read_time;
+        RuntimeProfile::Counter* file_read_calls;
+        RuntimeProfile::Counter* file_read_bytes;
+        RuntimeProfile::Counter* decompress_time;
+        RuntimeProfile::Counter* decompress_cnt;
+        RuntimeProfile::Counter* decode_header_time;
+        RuntimeProfile::Counter* decode_value_time;
+        RuntimeProfile::Counter* decode_dict_time;
+        RuntimeProfile::Counter* decode_level_time;
+    };
+
+    void _init_profile();
     bool _next_row_group_reader();
-    Status _init_read_columns(const std::vector<SlotDescriptor*>& tuple_slot_descs);
-    Status _init_row_group_readers(const std::vector<ExprContext*>& conjunct_ctxs);
-    void _init_conjuncts(const std::vector<ExprContext*>& conjunct_ctxs);
+    Status _init_read_columns();
+    Status _init_row_group_readers();
     // Page Index Filter
-    bool _has_page_index(std::vector<tparquet::ColumnChunk>& columns);
-    Status _process_page_index(tparquet::RowGroup& row_group);
+    bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
+    Status _process_page_index(const tparquet::RowGroup& row_group,
+                               std::vector<RowRange>& candidate_row_ranges);
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
@@ -102,27 +115,20 @@ private:
     Status _process_bloom_filter(bool* filter_group);
     Status _filter_row_groups();
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
-    bool _determine_filter_min_max(const std::vector<ExprContext*>& conjuncts,
-                                   const std::string& encoded_min, const std::string& encoded_max);
-    void _eval_binary_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                                bool& need_filter);
-    void _eval_in_predicate(ExprContext* ctx, const char* min_bytes, const char* max_bytes,
-                            bool& need_filter);
 
 private:
-    FileReader* _file_reader;
+    RuntimeProfile* _profile;
+    const TFileScanRangeParams& _scan_params;
+    const TFileRangeDesc& _scan_range;
+    std::unique_ptr<FileReader> _file_reader = nullptr;
+
     std::shared_ptr<FileMetaData> _file_metadata;
-    tparquet::FileMetaData* _t_metadata;
-    std::unique_ptr<PageIndex> _page_index;
+    const tparquet::FileMetaData* _t_metadata;
     std::list<std::shared_ptr<RowGroupReader>> _row_group_readers;
     std::shared_ptr<RowGroupReader> _current_group_reader;
-    int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
-    int32_t _current_row_group_id;
-    //        std::shared_ptr<Statistics> _statistics;
-    const int32_t _num_of_columns_from_file;
+    int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::unordered_map<int, std::vector<ExprContext*>> _slot_conjuncts;
-    std::vector<int> _include_column_ids; // columns that need to get from file
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::vector<ParquetReadColumn> _read_columns;
     std::list<int32_t> _read_row_groups;
     // parquet file reader object
@@ -130,8 +136,14 @@ private:
     int64_t _range_start_offset;
     int64_t _range_size;
     cctz::time_zone* _ctz;
-    std::vector<RowRange> _skipped_row_ranges;
 
-    const TupleDescriptor* _tuple_desc; // get all slot info
+    std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
+    const std::vector<std::string> _column_names;
+
+    std::vector<std::string> _missing_cols;
+    Statistics _statistics;
+    ParquetColumnReader::Statistics _column_statistics;
+    ParquetProfile _parquet_profile;
+    bool _closed = false;
 };
 } // namespace doris::vectorized

@@ -559,7 +559,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (hasOutFileClause()) {
-            outFileClause.analyze(analyzer, resultExprs);
+            outFileClause.analyze(analyzer, resultExprs, colLabels);
         }
     }
 
@@ -1079,6 +1079,11 @@ public class SelectStmt extends QueryStmt {
         } else {
             createAggInfo(new ArrayList<>(), aggExprs, analyzer);
         }
+        // we remove all constant in group by expressions, when all exprs are constant
+        // and no aggregate expr in select list, we do not generate aggInfo at all.
+        if (aggInfo == null) {
+            return;
+        }
 
         // combine avg smap with the one that produces the final agg output
         AggregateInfo finalAggInfo =
@@ -1285,6 +1290,9 @@ public class SelectStmt extends QueryStmt {
             Preconditions.checkState(aggExprs.isEmpty());
             aggInfo = AggregateInfo.create(Expr.cloneList(resultExprs), null, null, analyzer);
         } else {
+            if (CollectionUtils.isEmpty(groupingExprs) && CollectionUtils.isEmpty(aggExprs)) {
+                return;
+            }
             aggInfo = AggregateInfo.create(groupingExprs, aggExprs, null, analyzer);
         }
     }

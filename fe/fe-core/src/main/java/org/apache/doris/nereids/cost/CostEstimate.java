@@ -73,6 +73,10 @@ public final class CostEstimate {
         return networkCost;
     }
 
+    public static CostEstimate of(double cpuCost, double maxMemory, double networkCost) {
+        return new CostEstimate(cpuCost, maxMemory, networkCost);
+    }
+
     public static CostEstimate ofCpu(double cpuCost) {
         return new CostEstimate(cpuCost, 0, 0);
     }
@@ -81,4 +85,18 @@ public final class CostEstimate {
         return new CostEstimate(0, memoryCost, 0);
     }
 
+    /**
+     * sum of cost estimate
+     */
+    public static CostEstimate sum(CostEstimate one, CostEstimate two, CostEstimate... more) {
+        double cpuCostSum = one.cpuCost + two.cpuCost;
+        double memoryCostSum = one.memoryCost + two.memoryCost;
+        double networkCostSum = one.networkCost + one.networkCost;
+        for (CostEstimate costEstimate : more) {
+            cpuCostSum += costEstimate.cpuCost;
+            memoryCostSum += costEstimate.memoryCost;
+            networkCostSum += costEstimate.networkCost;
+        }
+        return new CostEstimate(cpuCostSum, memoryCostSum, networkCostSum);
+    }
 }

@@ -28,7 +28,7 @@ under the License.
 
 Broker load 是一个异步的导入方式，支持的数据源取决于 [Broker](../../../advanced/broker.md) 进程支持的数据源。
 
-因为 Doris 表里的数据是有序的，所以 Broker load 在导入数据的时是要利用doris 集群资源对数据进行排序，想对于 Spark load 来完成海量历史数据迁移，对 Doris 的集群资源占用要比较大，这种方式是在用户没有 Spark 这种计算资源的情况下使用，如果有 Spark 计算资源建议使用   [Spark load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/SPARK-LOAD.md)。
+因为 Doris 表里的数据是有序的，所以 Broker load 在导入数据的时是要利用doris 集群资源对数据进行排序，想对于 Spark load 来完成海量历史数据迁移，对 Doris 的集群资源占用要比较大，这种方式是在用户没有 Spark 这种计算资源的情况下使用，如果有 Spark 计算资源建议使用   [Spark load](../../../data-operate/import/import-way/spark-load-manual.md)。
 
 用户需要通过 MySQL 协议 创建 [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) 导入，并通过查看导入命令检查导入结果。
 

@@ -101,6 +101,7 @@ private:
     std::string _timezone;
     int64_t _range_start_offset;
     int64_t _range_size;
+    bool _need_filter_row_group = false;
 
 private:
     std::unique_ptr<doris::RowGroupReader> _row_group_reader;

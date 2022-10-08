@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
@@ -236,21 +237,21 @@ public class BindSlotReference implements AnalysisRuleFactory {
                         .get()
                         .getSlots()));
             }
-            if (!boundedOpt.isPresent()) {
-                throw new AnalysisException("Cannot resolve " + unboundSlot.toString());
-            }
             List<Slot> bounded = boundedOpt.get();
             switch (bounded.size()) {
+                case 0:
+                    throw new AnalysisException(String.format("Cannot find column %s.", unboundSlot.toSql()));
                 case 1:
                     if (!foundInThisScope) {
                         getScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
                     }
                     return bounded.get(0);
                 default:
-                    throw new AnalysisException(unboundSlot + " is ambiguous： "
-                            + bounded.stream()
-                            .map(Slot::toString)
-                            .collect(Collectors.joining(", ")));
+                    throw new AnalysisException(String.format("%s is ambiguous: %s.",
+                            unboundSlot.toSql(),
+                            bounded.stream()
+                                    .map(Slot::toString)
+                                    .collect(Collectors.joining(", "))));
             }
         }
 
@@ -353,7 +354,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     }
 
     /** BoundStar is used to wrap list of slots for temporary. */
-    private class BoundStar extends NamedExpression {
+    private class BoundStar extends NamedExpression implements PropagateNullable {
         public BoundStar(List<Slot> children) {
             super(children.toArray(new Slot[0]));
             Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),

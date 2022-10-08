@@ -270,6 +270,10 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
+if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
+    RECORD_COMPILER_SWITCHES='OFF'
+fi
+
 echo "Get params:
     BUILD_FE            -- ${BUILD_FE}
     BUILD_BE            -- ${BUILD_BE}
@@ -396,7 +400,7 @@ function build_ui() {
         ui_dist="${CUSTOM_UI_DIST}"
     else
         cd "${DORIS_HOME}/ui"
-        "${NPM}" install
+        "${NPM}" install --legacy-peer-deps
         "${NPM}" run build
     fi
     echo "ui dist: ${ui_dist}"

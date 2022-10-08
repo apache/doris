@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveBucketUtil;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -84,6 +85,11 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
     public HiveScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc) {
         this.hmsTable = hmsTable;
         this.desc = desc;
+    }
+
+    @Override
+    public TableIf getTargetTable() {
+        return hmsTable;
     }
 
     @Override
@@ -223,35 +229,24 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
     public ParamCreateContext createContext(Analyzer analyzer) throws UserException {
         ParamCreateContext context = new ParamCreateContext();
         context.params = new TFileScanRangeParams();
-        context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
-        context.params.setSrcTupleId(context.srcTupleDescriptor.getId().asInt());
+        context.destTupleDescriptor = desc;
+        context.params.setDestTupleId(desc.getId().asInt());
         context.fileGroup = new BrokerFileGroup(hmsTable.getId(),
-            hmsTable.getRemoteTable().getSd().getLocation(), hmsTable.getRemoteTable().getSd().getInputFormat());
-        Map<String, SlotDescriptor> slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        List<Column> columns = hmsTable.getBaseSchema(false);
-        for (Column column : columns) {
-            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(context.srcTupleDescriptor);
-            slotDesc.setType(column.getType());
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setIsNullable(true);
-            slotDesc.setColumn(new Column(column));
-            slotDescByName.put(column.getName(), slotDesc);
-        }
-        // Need re compute memory layout after set some slot descriptor to nullable
-        context.srcTupleDescriptor.computeStatAndMemLayout();
+                hmsTable.getRemoteTable().getSd().getLocation(), hmsTable.getRemoteTable().getSd().getInputFormat());
+
 
         // Hive table must extract partition value from path and hudi/iceberg table keep
         // partition field in file.
         List<String> partitionKeys = getPathPartitionKeys();
+        List<Column> columns = hmsTable.getBaseSchema(false);
         context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
             }
-            int slotId = slotDescByName.get(slot.getColumn().getName()).getId().asInt();
 
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
-            slotInfo.setSlotId(slotId);
+            slotInfo.setSlotId(slot.getId().asInt());
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
             context.params.addToRequiredSlots(slotInfo);
         }
@@ -368,3 +363,4 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
     }
 
 }
+

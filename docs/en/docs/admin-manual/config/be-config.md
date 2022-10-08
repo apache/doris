@@ -66,11 +66,11 @@ There are two ways to configure BE configuration items:
 
 ## Examples
 
-1. Modify `max_base_compaction_concurrency` statically
+1. Modify `max_base_compaction_threads` statically
 
      By adding in the `be.conf` file:
 
-     ```max_base_compaction_concurrency=5```
+     ```max_base_compaction_threads=5```
 
      Then restart the BE process to take effect the configuration.
 
@@ -706,11 +706,17 @@ Set these default values very large, because we don't want to affect load perfor
 
 ### `load_process_max_memory_limit_percent`
 
-Default: 80 (%)
+Default: 50 (%)
 
-The percentage of the upper memory limit occupied by all imported threads on a single node, the default is 80%
+The percentage of the upper memory limit occupied by all imported threads on a single node, the default is 50%
 
 Set these default values very large, because we don't want to affect load performance when users upgrade Doris. If necessary, the user should set these configurations correctly
+
+### `load_process_soft_mem_limit_percent`
+
+Default: 50 (%)
+
+The soft limit refers to the proportion of the load memory limit of a single node. For example, the load memory limit for all load tasks is 20GB, and the soft limit defaults to 50% of this value, that is, 10GB. When the load memory usage exceeds the soft limit, the job with the largest memory consuption will be selected to be flushed to release the memory space, the default is 50%
 
 ### `log_buffer_level`
 

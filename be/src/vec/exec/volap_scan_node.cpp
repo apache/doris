@@ -376,7 +376,10 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     }
 
     VLOG_CRITICAL << "TransferThread finish.";
-    _transfer_done = true;
+    {
+        std::unique_lock<std::mutex> l(_blocks_lock);
+        _transfer_done = true;
+    }
     _block_added_cv.notify_all();
     {
         std::unique_lock<std::mutex> l(_scan_blocks_lock);
@@ -744,10 +747,7 @@ Status VOlapScanNode::start_scan(RuntimeState* state) {
 }
 
 static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
-    if ((slot->type().is_date_type() || slot->type().is_date_v2_type() ||
-         slot->type().is_datetime_v2_type()) &&
-        (expr->type().is_date_type() || expr->type().is_date_v2_type() ||
-         expr->type().is_datetime_v2_type())) {
+    if (slot->type().is_date_type() && expr->type().is_date_type()) {
         return true;
     }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
@@ -759,8 +759,7 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
 template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
 Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_range, void* value,
                                          const ChangeFixedValueRangeFunc& func,
-                                         const std::string& fn_name, bool cast_date_to_datetime,
-                                         int slot_ref_child) {
+                                         const std::string& fn_name, int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
         DateTimeValue date_value;
         reinterpret_cast<VecDateTimeValue*>(value)->convert_vec_dt_to_dt(&date_value);
@@ -792,41 +791,6 @@ Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_r
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          reinterpret_cast<char*>(&date_value)));
         }
-    } else if constexpr (PrimitiveType == TYPE_DATEV2) {
-        if (cast_date_to_datetime) {
-            DateV2Value<DateTimeV2ValueType> datetimev2_value =
-                    *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(value);
-            if constexpr (IsFixed) {
-                if (datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
-                    DateV2Value<DateV2ValueType> date_v2;
-                    date_v2.set_date_uint32(binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(
-                                                    datetimev2_value) >>
-                                            TIME_PART_LENGTH);
-                    func(temp_range, &date_v2);
-                }
-            } else {
-                doris::vectorized::DateV2Value<DateV2ValueType> date_v2;
-                date_v2.set_date_uint32(
-                        binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(datetimev2_value) >>
-                        TIME_PART_LENGTH);
-                if (!datetimev2_value.can_cast_to_date_without_loss_accuracy()) {
-                    if (fn_name == "lt" || fn_name == "ge") {
-                        ++date_v2;
-                    }
-                }
-                func(temp_range, to_olap_filter_type(fn_name, slot_ref_child), &date_v2);
-            }
-        } else {
-            if constexpr (IsFixed) {
-                func(temp_range,
-                     reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                             value));
-            } else {
-                func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                     reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                             value));
-            }
-        }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_HLL) ||
                          (PrimitiveType == TYPE_DATETIMEV2) || (PrimitiveType == TYPE_TINYINT) ||
@@ -834,7 +798,7 @@ Status VOlapScanNode::change_value_range(ColumnValueRange<PrimitiveType>& temp_r
                          (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
                          (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
                          (PrimitiveType == TYPE_DECIMAL128) || (PrimitiveType == TYPE_STRING) ||
-                         (PrimitiveType == TYPE_BOOLEAN)) {
+                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
             func(temp_range,
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
@@ -912,7 +876,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
 
         if (config::doris_scan_range_max_mb > 0) {
             size_based_scanners_per_tablet = std::max(
-                    1, (int)tablet->tablet_footprint() / config::doris_scan_range_max_mb << 20);
+                    1, (int)(tablet->tablet_footprint() / (config::doris_scan_range_max_mb << 20)));
         }
 
         int ranges_per_scanner =
@@ -1445,9 +1409,8 @@ Status VOlapScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* 
                 continue;
             }
             auto value = const_cast<void*>(iter->get_value());
-            RETURN_IF_ERROR(change_value_range<true>(temp_range, value,
-                                                     ColumnValueRange<T>::add_fixed_value_range,
-                                                     fn_name, !state->hybrid_set->is_date_v2()));
+            RETURN_IF_ERROR(change_value_range<true>(
+                    temp_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name));
             iter->next();
         }
 
@@ -1520,12 +1483,10 @@ Status VOlapScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprC
             auto value = const_cast<void*>(iter->get_value());
             if (is_fixed_range) {
                 RETURN_IF_ERROR(change_value_range<true>(
-                        range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name,
-                        !state->hybrid_set->is_date_v2()));
+                        range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
             } else {
                 RETURN_IF_ERROR(change_value_range<true>(
-                        not_in_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name,
-                        !state->hybrid_set->is_date_v2()));
+                        not_in_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             iter->next();
         }
@@ -1632,11 +1593,11 @@ Status VOlapScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContex
                     auto val = StringValue(value.data, value.size);
                     RETURN_IF_ERROR(change_value_range<false>(range, reinterpret_cast<void*>(&val),
                                                               ColumnValueRange<T>::add_value_range,
-                                                              fn_name, true, slot_ref_child));
+                                                              fn_name, slot_ref_child));
                 } else {
                     RETURN_IF_ERROR(change_value_range<false>(
                             range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                            ColumnValueRange<T>::add_value_range, fn_name, true, slot_ref_child));
+                            ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
             }
         }

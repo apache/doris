@@ -23,9 +23,11 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import java.util.List;
 import java.util.Objects;
@@ -40,19 +42,21 @@ public class PhysicalOlapScan extends PhysicalRelation {
     private final long selectedIndexId;
     private final List<Long> selectedTabletIds;
     private final List<Long> selectedPartitionIds;
+    private final PreAggStatus preAggStatus;
 
     /**
      * Constructor for PhysicalOlapScan.
      */
     public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
+            PreAggStatus preAggStatus, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = selectedTabletIds;
         this.selectedPartitionIds = selectedPartitionIds;
         this.distributionSpec = distributionSpec;
+        this.preAggStatus = preAggStatus;
     }
 
     /**
@@ -60,15 +64,16 @@ public class PhysicalOlapScan extends PhysicalRelation {
      */
     public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletId, List<Long> selectedPartitionId, DistributionSpec distributionSpec,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties) {
-        super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties);
-
+            PreAggStatus preAggStatus, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+        super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties,
+                statsDeriveResult);
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = selectedTabletId;
         this.selectedPartitionIds = selectedPartitionId;
         this.distributionSpec = distributionSpec;
+        this.preAggStatus = preAggStatus;
     }
 
     public long getSelectedIndexId() {
@@ -90,6 +95,10 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     public DistributionSpec getDistributionSpec() {
         return distributionSpec;
+    }
+
+    public PreAggStatus getPreAggStatus() {
+        return preAggStatus;
     }
 
     @Override
@@ -128,18 +137,20 @@ public class PhysicalOlapScan extends PhysicalRelation {
     @Override
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, groupExpression, getLogicalProperties());
+                selectedPartitionIds, distributionSpec, preAggStatus, groupExpression, getLogicalProperties());
     }
 
     @Override
     public PhysicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, Optional.empty(), logicalProperties.get());
+                selectedPartitionIds, distributionSpec, preAggStatus, Optional.empty(), logicalProperties.get());
     }
 
     @Override
-    public PhysicalOlapScan withPhysicalProperties(PhysicalProperties physicalProperties) {
+    public PhysicalOlapScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, Optional.empty(), getLogicalProperties(), physicalProperties);
+                selectedPartitionIds, distributionSpec, preAggStatus, Optional.empty(), getLogicalProperties(),
+                physicalProperties, statsDeriveResult);
     }
 }

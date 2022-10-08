@@ -260,6 +260,11 @@ Users must have the `SELECT` permission of the corresponding database to use UDF
 
 The use of UDF is consistent with ordinary function methods. The only difference is that the scope of built-in functions is global, and the scope of UDF is internal to DB. When the link session is inside the data, directly using the UDF name will find the corresponding UDF inside the current DB. Otherwise, the user needs to display the specified UDF database name, such as `dbName`.`funcName`.
 
+In current version, vectorization needs to be turned off to use native udf  
+```
+set enable_vectorized_engine = false;
+```
+
 
 ## Delete UDF
 
