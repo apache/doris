@@ -22,9 +22,9 @@
 #include "vec/runtime/vparquet_writer.h"
 #include "vec/sink/vresult_sink.h"
 
-namespace doris {
+namespace doris::vectorized {
+class VFileWriterWrapper;
 
-namespace vectorized {
 // write result to file
 class VFileResultWriter final : public VResultWriter {
 public:
@@ -52,7 +52,7 @@ public:
     Status write_csv_header();
 
 private:
-    Status _write_parquet_file(const Block& block);
+    Status _write_file(const Block& block);
     Status _write_csv_file(const Block& block);
 
     // if buffer exceed the limit, write the data buffered in _plain_text_outstream via file_writer
@@ -122,8 +122,7 @@ private:
     bool _is_result_sent = false;
     bool _header_sent = false;
     RowDescriptor _output_row_descriptor;
-    // parquet file writer
-    std::unique_ptr<VParquetWriterWrapper> _vparquet_writer;
+    // parquet/orc file writer
+    std::unique_ptr<VFileWriterWrapper> _vfile_writer;
 };
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
