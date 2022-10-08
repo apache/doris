@@ -69,9 +69,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         if (statsDeriveResult != null) {
             return Utils.toSqlString("PhysicalFilter",
                     "predicates", predicates,
-                    "estimateRows", statsDeriveResult.getRowCount(),
-                    "isReduced", statsDeriveResult.isReduced,
-                    "width", statsDeriveResult.width
+                    "stats", statsDeriveResult.toString()
             );
         }
         return Utils.toSqlString("PhysicalFilter",

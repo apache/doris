@@ -64,9 +64,7 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         if (statsDeriveResult != null) {
             return Utils.toSqlString("PhysicalDistribute",
                     "distributionSpec", distributionSpec,
-                    "estimateRows", statsDeriveResult.getRowCount(),
-                    "isReduced", statsDeriveResult.isReduced,
-                    "width", statsDeriveResult.width
+                    "stats", statsDeriveResult.toString()
             );
         }
         return Utils.toSqlString("PhysicalDistribute",

@@ -93,9 +93,7 @@ public class PhysicalHashJoin<
                     "type", joinType,
                     "hashJoinCondition", hashJoinConjuncts,
                     "otherJoinCondition", otherJoinCondition,
-                    "estimateRows", statsDeriveResult.getRowCount(),
-                    "isReduced", statsDeriveResult.isReduced,
-                    "width", statsDeriveResult.width
+                    "stats", statsDeriveResult.toString()
             );
         }
         return Utils.toSqlString("PhysicalHashJoin",
