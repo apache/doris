@@ -93,8 +93,8 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
             conjunctsKeepInFilter = pair.second;
 
             return new LogicalJoin<>(JoinType.INNER_JOIN,
-                    new ArrayList<>(),
-                    ExpressionUtils.optionalAnd(joinConditions),
+                    LogicalJoin.EMPTY_LIST,
+                    joinConditions,
                     joinInputs.get(0), joinInputs.get(1));
         }
         // input size >= 3;
@@ -133,8 +133,8 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
                 conjuncts);
         List<Expression> joinConditions = pair.first;
         List<Expression> nonJoinConditions = pair.second;
-        LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
-                ExpressionUtils.optionalAnd(joinConditions),
+        LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, LogicalJoin.EMPTY_LIST,
+                joinConditions,
                 left, right);
 
         List<Plan> newInputs = new ArrayList<>();
@@ -185,9 +185,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
         join.right().accept(this, context);
 
         conjunctsForAllHashJoins.addAll(join.getHashJoinConjuncts());
-        if (join.getOtherJoinCondition().isPresent()) {
-            conjunctsForAllHashJoins.addAll(ExpressionUtils.extractConjunction(join.getOtherJoinCondition().get()));
-        }
+        conjunctsForAllHashJoins.addAll(join.getOtherJoinConjuncts());
 
         Plan leftChild = join.left();
         if (join.left() instanceof LogicalFilter) {

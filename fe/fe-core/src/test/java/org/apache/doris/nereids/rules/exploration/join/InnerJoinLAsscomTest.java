@@ -35,8 +35,6 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
-
 public class InnerJoinLAsscomTest implements PatternMatchSupported {
 
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -96,11 +94,9 @@ public class InnerJoinLAsscomTest implements PatternMatchSupported {
         Expression bottomJoinOnCondition = new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0));
         Expression topJoinOnCondition = new EqualTo(scan2.getOutput().get(0), scan3.getOutput().get(0));
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> bottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                Lists.newArrayList(bottomJoinOnCondition),
-                Optional.empty(), scan1, scan2);
+                Lists.newArrayList(bottomJoinOnCondition), scan1, scan2);
         LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> topJoin = new LogicalJoin<>(
-                JoinType.INNER_JOIN, Lists.newArrayList(topJoinOnCondition),
-                Optional.empty(), bottomJoin, scan3);
+                JoinType.INNER_JOIN, Lists.newArrayList(topJoinOnCondition), bottomJoin, scan3);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .applyExploration(InnerJoinLAsscom.INSTANCE.build())

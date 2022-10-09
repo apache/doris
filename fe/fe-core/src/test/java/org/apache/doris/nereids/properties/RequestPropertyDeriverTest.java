@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -46,9 +47,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 @SuppressWarnings("unused")
 public class RequestPropertyDeriverTest {
@@ -75,8 +74,8 @@ public class RequestPropertyDeriverTest {
 
     @Test
     public void testNestedLoopJoin() {
-        PhysicalNestedLoopJoin<GroupPlan, GroupPlan> join = new PhysicalNestedLoopJoin<>(JoinType.CROSS_JOIN, Collections.emptyList(),
-                Optional.empty(), logicalProperties, groupPlan, groupPlan);
+        PhysicalNestedLoopJoin<GroupPlan, GroupPlan> join = new PhysicalNestedLoopJoin<>(JoinType.CROSS_JOIN,
+                LogicalJoin.EMPTY_LIST, LogicalJoin.EMPTY_LIST, logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
@@ -99,7 +98,7 @@ public class RequestPropertyDeriverTest {
         };
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                Collections.emptyList(), Optional.empty(), logicalProperties, groupPlan, groupPlan);
+                LogicalJoin.EMPTY_LIST, LogicalJoin.EMPTY_LIST, logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
@@ -125,7 +124,7 @@ public class RequestPropertyDeriverTest {
         };
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
-                Collections.emptyList(), Optional.empty(), logicalProperties, groupPlan, groupPlan);
+                LogicalJoin.EMPTY_LIST, LogicalJoin.EMPTY_LIST, logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);

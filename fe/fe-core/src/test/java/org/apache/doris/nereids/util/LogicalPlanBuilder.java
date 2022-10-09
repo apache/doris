@@ -36,7 +36,6 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LogicalPlanBuilder {
@@ -89,23 +88,23 @@ public class LogicalPlanBuilder {
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
-                Optional.empty(), this.plan, right);
+                this.plan, right);
         return from(join);
     }
 
-    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, List<Pair<Integer, Integer>> hashOnSlots) {
+    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType,
+            List<Pair<Integer, Integer>> hashOnSlots) {
         List<EqualTo> hashConjunts = hashOnSlots.stream()
                 .map(pair -> new EqualTo(this.plan.getOutput().get(pair.first), right.getOutput().get(pair.second)))
                 .collect(Collectors.toList());
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
-                Optional.empty(), this.plan, right);
+                this.plan, right);
         return from(join);
     }
 
     public LogicalPlanBuilder hashJoinEmptyOn(LogicalPlan right, JoinType joinType) {
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(),
-                Optional.empty(), this.plan, right);
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(), this.plan, right);
         return from(join);
     }
 

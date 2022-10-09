@@ -32,7 +32,6 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -54,8 +53,8 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
         return innerLogicalJoin(innerLogicalJoin(), group())
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
                 // TODO: handle otherJoinCondition
-                .whenNot(topJoin -> topJoin.getOtherJoinCondition().isPresent())
-                .whenNot(topJoin -> topJoin.left().getOtherJoinCondition().isPresent())
+                .when(topJoin -> topJoin.getOtherJoinConjuncts().isEmpty())
+                .when(topJoin -> topJoin.left().getOtherJoinConjuncts().isEmpty())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -74,14 +73,13 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     // TODO: split otherCondition.
 
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newBottomHashConjuncts, Optional.empty(),
-                            a, c, bottomJoin.getJoinReorderContext());
+                            newBottomHashConjuncts, a, c, bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
                     LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
-                            JoinType.INNER_JOIN, newTopHashConjuncts, Optional.empty(),
-                            newBottomJoin, b, topJoin.getJoinReorderContext());
+                            JoinType.INNER_JOIN, newTopHashConjuncts, newBottomJoin, b,
+                            topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     return newTopJoin;

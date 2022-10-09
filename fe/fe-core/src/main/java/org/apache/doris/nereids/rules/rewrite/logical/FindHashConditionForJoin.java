@@ -22,14 +22,13 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * this rule aims to find a conjunct list from on clause expression, which could
@@ -47,9 +46,13 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin().then(join -> {
-            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(join);
+            List<Slot> leftSlots = join.left().getOutput();
+            List<Slot> rightSlots = join.right().getOutput();
+            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(leftSlots,
+                    rightSlots, join.getOtherJoinConjuncts());
+
             List<Expression> extractedHashJoinConjuncts = pair.first;
-            Optional<Expression> remainedNonHashJoinConjuncts = ExpressionUtils.optionalAnd(pair.second);
+            List<Expression> remainedNonHashJoinConjuncts = pair.second;
             if (extractedHashJoinConjuncts.isEmpty()) {
                 return join;
             }

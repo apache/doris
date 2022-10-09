@@ -132,6 +132,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                     parser.parseSingle(sql),
                     PhysicalProperties.ANY
             );
+            System.out.println(plan.treeString());
             // Just to check whether translate will throw exception
             new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
         }
@@ -207,8 +208,8 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                 any(),
                                 logicalAggregate()
                         ).when(FieldChecker.check("joinType", JoinType.LEFT_OUTER_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition",
-                                        Optional.of(new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
+                                .when(FieldChecker.check("otherJoinConjuncts",
+                                        ImmutableList.of(new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t7")),
                                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("default_cluster:test", "t6"))))))
@@ -276,7 +277,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                 .applyBottomUp(new InApplyToJoin())
                 .matches(
                         logicalJoin().when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition", Optional.of(
+                                .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                         new And(new EqualTo(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6")),
                                                 new SlotReference(new ExprId(2), "k1", BigIntType.INSTANCE, false,
@@ -350,7 +351,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                 .applyBottomUp(new ExistsApplyToJoin())
                 .matches(
                         logicalJoin().when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition", Optional.of(
+                                .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                         new EqualTo(new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6")),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
@@ -453,7 +454,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         logicalProject()
                                 )
                         ).when(FieldChecker.check("joinType", JoinType.LEFT_OUTER_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition", Optional.of(
+                                .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                         new EqualTo(new SlotReference(new ExprId(2), "k2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6")),
                                                 new SlotReference(new ExprId(7), "v2", BigIntType.INSTANCE, true,
