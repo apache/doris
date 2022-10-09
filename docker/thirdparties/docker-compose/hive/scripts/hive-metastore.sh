@@ -18,15 +18,19 @@
 
 nohup /opt/hive/bin/hive --service metastore &
 sleep 10
-if [ ! -d "/mnt/scritps/tpch1.db" ];then
-    echo "/mnt/scritps/tpch1.db does not exist"
+if [ ! -d "/mnt/scripts/tpch1.db" ];then
+    echo "/mnt/scripts/tpch1.db does not exist"
     exit 1
 fi
 
+echo "hadoop fs -mkdir /user/doris/"
 hadoop fs -mkdir /user/doris/
+echo "hadoop fs -put /mnt/scripts/tpch1.db /user/doris/"
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
+echo "hive -f /mnt/scripts/create.hql"
 hive -f /mnt/scripts/create.hql
 
+echo "touch /mnt/SUCCESS"
 touch /mnt/SUCCESS
 
 # Avoid container exit

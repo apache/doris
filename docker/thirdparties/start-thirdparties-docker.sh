@@ -41,6 +41,7 @@ sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
 sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
 
 # hive
+# before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
 sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
 sudo sh "${ROOT}"/docker-compose/hive/gen_env.sh
 sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d
