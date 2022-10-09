@@ -78,8 +78,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
           _num_tuples_per_row(input_batch.row_tuples_size()),
           _row_desc(row_desc),
           _auxiliary_mem_usage(0),
-          _need_to_return(false),
-          _tuple_data_pool() {
+          _need_to_return(false) {
     _tuple_ptrs_size = _num_rows * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
