@@ -117,12 +117,6 @@ public:
 
     UniqueId query_id() { return _query_id; }
 
-private:
-    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
-                           const TQueryOptions* query_options,
-                           const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
-                           const int producer_size);
-
     struct RuntimeFilterCntlVal {
         int64_t create_time;
         int producer_size;
@@ -132,6 +126,16 @@ private:
         std::unordered_set<std::string> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
     };
+
+public:
+    RuntimeFilterCntlVal* get_filter(int id) { return _filter_map[std::to_string(id)].get(); }
+
+private:
+    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
+                           const TQueryOptions* query_options,
+                           const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
+                           const int producer_size);
+
     UniqueId _query_id;
     UniqueId _fragment_instance_id;
     // protect _filter_map

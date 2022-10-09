@@ -101,7 +101,13 @@ public:
     }
 
     Status init_with_fixed_length(int64_t bloom_filter_length) {
-        DCHECK(!_inited);
+        if (_inited) {
+            return Status::OK();
+        }
+        std::lock_guard<std::mutex> l(_lock);
+        if (_inited) {
+            return Status::OK();
+        }
         DCHECK(bloom_filter_length >= 0);
         DCHECK_EQ((bloom_filter_length & (bloom_filter_length - 1)), 0);
         _bloom_filter_alloced = bloom_filter_length;
@@ -166,6 +172,7 @@ protected:
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited;
+    std::mutex _lock;
 };
 
 template <class T>
