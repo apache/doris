@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.utframe.TestWithFeService;
+
 import org.junit.jupiter.api.Test;
 
 public class RegisterCTETest extends TestWithFeService {
@@ -33,32 +34,32 @@ public class RegisterCTETest extends TestWithFeService {
     @Test
     public void test() {
         PlanChecker.from(connectContext)
-            .checkPlannerResult("WITH cte1 AS (\n" +
-                    "  \tSELECT s_suppkey\n" +
-                    "  \tFROM supplier\n" +
-                    "  \tWHERE s_suppkey < 5\n" +
-                    "), cte2 AS (\n" +
-                    "  \tSELECT s_suppkey\n" +
-                    "  \tFROM cte1\n" +
-                    "  \tWHERE s_suppkey < 3\n" +
-                    ")\n" +
-                    "SELECT *\n" +
-                    "FROM cte1, cte2");
+                .checkPlannerResult("WITH cte1 AS (\n"
+                    + "  \tSELECT s_suppkey\n"
+                    + "  \tFROM supplier\n"
+                    + "  \tWHERE s_suppkey < 5\n"
+                    + "), cte2 AS (\n"
+                    + "  \tSELECT s_suppkey\n"
+                    + "  \tFROM cte1\n"
+                    + "  \tWHERE s_suppkey < 3\n"
+                    + ")\n"
+                    + "SELECT *\n"
+                    + "FROM cte1, cte2");
     }
 
     @Test
     public void test2() {
         PlanChecker.from(connectContext)
-            .checkPlannerResult("  WITH cte1 (s_suppkey) AS (\n" +
-                    "      SELECT s_suppkey\n" +
-                    "      FROM supplier\n" +
-                    "      WHERE s_suppkey < 5\n" +
-                    "  ), cte2 (s_suppkey) AS (\n" +
-                    "      SELECT s_suppkey\n" +
-                    "      FROM cte1\n" +
-                    "      WHERE s_suppkey < 3\n" +
-                    "  )\n" +
-                    "  SELECT *\n" +
-                    "  FROM cte1, cte2");
+                .checkPlannerResult("  WITH cte1 (s_suppkey) AS (\n"
+                    + "  \tSELECT s_suppkey\n"
+                    + "  \tFROM supplier\n"
+                    + "  \tWHERE s_suppkey < 5\n"
+                    + "), cte2 (s_suppkey) AS (\n"
+                    + "  \tSELECT s_suppkey\n"
+                    + "  \tFROM cte1\n"
+                    + "  \tWHERE s_suppkey < 3\n"
+                    + ")\n"
+                    + "SELECT *\n"
+                    + "FROM cte1, cte2");
     }
 }

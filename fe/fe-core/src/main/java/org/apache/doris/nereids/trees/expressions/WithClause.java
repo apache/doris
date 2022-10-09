@@ -64,7 +64,7 @@ public class WithClause extends Expression {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append(name + " ");
         columnAliases.ifPresent(column -> stringBuilder.append(column.stream()
-            .collect(Collectors.joining(", ", "(", ") ")).toString()));
+                .collect(Collectors.joining(", ", "(", ") ")).toString()));
         stringBuilder.append("AS (");
         stringBuilder.append(query.toString());
         stringBuilder.append(")");

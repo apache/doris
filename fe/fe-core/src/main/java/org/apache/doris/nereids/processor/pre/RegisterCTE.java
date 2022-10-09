@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -79,13 +78,11 @@ public class RegisterCTE extends PlanPreprocessor {
         LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
 
         if (withClause.getColumnAliases().isPresent()) {
-            analyzedPlan = withColumnAliases(analyzedPlan, withClause);
-//            originPlan = withColumnAliases(analyzedPlan, withClause);
+            originPlan = withColumnAliases(analyzedPlan, withClause);
         }
         System.out.println(cascadesContext.getMemo().copyOut().treeString());
 
-//        cteContext.addCTE(name, originPlan);
-        cteContext.addCTE(name, analyzedPlan);
+        cteContext.addCTE(name, originPlan);
     }
 
     private LogicalPlan withColumnAliases(LogicalPlan analyzedPlan, WithClause withClause) {
@@ -97,11 +94,10 @@ public class RegisterCTE extends PlanPreprocessor {
         checkColumnAlias(withClause, outputSlots);
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
                 .mapToObj(i -> i >= columnAliases.size()
-                    ? outputSlots.get(i) : new Alias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
+                    ? outputSlots.get(i)
+                    : new Alias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
                 .collect(Collectors.toList());
-//        return new LogicalProject<>(projects, originPlan);
-        return new LogicalProject<>(projects, analyzedPlan.getGroupExpression(),
-            Optional.ofNullable(analyzedPlan.getLogicalProperties()), analyzedPlan);
+        return new LogicalProject<>(projects, originPlan);
     }
 
     private void checkColumnAlias(WithClause withClause, List<Slot> outputSlots) {
