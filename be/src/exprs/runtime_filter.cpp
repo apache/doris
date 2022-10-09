@@ -470,7 +470,8 @@ public:
     }
 
     BloomFilterFuncBase* get_bloomfilter() const {
-        DCHECK(is_bloomfilter());
+        DCHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER ||
+               _filter_type == RuntimeFilterType::BLOOM_FILTER);
         return _bloomfilter_func.get();
     }
 
@@ -1200,7 +1201,6 @@ void IRuntimeFilter::signal() {
 }
 
 BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
-    DCHECK(_wrapper->is_bloomfilter());
     return _wrapper->get_bloomfilter();
 }
 
