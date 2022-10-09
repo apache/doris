@@ -57,6 +57,7 @@ suite("load_nullable_to_not_nullable") {
     String out = process.getText()
     logger.info("Run command: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
+    sql "sync"
     qt_sql " SELECT * FROM ${tableName} "
     sql "DROP TABLE ${tableName} "
 }
