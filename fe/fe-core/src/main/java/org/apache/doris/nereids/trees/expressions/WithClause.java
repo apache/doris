@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * One withClause of CTE
@@ -60,6 +61,13 @@ public class WithClause extends Expression {
 
     @Override
     public String toSql() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(name + " ");
+        columnAliases.ifPresent(column -> stringBuilder.append(column.stream()
+            .collect(Collectors.joining(", ", "(", ") ")).toString()));
+        stringBuilder.append("AS (");
+        stringBuilder.append(query.toString());
+        stringBuilder.append(")");
         return null;
     }
 

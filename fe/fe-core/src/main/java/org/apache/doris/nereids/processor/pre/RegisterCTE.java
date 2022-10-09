@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.pre;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.analysis.CTEContext;
@@ -66,8 +67,11 @@ public class RegisterCTE extends PlanPreprocessor {
 
     private void registerWithQuery(WithClause withClause, CTEContext cteContext, StatementContext statementContext) {
         String name = withClause.getName();
+        System.out.println(name + "-----------------");
+
+        LogicalPlan originPlan = withClause.getQuery();
         if (cteContext.containsCTE(name)) {
-            throw new AnalysisException("Name " + name + " of CTE cannot be used more than once.");
+            throw new AnalysisException("CTE name [" + name + "] cannot be used more than once.");
         }
 
         CascadesContext cascadesContext = new Memo(withClause.getQuery()).newCascadesContext(statementContext);
@@ -76,21 +80,28 @@ public class RegisterCTE extends PlanPreprocessor {
 
         if (withClause.getColumnAliases().isPresent()) {
             analyzedPlan = withColumnAliases(analyzedPlan, withClause);
+//            originPlan = withColumnAliases(analyzedPlan, withClause);
         }
-        cteContext.addCTE(name, withClause.getQuery());
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
+
+//        cteContext.addCTE(name, originPlan);
+        cteContext.addCTE(name, analyzedPlan);
     }
 
-    private LogicalPlan withColumnAliases(LogicalPlan queryPlan, WithClause withClause) {
-        List<Slot> outputSlots = queryPlan.getOutput();
+    private LogicalPlan withColumnAliases(LogicalPlan analyzedPlan, WithClause withClause) {
+        List<Slot> outputSlots = analyzedPlan.getOutput();
         List<String> columnAliases = withClause.getColumnAliases().get();
+        LogicalPlan originPlan = withClause.getQuery();
+        System.out.println(analyzedPlan.getOutput());
 
         checkColumnAlias(withClause, outputSlots);
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
                 .mapToObj(i -> i >= columnAliases.size()
-                    ? outputSlots.get(i) : new Alias(outputSlots.get(i), columnAliases.get(i)))
+                    ? outputSlots.get(i) : new Alias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
                 .collect(Collectors.toList());
-        return new LogicalProject<>(projects, queryPlan.getGroupExpression(),
-            Optional.ofNullable(queryPlan.getLogicalProperties()), queryPlan);
+//        return new LogicalProject<>(projects, originPlan);
+        return new LogicalProject<>(projects, analyzedPlan.getGroupExpression(),
+            Optional.ofNullable(analyzedPlan.getLogicalProperties()), analyzedPlan);
     }
 
     private void checkColumnAlias(WithClause withClause, List<Slot> outputSlots) {

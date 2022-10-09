@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
-import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Test;
 
-public class CTETest extends TestWithFeService {
+public class RegisterCTETest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -43,7 +42,7 @@ public class CTETest extends TestWithFeService {
                     "  \tFROM cte1\n" +
                     "  \tWHERE s_suppkey < 3\n" +
                     ")\n" +
-                    "SELECT cte1.s_suppkey, cte2.s_suppkey\n" +
+                    "SELECT *\n" +
                     "FROM cte1, cte2");
     }
 
