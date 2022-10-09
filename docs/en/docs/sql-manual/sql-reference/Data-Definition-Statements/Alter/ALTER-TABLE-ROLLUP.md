@@ -138,4 +138,3 @@ ALTER, TABLE, ROLLUP, ALTER TABLE
 ```
 
 ### Best Practice
-
