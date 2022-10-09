@@ -29,5 +29,6 @@ host、port and password
 4、To execute e_auto.sh by nohup sh e_auto.sh &
 
 What do you get?
+
 A simple configuration synchronizes all configured tables and Monitor Mysql metadata changes in real time
 
