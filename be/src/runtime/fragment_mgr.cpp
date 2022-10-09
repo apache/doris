@@ -509,7 +509,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.erase(exec_state->fragment_instance_id());
-        _bf_size_map.erase(exec_state->fragment_instance_id());
+        _bf_size_map.erase(fragments_ctx->query_id);
         if (all_done && fragments_ctx) {
             _fragments_ctx_map.erase(fragments_ctx->query_id);
         }
@@ -672,7 +672,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 
     auto& runtime_filter_params = params.params.runtime_filter_params;
     if (!runtime_filter_params.rid_to_runtime_filter.empty()) {
-        _bf_size_map.insert({params.params.fragment_instance_id, {}});
+        _bf_size_map.insert({fragments_ctx->query_id, {}});
     }
     for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
         int filter_id = filterid_to_desc.first;
@@ -685,7 +685,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             continue;
         }
         if (filterid_to_desc.second.__isset.bloom_filter_size_bytes) {
-            _bf_size_map[params.params.fragment_instance_id].insert(
+            _bf_size_map[fragments_ctx->query_id].insert(
                     {filter_id, filterid_to_desc.second.bloom_filter_size_bytes});
         }
     }
@@ -707,7 +707,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             // Remove the exec state added
             std::lock_guard<std::mutex> lock(_lock);
             _fragment_map.erase(params.params.fragment_instance_id);
-            _bf_size_map.erase(params.params.fragment_instance_id);
+            _bf_size_map.erase(fragments_ctx->query_id);
         }
         exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                            "push plan fragment to thread pool failed");
