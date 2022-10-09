@@ -280,9 +280,9 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
 }
 
 Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
-                                      const TypeInfo* typeinfo, uint8_t gram_size,
-                                      uint16_t gram_bf_size,
-                                      std::unique_ptr<BloomFilterIndexWriter>* res) {
+                                               const TypeInfo* typeinfo, uint8_t gram_size,
+                                               uint16_t gram_bf_size,
+                                               std::unique_ptr<BloomFilterIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {
     case OLAP_FIELD_TYPE_CHAR:

@@ -69,8 +69,7 @@ public:
         bool added = false;
         std::string token;
         while (cur < length &&
-               static_cast<const Derived*>(this)->nextInStringLike(data, length, &cur, token))
-        {
+               static_cast<const Derived*>(this)->nextInStringLike(data, length, &cur, token)) {
             bloom_filter.add_bytes(token.data(), token.size());
             added = true;
         }

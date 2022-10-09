@@ -16,12 +16,13 @@
 // under the License.
 
 #include "olap/itoken_extractor.h"
+
 #include <gtest/gtest.h>
 
 #include <string>
 
+#include "common/logging.h"
 #include "util/utf8_check.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -76,9 +77,4 @@ TEST_F(TestITokenExtractor, ngram_like_extractor) {
     runNextInStringLike(ngram_extractor, {u8"i_%手机%"}, {u8"手机"});
     runNextInStringLike(ngram_extractor, {u8"\\_手机%"}, {u8"_手", u8"手机"});
 }
-}
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
+} // namespace doris

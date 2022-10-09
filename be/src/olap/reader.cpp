@@ -20,10 +20,12 @@
 #include <parallel_hashmap/phmap.h>
 
 #include "common/status.h"
+#include "gen_cpp/segment_v2.pb.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
+#include "olap/itoken_extractor.h"
 #include "olap/like_column_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/olap_common.h"
@@ -32,8 +34,6 @@
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet.h"
-#include "olap/itoken_extractor.h"
-#include "gen_cpp/segment_v2.pb.h"
 #include "runtime/mem_pool.h"
 #include "util/mem_util.hpp"
 #include "util/string_util.h"
@@ -461,8 +461,8 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<false> *>(_pred)
-            || dynamic_cast<LikeColumnPredicate<true> *>(_pred))
+        if (dynamic_cast<LikeColumnPredicate<false>*>(_pred) ||
+            dynamic_cast<LikeColumnPredicate<true>*>(_pred))
             return true;
 
         return false;
@@ -470,14 +470,15 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
-        auto *pred = _col_predicates.back();
+        auto* pred = _col_predicates.back();
         const auto& col = _tablet->tablet_schema()->column(pred->column_id());
         auto is_like = is_like_predicate(pred);
 
         if (is_like && config::enable_query_like_bloom_filter && col.is_ngram_bf_column()) {
             std::unique_ptr<segment_v2::BloomFilter> ng_bf;
             std::string pattern = pred->get_search_str();
-            segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf,  col.get_gram_bf_size());
+            segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf,
+                                            col.get_gram_bf_size());
             NgramTokenExtractor _token_extractor(col.get_gram_size());
 
             if (_token_extractor.stringLikeToBloomFilter(pattern.data(), pattern.length(), *ng_bf))

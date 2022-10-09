@@ -169,10 +169,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                     if (iequal(tcolumn.column_name, index.columns[0])) {
                         // for ngram bloom filter params, validated in FE
                         DCHECK_EQ(index.arguments.size(), 2);
-                        const auto & exprNode0 = index.arguments[0].nodes;
+                        const auto& exprNode0 = index.arguments[0].nodes;
                         DCHECK_EQ(exprNode0.size(), 1);
                         column->set_gram_size(exprNode0[0].int_literal.value);
-                        const auto & exprNode1 = index.arguments[1].nodes;
+                        const auto& exprNode1 = index.arguments[1].nodes;
                         DCHECK_EQ(exprNode1.size(), 1);
                         column->set_gram_bf_size(exprNode1[0].int_literal.value);
                         column->set_ngram_bf_column(true);
