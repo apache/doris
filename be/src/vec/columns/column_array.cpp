@@ -150,9 +150,11 @@ StringRef ColumnArray::get_data_at(size_t n) const {
       * For arrays of strings and arrays of arrays, the resulting chunk of memory may not be one-to-one correspondence with the elements,
       *  since it contains only the data laid in succession, but not the offsets.
       */
-
     size_t offset_of_first_elem = offset_at(n);
-    StringRef first = get_data().get_data_at(offset_of_first_elem);
+    StringRef first;
+    if (offset_of_first_elem < get_data().size()) {
+        first = get_data().get_data_at(offset_of_first_elem);
+    }
 
     size_t array_size = size_at(n);
     if (array_size == 0) {
