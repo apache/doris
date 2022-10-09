@@ -45,7 +45,6 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -214,8 +213,10 @@ public class SortNode extends PlanNode {
         outputSmap = new ExprSubstitutionMap();
 
         for (int i = 0; i < slotExprs.size(); ++i) {
-            resolvedTupleExprs.add(slotExprs.get(i));
-            outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
+            if (sortTupleSlots.get(i).isMaterialized()) {
+                resolvedTupleExprs.add(slotExprs.get(i));
+                outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
+            }
         }
 
         ExprSubstitutionMap childSmap = getCombinedChildSmap();
@@ -248,12 +249,6 @@ public class SortNode extends PlanNode {
         TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
         if (resolvedTupleExprs != null) {
-            List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
-            for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-                if (!slotDescriptorList.get(i).isMaterialized()) {
-                    resolvedTupleExprs.remove(i);
-                }
-            }
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
         }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
@@ -280,15 +275,8 @@ public class SortNode extends PlanNode {
 
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
-        List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
-        List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
-        for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-            if (!slotDescriptorList.get(i).isMaterialized()) {
-                materializedTupleExprs.remove(i);
-            }
-        }
         List<SlotId> result = Lists.newArrayList();
-        Expr.getIds(materializedTupleExprs, null, result);
+        Expr.getIds(resolvedTupleExprs, null, result);
         return new HashSet<>(result);
     }
 
