@@ -70,6 +70,7 @@ public:
     void TearDown() override {
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_function_client_cache);
+        SAFE_DELETE(_env->_task_pool_mem_tracker_registry);
         SAFE_DELETE(_env->_load_stream_mgr);
         SAFE_DELETE(_env->_master_info);
         SAFE_DELETE(_env->_thread_mgr);
