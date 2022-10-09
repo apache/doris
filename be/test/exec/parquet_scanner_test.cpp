@@ -421,6 +421,7 @@ void ParquetScannerTest::init() {
 }
 
 TEST_F(ParquetScannerTest, normal) {
+    config::parquet_reader_max_buffer_size = 50;
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
