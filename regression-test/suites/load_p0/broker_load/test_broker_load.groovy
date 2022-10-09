@@ -181,7 +181,7 @@ suite("test_broker_load", "p0") {
             """
     }
 
-    def set_be_config = { ->
+    def set_be_config = { flag->
         String[][] backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] backend in backends) {
@@ -191,9 +191,9 @@ suite("test_broker_load", "p0") {
             setConfigCommand.append(":")
             setConfigCommand.append(backend[5])
             setConfigCommand.append("/api/update_config?")
-            String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=true"
+            String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=$flag"
             logger.info(command1)
-            String command2 = setConfigCommand.toString() + "enable_new_file_scanner=true"
+            String command2 = setConfigCommand.toString() + "enable_new_file_scanner=$flag"
             logger.info(command2)
             def process1 = command1.execute()
             int code = process1.waitFor()
@@ -207,7 +207,7 @@ suite("test_broker_load", "p0") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def uuids = []
         sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
-        set_be_config.call()
+        set_be_config.call('true')
         try {
             i = 0
             for (String table in tables) {
@@ -251,6 +251,8 @@ suite("test_broker_load", "p0") {
             order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
 
         } finally {
+            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
+            set_be_config.call('false')
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
             }
