@@ -163,6 +163,14 @@ public:
     template <typename T>
     static void max(doris_udf::FunctionContext*, const T& src, T* dst);
 
+    // AnyInit
+    template <typename T>
+    static void any_init(doris_udf::FunctionContext*, T* dst);
+
+    // AnyUpdate/AnyMerge
+    template <typename T>
+    static void any(doris_udf::FunctionContext*, const T& src, T* dst);
+
     // String concat
     static void string_concat(doris_udf::FunctionContext*, const doris_udf::StringVal& src,
                               const doris_udf::StringVal& separator, doris_udf::StringVal* result);
