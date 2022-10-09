@@ -38,7 +38,7 @@ Doris's new privilege management system refers to Mysql's privilege management m
 
 2. Privilege
 
-	The objects of permissions are nodes, databases or tables. Different permissions represent different operating permissions.
+	The objects of permissions are nodes, catalogs, databases or tables. Different permissions represent different operating permissions.
 
 3. Role
 
