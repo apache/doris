@@ -32,7 +32,9 @@ cp "${ROOT}"/hadoop-hive.env.tpl "${ROOT}"/hadoop-hive.env
 # Otherwise, the doris process can not connect to namenode directly.
 HOST_NAME=$(hostname)
 
-echo "FS_PORT=${FS_PORT}" >>"${ROOT}"/hadoop-hive.env
-echo "HMS_PORT=${HMS_PORT}" >>"${ROOT}"/hadoop-hive.env
-echo "CORE_CONF_fs_defaultFS=hdfs://${HOST_NAME}:${FS_PORT}" >>"${ROOT}"/hadoop-hive.env
-echo "HOST_NAME=${HOST_NAME}" >>"${ROOT}"/hadoop-hive.env
+{
+    echo "FS_PORT=${FS_PORT}"
+    echo "HMS_PORT=${HMS_PORT}"
+    echo "CORE_CONF_fs_defaultFS=hdfs://${HOST_NAME}:${FS_PORT}"
+    echo "HOST_NAME=${HOST_NAME}"
+} >>"${ROOT}"/hadoop-hive.env
