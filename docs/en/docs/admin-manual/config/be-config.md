@@ -1232,9 +1232,9 @@ Shard size of StoragePageCache, the value must be power of two. It's recommended
     * 1./home/disk1/doris.HDD, indicates that the storage medium is HDD;
     * 2./home/disk2/doris.SSD, indicates that the storage medium is SSD;
     * 3./home/disk2/doris, indicates that the storage medium is HDD by default
-    
+  
     eg.2: `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
-    
+  
     * 1./home/disk1/doris,medium:hdd，indicates that the storage medium is HDD;
     * 2./home/disk2/doris,medium:ssd，indicates that the storage medium is SSD;
 
@@ -1354,6 +1354,8 @@ When writing is too frequent and the disk time is insufficient, you can configur
 Default: 300
 
 Update interval of tablet state cache, unit: second
+
+The RPC timeout for sending a Batch (1024 lines) during import. The default is 60 seconds. Since this RPC may involve writing multiple batches of memory, the RPC timeout may be caused by writing batches, so this timeout can be adjusted to reduce timeout errors (such as send batch fail errors). Also, if you increase the write_buffer_size configuration, you need to increase this parameter as well.
 
 ### `tablet_writer_ignore_eovercrowded`
 
@@ -1481,6 +1483,8 @@ Webserver default number of worker threads
 Default: 104857600
 
 The size of the buffer before flashing
+
+Imported data is first written to a memory block on the BE, and only written back to disk when this memory block reaches the threshold. The default size is 100MB. too small a threshold may result in a large number of small files on the BE. This threshold can be increased to reduce the number of files. However, too large a threshold may cause RPC timeouts
 
 ### `zone_map_row_num_threshold`
 
