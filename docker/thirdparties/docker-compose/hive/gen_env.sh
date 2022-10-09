@@ -24,9 +24,9 @@ set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-cp ${ROOT}/hadoop-hive.env.tpl ${ROOT}/hadoop-hive.env
+cp "${ROOT}"/hadoop-hive.env.tpl "${ROOT}"/hadoop-hive.env
 # Need to set hostname of container to same as host machine's.
 # Otherwise, the doris process can not connect to namenode directly.
-HOST_NAME=`hostname`
-echo "CORE_CONF_fs_defaultFS=hdfs://${HOST_NAME}:8020" >> ${ROOT}/hadoop-hive.env
-echo "HOST_NAME=${HOST_NAME}" >> ${ROOT}/hadoop-hive.env
+HOST_NAME=$(hostname)
+echo "CORE_CONF_fs_defaultFS=hdfs://${HOST_NAME}:8020" >>"${ROOT}"/hadoop-hive.env
+echo "HOST_NAME=${HOST_NAME}" >>"${ROOT}"/hadoop-hive.env

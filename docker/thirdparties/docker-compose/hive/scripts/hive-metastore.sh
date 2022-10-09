@@ -18,7 +18,7 @@
 
 nohup /opt/hive/bin/hive --service metastore &
 sleep 10
-if [ ! -d "/mnt/scripts/tpch1.db" ];then
+if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
     echo "/mnt/scripts/tpch1.db does not exist"
     exit 1
 fi
@@ -34,6 +34,6 @@ echo "touch /mnt/SUCCESS"
 touch /mnt/SUCCESS
 
 # Avoid container exit
-while true;do
+while true; do
     sleep 1
 done
