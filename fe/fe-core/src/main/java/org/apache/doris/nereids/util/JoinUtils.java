@@ -57,7 +57,7 @@ public class JoinUtils {
     }
 
     public static boolean couldBroadcast(Join join) {
-        return !(join.getJoinType().isReturnUnmatchedRightJoin());
+        return !(join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin());
     }
 
     private static final class JoinSlotCoverageChecker {
