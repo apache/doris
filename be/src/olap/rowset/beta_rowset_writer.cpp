@@ -173,7 +173,11 @@ OLAPStatus BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* 
 RowsetSharedPtr BetaRowsetWriter::build() {
     // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
     for (auto& wblock : _wblocks) {
-        wblock->close();
+        Status status = wblock->close();
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to close wblock, res=" << status;
+            return nullptr;
+        }
     }
     // When building a rowset, we must ensure that the current _segment_writer has been
     // flushed, that is, the current _segment_writer is nullptr
