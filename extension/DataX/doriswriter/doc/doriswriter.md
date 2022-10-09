@@ -15,64 +15,54 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
 ```
 {
     "job": {
-        "setting": {
-            "speed": {
-                "channel": 1
-            },
-            "errorLimit": {
-                "record": 0,
-                "percentage": 0
-            }
-        },
         "content": [
             {
                 "reader": {
-                    "name": "streamreader",
+                    "name": "mysqlreader",
                     "parameter": {
-                        "column": [
+                        "column": ["emp_no", "birth_date", "first_name","last_name","gender","hire_date"],
+                        "connection": [
                             {
-                                "value": "皮蛋1",
-                                "type": "string"
-                            },
-                            {
-                                "value": "皮蛋2",
-                                "type": "string"
-                            },
-                            {
-                                "value": "111",
-                                "type": "long"
-                            },
-                            {
-                                "value": "222",
-                                "type": "long"
+                                "jdbcUrl": ["jdbc:mysql://localhost:3306/demo"],
+                                "table": ["employees_1"]
                             }
                         ],
-                        "sliceRecordCount": 100
+                        "username": "root",
+                        "password": "xxxxx",
+                        "where": ""
                     }
                 },
                 "writer": {
                     "name": "doriswriter",
                     "parameter": {
-                        "feLoadUrl": ["127.0.0.1:8030", "127.0.0.2:8030", "127.0.0.3:8030"],
-                        "beLoadUrl": ["192.168.10.1:8040", "192.168.10.2:8040", "192.168.10.3:8040"],
-                        "jdbcUrl": "jdbc:mysql://127.0.0.1:9030/",
-                        "database": "db1",
-                        "table": "t1",
-                        "column": ["k1", "k2", "v1", "v2"],
-                        "username": "root",
-                        "password": "",
-                        "postSql": [],
-                        "preSql": [],
+                        "loadUrl": ["172.16.0.13:8030"],
                         "loadProps": {
                         },
-                        "maxBatchRows" : 500000,
-                        "maxBatchByteSize" : 104857600,
-                        "labelPrefix": "my_prefix",
-                        "format":"csv"
+                        "column": ["emp_no", "birth_date", "first_name","last_name","gender","hire_date"],
+                        "username": "root",
+                        "password": "xxxxxx",
+                        "postSql": ["select count(1) from all_employees_info"],
+                        "preSql": [],
+                        "connection": [
+                          {
+                            "jdbcUrl": "jdbc:mysql://172.16.0.13:9030/demo",
+                            "database": "demo",
+                            "table": ["all_employees_info"]
+                          }
+                        ],
+                        "loadProps": {
+                            "format": "json",
+                            "strip_outer_array": true
+                        }
                     }
                 }
             }
-        ]
+        ],
+        "setting": {
+            "speed": {
+                "channel": "1"
+            }
+        }
     }
 }
 ```
@@ -85,16 +75,10 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
     - 必选：是
     - 默认值：无
 
-* **feLoadUrl**
+* **loadUrl**
 
   - 描述：和 **beLoadUrl** 二选一。作为 Stream Load 的连接目标。格式为 "ip:port"。其中 IP 是 FE 节点 IP，port 是 FE 节点的 http_port。可以填写多个，doriswriter 将以轮询的方式访问。
-  - 必选：否
-  - 默认值：无
-
-* **beLoadUrl**
-
-  - 描述：和 **feLoadUrl** 二选一。作为 Stream Load 的连接目标。格式为 "ip:port"。其中 IP 是 BE 节点 IP，port 是 BE 节点的 webserver_port。可以填写多个，doriswriter 将以轮询的方式访问。
-  - 必选：否
+  - 必选：是
   - 默认值：无
 
 * **username**
@@ -123,15 +107,9 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
 
 * **column**
 
-      - 描述：目的表**需要写入数据**的字段，这些字段将作为生成的 Json 数据的字段名。字段之间用英文逗号分隔。例如: "column": ["id","name","age"]。
-      - 必选：是
-      - 默认值：否
-
-* **timeZone**
-
-  - 描述：Doris 的时区。
-  - 必选：否
-  - 默认值：`+08:00`
+    - 描述：目的表**需要写入数据**的字段，这些字段将作为生成的 Json 数据的字段名。字段之间用英文逗号分隔。例如: "column": ["id","name","age"]。
+    - 必选：是
+    - 默认值：否
 
 * **preSql**
 
@@ -148,13 +126,13 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
 
 * **maxBatchRows**
 
-  - 描述：每批次导入数据的最大行数。和 **maxBatchByteSize** 共同控制每批次的导入数量。每批次数据达到两个阈值之一，即开始导入这一批次的数据。
+  - 描述：每批次导入数据的最大行数。和 **maxBatchSize** 共同控制每批次的导入数量。每批次数据达到两个阈值之一，即开始导入这一批次的数据。
   - 必选：否
   - 默认值：500000
 
-* **maxBatchByteSize**
+* **maxBatchSize**
 
-  - 描述：每批次导入数据的最大数据量。和 ** maxBatchRows** 共同控制每批次的导入数量。每批次数据达到两个阈值之一，即开始导入这一批次的数据。
+  - 描述：每批次导入数据的最大数据量。和 **maxBatchRows** 共同控制每批次的导入数量。每批次数据达到两个阈值之一，即开始导入这一批次的数据。
   - 必选：否
   - 默认值：104857600
 
@@ -187,3 +165,22 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
   - 描述：StreamLoad单次请求的超时时间, 单位毫秒(ms)。
   - 必选：否
   - 默认值：-1
+
+### 类型转换
+
+默认传入的数据均会被转为字符串，并以`\t`作为列分隔符，`\n`作为行分隔符，组成`csv`文件进行StreamLoad导入操作。
+如需更改列分隔符， 则正确配置 `loadProps` 即可：
+```json
+"loadProps": {
+    "column_separator": "\\x01",
+    "row_delimiter": "\\x02"
+}
+```
+
+如需更改导入格式为`json`， 则正确配置 `loadProps` 即可：
+```json
+"loadProps": {
+    "format": "json",
+    "strip_outer_array": true
+}
+```
