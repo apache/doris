@@ -39,3 +39,8 @@ services:
     volumes:
       - ${DOCKER_PG_14_DATA_DIR}:/var/lib/postgresql/data/
       - ./init:/docker-entrypoint-initdb.d
+  hello-world:
+    image: hello-world
+    depends_on:
+      postgres:
+        condition: service_healthy 

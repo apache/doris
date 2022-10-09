@@ -17,7 +17,7 @@
 # under the License.
 
 ################################################################
-# This script will restart all thirdparty containers
+# This script will stop all thirdparty containers
 ################################################################
 
 set -eo pipefail
@@ -26,21 +26,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 # elasticsearch
 # docker compose -f "${ROOT}"/docker-compose/elasticsearch/elasticsearch.yaml down
-# docker compose -f "${ROOT}"/docker-compose/elasticsearch/elasticsearch.yaml up -d
 
 # mysql 5.7
 sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env down
-sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
-sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
-sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
 
 # pg 14
 sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
-sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
-sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
 
 # hive
 sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
-sudo sh "${ROOT}"/docker-compose/hive/gen_env.sh
-sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d

@@ -41,3 +41,8 @@ services:
     volumes:
       - ${DOCKER_MYSQL_57_DATA_DIR}:/var/lib/mysql 
       - ./init:/docker-entrypoint-initdb.d
+  hello-world:
+    image: hello-world
+    depends_on:
+      mysql_57:
+        condition: service_healthy 
