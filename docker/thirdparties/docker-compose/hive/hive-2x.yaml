@@ -40,6 +40,8 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
+    networks:
+      - doris--hive
   doris--datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     env_file:
@@ -53,6 +55,8 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
+    networks:
+      - doris--hive
   doris--hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
@@ -72,6 +76,8 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
+    networks:
+      - doris--hive
   doris--hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
@@ -93,6 +99,8 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
+    networks:
+      - doris--hive
   doris--hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:2.3.0
     expose:
@@ -102,9 +110,15 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
+    networks:
+      - doris--hive
   hello-world:
     image: hello-world
     depends_on:
       doris--hive-metastore:
         condition: service_healthy 
+    networks:
+      - doris--hive
 
+networks:
+  doris--hive:
