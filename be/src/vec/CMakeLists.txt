@@ -52,7 +52,6 @@ set(VEC_FILES
   columns/column_decimal.cpp
   columns/column_nullable.cpp
   columns/column_string.cpp
-  columns/column_jsonb.cpp
   columns/column_vector.cpp
   columns/columns_common.cpp
   common/demangle.cpp
