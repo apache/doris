@@ -979,9 +979,9 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request, const char*
     UniqueId queryid = request->query_id();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
-    auto& bf_size_for_cur_query = _bf_size_map.find(queryid);
+    auto bf_size_for_cur_query = _bf_size_map.find(queryid.to_thrift());
     if (bf_size_for_cur_query != _bf_size_map.end()) {
-        for (auto& iter : *bf_size_for_cur_query) {
+        for (auto& iter : bf_size_for_cur_query->second) {
             auto bf = filter_controller->get_filter(iter.first)->filter->get_bloomfilter();
             DCHECK(bf != nullptr);
             bf->init_with_fixed_length(iter.second);
