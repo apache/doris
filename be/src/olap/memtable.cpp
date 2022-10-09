@@ -22,6 +22,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
+#include "olap/schema_change.h"
 #include "runtime/tuple.h"
 #include "util/doris_metrics.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -422,6 +423,11 @@ Status MemTable::_generate_delete_bitmap() {
     RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
     segments.push_back(segment);
     std::shared_lock meta_rlock(_tablet->get_header_lock());
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (_tablet->tablet_state() == TABLET_NOTREADY &&
+        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments, &_rowset_ids,
                                                 _delete_bitmap, _cur_max_version));
     return Status::OK();
