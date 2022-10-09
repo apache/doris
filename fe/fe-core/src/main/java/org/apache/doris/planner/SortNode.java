@@ -45,6 +45,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -67,6 +68,8 @@ public class SortNode extends PlanNode {
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private DataPartition inputPartition;
+
+    private boolean isUnusedExprRemoved = false;
 
     /**
      * Constructor.
@@ -213,10 +216,8 @@ public class SortNode extends PlanNode {
         outputSmap = new ExprSubstitutionMap();
 
         for (int i = 0; i < slotExprs.size(); ++i) {
-            if (sortTupleSlots.get(i).isMaterialized()) {
-                resolvedTupleExprs.add(slotExprs.get(i));
-                outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
-            }
+            resolvedTupleExprs.add(slotExprs.get(i));
+            outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
         }
 
         ExprSubstitutionMap childSmap = getCombinedChildSmap();
@@ -242,12 +243,27 @@ public class SortNode extends PlanNode {
         Expr.getIds(info.getOrderingExprs(), null, ids);
     }
 
+    private void removeUnusedExprs() {
+        if (!isUnusedExprRemoved) {
+            if (resolvedTupleExprs != null) {
+                List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+                for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
+                    if (!slotDescriptorList.get(i).isMaterialized()) {
+                        resolvedTupleExprs.remove(i);
+                    }
+                }
+            }
+            isUnusedExprRemoved = true;
+        }
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
 
         TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
+        removeUnusedExprs();
         if (resolvedTupleExprs != null) {
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
         }
@@ -275,8 +291,10 @@ public class SortNode extends PlanNode {
 
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
+        removeUnusedExprs();
+        List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
         List<SlotId> result = Lists.newArrayList();
-        Expr.getIds(resolvedTupleExprs, null, result);
+        Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
     }
 
