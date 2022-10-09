@@ -626,7 +626,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
         // contain null, [-128, 127]
         EXPECT_EQ(key_range.size(), 257);
         EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "-128");
-        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[256]->end_scan_range), "null");
+        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[256]->end_scan_range), "null()");
 
         EXPECT_TRUE(range.add_range(FILTER_LESS, 50).ok());
         scan_keys.clear();
@@ -644,34 +644,35 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
         OlapScanKeys scan_keys;
         ColumnValueRange<TYPE_SMALLINT> range("col");
         bool exact_range = true;
-        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
+        int max_scan_key = 48;
+        EXPECT_TRUE(scan_keys.extend_scan_key(range, max_scan_key, &exact_range).ok());
         EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
-        EXPECT_EQ(key_range.size(), 1);
-        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "null");
-        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->end_scan_range), "32767");
+        EXPECT_EQ(key_range.size(), max_scan_key);
+        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "null(-32768)");
+        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[max_scan_key - 1]->end_scan_range), "32767");
 
         EXPECT_TRUE(range.add_range(FILTER_LARGER, 0).ok());
         scan_keys.clear();
         exact_range = true;
-        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
+        EXPECT_TRUE(scan_keys.extend_scan_key(range, max_scan_key, &exact_range).ok());
         EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
 
-        EXPECT_EQ(key_range.size(), 1);
+        EXPECT_EQ(key_range.size(), max_scan_key);
         EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "0");
-        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->end_scan_range), "32767");
+        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[max_scan_key - 1]->end_scan_range), "32767");
 
         EXPECT_TRUE(range.add_range(FILTER_LESS, 32766).ok());
         scan_keys.clear();
         exact_range = true;
-        EXPECT_TRUE(scan_keys.extend_scan_key(range, 1024, &exact_range).ok());
+        EXPECT_TRUE(scan_keys.extend_scan_key(range, max_scan_key, &exact_range).ok());
         EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
 
-        EXPECT_EQ(key_range.size(), 1);
+        EXPECT_EQ(key_range.size(), max_scan_key);
         EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "0");
-        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->end_scan_range), "32766");
+        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[max_scan_key - 1]->end_scan_range), "32766");
     }
 }
 
