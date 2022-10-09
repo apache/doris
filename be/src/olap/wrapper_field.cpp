@@ -84,7 +84,7 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
     char* buf = _field_buf + 1;
 
     if (_is_string_type) {
-        _var_length = variable_len > 0 ? variable_len : DEFAULT_STRING_LENGTH;
+        _var_length = variable_len > DEFAULT_STRING_LENGTH ? DEFAULT_STRING_LENGTH : variable_len;
         Slice* slice = reinterpret_cast<Slice*>(buf);
         slice->size = _var_length;
         _string_content.reset(new char[slice->size]);
