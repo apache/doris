@@ -183,7 +183,7 @@ protected:
 
     // Save all bloom filter predicates which may be pushed down to data source.
     // column name -> bloom filter function
-    std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
+    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
     // Save all function predicates which may be pushed down to data source.
