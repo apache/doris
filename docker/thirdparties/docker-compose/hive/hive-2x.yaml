@@ -18,7 +18,7 @@
 version: "3.8"
 
 services:
-  namenode:
+  doris--namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
     environment:
       - CLUSTER_NAME=test
@@ -27,29 +27,25 @@ services:
     hostname: ${HOST_NAME}
     expose:
       - "50070"
-      - "8020"
+      - "${FS_PORT}"
+    ports:
+    #  - ${FS_PORT}:8020
+    - target: ${FS_PORT}
+      host_ip: 127.0.0.1
+      published: ${FS_PORT}
+      protocol: tcp
+      mode: host
     healthcheck:
       test: [ "CMD", "curl", "http://localhost:50070/" ]
       interval: 5s
       timeout: 60s
       retries: 120
-    ports:
-    - target: 50070
-      host_ip: 127.0.0.1
-      published: 51070
-      protocol: tcp
-      mode: host
-    - target: 8020
-      host_ip: 127.0.0.1
-      published: 8020
-      protocol: tcp
-      mode: host
-  datanode:
+  doris--datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     env_file:
       - ./hadoop-hive.env
     environment:
-      SERVICE_PRECONDITION: "namenode:50070"
+      SERVICE_PRECONDITION: "doris--namenode:50070"
     expose:
       - "50075"
     healthcheck:
@@ -57,63 +53,47 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
-    ports:
-    - target: 50075
-      host_ip: 127.0.0.1
-      published: 51075
-      protocol: tcp
-      mode: host
-  hive-server:
+  doris--hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     environment:
-      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
-      SERVICE_PRECONDITION: "hive-metastore:9083"
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://doris--hive-metastore-postgresql:5432/metastore"
+      SERVICE_PRECONDITION: "doris--hive-metastore:9083"
     expose:
       - "10000"
     depends_on:
-      datanode:
+      doris--datanode:
         condition: service_healthy
-      namenode:
+      doris--namenode:
         condition: service_healthy
     healthcheck:
       test: beeline -u "jdbc:hive2://127.0.0.1:10000/default" -n health_check -e "show databases;"
       interval: 5s
       timeout: 60s
       retries: 120
-    ports:
-    - target: 10000
-      host_ip: 127.0.0.1
-      published: 11000
-      protocol: tcp
-      mode: host
-  hive-metastore:
+  doris--hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
       - ./hadoop-hive.env
     command: ["sh","-c","/mnt/scripts/hive-metastore.sh"]
     environment:
-      SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432"
+      SERVICE_PRECONDITION: "doris--namenode:50070 doris--datanode:50075 doris--hive-metastore-postgresql:5432"
     expose:
       - "9083"
     ports:
-    - target: 9083
-      host_ip: 127.0.0.1
-      published: 9183
-      protocol: tcp
-      mode: host
+      - ${HMS_PORT}:9083 
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
-      hive-metastore-postgresql:
+      doris--hive-metastore-postgresql:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "sh", "-c", "/mnt/scripts/healthy_check.sh"]
       interval: 5s
       timeout: 60s
       retries: 120
-  hive-metastore-postgresql:
+  doris--hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:2.3.0
     expose:
       - "5432"
@@ -122,14 +102,9 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
-    ports:
-    - target: 5432
-      host_ip: 127.0.0.1
-      published: 5532
-      protocol: tcp
-      mode: host
   hello-world:
     image: hello-world
     depends_on:
-      hive-metastore:
+      doris--hive-metastore:
         condition: service_healthy 
+

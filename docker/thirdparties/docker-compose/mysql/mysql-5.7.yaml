@@ -18,31 +18,30 @@
 version: "2.1"
 
 services:
-  mysql_57:
+  doris--mysql_57:
     image: mysql:5.7.36
     command: --default-authentication-plugin=mysql_native_password
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: 123456
       MYSQL_DATABASE: init_db
-    expose:
-      - ${DOCKER_MYSQL_57_INTERNAL_PORT}
+    ports:
+      - ${DOCKER_MYSQL_57_EXTERNAL_PORT}:3306
     healthcheck:
       test: mysqladmin ping -h 127.0.0.1 -u root --password=$$MYSQL_ROOT_PASSWORD
       interval: 5s
       timeout: 60s
       retries: 120
-    ports:
-    - target: ${DOCKER_MYSQL_57_INTERNAL_PORT}
-      host_ip: 127.0.0.1
-      published: ${DOCKER_MYSQL_57_EXTERNAL_PORT}
-      protocol: tcp
-      mode: host
     volumes:
-      - ${DOCKER_MYSQL_57_DATA_DIR}:/var/lib/mysql 
+      - ./data/:/var/lib/mysql 
       - ./init:/docker-entrypoint-initdb.d
+    networks:
+      - doris--mysql_57
   hello-world:
     image: hello-world
     depends_on:
-      mysql_57:
+      doris--mysql_57:
         condition: service_healthy 
+
+networks:
+  doris--mysql_57:

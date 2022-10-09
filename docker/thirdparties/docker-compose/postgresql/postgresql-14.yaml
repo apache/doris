@@ -18,29 +18,27 @@
 version: "2.1"
 
 services:
-  postgres:
+  doris--postgres:
     image: postgres:14.1
     restart: always
     environment:
       POSTGRES_PASSWORD: 123456
-    expose:
-      - ${DOCKER_PG_14_INTERNAL_PORT}
+    ports:
+      - ${DOCKER_PG_14_EXTERNAL_PORT}:5432
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 60s
       retries: 120
-    ports:
-    - target: ${DOCKER_PG_14_INTERNAL_PORT}
-      host_ip: 127.0.0.1
-      published: ${DOCKER_PG_14_EXTERNAL_PORT}
-      protocol: tcp
-      mode: host
     volumes:
-      - ${DOCKER_PG_14_DATA_DIR}:/var/lib/postgresql/data/
+      - ./data/data/:/var/lib/postgresql/data/
       - ./init:/docker-entrypoint-initdb.d
-  hello-world:
+    networks:
+      - doris--postgres
+  doris--hello-world:
     image: hello-world
     depends_on:
-      postgres:
+      doris--postgres:
         condition: service_healthy 
+networks:
+  doris--postgres:

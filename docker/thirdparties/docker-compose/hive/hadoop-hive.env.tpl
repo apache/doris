@@ -15,12 +15,12 @@
 # limitations under the License.
 #
 
-HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://hive-metastore-postgresql/metastore
+HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://doris--hive-metastore-postgresql/metastore
 HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
 HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
 HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive
 HIVE_SITE_CONF_datanucleus_autoCreateSchema=false
-HIVE_SITE_CONF_hive_metastore_uris=thrift://hive-metastore:9083
+HIVE_SITE_CONF_hive_metastore_uris=thrift://doris--hive-metastore:9083
 HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
 HIVE_SITE_CONF_hive_server2_thrift_bind_host=0.0.0.0
 HIVE_SITE_CONF_hive_server2_thrift_port=10000
