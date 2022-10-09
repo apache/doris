@@ -36,6 +36,7 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vorc_writer.h"
 
 namespace doris::vectorized {
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
@@ -55,7 +56,7 @@ VFileResultWriter::VFileResultWriter(
           _sinker(sinker),
           _output_block(output_block),
           _output_row_descriptor(output_row_descriptor),
-          _vparquet_writer(nullptr) {
+          _vfile_writer(nullptr) {
     _output_object_data = output_object_data;
 }
 
@@ -118,11 +119,16 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         // just use file writer is enough
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _vparquet_writer.reset(new VParquetWriterWrapper(
+        _vfile_writer.reset(new VParquetWriterWrapper(
                 _file_writer_impl.get(), _output_vexpr_ctxs, _file_opts->parquet_schemas,
                 _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
                 _file_opts->parquet_version, _output_object_data));
-        RETURN_IF_ERROR(_vparquet_writer->init_parquet_writer());
+        RETURN_IF_ERROR(_vfile_writer->prepare());
+        break;
+    case TFileFormatType::FORMAT_ORC:
+        _vfile_writer.reset(new VOrcWriterWrapper(_file_writer_impl.get(), _output_vexpr_ctxs,
+                                                  _file_opts->orc_schema, _output_object_data));
+        RETURN_IF_ERROR(_vfile_writer->prepare());
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -177,6 +183,8 @@ std::string VFileResultWriter::_file_format_to_name() {
         return "csv";
     case TFileFormatType::FORMAT_PARQUET:
         return "parquet";
+    case TFileFormatType::FORMAT_ORC:
+        return "orc";
     default:
         return "unknown";
     }
@@ -197,8 +205,8 @@ Status VFileResultWriter::append_block(Block& block) {
     if (UNLIKELY(num_rows == 0)) {
         return status;
     }
-    if (_vparquet_writer) {
-        _write_parquet_file(output_block);
+    if (_vfile_writer) {
+        _write_file(output_block);
     } else {
         RETURN_IF_ERROR(_write_csv_file(output_block));
     }
@@ -207,10 +215,10 @@ Status VFileResultWriter::append_block(Block& block) {
     return Status::OK();
 }
 
-Status VFileResultWriter::_write_parquet_file(const Block& block) {
-    RETURN_IF_ERROR(_vparquet_writer->write(block));
+Status VFileResultWriter::_write_file(const Block& block) {
+    RETURN_IF_ERROR(_vfile_writer->write(block));
     // split file if exceed limit
-    _current_written_bytes = _vparquet_writer->written_len();
+    _current_written_bytes = _vfile_writer->written_len();
     return _create_new_file_if_exceed_size();
 }
 
@@ -415,10 +423,10 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
 }
 
 Status VFileResultWriter::_close_file_writer(bool done) {
-    if (_vparquet_writer) {
-        _vparquet_writer->close();
+    if (_vfile_writer) {
+        _vfile_writer->close();
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
-        _vparquet_writer.reset(nullptr);
+        _vfile_writer.reset(nullptr);
     } else if (_file_writer_impl) {
         _file_writer_impl->close();
     }

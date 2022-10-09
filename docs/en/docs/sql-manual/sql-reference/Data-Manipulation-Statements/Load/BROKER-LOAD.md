@@ -118,7 +118,7 @@ WITH BROKER broker_name
 
   - `WHERE predicate`
 
-    Filter imported data based on conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert) document.
+    Filter imported data based on conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert) document.
 
   - `DELETE ON expr`
 
@@ -134,7 +134,7 @@ WITH BROKER broker_name
 
 - `broker_properties`
 
-  Specifies the information required by the broker. This information is usually used by the broker to be able to access remote storage systems. Such as BOS or HDFS. See the [Broker](../../../advanced/broker.md) documentation for specific information.
+  Specifies the information required by the broker. This information is usually used by the broker to be able to access remote storage systems. Such as BOS or HDFS. See the [Broker](../../../../advanced/broker) documentation for specific information.
 
   ````text
   (
