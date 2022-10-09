@@ -597,8 +597,9 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                               primitive_type == PrimitiveType::TYPE_DATE ||
                               primitive_type == PrimitiveType::TYPE_DATETIME;
 
+    size_t range_size = get_convertible_fixed_value_size();
     // we should avoid range too big to oom.
-    if (get_convertible_fixed_value_size() / (cant_add ? 1 : step_size) > 65536) {
+    if (range_size == 0 || range_size / (cant_add ? 1 : step_size) > (size_t)65536) {
         return false;
     }
 
