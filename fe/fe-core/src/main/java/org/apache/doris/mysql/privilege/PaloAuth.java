@@ -868,6 +868,7 @@ public class PaloAuth implements Writable {
                 // but we need to remove the specified domain from this user.
                 propertyMgr.removeDomainFromUser(userIdent);
             }
+            passwdPolicyManager.dropUser(userIdent);
 
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logNewDropUser(userIdent);
