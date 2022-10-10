@@ -560,7 +560,7 @@ public class Memo {
         for (Group group : groups.values()) {
             builder.append(group.toString()).append("\n");
             for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                builder.append(groupExpression.toString()).append("\n");
+                builder.append("  ").append(groupExpression.toString()).append("\n");
             }
         }
         return builder.toString();
