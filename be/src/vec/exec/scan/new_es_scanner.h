@@ -28,8 +28,8 @@ class NewEsScanNode;
 
 class NewEsScanner : public VScanner {
 public:
-    NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t limit, MemTracker* mem_tracker,
-                 TupleId tuple_id, const std::map<std::string, std::string>& properties,
+    NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t limit, TupleId tuple_id,
+                 const std::map<std::string, std::string>& properties,
                  const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode);
 
     Status open(RuntimeState* state) override;
