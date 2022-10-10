@@ -30,8 +30,9 @@ under the License.
 
 `ANY_VALUE(expr)`
 
-同 [ANY_VALUE](./any_value.md)
 If there is a non NULL value in expr, any non NULL value is returned; otherwise, NULL is returned.
+
+Alias function: `ANY(expr)`
 
 ### example
 ```

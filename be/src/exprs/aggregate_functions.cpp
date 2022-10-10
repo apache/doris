@@ -648,13 +648,11 @@ void AggregateFunctions::any_init(FunctionContext* ctx, T* dst) {
 
 template <typename T>
 void AggregateFunctions::any(FunctionContext*, const T& src, T* dst) {
-    if (src.is_null) {
+    if (LIKELY(!dst->is_null || src.is_null)) {
         return;
     }
 
-    if (dst->is_null) {
-        *dst = src;
-    }
+    *dst = src;
 }
 
 template <>
@@ -691,15 +689,6 @@ void AggregateFunctions::max(FunctionContext*, const DecimalV2Val& src, DecimalV
             *dst = src;
         }
     }
-}
-
-template <>
-void AggregateFunctions::any(FunctionContext*, const DecimalV2Val& src, DecimalV2Val* dst) {
-    if (LIKELY(src.is_null || !dst->is_null)) {
-        return;
-    }
-
-    *dst = src;
 }
 
 void AggregateFunctions::init_null_string(FunctionContext* c, StringVal* dst) {
@@ -787,15 +776,6 @@ void AggregateFunctions::max(FunctionContext*, const DateTimeVal& src, DateTimeV
     if (src_tv > dst_tv) {
         *dst = src;
     }
-}
-
-template <>
-void AggregateFunctions::any(FunctionContext*, const DateTimeVal& src, DateTimeVal* dst) {
-    if (LIKELY(src.is_null || !dst->is_null)) {
-        return;
-    }
-
-    *dst = src;
 }
 
 void AggregateFunctions::string_concat(FunctionContext* ctx, const StringVal& src,

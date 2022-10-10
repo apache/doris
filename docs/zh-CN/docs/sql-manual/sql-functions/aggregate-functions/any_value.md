@@ -30,9 +30,9 @@ under the License.
 
 `ANY_VALUE(expr)`
 
-同 [ANY](./any.md)
-
 如果expr中存在非 NULL 值，返回任意非 NULL 值，否则返回 NULL。
+
+别名函数： `ANY(expr)`
 
 ### example
 ```
