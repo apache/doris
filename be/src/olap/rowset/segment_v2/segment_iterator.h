@@ -169,6 +169,14 @@ private:
 
     void _update_max_row(const vectorized::Block* block);
 
+    std::string _gen_predicate_sign(ColumnPredicate* predicate);
+
+    void _build_index_return_column(vectorized::Block* block, const std::string& index_result_column_sign,
+                                    const roaring::Roaring& index_result);
+
+    void _output_index_return_column(vectorized::Block* block);
+
+private:
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -181,6 +189,9 @@ private:
     std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
+    // "column_name+operator+value-> <in_compound_query, rowid_result>
+    std::unordered_map<std::string, std::pair<bool, roaring::Roaring> > _rowid_result_for_index;
+    std::vector<roaring::Roaring> _split_row_bitmaps;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read

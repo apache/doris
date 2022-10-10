@@ -31,6 +31,10 @@ namespace doris {
 
 class Schema;
 
+struct PredicateParams {
+    std::string value;
+};
+
 enum class PredicateType {
     UNKNOWN = 0,
     EQ = 1,
@@ -113,7 +117,9 @@ struct PredicateTypeTraits {
 class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
-            : _column_id(column_id), _opposite(opposite) {}
+            : _column_id(column_id), _opposite(opposite) {
+        _predicate_params = std::make_shared<PredicateParams>();
+    }
 
     virtual ~ColumnPredicate() = default;
 
@@ -163,12 +169,44 @@ public:
                ", opposite=" + (_opposite ? "true" : "false");
     }
 
+    std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
+    const std::string pred_type_string(PredicateType type) {
+        switch (type) {
+        case PredicateType::EQ:
+            return "eq";
+        case PredicateType::NE:
+            return "ne";
+        case PredicateType::LT:
+            return "lt";
+        case PredicateType::LE:
+            return "le";
+        case PredicateType::GT:
+            return "gt";
+        case PredicateType::GE:
+            return "ge";
+        case PredicateType::IN_LIST:
+            return "in_list";
+        case PredicateType::NOT_IN_LIST:
+            return "not_in_list";
+        case PredicateType::IS_NULL:
+            return "is_null";
+        case PredicateType::IS_NOT_NULL:
+            return "is_not_null";
+        case PredicateType::BF:
+            return "bf";
+        default:
+            return "unknown";
+        }
+
+    }
+
 protected:
     virtual std::string _debug_string() const = 0;
 
     uint32_t _column_id;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
+    std::shared_ptr<PredicateParams> _predicate_params;
 };
 
 } //namespace doris
