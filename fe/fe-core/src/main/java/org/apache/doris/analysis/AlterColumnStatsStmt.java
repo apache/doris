@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -148,7 +149,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
         }
 
         if (optPartitionNames != null) {
-            if (!olapTable.isPartitioned()) {
+            if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
                 throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
             }
 
@@ -162,7 +163,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
             }
             partitionNames.addAll(optPartitionNames.getPartitionNames());
         } else {
-            if (olapTable.isPartitioned()) {
+            if (!olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
                 throw new AnalysisException("For partitioned tables, partitions should be specified");
             }
         }
