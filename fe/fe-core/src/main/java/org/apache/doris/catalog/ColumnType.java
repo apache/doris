@@ -153,6 +153,11 @@ public abstract class ColumnType {
 
         // we should support schema change between different precision
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+
+        // Currently, we do not support schema change between complex types with subtypes.
+        schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.ARRAY.ordinal()] = false;
+        schemaChangeMatrix[PrimitiveType.STRUCT.ordinal()][PrimitiveType.STRUCT.ordinal()] = false;
+        schemaChangeMatrix[PrimitiveType.MAP.ordinal()][PrimitiveType.MAP.ordinal()] = false;
     }
 
     static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {
