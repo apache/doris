@@ -755,6 +755,7 @@ Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::Mutable
 Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                       bool* has_null) {
     size_t curr_size = dst->byte_size();
+    dst->reserve(*n);
     size_t remaining = *n;
     *has_null = false;
     while (remaining > 0) {
