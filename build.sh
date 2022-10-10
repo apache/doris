@@ -97,6 +97,13 @@ clean_fe() {
     popd
 }
 
+# Copy the common files like licenses, notice.txt to output folder
+function copy_common_files() {
+    cp -r -p "${DORIS_HOME}/NOTICE.txt" "$1/"
+    cp -r -p "${DORIS_HOME}/dist/LICENSE-dist.txt" "$1/"
+    cp -r -p "${DORIS_HOME}/dist/licenses" "$1/"
+}
+
 if ! OPTS="$(getopt \
     -n "$0" \
     -o '' \
@@ -446,6 +453,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
+    copy_common_files "${DORIS_OUTPUT}/fe/"
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
 fi
@@ -491,6 +499,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
+    copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
 fi
@@ -502,6 +511,7 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
+    copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
     cd "${DORIS_HOME}"
 fi
 
