@@ -28,7 +28,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 # Change this to a specific string.
 # Do not use "_" or other sepcial characters, only number and alphabeta.
 # NOTICE: change this uid will modify the file in docker-compose.
-CONTAINER_UID="doris-10002-1asdwc1"
+CONTAINER_UID="doris--"
 
 # elasticsearch
 # docker compose -f "${ROOT}"/docker-compose/elasticsearch/elasticsearch.yaml down
