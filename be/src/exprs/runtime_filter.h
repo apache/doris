@@ -17,11 +17,6 @@
 
 #pragma once
 
-#include <condition_variable>
-#include <list>
-#include <map>
-#include <mutex>
-
 #include "exprs/expr_context.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
@@ -245,8 +240,8 @@ public:
 
     void ready_for_publish();
 
-    static bool enable_use_batch(PrimitiveType type) {
-        return is_int_or_bool(type) || is_float_or_double(type);
+    static bool enable_use_batch(int be_exec_version, PrimitiveType type) {
+        return be_exec_version > 0 && (is_int_or_bool(type) || is_float_or_double(type));
     }
 
 protected:

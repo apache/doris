@@ -2217,15 +2217,15 @@ Specifically, for example, there are 2 BEs in the cluster, one of which can supp
 
 The default value is `max_be_exec_version`. If there are special needs, we can manually set the format version to lower, but it should not be lower than `min_be_exec_version`.
 
-Note that we should always keep the value of this variable between `HeartbeatServer::min_be_exec_version` and `HeartbeatServer::max_be_exec_version` for all BEs. (That is to say, if a cluster that has completed the update needs to be downgraded, it should ensure the order of downgrading FE and then downgrading BE, or manually lower the variable in the settings and downgrade BE)
+Note that we should always keep the value of this variable between `BeExecVersionManager::min_be_exec_version` and `BeExecVersionManager::max_be_exec_version` for all BEs. (That is to say, if a cluster that has completed the update needs to be downgraded, it should ensure the order of downgrading FE and then downgrading BE, or manually lower the variable in the settings and downgrade BE)
 
 ### `max_be_exec_version`
 
-The latest data version currently supported, cannot be modified, and should be consistent with the `HeartbeatServer::max_be_exec_version` in the BE of the matching version.
+The latest data version currently supported, cannot be modified, and should be consistent with the `BeExecVersionManager::max_be_exec_version` in the BE of the matching version.
 
 ### `min_be_exec_version`
 
-The oldest data version currently supported, which cannot be modified, should be consistent with the `HeartbeatServer::min_be_exec_version` in the BE of the matching version.
+The oldest data version currently supported, which cannot be modified, should be consistent with the `BeExecVersionManager::min_be_exec_version` in the BE of the matching version.
 
 ### `max_query_profile_num`
 

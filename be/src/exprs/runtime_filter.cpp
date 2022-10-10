@@ -403,7 +403,8 @@ class RuntimePredicateWrapper {
 public:
     RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool,
                             const RuntimeFilterParams* params)
-            : _pool(pool),
+            : _state(state),
+              _pool(pool),
               _column_return_type(params->column_return_type),
               _filter_type(params->filter_type),
               _fragment_instance_id(params->fragment_instance_id),
@@ -561,7 +562,7 @@ public:
     }
 
     void insert_batch(const vectorized::ColumnPtr column, const std::vector<int>& rows) {
-        if (IRuntimeFilter::enable_use_batch(_column_return_type)) {
+        if (IRuntimeFilter::enable_use_batch(_state->be_exec_version(), _column_return_type)) {
             insert_fixed_len(column->get_raw_data().data, rows.data(), rows.size());
         } else {
             for (int index : rows) {
@@ -1043,6 +1044,7 @@ public:
     }
 
 private:
+    RuntimeState* _state;
     ObjectPool* _pool;
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;
