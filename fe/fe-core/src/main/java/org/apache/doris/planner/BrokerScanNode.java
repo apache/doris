@@ -429,15 +429,10 @@ public class BrokerScanNode extends LoadScanNode {
         // broker scan node is used for query or load
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needQueryAvailable().needLoadAvailable()
                 .addTags(tags).build();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (policy.isMatch(be)) {
-                backends.add(be);
-            }
-        }
+        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getIdToBackend().values()));
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
         }
-        Collections.shuffle(backends, random);
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {

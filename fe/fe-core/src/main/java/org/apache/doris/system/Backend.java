@@ -123,6 +123,9 @@ public class Backend implements Writable {
     // creating this everytime we get it.
     @SerializedName(value = "locationTag", alternate = {"tag"})
     private Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
+
+    private Tag nodeTypeTag = Tag.DEFAULT_NODE_TYPE_TAG;
+
     // tag type -> tag value.
     // A backend can only be assigned to one tag type, and each type can only have one value.
     @SerializedName("tagMap")
@@ -679,6 +682,12 @@ public class Backend implements Writable {
                 this.brpcPort = hbResponse.getBrpcPort();
             }
 
+            if (!this.getNodeTypeTag().value.equals(hbResponse.getBeNodeType()) && Tag.validNodeTypeTag(
+                    hbResponse.getBeNodeType())) {
+                isChanged = true;
+                this.nodeTypeTag = Tag.createNotCheck(Tag.TYPE_NODE_TYPE, hbResponse.getBeNodeType());
+            }
+
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
@@ -742,10 +751,25 @@ public class Backend implements Writable {
         return locationTag;
     }
 
+    public Tag getNodeTypeTag() {
+        return nodeTypeTag;
+    }
+
+    public boolean isHybridNode() {
+        return nodeTypeTag.value.equals("be");
+    }
+
+    public boolean isComputeNode() {
+        return nodeTypeTag.value.equals("cn");
+    }
+
     public void setTagMap(Map<String, String> tagMap) {
         Preconditions.checkState(tagMap.containsKey(Tag.TYPE_LOCATION));
         this.tagMap = tagMap;
         this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
+        if (tagMap.containsKey(Tag.TYPE_NODE_TYPE) && Tag.validNodeTypeTag(tagMap.get(Tag.TYPE_NODE_TYPE))) {
+            this.nodeTypeTag = Tag.createNotCheck(Tag.TYPE_NODE_TYPE, tagMap.get(Tag.TYPE_NODE_TYPE));
+        }
     }
 
     public Map<String, String> getTagMap() {

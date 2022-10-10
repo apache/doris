@@ -879,6 +879,8 @@ CONF_mBool(enable_new_load_scan_node, "false");
 // Temp config. True to use new file scanner. Will remove after fully test.
 CONF_mBool(enable_new_file_scanner, "false");
 
+CONF_mString(be_node_type, "be");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

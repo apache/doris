@@ -713,7 +713,8 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> currentAllocMap = Maps.newHashMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()) {
+            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
+                    && be.isHybridNode()) {
                 Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
                 currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
             }
@@ -979,7 +980,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> allocMap = tabletCtx.getReplicaAlloc().getAllocMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (!allocMap.containsKey(be.getLocationTag())) {
+            if (be.isHybridNode() && !allocMap.containsKey(be.getLocationTag())) {
                 deleteReplicaInternal(tabletCtx, replica, "not in valid tag", force);
                 return true;
             }

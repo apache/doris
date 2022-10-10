@@ -55,6 +55,7 @@ public class Tag implements Writable {
     public static final String TYPE_ROLE = "role";
     public static final String TYPE_FUNCTION = "function";
     public static final String TYPE_LOCATION = "location";
+    public static final String TYPE_NODE_TYPE = "node_type";
 
     public static final String VALUE_FRONTEND = "frontend";
     public static final String VALUE_BACKEND = "backend";
@@ -65,6 +66,7 @@ public class Tag implements Writable {
     public static final String VALUE_DEFAULT_CLUSTER = "default_cluster";
     public static final String VALUE_DEFAULT_TAG = "default";
     public static final String VALUE_INVALID_TAG = "invalid";
+    public static final String VALUE_NODE_TYPE_TAG = "be";
 
     public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
             TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION);
@@ -74,10 +76,12 @@ public class Tag implements Writable {
     private static final String TAG_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,32}$";
 
     public static final Tag DEFAULT_BACKEND_TAG;
+    public static final Tag DEFAULT_NODE_TYPE_TAG;
     public static final Tag INVALID_TAG;
 
     static {
         DEFAULT_BACKEND_TAG = new Tag(TYPE_LOCATION, VALUE_DEFAULT_TAG);
+        DEFAULT_NODE_TYPE_TAG = new Tag(TYPE_NODE_TYPE, VALUE_NODE_TYPE_TAG);
         INVALID_TAG = new Tag(TYPE_LOCATION, VALUE_INVALID_TAG);
     }
 
@@ -100,6 +104,11 @@ public class Tag implements Writable {
 
     public static Tag createNotCheck(String type, String value) {
         return new Tag(type, value);
+    }
+
+    // only support be and cn node type tag for be.
+    public static boolean validNodeTypeTag(String value) {
+        return value != null && (value.equals("be") || value.equals("cn"));
     }
 
     public String toKey() {

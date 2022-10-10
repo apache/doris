@@ -34,6 +34,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private long beStartTime;
     private String host;
     private String version = "";
+    private String beNodeType = "be";
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -50,6 +51,20 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.hbTime = hbTime;
         this.beStartTime = beStartTime;
         this.version = version;
+    }
+
+    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort,
+            long hbTime, long beStartTime, String version, String beNodeType) {
+        super(HeartbeatResponse.Type.BACKEND);
+        this.beId = beId;
+        this.status = HbStatus.OK;
+        this.bePort = bePort;
+        this.httpPort = httpPort;
+        this.brpcPort = brpcPort;
+        this.hbTime = hbTime;
+        this.beStartTime = beStartTime;
+        this.version = version;
+        this.beNodeType = beNodeType;
     }
 
     public BackendHbResponse(long beId, String errMsg) {
@@ -89,6 +104,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    public String getBeNodeType() {
+        return beNodeType;
     }
 
     public static BackendHbResponse read(DataInput in) throws IOException {

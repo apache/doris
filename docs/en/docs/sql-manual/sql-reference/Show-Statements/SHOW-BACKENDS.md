@@ -52,6 +52,7 @@ illustrate:
        10. UsedPct Indicates the percentage of disk used.
        11. ErrMsg is used to display the error message when the heartbeat fails.
        12. Status is used to display some status information of BE in JSON format, including the time information of the last time BE reported its tablet.
+       13. NodeType is used to display the type of Backend node. Now there are two types: BE and CN. BE Node represent the origin Backend node and CN Node represent the compute only node.
 
 ### Example
 

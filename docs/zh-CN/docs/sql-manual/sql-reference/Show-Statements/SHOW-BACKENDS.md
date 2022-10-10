@@ -52,6 +52,7 @@ SHOW BACKENDS
        10. UsedPct 表示磁盘已使用量百分比。
        11. ErrMsg 用于显示心跳失败时的错误信息。
        12. Status 用于以 JSON 格式显示BE的一些状态信息, 目前包括最后一次BE汇报其tablet的时间信息。
+       13. NodeType用于展示节点类型, 现在有两种类型: BE代表原来的节点类型, CN代表只做计算的节点类型.
 
 ### Example
 
