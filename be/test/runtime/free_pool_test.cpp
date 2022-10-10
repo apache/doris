@@ -18,6 +18,7 @@
 #include "runtime/free_pool.hpp"
 
 #include <gtest/gtest.h>
+
 #include <memory>
 
 namespace doris {
