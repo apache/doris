@@ -200,7 +200,7 @@ Status NewOdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
         } else {
             columns.clear();
         }
-        VLOG_ROW << "VOdbcScanNode output rows: " << block->rows();
+        VLOG_ROW << "NewOdbcScanner output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eof));
 
     return Status::OK();
