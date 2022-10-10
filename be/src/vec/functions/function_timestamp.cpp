@@ -523,6 +523,8 @@ struct FirstMonthDayImpl {
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
         if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
             return make_nullable(std::make_shared<DataTypeDate>());
+        } else if constexpr (std::is_same_v<DateType, DataTypeDate>) {
+            return make_nullable(std::make_shared<DataTypeDate>());
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             return make_nullable(std::make_shared<DataTypeDateV2>());
         } else {
