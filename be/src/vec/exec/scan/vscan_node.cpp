@@ -550,7 +550,7 @@ void VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Push
             }
         } else {
             LOG(WARNING) << "Expr[" << vexpr->debug_string()
-                         << "] should return a boolean column but actually is "
+                         << "] should return a const column but actually is "
                          << vexpr->get_const_col(expr_ctx)->column_ptr->get_name();
         }
     }
