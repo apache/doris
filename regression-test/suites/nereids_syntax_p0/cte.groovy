@@ -20,18 +20,19 @@ suite("cte") {
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
 
+    sql "DROP VIEW IF EXISTS v1"
+    sql "DROP VIEW IF EXISTS v2"
+
     sql """
-        CREATE VIEW IF NOT EXISTS v1 AS
+        CREATE VIEW v1 AS
         SELECT *
         FROM supplier
-        WHERE s_suppkey < 20
     """
 
     sql """
-        CREATE VIEW IF NOT EXISTS v2 AS
+        CREATE VIEW v2 AS
         SELECT *
         FROM supplier
-        WHERE s_suppkey < 30
     """
 
     sql "SET enable_fallback_to_original_planner=false"

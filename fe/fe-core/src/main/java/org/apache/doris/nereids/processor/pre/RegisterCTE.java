@@ -87,7 +87,6 @@ public class RegisterCTE extends PlanPreprocessor {
         List<Slot> outputSlots = analyzedPlan.getOutput();
         List<String> columnAliases = withClause.getColumnAliases().get();
         LogicalPlan originPlan = withClause.getQuery();
-        System.out.println(analyzedPlan.getOutput());
 
         checkColumnAlias(withClause, outputSlots);
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())

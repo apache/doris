@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class RegisterCTETest extends TestWithFeService {
@@ -32,7 +34,7 @@ public class RegisterCTETest extends TestWithFeService {
     }
 
     @Test
-    public void test() {
+    public void cte_test_1() {
         PlanChecker.from(connectContext)
                 .checkPlannerResult("WITH cte1 AS (\n"
                     + "  \tSELECT s_suppkey\n"
@@ -48,18 +50,95 @@ public class RegisterCTETest extends TestWithFeService {
     }
 
     @Test
-    public void test2() {
+    public void cte_test_2() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("  WITH cte1 (s_suppkey) AS (\n"
-                    + "  \tSELECT s_suppkey\n"
+                .checkPlannerResult("  WITH cte1 (skey, sname) AS (\n"
+                    + "  \tSELECT *\n"
                     + "  \tFROM supplier\n"
                     + "  \tWHERE s_suppkey < 5\n"
                     + "), cte2 (sk2) AS (\n"
-                    + "  \tSELECT s_suppkey\n"
+                    + "  \tSELECT skey\n"
                     + "  \tFROM cte1\n"
-                    + "  \tWHERE s_suppkey < 3\n"
+                    + "  \tWHERE skey < 3\n"
                     + ")\n"
                     + "SELECT *\n"
                     + "FROM cte1, cte2");
+    }
+
+    @Test
+    public void cte_exception_test_1() {
+        try {
+            PlanChecker.from(connectContext)
+                    .checkPlannerResult("  WITH cte1 (skey, SKEY) AS (\n"
+                        + "  \tSELECT s_suppkey, s_name\n"
+                        + "  \tFROM supplier\n"
+                        + "  \tWHERE s_suppkey < 5\n"
+                        + ")\n"
+                        + "SELECT *\n"
+                        + "FROM cte1");
+        } catch (Exception e) {
+            Assertions.assertTrue(e instanceof AnalysisException);
+            Assertions.assertTrue(e.getMessage().contains("Duplicated CTE column alias"));
+        }
+    }
+
+    @Test
+    public void cte_exception_test_2() {
+        try {
+            PlanChecker.from(connectContext)
+                    .checkPlannerResult("  WITH cte1 (skey, sname) AS (\n"
+                        + "  \tSELECT s_suppkey\n"
+                        + "  \tFROM supplier\n"
+                        + "  \tWHERE s_suppkey < 5\n"
+                        + ")\n"
+                        + "SELECT *\n"
+                        + "FROM cte1");
+        } catch (Exception e) {
+            Assertions.assertTrue(e instanceof AnalysisException);
+            Assertions.assertTrue(e.getMessage().contains("The number of column labels must be "
+                    + "smaller or equal to the number of returned columns"));
+        }
+    }
+
+    @Test
+    public void cte_exception_test_3() {
+        try {
+            PlanChecker.from(connectContext)
+                    .checkPlannerResult("  WITH cte1 AS (\n"
+                        + "  \tSELECT s_suppkey\n"
+                        + "  \tFROM cte2\n"
+                        + "  \tWHERE s_suppkey < 5\n"
+                        + "), cte2 (sk2) AS (\n"
+                        + "  \tSELECT s_suppkey\n"
+                        + "  \tFROM supplier\n"
+                        + "  \tWHERE s_suppkey < 3\n"
+                        + ")\n"
+                        + "SELECT *\n"
+                        + "FROM cte1, cte2");
+        } catch (Exception e) {
+            Assertions.assertTrue(e instanceof RuntimeException);
+            Assertions.assertTrue(e.getMessage().contains("does not exist in database"));
+        }
+    }
+
+    @Test
+    public void cte_exception_test_4() {
+        try {
+            PlanChecker.from(connectContext)
+                    .checkPlannerResult("  WITH cte1 AS (\n"
+                        + "  \tSELECT s_suppkey\n"
+                        + "  \tFROM supplier\n"
+                        + "  \tWHERE s_suppkey < 5\n"
+                        + "), cte2 AS (\n"
+                        + "  \tSELECT s_suppkey\n"
+                        + "  \tFROM not_existed_table\n"
+                        + "  \tWHERE s_suppkey < 3\n"
+                        + ")\n"
+                        + "SELECT *\n"
+                        + "FROM cte1");
+        } catch (Exception e) {
+            Assertions.assertTrue(e instanceof RuntimeException);
+            Assertions.assertTrue(e.getMessage().contains("does not exist in database"));
+        }
     }
 }
