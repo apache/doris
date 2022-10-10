@@ -146,4 +146,21 @@ public class StatsDeriveResult {
     public StatsDeriveResult copy() {
         return new StatsDeriveResult(this);
     }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("(rows=").append(rowCount)
+                .append(", isReduced=").append(isReduced)
+                .append(", width=").append(width).append(")");
+        return builder.toString();
+    }
+
+    public static String toString(StatsDeriveResult stats) {
+        if (stats == null) {
+            return "null";
+        } else {
+            return stats.toString();
+        }
+    }
 }
