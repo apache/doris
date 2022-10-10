@@ -30,6 +30,10 @@
 
 namespace doris::vectorized {
 
+// TODO: Best prefetch step is decided by machine. We should also provide a
+//  SQL hint to allow users to tune by hand.
+static constexpr int PREFETCH_STEP = 64;
+
 using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext>
 struct ProcessHashTableBuild {
@@ -80,8 +84,9 @@ struct ProcessHashTableBuild {
 
             auto emplace_result =
                     key_getter.emplace_key(hash_table_ctx.hash_table, k, _join_node->_arena);
-            if (k + 1 < _rows) {
-                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, _join_node->_arena);
+            if (k + PREFETCH_STEP < _rows) {
+                key_getter.template prefetch<false>(hash_table_ctx.hash_table, k + PREFETCH_STEP,
+                                                    _join_node->_arena);
             }
 
             if (emplace_result.is_inserted()) {
@@ -345,9 +350,10 @@ struct ProcessHashTableProbe {
                             }
                         } else {
                             // prefetch is more useful while matching to multiple rows
-                            if (_probe_index + 2 < _probe_rows)
-                                key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2,
-                                                    _arena);
+                            if (_probe_index + PREFETCH_STEP < _probe_rows)
+                                key_getter.template prefetch<true>(hash_table_ctx.hash_table,
+                                                                   _probe_index + PREFETCH_STEP,
+                                                                   _arena);
 
                             for (auto it = mapped.begin(); it.ok(); ++it) {
                                 if constexpr (!is_right_semi_anti_join) {

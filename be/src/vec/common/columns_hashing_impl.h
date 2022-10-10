@@ -180,6 +180,12 @@ public:
         data.prefetch(key_holder);
     }
 
+    template <bool READ, typename Data>
+    ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        data.template prefetch<READ>(key_holder);
+    }
+
 protected:
     Cache cache;
 

@@ -908,6 +908,17 @@ public:
         __builtin_prefetch(&buf[place_value]);
     }
 
+    template <bool READ, typename KeyHolder>
+    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        const auto& key = key_holder_get_key(key_holder);
+        auto hash_value = hash(key);
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
+    }
+
     /// Reinsert node pointed to by iterator
     void ALWAYS_INLINE reinsert(iterator& it, size_t hash_value) {
         reinsert(*it.get_ptr(), hash_value);
