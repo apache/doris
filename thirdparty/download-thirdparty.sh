@@ -373,7 +373,12 @@ echo "Finished patching ${AWS_SDK_SOURCE}"
 
 cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
-    for file in "${TP_PATCH_DIR}"/brpc-1.2.0-*.patch; do
+    # Currently, there are two types of patches for BRPC in Doris:
+    # 1. brpc-fix-*.patch - These patches are not included in upstream but they can fix some bugs in some specific
+    #    scenarios.
+    # 2. brpc-{VERSION}-*.patch - These patches are included in upstream but they are not in current VERISON. We
+    #    backport some bug fixes to the current VERSION.
+    for file in "${TP_PATCH_DIR}"/brpc-*.patch; do
         patch -p1 <"${file}"
     done
     touch "${PATCHED_MARK}"
