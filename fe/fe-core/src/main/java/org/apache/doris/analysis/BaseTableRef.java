@@ -58,7 +58,8 @@ public class BaseTableRef extends TableRef {
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) {
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
         result.setTable(table);
-        result.computeSampleTabletIds(getSampleTabletIds(), getTableSample());
+        result.setSampleTabletIds(sampleTabletIds);
+        result.setTableSample(tableSample);
         return result;
     }
 

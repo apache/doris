@@ -161,12 +161,8 @@ public class TableRef implements ParseNode, Writable {
             hasExplicitAlias = false;
         }
         this.partitionNames = partitionNames;
-        if (sampleTabletIds != null) {
-            this.sampleTabletIds = sampleTabletIds;
-        }
-        if (tableSample != null) {
-            this.tableSample = tableSample;
-        }
+        this.sampleTabletIds = sampleTabletIds;
+        this.tableSample = tableSample;
         this.commonHints = commonHints;
         isAnalyzed = false;
     }
@@ -205,21 +201,11 @@ public class TableRef implements ParseNode, Writable {
                 lateralViewRefs.add((LateralViewRef) viewRef.clone());
             }
         }
-        if (other.sampleTabletIds.size() != 0) {
-            this.sampleTabletIds = other.sampleTabletIds;
-        }
+        this.sampleTabletIds = other.sampleTabletIds;
     }
 
     public PartitionNames getPartitionNames() {
         return partitionNames;
-    }
-
-    public List<Long> getSampleTabletIds() {
-        return sampleTabletIds;
-    }
-
-    public TableSample getTableSample() {
-        return tableSample;
     }
 
     @Override

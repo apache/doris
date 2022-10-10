@@ -21,18 +21,14 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ColumnStats;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TTupleDescriptor;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,7 +43,8 @@ public class TupleDescriptor {
     private final TupleId id;
     private final String debugName; // debug only
     private final ArrayList<SlotDescriptor> slots;
-    private final Set<Long> sampleTabletIds = Sets.newHashSet();
+    private List<Long> sampleTabletIds;
+    private TableSample tableSample;
 
     // underlying table, if there is one
     private TableIf table;
@@ -164,82 +161,20 @@ public class TupleDescriptor {
         table = tbl;
     }
 
-    public Set<Long> getSampleTabletIds() {
+    public List<Long> getSampleTabletIds() {
         return sampleTabletIds;
     }
 
-    /**
-     * First, determine how many rows to sample from each partition according to the number of partitions.
-     * Then determine the number of Tablets to be selected for each partition according to the average number
-     * of rows of Tablet,
-     * If seek is not specified, the specified number of Tablets are pseudo-randomly selected from each partition.
-     * If seek is specified, it will be selected sequentially from the seek tablet of the partition.
-     * And add the manually specified Tablet id to the selected Tablet.
-     * simpleTabletNums = simpleRows / partitionNums / (partitionRows / partitionTabletNums)
-     */
-    public void computeSampleTabletIds(List<Long> tabletIds, TableSample tableSample) {
-        if (table.getType() != TableType.OLAP) {
-            LOG.info("sample table type {} is not OLAP", table.getType());
-            return;
-        }
-        sampleTabletIds.addAll(tabletIds);
-        if (tableSample == null) {
-            return;
-        }
-        OlapTable olapTable = (OlapTable) table;
-        long sampleRows; // The total number of sample rows
-        long hitRows = 1; // The total number of rows hit by the tablet
-        long totalRows = 0; // The total number of partition rows hit
-        long totalTablet = 0; // The total number of tablets in the hit partition
-        if (tableSample.isPercent()) {
-            sampleRows = (long) Math.max(olapTable.getRowCount() * (tableSample.getSampleValue() / 100.0), 1);
-        } else {
-            sampleRows = Math.max(tableSample.getSampleValue(), 1);
-        }
+    public void setSampleTabletIds(List<Long> tids) {
+        sampleTabletIds = tids;
+    }
 
-        // calculate the number of tablets by each partition
-        long avgRowsPerPartition = sampleRows / Math.max(olapTable.getPartitions().size(), 1);
+    public TableSample getTableSample() {
+        return tableSample;
+    }
 
-        for (Partition p : olapTable.getPartitions()) {
-            List<Long> ids = p.getBaseIndex().getTabletIdsInOrder();
-
-            if (ids.isEmpty()) {
-                continue;
-            }
-
-            // Skip partitions with row count < row count / 2 expected to be sampled per partition.
-            // It can be expected to sample a smaller number of partitions to avoid uneven distribution
-            // of sampling results.
-            if (p.getBaseIndex().getRowCount() < (avgRowsPerPartition / 2)) {
-                continue;
-            }
-
-            long avgRowsPerTablet = Math.max(p.getBaseIndex().getRowCount() / ids.size(), 1);
-            long tabletCounts = Math.max(
-                    avgRowsPerPartition / avgRowsPerTablet + (avgRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
-            tabletCounts = Math.min(tabletCounts, ids.size());
-
-            long seek = tableSample.getSeek() != -1 ? tableSample.getSeek() : (long) (Math.random() * ids.size());
-            for (int i = 0; i < tabletCounts; i++) {
-                int seekTid = (int) ((i + seek) % ids.size());
-                sampleTabletIds.add(ids.get(seekTid));
-            }
-
-            hitRows += avgRowsPerTablet * tabletCounts;
-            totalRows += p.getBaseIndex().getRowCount();
-            totalTablet += ids.size();
-        }
-
-        // all hit, direct full
-        if (totalRows < sampleRows) {
-            // can't fill full sample rows
-            sampleTabletIds.clear();
-        } else if (sampleTabletIds.size() == totalTablet) {
-            // TODO add limit
-            sampleTabletIds.clear();
-        } else if (!sampleTabletIds.isEmpty()) {
-            // TODO add limit
-        }
+    public void setTableSample(TableSample tSample) {
+        tableSample = tSample;
     }
 
     public int getByteSize() {
