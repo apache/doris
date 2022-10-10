@@ -1470,6 +1470,9 @@ public:
 
 private:
     std::string replace(std::string str, std::string_view old_str, std::string_view new_str) {
+        if (old_str.empty()) {
+            return str;
+        }
         std::string::size_type pos = 0;
         std::string::size_type oldLen = old_str.size();
         std::string::size_type newLen = new_str.size();
