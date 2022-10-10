@@ -1,0 +1,147 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("cte") {
+
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_nereids_planner=true"
+
+    sql """
+        CREATE VIEW IF NOT EXISTS v1 AS
+        SELECT *
+        FROM supplier
+        WHERE s_suppkey < 20
+    """
+
+    sql """
+        CREATE VIEW IF NOT EXISTS v2 AS
+        SELECT *
+        FROM supplier
+        WHERE s_suppkey < 30
+    """
+
+    sql "SET enable_fallback_to_original_planner=false"
+
+    order_qt_cte_1 """
+        WITH cte1 AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 30
+        )
+        SELECT *
+        FROM cte1 as t1, cte1 as t2
+    """
+
+    // test multiple CTEs
+    order_qt_cte_2 """
+        WITH cte1 AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 20
+        ), cte2 AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 30
+        ), cte3 AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 10
+        )
+        SELECT *
+        FROM cte1, cte2
+    """
+
+    // test ordered reference between different tables
+    order_qt_cte_3 """
+        WITH cte1 AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 30
+        ), cte2 AS (
+            SELECT s_suppkey
+            FROM cte1
+            WHERE s_suppkey < 20
+        ), cte3 AS (
+            SELECT s_suppkey
+            FROM cte2
+            WHERE s_suppkey < 10
+        )
+        SELECT *
+        FROM cte2, cte3
+    """
+
+    // if the CTE name is the same as an existing table name, the CTE's name will be chosen and used first
+    order_qt_cte_4 """
+        WITH part AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 30
+        ), customer AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 20
+        )
+        SELECT *
+        FROM part, customer
+    """
+
+    // the processing logic is similiar to cte_4 when the CTE name is the same as an existing view name
+    order_qt_cte_5 """
+        WITH v1 AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 30
+        ), v2 AS (
+            SELECT s_suppkey
+            FROM supplier
+            WHERE s_suppkey < 10
+        )
+        SELECT *
+        FROM v1, v2
+    """
+
+    // test column aliases in CTE
+    order_qt_cte_6 """
+        WITH cte1 (skey, sname) AS (
+            SELECT s_suppkey as sk, s_name
+            FROM supplier
+            WHERE s_suppkey < 30
+        ), cte2 (skey2, sname2) AS (
+            SELECT s_suppkey, s_name
+            FROM supplier
+            WHERE s_suppkey < 20
+        )
+        SELECT *
+        FROM cte1, cte2
+    """
+
+    // if the size of column aliases is smaller than WithClause's outputSlots, we will replace the corresponding number of front slots with column aliases.
+    order_qt_cte_7 """
+        WITH cte1 (skey, sname) AS (
+            SELECT *
+            FROM supplier
+            WHERE s_suppkey < 30
+        ), cte2 (skey2) AS (
+            SELECT s_suppkey, s_name
+            FROM supplier
+            WHERE s_suppkey < 20
+        )
+        SELECT *
+        FROM cte1, cte2
+    """
+
+}

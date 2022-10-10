@@ -66,7 +66,6 @@ public class RegisterCTE extends PlanPreprocessor {
 
     private void registerWithQuery(WithClause withClause, CTEContext cteContext, StatementContext statementContext) {
         String name = withClause.getName();
-        System.out.println(name + "-----------------");
 
         LogicalPlan originPlan = withClause.getQuery();
         if (cteContext.containsCTE(name)) {
@@ -80,7 +79,6 @@ public class RegisterCTE extends PlanPreprocessor {
         if (withClause.getColumnAliases().isPresent()) {
             originPlan = withColumnAliases(analyzedPlan, withClause);
         }
-        System.out.println(cascadesContext.getMemo().copyOut().treeString());
 
         cteContext.addCTE(name, originPlan);
     }
@@ -94,7 +92,8 @@ public class RegisterCTE extends PlanPreprocessor {
         checkColumnAlias(withClause, outputSlots);
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
                 .mapToObj(i -> i >= columnAliases.size()
-                    ? outputSlots.get(i)
+                    // ? outputSlots.get(i)
+                    ? new UnboundSlot(outputSlots.get(i).getName())
                     : new Alias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
                 .collect(Collectors.toList());
         return new LogicalProject<>(projects, originPlan);

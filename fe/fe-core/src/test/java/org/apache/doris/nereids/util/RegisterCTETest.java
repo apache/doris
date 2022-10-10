@@ -54,7 +54,7 @@ public class RegisterCTETest extends TestWithFeService {
                     + "  \tSELECT s_suppkey\n"
                     + "  \tFROM supplier\n"
                     + "  \tWHERE s_suppkey < 5\n"
-                    + "), cte2 (s_suppkey) AS (\n"
+                    + "), cte2 (sk2) AS (\n"
                     + "  \tSELECT s_suppkey\n"
                     + "  \tFROM cte1\n"
                     + "  \tWHERE s_suppkey < 3\n"
