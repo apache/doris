@@ -28,7 +28,6 @@
 #include "exec/exchange_node.h"
 #include "exec/exec_node.h"
 #include "exec/scan_node.h"
-#include "exprs/expr.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -40,8 +39,6 @@
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
-#include "util/mem_info.h"
-#include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
@@ -68,8 +65,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _is_report_success(false),
           _is_report_on_cancel(true),
           _collect_query_statistics_with_every_batch(false),
-          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
-          _cancel_msg("") {}
+          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {}
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
     close();
@@ -227,7 +223,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _prepared = true;
 
     _query_statistics.reset(new QueryStatistics());
-    if (_sink.get() != nullptr) {
+    if (_sink != nullptr) {
         _sink->set_query_statistics(_query_statistics);
     }
     return Status::OK();
@@ -301,7 +297,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
                 RETURN_IF_ERROR(get_vectorized_internal(&block));
             }
 
-            if (block == NULL) {
+            if (block == nullptr) {
                 break;
             }
 
@@ -373,7 +369,7 @@ Status PlanFragmentExecutor::open_internal() {
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
     }
 
-    if (_sink.get() == nullptr) {
+    if (_sink == nullptr) {
         return Status::OK();
     }
     {
@@ -669,13 +665,13 @@ void PlanFragmentExecutor::close() {
     _row_batch.reset(nullptr);
 
     // Prepare may not have been called, which sets _runtime_state
-    if (_runtime_state.get() != nullptr) {
+    if (_runtime_state != nullptr) {
         // _runtime_state init failed
         if (_plan != nullptr) {
             _plan->close(_runtime_state.get());
         }
 
-        if (_sink.get() != nullptr) {
+        if (_sink != nullptr) {
             if (_prepared) {
                 Status status;
                 {
