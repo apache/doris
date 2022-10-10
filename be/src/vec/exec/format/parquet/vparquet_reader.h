@@ -93,6 +93,7 @@ private:
         RuntimeProfile::Counter* decode_value_time;
         RuntimeProfile::Counter* decode_dict_time;
         RuntimeProfile::Counter* decode_level_time;
+        RuntimeProfile::Counter* decode_null_map_time;
     };
 
     void _init_profile();
