@@ -106,7 +106,8 @@ public class PasswordOptions implements Writable {
             throw new AnalysisException("The password expire time must be DAFAULT or >= 0");
         }
         if (historyPolicy < -2 || historyPolicy > HistoryPolicy.MAX_HISTORY_SIZE) {
-            throw new AnalysisException("The password history number must be DEFAULT or between 0 and 10");
+            throw new AnalysisException(
+                    "The password history number must be DEFAULT or between 0 and " + HistoryPolicy.MAX_HISTORY_SIZE);
         }
         if (reusePolicy != -2) {
             throw new AnalysisException("Not support setting password reuse policy now");

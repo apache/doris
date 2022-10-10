@@ -1999,7 +1999,7 @@ opt_password_option ::=
 
 opt_passwd_expire_policy ::=
     {:
-        RESULT = -2L;
+        RESULT = (long) PasswordOptions.UNSET;
     :}
     | KW_PASSWORD_EXPIRE passwd_expire_opt:opt
     {:
@@ -2009,7 +2009,7 @@ opt_passwd_expire_policy ::=
 
 opt_passwd_history_policy ::=
     {:
-        RESULT = -2;
+        RESULT = PasswordOptions.UNSET;
     :}
     | KW_PASSWORD_HISTORY passwd_history_opt:opt
     {:
@@ -2019,7 +2019,7 @@ opt_passwd_history_policy ::=
 
 opt_passwd_reuse_policy ::=
     {:
-        RESULT = -2;
+        RESULT = PasswordOptions.UNSET;
     :}
     | KW_PASSWORD_REUSE KW_INTERVAL passwd_reuse_opt:opt
     {:
@@ -2029,7 +2029,7 @@ opt_passwd_reuse_policy ::=
 
 opt_lock_account ::=
     {:
-        RESULT = -2;
+        RESULT = PasswordOptions.UNSET;
     :}
     | KW_ACCOUNT_LOCK
     {:
@@ -2095,7 +2095,7 @@ passwd_reuse_opt ::=
 
 opt_failed_login_attempts ::=
     {:
-        RESULT = -2;
+        RESULT = PasswordOptions.UNSET;
     :}
     | KW_FAILED_LOGIN_ATTEMPTS INTEGER_LITERAL:n
     {:
@@ -2105,7 +2105,7 @@ opt_failed_login_attempts ::=
 
 opt_password_lock_time ::=
     {:
-        RESULT = -2L;
+        RESULT = (long) PasswordOptions.UNSET;
     :}
     | KW_PASSWORD_LOCK_TIME passwd_lock_time_opt:opt
     {:
