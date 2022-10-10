@@ -46,6 +46,7 @@
 #include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
@@ -171,7 +172,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         ExecNode* node = scan_nodes[i];
         if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
             typeid(*node) == typeid(vectorized::NewFileScanNode) ||
-            typeid(*node) == typeid(vectorized::NewOdbcScanNode)
+            typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
+            typeid(*node) == typeid(vectorized::NewEsScanNode)
 #ifdef LIBJVM
             || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
 #endif
