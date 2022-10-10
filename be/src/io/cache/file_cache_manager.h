@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <list>
 #include <memory>
 #include <queue>
 
@@ -61,6 +62,7 @@ public:
     bool exist(const std::string& cache_path);
 
 private:
+    void _gc_unused_file_caches(std::list<FileCachePtr>& result);
     void _add_file_cache_for_gc_by_disk(std::vector<GCContextPerDisk>& contexts,
                                         FileCachePtr file_cache);
 

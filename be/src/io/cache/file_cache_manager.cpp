@@ -98,20 +98,7 @@ void FileCacheManager::_add_file_cache_for_gc_by_disk(std::vector<GCContextPerDi
     }
 }
 
-void FileCacheManager::gc_file_caches() {
-    int64_t gc_conf_size = config::file_cache_max_size_per_disk;
-    std::vector<GCContextPerDisk> contexts;
-    // init for GC by disk size
-    if (gc_conf_size > 0) {
-        std::vector<DataDir*> data_dirs = doris::StorageEngine::instance()->get_stores();
-        contexts.resize(data_dirs.size());
-        for (size_t i = 0; i < contexts.size(); ++i) {
-            contexts[i].init(data_dirs[i]->path(), gc_conf_size);
-        }
-    }
-
-    // process unused file caches
-    std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+void FileCacheManager::_gc_unused_file_caches(std::list<FileCachePtr>& result) {
     std::vector<TabletSharedPtr> tablets =
             StorageEngine::instance()->tablet_manager()->get_all_tablet();
     for (const auto& tablet : tablets) {
@@ -127,7 +114,7 @@ void FileCacheManager::gc_file_caches() {
                 std::stringstream ss;
                 ss << tablet->tablet_path() << "/" << seg_filename;
                 std::string cache_path = ss.str();
-                if (_file_cache_map.find(cache_path) != _file_cache_map.end()) {
+                if (exist(cache_path)) {
                     continue;
                 }
 
@@ -137,10 +124,37 @@ void FileCacheManager::gc_file_caches() {
                 file_cache->load_and_clean();
                 // policy1: GC file cache by timeout
                 file_cache->clean_timeout_cache();
-                // sort file cache by last match time
-                _add_file_cache_for_gc_by_disk(contexts, file_cache);
+
+                result.push_back(file_cache);
             }
         }
+    }
+}
+
+void FileCacheManager::gc_file_caches() {
+    int64_t gc_conf_size = config::file_cache_max_size_per_disk;
+    std::vector<GCContextPerDisk> contexts;
+    // init for GC by disk size
+    if (gc_conf_size > 0) {
+        std::vector<DataDir*> data_dirs = doris::StorageEngine::instance()->get_stores();
+        contexts.resize(data_dirs.size());
+        for (size_t i = 0; i < contexts.size(); ++i) {
+            contexts[i].init(data_dirs[i]->path(), gc_conf_size);
+        }
+    }
+
+    // process unused file caches
+    std::list<FileCachePtr> dummy_file_list;
+    _gc_unused_file_caches(dummy_file_list);
+
+    std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+    for (auto item : dummy_file_list) {
+        // check again after _cache_map_lock hold
+        if (_file_cache_map.find(item->cache_dir().native()) != _file_cache_map.end()) {
+            continue;
+        }
+        // sort file cache by last match time
+        _add_file_cache_for_gc_by_disk(contexts, item);
     }
 
     // process file caches in memory
