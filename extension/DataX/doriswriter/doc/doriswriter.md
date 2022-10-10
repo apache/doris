@@ -47,7 +47,7 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
                         "connection": [
                           {
                             "jdbcUrl": "jdbc:mysql://172.16.0.13:9030/demo",
-                            "database": "demo",
+                            "selectedDatabase": "demo",
                             "table": ["all_employees_info"]
                           }
                         ],
@@ -103,7 +103,7 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
   - 描述：需要写入的Doris表名称。
     - 必选：是
     - 默认值：无
-    
+  
 * **column**
 
     - 描述：目的表**需要写入数据**的字段，这些字段将作为生成的 Json 数据的字段名。字段之间用英文逗号分隔。例如: "column": ["id","name","age"]。
