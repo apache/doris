@@ -101,7 +101,13 @@ public:
     }
 
     Status init_with_fixed_length(int64_t bloom_filter_length) {
-        DCHECK(!_inited);
+        if (_inited) {
+            return Status::OK();
+        }
+        std::lock_guard<std::mutex> l(_lock);
+        if (_inited) {
+            return Status::OK();
+        }
         DCHECK(bloom_filter_length >= 0);
         DCHECK_EQ((bloom_filter_length & (bloom_filter_length - 1)), 0);
         _bloom_filter_alloced = bloom_filter_length;
@@ -117,7 +123,9 @@ public:
             _bloom_filter.reset(BloomFilterAdaptor::create());
         }
         if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-            LOG(WARNING) << "bloom filter size not the same";
+            LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
+                         << _bloom_filter_alloced
+                         << ", expected allocated bytes = " << other_func->_bloom_filter_alloced;
             return Status::InvalidArgument("bloom filter size invalid");
         }
         return _bloom_filter->merge(other_func->_bloom_filter.get());
@@ -166,6 +174,7 @@ protected:
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited;
+    std::mutex _lock;
 };
 
 template <class T>
