@@ -209,7 +209,8 @@ public abstract class LoadScanNode extends ScanNode {
 
             PrimitiveType dstType = destSlotDesc.getType().getPrimitiveType();
             PrimitiveType srcType = expr.getType().getPrimitiveType();
-            if (srcType == PrimitiveType.VARCHAR && dstType == PrimitiveType.JSONB) {
+            if (dstType == PrimitiveType.JSONB
+                    && (srcType == PrimitiveType.VARCHAR || srcType == PrimitiveType.STRING)) {
                 List<Expr> args = Lists.newArrayList();
                 args.add(expr);
                 String nullable = "notnull";
@@ -219,7 +220,6 @@ public abstract class LoadScanNode extends ScanNode {
                 String name = "jsonb_parse_" + nullable + "_error_to_invalid";
                 expr = new FunctionCallExpr(name, args);
                 expr.analyze(analyzer);
-                System.out.println("xk debug use function " + name + " " + expr);
             } else {
                 expr = castToSlot(destSlotDesc, expr);
             }

@@ -54,20 +54,11 @@ enum class JsonbParseErrorMode {
 // func(string,string) -> json
 template<NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
 class FunctionJsonbParseBase : public IFunction {
+private:
+    JsonbParser default_value_parser;
+    bool has_const_default_value = false;
+
 public:
-    // static const StringValue ERROR_MOEDE_ERROR((const char*)"ERROR", 5);
-    // static const StringValue ERROR_MOEDE_NULL("NULL", 4);
-    // static const StringValue ERROR_MOEDE_DEFAULT("DEFAULT", 7);
-    // static const StringValue ERROR_MOEDE_FILTER("FILTER", 6);
-
-    static constexpr auto ERROR_MOEDE_ERROR = "ERROR";
-    static constexpr auto ERROR_MOEDE_NULL = "NULL";
-    static constexpr auto ERROR_MOEDE_DEFAULT = "DEFAULT";
-    static constexpr auto ERROR_MOEDE_FILTER = "FILTER";
-
-    int error_mode = 0;
-    bool nullable = true;
-
     static constexpr auto name = "jsonb_parse";
     static FunctionPtr create() { return std::make_shared<FunctionJsonbParseBase>(); }
 
@@ -134,9 +125,26 @@ public:
                              std::make_shared<DataTypeJsonb>();
     }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        if constexpr(parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
+            if (context->is_col_constant(1)) {
+                const auto default_value_col = context->get_constant_col(1)->column_ptr;
+                const auto& default_value = default_value_col->get_data_at(0);
+
+                JsonbErrType error = JsonbErrType::E_NONE;
+                if (!default_value_parser.parse(default_value.data, default_value.size)) {
+                    error = default_value_parser.getErrorCode();
+                    return Status::InvalidArgument("invalid default json value: {} , error: {}",
+                        std::string_view(default_value.data, default_value.size),
+                        JsonbErrMsg::getErrMsg(error));
+                }
+                has_const_default_value = true;
+            }
+        }
         return Status::OK();
     }
 
@@ -177,10 +185,14 @@ public:
 
         const ColumnString* col_from_string =
                     check_and_get_column<ColumnString>(col_from);
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
+            col_from_string = check_and_get_column<ColumnString>(
+                *nullable->get_nested_column_ptr());
+        }
 
         if (!col_from_string) {
             return Status::RuntimeError(
-                    "Illegal column {} of first argument of conversion function from string",
+                    "Illegal column {} should be ColumnString",
                     col_from.get_name());
         }
 
@@ -191,33 +203,55 @@ public:
         col_to->reserve(size);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const auto& val = col_from_string->get_data_at(i);
-            JsonbParser parser;
-            JsonbErrType error = JsonbErrType::E_NONE;
-            if (!parser.parse(val.data, val.size)) {
-                error = parser.getErrorCode();
-                LOG(WARNING) << "invalid json value: " << val.data << " " << JsonbErrMsg::getErrMsg(error);
-
-                switch (parse_error_handle_mode) {
-                case JsonbParseErrorMode::FAIL:
-                    return Status::InvalidArgument("json parse error");
-                case JsonbParseErrorMode::RETURN_NULL:
-                    if (is_nullable) null_map->get_data()[i] = 1;
-                    col_to->insert_data("", 0);
-                    break;
-                case JsonbParseErrorMode::RETURN_VALUE:
-                    col_to->insert_default();
-                    break;
-                case JsonbParseErrorMode::RETURN_INVALID:
-                    col_to->insert_data("", 0);
-                    break;
-                }
+            if (col_from.is_null_at(i)) {
+                null_map->get_data()[i] = 1;
+                col_to->insert_data("", 0);
                 continue;
             }
 
-            // insert jsonb format data
-            col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
+            const auto& val = col_from_string->get_data_at(i);
+            JsonbParser parser;
+            JsonbErrType error = JsonbErrType::E_NONE;
+            if (parser.parse(val.data, val.size)) {
+                // insert jsonb format data
+                col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
                                     (size_t)parser.getWriter().getOutput()->getSize());
+            } else {
+                error = parser.getErrorCode();
+                LOG(WARNING) << "json parse error: " << JsonbErrMsg::getErrMsg(error)
+                             << " for value: " << std::string_view(val.data, val.size);
+
+                switch (parse_error_handle_mode) {
+                case JsonbParseErrorMode::FAIL:
+                    return Status::InvalidArgument("json parse error: {} for value: {}",
+                        JsonbErrMsg::getErrMsg(error), std::string_view(val.data, val.size));
+                case JsonbParseErrorMode::RETURN_NULL: {
+                    if (is_nullable) null_map->get_data()[i] = 1;
+                    col_to->insert_data("", 0);
+                    continue;
+                }
+                case JsonbParseErrorMode::RETURN_VALUE: {
+                    if (has_const_default_value) {
+                        col_to->insert_data(default_value_parser.getWriter().getOutput()->getBuffer(),
+                                        (size_t)default_value_parser.getWriter().getOutput()->getSize());
+                    } else {
+                        auto val = block.get_by_position(arguments[1]).column->get_data_at(i);
+                        if (parser.parse(val.data, val.size)) {
+                            // insert jsonb format data
+                            col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
+                                    (size_t)parser.getWriter().getOutput()->getSize());
+                        } else {
+                            return Status::InvalidArgument("json parse error: {} for default value: {}",
+                                JsonbErrMsg::getErrMsg(error), std::string_view(val.data, val.size));
+                        }
+                    }
+                    continue;
+                }
+                case JsonbParseErrorMode::RETURN_INVALID:
+                    col_to->insert_data("", 0);
+                    continue;
+                }
+            }
         }
 
         if (is_nullable) {
