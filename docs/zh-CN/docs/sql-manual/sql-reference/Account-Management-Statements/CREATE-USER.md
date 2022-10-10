@@ -115,7 +115,7 @@ password_policy 是用于指定密码认证登录相关策略的子句，目前�
 7. 创建一个用户，设定密码10天后过期，并且设置如果3次错误登录则账户会被锁定一天。
 
     ```sql
-    CREATE USER 'jack' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAYS FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1;
+    CREATE USER 'jack' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1;
     ```
 
 8. 创建一个用户，并限制不可重置密码为最近8次是用过的密码。
