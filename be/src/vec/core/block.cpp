@@ -64,7 +64,14 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
 }
 
 Block::Block(const PBlock& pblock) {
-    CHECK(HeartbeatServer::check_be_exec_version(pblock.be_exec_version()));
+    int be_exec_version = 0;
+    if (pblock.has_be_exec_version()) {
+        be_exec_version = pblock.be_exec_version();
+    } else {
+        LOG(WARNING) << "pblock.has_be_exec_version()=false, maybe pblock not be serialized well, "
+                        "or be version too old.";
+    }
+    CHECK(HeartbeatServer::check_be_exec_version(be_exec_version));
 
     const char* buf = nullptr;
     std::string compression_scratch;
@@ -100,7 +107,7 @@ Block::Block(const PBlock& pblock) {
     for (const auto& pcol_meta : pblock.column_metas()) {
         DataTypePtr type = DataTypeFactory::instance().create_data_type(pcol_meta);
         MutableColumnPtr data_column = type->create_column();
-        buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version());
+        buf = type->deserialize(buf, data_column.get(), be_exec_version);
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
