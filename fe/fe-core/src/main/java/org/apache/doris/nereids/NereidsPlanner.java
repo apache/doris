@@ -40,9 +40,12 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,6 +55,7 @@ import java.util.stream.Collectors;
  * Planner to do query plan in Nereids.
  */
 public class NereidsPlanner extends Planner {
+    public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
@@ -72,6 +76,14 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
+            String tree = physicalPlan.treeString();
+            System.out.println(tree);
+            LOG.info(tree);
+            String memo = cascadesContext.getMemo().toString();
+            System.out.println(memo);
+            LOG.info(memo);
+        }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
         scanNodeList = planTranslatorContext.getScanNodes();
