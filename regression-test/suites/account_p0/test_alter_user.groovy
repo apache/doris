@@ -22,6 +22,7 @@ suite("test_alter_user", "account") {
     sql """drop user if exists test_auth_user1"""
     sql """drop user if exists test_auth_user2"""
     sql """drop user if exists test_auth_user3"""
+    sql """drop user if exists test_auth_user4"""
 
     // 1. change user's default role
     sql """set global validate_password_policy=NONE"""
@@ -160,5 +161,27 @@ suite("test_alter_user", "account") {
         sql 'select 1'
     }
     sql """set global validate_password_policy=NONE"""
+
+    // 5. text expire
+    sql """create user test_auth_user4 identified by '12345' PASSWORD_EXPIRE INTERVAL 5 SECOND"""
+    sql """grant all on *.* to test_auth_user4"""
+    result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
+        sql 'select 1'
+    }
+    sleep(6000)
+    try {
+        connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {}
+        assertTrue(false. "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Your password has expired. To log in you must change it using a client that supports expired passwords."), e.getMessage())
+    }
+
+    // 6. drop user and create again, new user with same name can login
+    sql """drop user test_auth_user4"""
+    sql """create user test_auth_user4 identified by '12345'"""
+    sql """grant all on *.* to test_auth_user4"""
+    result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
+        sql 'select 1'
+    }
 }
 
