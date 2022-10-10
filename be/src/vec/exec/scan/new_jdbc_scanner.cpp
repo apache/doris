@@ -21,8 +21,8 @@
 
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                               MemTracker* mem_tracker, TupleId tuple_id, std::string query_string)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, mem_tracker),
+                               TupleId tuple_id, std::string query_string)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _is_init(false),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
@@ -38,8 +38,6 @@ Status NewJdbcScanner::prepare(RuntimeState* state) {
     if (state == nullptr) {
         return Status::InternalError("input pointer is NULL of VJdbcScanNode::prepare.");
     }
-
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -83,7 +81,6 @@ Status NewJdbcScanner::open(RuntimeState* state) {
     }
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(_jdbc_connector->open());
     RETURN_IF_ERROR(_jdbc_connector->query());
     return Status::OK();

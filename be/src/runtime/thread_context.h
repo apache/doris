@@ -159,6 +159,18 @@ public:
     const std::string& thread_id_str() const { return _thread_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
+    static TaskType query_to_task_type(const TQueryType::type& query_type) {
+        switch (query_type) {
+        case TQueryType::SELECT:
+            return TaskType::QUERY;
+        case TQueryType::LOAD:
+            return TaskType::LOAD;
+        default:
+            DCHECK(false);
+            return TaskType::UNKNOWN;
+        }
+    }
+
     std::string get_thread_id() {
         std::stringstream ss;
         ss << std::this_thread::get_id();
@@ -205,18 +217,6 @@ public:
                         const TUniqueId& fragment_instance_id = TUniqueId());
 
     explicit AttachTask(RuntimeState* runtime_state);
-
-    const ThreadContext::TaskType query_to_task_type(const TQueryType::type& query_type) {
-        switch (query_type) {
-        case TQueryType::SELECT:
-            return ThreadContext::TaskType::QUERY;
-        case TQueryType::LOAD:
-            return ThreadContext::TaskType::LOAD;
-        default:
-            DCHECK(false);
-            return ThreadContext::TaskType::UNKNOWN;
-        }
-    }
 
     ~AttachTask();
 };

@@ -209,8 +209,6 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-    _scanner_mem_tracker = std::make_unique<MemTracker>("OlapScanners");
-
     if (_tuple_desc == nullptr) {
         // TODO: make sure we print all available diagnostic output to our error log
         return Status::InternalError("Failed to get tuple descriptor.");
@@ -389,8 +387,10 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
-    // SCOPED_ATTACH_TASK(_runtime_state); // TODO Recorded on an independent tracker
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_ATTACH_TASK(_runtime_state->scanner_mem_tracker(),
+                       ThreadContext::query_to_task_type(_runtime_state->query_type()),
+                       print_id(_runtime_state->query_id()),
+                       _runtime_state->fragment_instance_id());
     Thread::set_self_name("volap_scanner");
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
@@ -892,9 +892,8 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
                  ++j, ++i) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
-            VOlapScanner* scanner =
-                    new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                     _need_agg_finalize, *scan_range, _scanner_mem_tracker.get());
+            VOlapScanner* scanner = new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
+                                                     _need_agg_finalize, *scan_range);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
