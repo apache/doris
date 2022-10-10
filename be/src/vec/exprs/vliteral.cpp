@@ -19,7 +19,9 @@
 
 #include <fmt/format.h>
 
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
+#include "util/jsonb_document.h"
 #include "util/string_parser.hpp"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -124,6 +126,13 @@ void VLiteral::init(const TExprNode& node) {
             field = node.string_literal.value;
             break;
         }
+        case TYPE_JSONB: {
+            DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
+            DCHECK(node.__isset.json_literal);
+            JsonBinaryValue value(node.json_literal.value);
+            field = JsonbField(value.value(), value.size());
+            break;
+        }
         case TYPE_DECIMALV2: {
             DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
             DCHECK(node.__isset.decimal_literal);
@@ -185,7 +194,8 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
 
 std::string VLiteral::debug_string() const {
     std::stringstream out;
-    out << "VLiteral (type = " << _data_type->get_name();
+    out << "VLiteral (name = " << _expr_name;
+    out << ", type = " << _data_type->get_name();
     out << ", value = ";
     if (_column_ptr.get()->size() > 0) {
         StringRef ref = _column_ptr.get()->get_data_at(0);
@@ -227,7 +237,8 @@ std::string VLiteral::debug_string() const {
             }
             case TYPE_STRING:
             case TYPE_CHAR:
-            case TYPE_VARCHAR: {
+            case TYPE_VARCHAR:
+            case TYPE_JSONB: {
                 out << ref;
                 break;
             }

@@ -18,6 +18,8 @@
 #pragma once
 
 #include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -166,6 +168,21 @@ private:
         PaddedPODArray<Slice> _slice;
     };
 
+    class OlapColumnDataConvertorJsonb : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorJsonb() = default;
+        ~OlapColumnDataConvertorJsonb() override = default;
+
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override;
+        Status convert_to_olap() override;
+
+    private:
+        PaddedPODArray<Slice> _slice;
+    };
+
     template <typename T>
     class OlapColumnDataConvertorPaddedPODArray : public OlapColumnDataConvertorBase {
     public:
@@ -192,9 +209,6 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         Status convert_to_olap() override;
-
-    private:
-        bool from_date_v2_;
     };
 
     class OlapColumnDataConvertorDateTime : public OlapColumnDataConvertorPaddedPODArray<uint64_t> {
@@ -202,9 +216,6 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         Status convert_to_olap() override;
-
-    private:
-        bool from_datetime_v2_;
     };
 
     class OlapColumnDataConvertorDecimal
@@ -260,11 +271,6 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override {
             OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos, num_rows);
-            if (is_date(typed_column.type)) {
-                from_date_to_date_v2_ = true;
-            } else {
-                from_date_to_date_v2_ = false;
-            }
         }
 
         const void* get_data() const override { return values_; }
@@ -279,67 +285,24 @@ private:
         }
 
         Status convert_to_olap() override {
-            if (UNLIKELY(from_date_to_date_v2_)) {
-                const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
-                if (_nullmap) {
-                    auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
-                            _typed_column.column.get());
-                    column_datetime =
-                            assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
-                                    nullable_column->get_nested_column_ptr().get());
-                } else {
-                    column_datetime =
-                            assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
-                                    _typed_column.column.get());
-                }
-
-                assert(column_datetime);
-
-                const VecDateTimeValue* datetime_cur =
-                        (const VecDateTimeValue*)(column_datetime->get_data().data()) + _row_pos;
-                const VecDateTimeValue* datetime_end = datetime_cur + _num_rows;
-                uint32_t* value = const_cast<uint32_t*>(values_);
-                if (_nullmap) {
-                    const UInt8* nullmap_cur = _nullmap + _row_pos;
-                    while (datetime_cur != datetime_end) {
-                        if (!*nullmap_cur) {
-                            *value = datetime_cur->to_date_v2();
-                        } else {
-                            // do nothing
-                        }
-                        ++value;
-                        ++datetime_cur;
-                        ++nullmap_cur;
-                    }
-                } else {
-                    while (datetime_cur != datetime_end) {
-                        *value = datetime_cur->to_date_v2();
-                        ++value;
-                        ++datetime_cur;
-                    }
-                }
-                return Status::OK();
+            const vectorized::ColumnVector<uint32>* column_data = nullptr;
+            if (_nullmap) {
+                auto nullable_column =
+                        assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+                column_data = assert_cast<const vectorized::ColumnVector<uint32>*>(
+                        nullable_column->get_nested_column_ptr().get());
             } else {
-                const vectorized::ColumnVector<uint32>* column_data = nullptr;
-                if (_nullmap) {
-                    auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
-                            _typed_column.column.get());
-                    column_data = assert_cast<const vectorized::ColumnVector<uint32>*>(
-                            nullable_column->get_nested_column_ptr().get());
-                } else {
-                    column_data = assert_cast<const vectorized::ColumnVector<uint32>*>(
-                            _typed_column.column.get());
-                }
-
-                assert(column_data);
-                values_ = (const uint32*)(column_data->get_data().data()) + _row_pos;
-                return Status::OK();
+                column_data = assert_cast<const vectorized::ColumnVector<uint32>*>(
+                        _typed_column.column.get());
             }
+
+            assert(column_data);
+            values_ = (const uint32*)(column_data->get_data().data()) + _row_pos;
+            return Status::OK();
         }
 
     private:
         const uint32_t* values_ = nullptr;
-        bool from_date_to_date_v2_;
     };
 
     class OlapColumnDataConvertorDateTimeV2 : public OlapColumnDataConvertorBase {
@@ -350,11 +313,6 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override {
             OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos, num_rows);
-            if (is_date_or_datetime(typed_column.type)) {
-                from_datetime_to_datetime_v2_ = true;
-            } else {
-                from_datetime_to_datetime_v2_ = false;
-            }
         }
 
         const void* get_data() const override { return values_; }
@@ -369,67 +327,24 @@ private:
         }
 
         Status convert_to_olap() override {
-            if (UNLIKELY(from_datetime_to_datetime_v2_)) {
-                const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
-                if (_nullmap) {
-                    auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
-                            _typed_column.column.get());
-                    column_datetime =
-                            assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
-                                    nullable_column->get_nested_column_ptr().get());
-                } else {
-                    column_datetime =
-                            assert_cast<const vectorized::ColumnVector<vectorized::Int64>*>(
-                                    _typed_column.column.get());
-                }
-
-                assert(column_datetime);
-
-                const VecDateTimeValue* datetime_cur =
-                        (const VecDateTimeValue*)(column_datetime->get_data().data()) + _row_pos;
-                const VecDateTimeValue* datetime_end = datetime_cur + _num_rows;
-                uint64_t* value = const_cast<uint64_t*>(values_);
-                if (_nullmap) {
-                    const UInt8* nullmap_cur = _nullmap + _row_pos;
-                    while (datetime_cur != datetime_end) {
-                        if (!*nullmap_cur) {
-                            *value = datetime_cur->to_datetime_v2();
-                        } else {
-                            // do nothing
-                        }
-                        ++value;
-                        ++datetime_cur;
-                        ++nullmap_cur;
-                    }
-                } else {
-                    while (datetime_cur != datetime_end) {
-                        *value = datetime_cur->to_datetime_v2();
-                        ++value;
-                        ++datetime_cur;
-                    }
-                }
-                return Status::OK();
+            const vectorized::ColumnVector<uint64_t>* column_data = nullptr;
+            if (_nullmap) {
+                auto nullable_column =
+                        assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+                column_data = assert_cast<const vectorized::ColumnVector<uint64_t>*>(
+                        nullable_column->get_nested_column_ptr().get());
             } else {
-                const vectorized::ColumnVector<uint64_t>* column_data = nullptr;
-                if (_nullmap) {
-                    auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
-                            _typed_column.column.get());
-                    column_data = assert_cast<const vectorized::ColumnVector<uint64_t>*>(
-                            nullable_column->get_nested_column_ptr().get());
-                } else {
-                    column_data = assert_cast<const vectorized::ColumnVector<uint64_t>*>(
-                            _typed_column.column.get());
-                }
-
-                assert(column_data);
-                values_ = (const uint64_t*)(column_data->get_data().data()) + _row_pos;
-                return Status::OK();
+                column_data = assert_cast<const vectorized::ColumnVector<uint64_t>*>(
+                        _typed_column.column.get());
             }
+
+            assert(column_data);
+            values_ = (const uint64_t*)(column_data->get_data().data()) + _row_pos;
+            return Status::OK();
         }
 
     private:
         const uint64_t* values_ = nullptr;
-        bool from_datetime_to_datetime_v2_;
     };
 
     // decimalv3 don't need to do any convert

@@ -31,17 +31,10 @@ namespace doris::vectorized {
 class MergeSorterState {
 public:
     MergeSorterState(const RowDescriptor& row_desc, int64_t offset)
-            : unsorted_block(new MutableBlock(
-                      VectorizedUtils::create_empty_columnswithtypename(row_desc))),
-              _offset(offset),
-              _row_desc(row_desc) {}
+            : unsorted_block(new Block(VectorizedUtils::create_empty_block(row_desc))),
+              _offset(offset) {}
 
     ~MergeSorterState() = default;
-
-    void reset_block() {
-        unsorted_block.reset(
-                new MutableBlock(VectorizedUtils::create_empty_columnswithtypename(_row_desc)));
-    }
 
     void build_merge_tree(SortDescription& sort_description);
 
@@ -49,13 +42,12 @@ public:
 
     std::priority_queue<MergeSortCursor> priority_queue;
     std::vector<MergeSortCursorImpl> cursors;
-    std::unique_ptr<MutableBlock> unsorted_block;
+    std::unique_ptr<Block> unsorted_block;
     std::vector<Block> sorted_blocks;
     uint64_t num_rows = 0;
 
 private:
     int64_t _offset;
-    const RowDescriptor& _row_desc;
 };
 
 class Sorter {
@@ -67,7 +59,8 @@ public:
               _offset(offset),
               _pool(pool),
               _is_asc_order(is_asc_order),
-              _nulls_first(nulls_first) {}
+              _nulls_first(nulls_first),
+              _materialize_sort_exprs(vsort_exec_exprs.need_materialize_tuple()) {}
 
     virtual ~Sorter() = default;
 
@@ -76,14 +69,14 @@ public:
         _merge_block_timer = ADD_TIMER(runtime_profile, "MergeBlockTime");
     };
 
-    virtual Status append_block(Block* block, bool* mem_reuse) = 0;
+    virtual Status append_block(Block* block) = 0;
 
     virtual Status prepare_for_read() = 0;
 
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
 
 protected:
-    Status partial_sort(Block& block);
+    Status partial_sort(Block& src_block, Block& dest_block);
 
     SortDescription _sort_description;
     VSortExecExprs& _vsort_exec_exprs;
@@ -97,6 +90,7 @@ protected:
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
+    bool _materialize_sort_exprs;
 };
 
 class FullSorter final : public Sorter {
@@ -107,7 +101,7 @@ public:
 
     ~FullSorter() override = default;
 
-    Status append_block(Block* block, bool* mem_reuse) override;
+    Status append_block(Block* block) override;
 
     Status prepare_for_read() override;
 

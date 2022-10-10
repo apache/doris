@@ -30,6 +30,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -42,7 +43,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -57,39 +57,28 @@ public class StatisticsJobManager {
      */
     private final Map<Long, StatisticsJob> idToStatisticsJob = Maps.newConcurrentMap();
 
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
-    public void readLock() {
-        lock.readLock().lock();
-    }
-
-    public void readUnlock() {
-        lock.readLock().unlock();
-    }
-
-    private void writeLock() {
-        lock.writeLock().lock();
-    }
-
-    private void writeUnlock() {
-        lock.writeLock().unlock();
-    }
-
     public Map<Long, StatisticsJob> getIdToStatisticsJob() {
         return idToStatisticsJob;
     }
 
     public void createStatisticsJob(AnalyzeStmt analyzeStmt) throws UserException {
-        // step1: init statistics job by analyzeStmt
-        StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
-        writeLock();
-        try {
-            // step2: check restrict
-            checkRestrict(analyzeStmt.getDbId(), statisticsJob.getTblIds());
-            // step3: create it
-            createStatisticsJob(statisticsJob);
-        } finally {
-            writeUnlock();
+        // The current statistics are only used for CBO test,
+        // and are not available to users. (work in progress)
+        // TODO(wzt): Further tests are needed
+        boolean enableCboStatistics = ConnectContext.get()
+                .getSessionVariable().getEnableCboStatistics();
+        if (enableCboStatistics) {
+            // step1: init statistics job by analyzeStmt
+            StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
+            synchronized (this) {
+                // step2: check restrict
+                checkRestrict(analyzeStmt.getDbId(), statisticsJob.getTblIds());
+                // step3: create it
+                createStatisticsJob(statisticsJob);
+            }
+        } else {
+            throw new UserException("Statistics are not yet stable, if you want to enable statistics,"
+                    + " use 'set enable_cbo_statistics=true' to enable it.");
         }
     }
 
@@ -169,6 +158,9 @@ public class StatisticsJobManager {
                 }
                 if (jobState == null || jobState == statisticsJob.getJobState()) {
                     List<Comparable> showInfo = statisticsJob.getShowInfo(null);
+                    if (showInfo == null || showInfo.isEmpty()) {
+                        continue;
+                    }
                     results.add(showInfo);
                 }
             }
@@ -187,6 +179,9 @@ public class StatisticsJobManager {
                         set.retainAll(tblIds);
                         for (long tblId : set) {
                             List<Comparable> showInfo = statisticsJob.getShowInfo(tblId);
+                            if (showInfo == null || showInfo.isEmpty()) {
+                                continue;
+                            }
                             results.add(showInfo);
                         }
                     }

@@ -154,7 +154,6 @@ public class ResourceMgrTest {
         Map<String, String> copiedS3Properties = Maps.newHashMap(s3Properties);
         copiedS3Properties.put("s3_region", s3Region);
         copiedS3Properties.remove("type");
-        alterResourceStmt = new AlterResourceStmt(s3ResName, copiedS3Properties);
         // current not support modify s3 property
         // mgr.alterResource(alterResourceStmt);
         // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("s3_region"));

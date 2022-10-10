@@ -34,7 +34,7 @@ CREATE MATERIALIZED VIEW
 
 This statement is used to create a materialized view.
 
-This operation is an asynchronous operation. After the submission is successful, you need to view the job progress through [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW.md). After displaying FINISHED, you can use the `desc [table_name] all` command to view the schema of the materialized view.
+This operation is an asynchronous operation. After the submission is successful, you need to view the job progress through [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW). After displaying FINISHED, you can use the `desc [table_name] all` command to view the schema of the materialized view.
 
 grammar:
 
@@ -113,7 +113,7 @@ duplicate key (k1,k2,k3,k4)
 distributed BY hash(k4) buckets 3
 properties("replication_num" = "1");
 ```
-attention：The partition and distributed columns  must be key column in mv
+attention：If the materialized view contains partitioned and distributed columns of the Base table, these columns must be used as key columns in the materialized view
 
 1. Create a materialized view that contains only the columns of the original table (k1, k2)
 

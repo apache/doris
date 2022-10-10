@@ -31,7 +31,8 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
                                    const ParquetReadColumn& column,
                                    const tparquet::RowGroup& row_group,
                                    std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                                   std::unique_ptr<ParquetColumnReader>& reader) {
+                                   std::unique_ptr<ParquetColumnReader>& reader,
+                                   size_t max_buf_size) {
     if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
         return Status::Corruption("not supported type");
     }
@@ -39,13 +40,13 @@ Status ParquetColumnReader::create(FileReader* file, FieldSchema* field,
         tparquet::ColumnChunk chunk = row_group.columns[field->children[0].physical_column_index];
         ArrayColumnReader* array_reader = new ArrayColumnReader(ctz);
         array_reader->init_column_metadata(chunk);
-        RETURN_IF_ERROR(array_reader->init(file, field, &chunk, row_ranges));
+        RETURN_IF_ERROR(array_reader->init(file, field, &chunk, row_ranges, max_buf_size));
         reader.reset(array_reader);
     } else {
         tparquet::ColumnChunk chunk = row_group.columns[field->physical_column_index];
         ScalarColumnReader* scalar_reader = new ScalarColumnReader(ctz);
         scalar_reader->init_column_metadata(chunk);
-        RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, row_ranges));
+        RETURN_IF_ERROR(scalar_reader->init(file, field, &chunk, row_ranges, max_buf_size));
         reader.reset(scalar_reader);
     }
     return Status::OK();
@@ -64,6 +65,7 @@ void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end
                                                 std::list<RowRange>& read_ranges) {
     if (_row_ranges.size() == 0) {
         read_ranges.emplace_back(start_index, end_index);
+        return;
     }
     int index = _row_range_index;
     while (index < _row_ranges.size()) {
@@ -84,9 +86,10 @@ void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end
 }
 
 Status ScalarColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                                std::vector<RowRange>& row_ranges) {
+                                std::vector<RowRange>& row_ranges, size_t max_buf_size) {
     _stream_reader =
-            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
+            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size(),
+                                         std::min((size_t)_metadata->size(), max_buf_size));
     _row_ranges = row_ranges;
     _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, field, _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());
@@ -121,7 +124,9 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
             (*std::move(doris_column)).mutate().get());
     MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    NullMap& map_data = nullable_column->get_null_map_data();
+    NullMap& map_data_column = nullable_column->get_null_map_data();
+    auto origin_size = map_data_column.size();
+    map_data_column.resize(origin_size + num_values);
 
     if (_chunk_reader->max_def_level() > 0) {
         LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
@@ -132,7 +137,7 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
             bool is_null = def_level == 0;
             // fill NullMap
             for (int i = 0; i < loop_read; ++i) {
-                map_data.emplace_back(is_null);
+                map_data_column[origin_size + has_read + i] = (UInt8)is_null;
             }
             // decode data
             if (is_null) {
@@ -145,7 +150,7 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
         }
     } else {
         for (int i = 0; i < num_values; ++i) {
-            map_data.emplace_back(false);
+            map_data_column[origin_size + i] = (UInt8) false;
         }
         RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, num_values));
     }
@@ -174,7 +179,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         *read_rows = 0;
     } else {
         // load page data to decode or skip values
-        RETURN_IF_ERROR(_chunk_reader->load_page_date_idempotent());
+        RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
         size_t has_read = 0;
         for (auto& range : read_ranges) {
             // generate the skipped values
@@ -210,9 +215,10 @@ void ArrayColumnReader::_reserve_def_levels_buf(size_t size) {
 }
 
 Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                               std::vector<RowRange>& row_ranges) {
+                               std::vector<RowRange>& row_ranges, size_t max_buf_size) {
     _stream_reader =
-            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size());
+            new BufferedFileStreamReader(file, _metadata->start_offset(), _metadata->size(),
+                                         std::min((size_t)_metadata->size(), max_buf_size));
     _row_ranges = row_ranges;
     _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, &field->children[0], _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());
@@ -252,7 +258,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
     CHECK(doris_column->is_nullable());
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
             (*std::move(doris_column)).mutate().get());
-    NullMap& map_data = nullable_column->get_null_map_data();
+    NullMap& map_data_column = nullable_column->get_null_map_data();
     MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
 
     // generate array offset
@@ -292,8 +298,11 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             size_t scan_values =
                     element_offsets[offset_index + scan_rows] - element_offsets[offset_index];
             // null array, should ignore the last offset in element_offsets
+            auto origin_size = map_data_column.size();
+            map_data_column.resize(origin_size + scan_rows);
             for (int i = offset_index; i < offset_index + scan_rows; ++i) {
-                map_data.emplace_back(definitions[element_offsets[i]] == _NULL_ARRAY);
+                map_data_column[origin_size + i] =
+                        (UInt8)(definitions[element_offsets[i]] == _NULL_ARRAY);
             }
             // fill array offset, should skip a value when parsing null array
             _fill_array_offset(data_column, element_offsets, offset_index, scan_rows);
@@ -335,14 +344,23 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
     level_t* definitions = _def_levels_buf.get();
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
             (*std::move(doris_column)).mutate().get());
-    NullMap& map_data = nullable_column->get_null_map_data();
+    NullMap& map_data_column = nullable_column->get_null_map_data();
     MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
+    size_t null_map_size = 0;
     for (int i = _def_offset; i < _def_offset + read_values; ++i) {
         // should skip _EMPTY_ARRAY and _NULL_ARRAY
+        if (definitions[i] == _CONCRETE_ELEMENT || definitions[i] == _NULL_ELEMENT) {
+            null_map_size++;
+        }
+    }
+    auto origin_size = map_data_column.size();
+    map_data_column.resize(origin_size + null_map_size);
+    size_t null_map_idx = origin_size;
+    for (int i = _def_offset; i < _def_offset + read_values; ++i) {
         if (definitions[i] == _CONCRETE_ELEMENT) {
-            map_data.emplace_back(false);
+            map_data_column[null_map_idx++] = (UInt8) false;
         } else if (definitions[i] == _NULL_ELEMENT) {
-            map_data.emplace_back(true);
+            map_data_column[null_map_idx++] = (UInt8) true;
         }
     }
     // column with null values

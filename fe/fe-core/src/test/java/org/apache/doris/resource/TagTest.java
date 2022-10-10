@@ -40,6 +40,8 @@ public class TagTest {
     @Test
     public void testTagName3() throws AnalysisException {
         Tag.create("unknown", "test1");
+        Tag.create("unknown", "Test1");
+        Tag.create("unknown", "tTest1");
     }
 
     @Test

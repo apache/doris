@@ -53,6 +53,7 @@ struct ResultFileOptions {
     //But in order to consider the compatibility when upgrading, so add a bool to check
     //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
     bool is_refactor_before_flag = false;
+    std::string orc_schema;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -92,6 +93,9 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.parquet_version) {
             parquet_version = t_opt.parquet_version;
+        }
+        if (t_opt.__isset.orc_schema) {
+            orc_schema = t_opt.orc_schema;
         }
     }
 };

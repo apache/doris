@@ -60,3 +60,8 @@ hdfsFs = "hdfs://127.0.0.1:9000"
 hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"
+
+// broker load test config
+enableBrokerLoad=false
+ak=""
+sk=""

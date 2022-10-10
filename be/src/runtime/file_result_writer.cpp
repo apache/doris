@@ -231,6 +231,7 @@ Status FileResultWriter::append_row_batch(const RowBatch* batch) {
 Status FileResultWriter::_write_parquet_file(const RowBatch& batch) {
     RETURN_IF_ERROR(_parquet_writer->write(batch));
     // split file if exceed limit
+    _current_written_bytes = _parquet_writer->written_len();
     return _create_new_file_if_exceed_size();
 }
 
@@ -407,7 +408,6 @@ Status FileResultWriter::_create_new_file_if_exceed_size() {
 Status FileResultWriter::_close_file_writer(bool done, bool only_close) {
     if (_parquet_writer != nullptr) {
         _parquet_writer->close();
-        _current_written_bytes = _parquet_writer->written_len();
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         delete _parquet_writer;
         _parquet_writer = nullptr;

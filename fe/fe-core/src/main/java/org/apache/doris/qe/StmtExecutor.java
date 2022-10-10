@@ -344,6 +344,13 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
+    public String getProxyStatus() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.name();
+        }
+        return masterOpExecutor.getProxyStatus();
+    }
+
     public boolean isQueryStmt() {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
@@ -1005,7 +1012,7 @@ public class StmtExecutor implements ProfileWriter {
                 } else if (expr instanceof FloatLiteral) {
                     data.add(LiteralUtils.getStringValue((FloatLiteral) expr));
                 } else if (expr instanceof DecimalLiteral) {
-                    data.add(((DecimalLiteral) expr).getValue().stripTrailingZeros().toPlainString());
+                    data.add(((DecimalLiteral) expr).getValue().toPlainString());
                 } else if (expr instanceof ArrayLiteral) {
                     data.add(LiteralUtils.getStringValue((ArrayLiteral) expr));
                 } else {

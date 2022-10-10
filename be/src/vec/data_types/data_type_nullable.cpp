@@ -86,17 +86,17 @@ Status DataTypeNullable::from_string(ReadBuffer& rb, IColumn* column) const {
 //  <null array>: is_null1 | is_null2 | ...
 //  <values array>: value1 | value2 | ...>
 int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                            int data_version) const {
+                                                            int be_exec_version) const {
     int64_t size = sizeof(uint32_t);
     size += sizeof(bool) * column.size();
     size += nested_data_type->get_uncompressed_serialized_bytes(
             assert_cast<const ColumnNullable&>(*column.convert_to_full_column_if_const())
                     .get_nested_column(),
-            data_version);
+            be_exec_version);
     return size;
 }
 
-char* DataTypeNullable::serialize(const IColumn& column, char* buf, int data_version) const {
+char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
 
@@ -107,11 +107,11 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int data_ver
     memcpy(buf, col.get_null_map_data().data(), column.size() * sizeof(bool));
     buf += column.size() * sizeof(bool);
     // data values
-    return nested_data_type->serialize(col.get_nested_column(), buf, data_version);
+    return nested_data_type->serialize(col.get_nested_column(), buf, be_exec_version);
 }
 
 const char* DataTypeNullable::deserialize(const char* buf, IColumn* column,
-                                          int data_version) const {
+                                          int be_exec_version) const {
     ColumnNullable* col = assert_cast<ColumnNullable*>(column);
     // row num
     uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
@@ -122,7 +122,7 @@ const char* DataTypeNullable::deserialize(const char* buf, IColumn* column,
     buf += row_num * sizeof(bool);
     // data values
     IColumn& nested = col->get_nested_column();
-    return nested_data_type->deserialize(buf, &nested, data_version);
+    return nested_data_type->deserialize(buf, &nested, be_exec_version);
 }
 
 void DataTypeNullable::to_pb_column_meta(PColumnMeta* col_meta) const {

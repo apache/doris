@@ -38,26 +38,21 @@ RowGroupReader::~RowGroupReader() {
 
 Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
                             std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
-    VLOG_DEBUG << "Row group id: " << _row_group_id;
-    RETURN_IF_ERROR(_init_column_readers(schema, row_ranges, col_offsets));
-    return Status::OK();
-}
-
-Status RowGroupReader::_init_column_readers(
-        const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
-        std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
+    const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
+    const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
+    size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
     for (auto& read_col : _read_columns) {
         auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, read_col, _row_group_meta,
-                                                    row_ranges, _ctz, reader));
+                                                    row_ranges, _ctz, reader, max_buf_size));
         auto col_iter = col_offsets.find(read_col._parquet_col_id);
         if (col_iter != col_offsets.end()) {
             tparquet::OffsetIndex oi = col_iter->second;
             reader->add_offset_index(&oi);
         }
         if (reader == nullptr) {
-            VLOG_DEBUG << "Init row group reader failed";
+            VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
         }
         _column_readers[read_col._file_slot_name] = std::move(reader);
@@ -65,7 +60,8 @@ Status RowGroupReader::_init_column_readers(
     return Status::OK();
 }
 
-Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_eof) {
+Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_rows,
+                                  bool* _batch_eof) {
     size_t batch_read_rows = 0;
     bool has_eof = false;
     int col_idx = 0;
@@ -91,10 +87,20 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, bool* _batch_
         has_eof = col_eof;
         col_idx++;
     }
+    *read_rows = batch_read_rows;
     _read_rows += batch_read_rows;
     *_batch_eof = has_eof;
     // use data fill utils read column data to column ptr
     return Status::OK();
+}
+
+ParquetColumnReader::Statistics RowGroupReader::statistics() {
+    ParquetColumnReader::Statistics st;
+    for (auto& reader : _column_readers) {
+        auto ost = reader.second->statistics();
+        st.merge(ost);
+    }
+    return st;
 }
 
 } // namespace doris::vectorized

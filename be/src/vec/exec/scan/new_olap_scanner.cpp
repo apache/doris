@@ -36,7 +36,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
 Status NewOlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
@@ -67,7 +67,7 @@ Status NewOlapScanner::prepare(
         _tablet_schema->copy_from(*_tablet->tablet_schema());
 
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
-        if (!olap_scan_node.columns_desc.empty() &&
+        if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             // Originally scanner get TabletSchema from tablet object in BE.
             // To support lightweight schema change for adding / dropping columns,
@@ -130,7 +130,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     bool single_version =
@@ -147,12 +147,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
                       ->rowset()
                       ->rowset_meta()
                       ->is_segments_overlapping());
-
+    auto real_parent = reinterpret_cast<NewOlapScanNode*>(_parent);
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
-        _tablet_reader_params.direct_mode = _aggregation || single_version;
+        _tablet_reader_params.direct_mode =
+                _aggregation || single_version ||
+                real_parent->_olap_scan_node.__isset.push_down_agg_type_opt;
     }
 
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
@@ -161,6 +163,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
+    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt)
+        _tablet_reader_params.push_down_agg_type_opt =
+                real_parent->_olap_scan_node.push_down_agg_type_opt;
     _tablet_reader_params.version = Version(0, _version);
 
     // Condition

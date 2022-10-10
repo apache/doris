@@ -44,8 +44,8 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 }
 
-MutableColumnPtr ColumnNullable::get_shinked_column() {
-    return ColumnNullable::create(get_nested_column_ptr()->get_shinked_column(),
+MutableColumnPtr ColumnNullable::get_shrinked_column() {
+    return ColumnNullable::create(get_nested_column_ptr()->get_shrinked_column(),
                                   get_null_map_column_ptr());
 }
 
@@ -570,6 +570,16 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     if (is_column_nullable(*column)) {
         return reinterpret_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
     }
+
+    if (is_column_const(*column)) {
+        auto& column_nested = assert_cast<const ColumnConst&>(*column).get_data_column_ptr();
+        if (is_column_nullable(*column_nested)) {
+            return ColumnConst::create(
+                    assert_cast<const ColumnNullable&>(*column_nested).get_nested_column_ptr(),
+                    column->size());
+        }
+    }
+
     return column;
 }
 

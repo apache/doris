@@ -1259,6 +1259,8 @@ public class Env {
 
         checkCurrentNodeExist();
 
+        checkBeExecVersion();
+
         editLog.rollEditLog();
 
         // Log meta_version
@@ -1397,6 +1399,8 @@ public class Env {
         partitionInMemoryInfoCollector.start();
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
+        this.statisticsJobScheduler.start();
+        this.statisticsTaskScheduler.start();
     }
 
     // start threads that should running on all FE
@@ -1504,6 +1508,15 @@ public class Env {
         } else if (fe.getRole() != role) {
             LOG.error("current node role is {} not match with frontend recorded role {}. will exit", role,
                     fe.getRole());
+            System.exit(-1);
+        }
+    }
+
+    private void checkBeExecVersion() {
+        if (Config.be_exec_version < Config.min_be_exec_version
+                || Config.be_exec_version > Config.max_be_exec_version) {
+            LOG.error("be_exec_version={} is not supported, please set be_exec_version in interval [{}, {}]",
+                    Config.be_exec_version, Config.min_be_exec_version, Config.max_be_exec_version);
             System.exit(-1);
         }
     }

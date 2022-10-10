@@ -52,12 +52,9 @@ FileScanner::FileScanner(RuntimeState* state, RuntimeProfile* profile,
 }
 
 Status FileScanner::open() {
-    RETURN_IF_ERROR(_init_expr_ctxes());
-
     _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
-
-    return Status::OK();
+    return _init_expr_ctxes();
 }
 
 void FileScanner::reg_conjunct_ctxs(const TupleId& tupleId,
@@ -127,7 +124,9 @@ void FileScanner::close() {
     if (_vpre_filter_ctx_ptr) {
         (*_vpre_filter_ctx_ptr)->close(_state);
     }
-    COUNTER_UPDATE(_rows_read_counter, _read_row_counter);
+    if (_rows_read_counter) {
+        COUNTER_UPDATE(_rows_read_counter, _read_row_counter);
+    }
 }
 
 Status FileScanner::init_block(vectorized::Block* block) {

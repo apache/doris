@@ -34,7 +34,7 @@ suite("test_unique_table_debug_data") {
             distributed by hash(a) buckets 16
             properties(
                 "replication_allocation" = "tag.location.default:1",
-                "disable_auto_compaction" = "false"
+                "disable_auto_compaction" = "true"
             );
         """
 
@@ -46,6 +46,7 @@ suite("test_unique_table_debug_data") {
     sql "insert into ${tbName} values(1,1),(2,1);"
     sql "insert into ${tbName} values(1,11),(2,11);"
     sql "insert into ${tbName} values(3,1);"
+    sql "sync"
 
     qt_select_init "select * from ${tbName} order by a, b"
 
@@ -70,11 +71,19 @@ suite("test_unique_table_debug_data") {
 
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_select_batch_delete "select * from ${tbName} order by a, b"
 
     // delete rows with a = 2:
     sql "delete from ${tbName} where a = 2;"
+    sql "sync"
     qt_select_sql_delete "select * from ${tbName} order by a, b"
+
+    // enable skip_delete_predicate, rows deleted with delete statement is returned:
+    sql "SET skip_delete_predicate=true"
+    qt_select_skip_delete1 "select * from ${tbName} order by a, b"
+
+    sql "SET skip_delete_predicate=false"
 
     // enable skip_storage_engine_merge and select, rows deleted with delete statement is not returned:
     sql "SET skip_storage_engine_merge=true"
@@ -82,7 +91,7 @@ suite("test_unique_table_debug_data") {
 
     // enable skip_delete_predicate, rows deleted with delete statement is also returned:
     sql "SET skip_delete_predicate=true"
-    qt_select_skip_delete "select * from ${tbName} order by a, b"
+    qt_select_skip_delete2 "select * from ${tbName} order by a, b"
 
     sql "DROP TABLE ${tbName}"
 }

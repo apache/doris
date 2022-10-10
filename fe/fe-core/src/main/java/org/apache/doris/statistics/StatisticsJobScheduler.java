@@ -78,7 +78,8 @@ public class StatisticsJobScheduler extends MasterDaemon {
             = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_job_num);
 
     public StatisticsJobScheduler() {
-        super("Statistics job scheduler", 0);
+        super("Statistics job scheduler",
+                Config.statistic_job_scheduler_execution_interval_ms);
     }
 
     @Override
@@ -146,15 +147,15 @@ public class StatisticsJobScheduler extends MasterDaemon {
 
         for (Long tblId : tblIds) {
             Optional<Table> optionalTbl = db.getTable(tblId);
-            if (!optionalTbl.isPresent()) {
-                LOG.warn("Table(id={}) not found in the database {}", tblId, db.getFullName());
-                continue;
-            }
-            Table table = optionalTbl.get();
-            if (!table.isPartitioned()) {
-                getStatsTaskByTable(job, tblId);
+            if (optionalTbl.isPresent()) {
+                Table table = optionalTbl.get();
+                if (!table.isPartitioned()) {
+                    getStatsTaskByTable(job, tblId);
+                } else {
+                    getStatsTaskByPartition(job, tblId);
+                }
             } else {
-                getStatsTaskByPartition(job, tblId);
+                LOG.warn("Table(id={}) not found in the database {}", tblId, db.getFullName());
             }
         }
     }
@@ -169,6 +170,11 @@ public class StatisticsJobScheduler extends MasterDaemon {
     private void getStatsTaskByTable(StatisticsJob job, long tableId) throws DdlException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(job.getDbId());
         OlapTable table = (OlapTable) db.getTableOrDdlException(tableId);
+
+        if (table.getDataSize() == 0) {
+            LOG.info("Do not collect statistics for empty table {}", table.getName());
+            return;
+        }
 
         Map<Long, List<String>> tblIdToColName = job.getTableIdToColumnName();
         List<String> colNames = tblIdToColName.get(tableId);
@@ -201,7 +207,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
         for (String colName : colNames) {
             Column column = table.getColumn(colName);
             if (column == null) {
-                LOG.info("column {} not found in table {}", colName, table.getName());
+                LOG.info("Column {} not found in table {}", colName, table.getName());
                 continue;
             }
             Type colType = column.getType();
@@ -322,6 +328,11 @@ public class StatisticsJobScheduler extends MasterDaemon {
             Partition partition = table.getPartition(partitionName);
             if (partition == null) {
                 LOG.info("Partition {} not found in the table {}", partitionName, table.getName());
+                continue;
+            }
+            if (partition.getDataSize() == 0) {
+                LOG.info("Do not collect statistics for empty partition {} in the table {}",
+                        partitionName, table.getName());
                 continue;
             }
 

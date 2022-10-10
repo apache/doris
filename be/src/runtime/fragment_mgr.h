@@ -96,6 +96,9 @@ public:
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
 
+    void _set_scan_concurrency(const TExecPlanFragmentParams& params,
+                               QueryFragmentsCtx* fragments_ctx);
+
     bool _is_scan_node(const TPlanNodeType::type& type);
 
     // This is input params
@@ -109,6 +112,7 @@ private:
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
     // query id -> QueryFragmentsCtx
     std::unordered_map<TUniqueId, std::shared_ptr<QueryFragmentsCtx>> _fragments_ctx_map;
+    std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;

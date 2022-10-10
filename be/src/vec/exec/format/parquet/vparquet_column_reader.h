@@ -21,12 +21,8 @@
 
 #include "schema_desc.h"
 #include "vparquet_column_chunk_reader.h"
-#include "vparquet_reader.h"
 
 namespace doris::vectorized {
-
-struct RowRange;
-class ParquetReadColumn;
 
 class ParquetColumnMetadata {
 public:
@@ -49,6 +45,52 @@ private:
 
 class ParquetColumnReader {
 public:
+    struct Statistics {
+        Statistics()
+                : read_time(0),
+                  read_calls(0),
+                  read_bytes(0),
+                  decompress_time(0),
+                  decompress_cnt(0),
+                  decode_header_time(0),
+                  decode_value_time(0),
+                  decode_dict_time(0),
+                  decode_level_time(0) {}
+
+        Statistics(BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs)
+                : read_time(fs.read_time),
+                  read_calls(fs.read_calls),
+                  read_bytes(fs.read_bytes),
+                  decompress_time(cs.decompress_time),
+                  decompress_cnt(cs.decompress_cnt),
+                  decode_header_time(cs.decode_header_time),
+                  decode_value_time(cs.decode_value_time),
+                  decode_dict_time(cs.decode_dict_time),
+                  decode_level_time(cs.decode_level_time) {}
+
+        int64_t read_time;
+        int64_t read_calls;
+        int64_t read_bytes;
+        int64_t decompress_time;
+        int64_t decompress_cnt;
+        int64_t decode_header_time;
+        int64_t decode_value_time;
+        int64_t decode_dict_time;
+        int64_t decode_level_time;
+
+        void merge(Statistics& statistics) {
+            read_time += statistics.read_time;
+            read_calls += statistics.read_calls;
+            read_bytes += statistics.read_bytes;
+            decompress_time += statistics.decompress_time;
+            decompress_cnt += statistics.decompress_cnt;
+            decode_header_time += statistics.decode_header_time;
+            decode_value_time += statistics.decode_value_time;
+            decode_dict_time += statistics.decode_dict_time;
+            decode_level_time += statistics.decode_level_time;
+        }
+    };
+
     ParquetColumnReader(cctz::time_zone* ctz) : _ctz(ctz) {};
     virtual ~ParquetColumnReader() {
         if (_stream_reader != nullptr) {
@@ -60,9 +102,13 @@ public:
                                     size_t* read_rows, bool* eof) = 0;
     static Status create(FileReader* file, FieldSchema* field, const ParquetReadColumn& column,
                          const tparquet::RowGroup& row_group, std::vector<RowRange>& row_ranges,
-                         cctz::time_zone* ctz, std::unique_ptr<ParquetColumnReader>& reader);
+                         cctz::time_zone* ctz, std::unique_ptr<ParquetColumnReader>& reader,
+                         size_t max_buf_size);
     void init_column_metadata(const tparquet::ColumnChunk& chunk);
     void add_offset_index(tparquet::OffsetIndex* offset_index) { _offset_index = offset_index; }
+    Statistics statistics() {
+        return Statistics(_stream_reader->statistics(), _chunk_reader->statistics());
+    }
     virtual void close() = 0;
 
 protected:
@@ -84,7 +130,7 @@ public:
     ScalarColumnReader(cctz::time_zone* ctz) : ParquetColumnReader(ctz) {};
     ~ScalarColumnReader() override { close(); };
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                std::vector<RowRange>& row_ranges);
+                std::vector<RowRange>& row_ranges, size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, size_t batch_size,
                             size_t* read_rows, bool* eof) override;
     Status _skip_values(size_t num_values);
@@ -97,7 +143,7 @@ public:
     ArrayColumnReader(cctz::time_zone* ctz) : ParquetColumnReader(ctz) {};
     ~ArrayColumnReader() override { close(); };
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                std::vector<RowRange>& row_ranges);
+                std::vector<RowRange>& row_ranges, size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, size_t batch_size,
                             size_t* read_rows, bool* eof) override;
     void close() override;

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -50,7 +51,7 @@ public class Substring extends ScalarFunction implements ImplicitCastInputTypes,
     }
 
     public Substring(Expression str, Expression pos) {
-        super("substring", str, pos);
+        super("substring", str, pos, Literal.of(Integer.MAX_VALUE));
     }
 
     public Expression getSource() {

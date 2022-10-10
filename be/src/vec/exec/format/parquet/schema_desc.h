@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
 #include "runtime/types.h"
 
 namespace doris::vectorized {
@@ -81,6 +80,8 @@ private:
     TypeDescriptor convert_to_doris_type(tparquet::LogicalType logicalType);
 
     TypeDescriptor convert_to_doris_type(tparquet::ConvertedType::type convertedType);
+
+    TypeDescriptor get_doris_type(const tparquet::SchemaElement& physical_schema);
 
 public:
     FieldDescriptor() = default;

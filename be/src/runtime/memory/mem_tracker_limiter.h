@@ -75,9 +75,7 @@ public:
         // but it may not actually alloc physical memory, which is not expected in mem hook fail.
         //
         // TODO: In order to ensure no OOM, currently reserve 200M, and then use the free mem in /proc/meminfo to ensure no OOM.
-        if (PerfCounters::get_vm_rss() - static_cast<int64_t>(MemInfo::allocator_cache_mem()) +
-                            bytes >=
-                    MemInfo::mem_limit() ||
+        if (MemInfo::proc_mem_no_allocator_cache() + bytes >= MemInfo::mem_limit() ||
             PerfCounters::get_vm_rss() + bytes >= MemInfo::hard_mem_limit()) {
             return true;
         }
@@ -181,6 +179,8 @@ private:
     WARN_UNUSED_RESULT
     bool try_consume(int64_t bytes, std::string& failed_msg);
 
+    void consume_local(int64_t bytes);
+
     // When the accumulated untracked memory value exceeds the upper limit,
     // the current value is returned and set to 0.
     // Thread safety.
@@ -273,15 +273,18 @@ inline int64_t MemTrackerLimiter::add_untracked_mem(int64_t bytes) {
     return 0;
 }
 
+inline void MemTrackerLimiter::consume_local(int64_t bytes) {
+    if (bytes == 0) return;
+    for (auto& tracker : _all_ancestors) {
+        if (tracker->label() == "Process") return;
+        tracker->_consumption->add(bytes);
+    }
+}
+
 inline void MemTrackerLimiter::cache_consume_local(int64_t bytes) {
     if (bytes == 0) return;
     int64_t consume_bytes = add_untracked_mem(bytes);
-    if (consume_bytes != 0) {
-        for (auto& tracker : _all_ancestors) {
-            if (tracker->label() == "Process") return;
-            tracker->_consumption->add(consume_bytes);
-        }
-    }
+    consume_local(consume_bytes);
 }
 
 inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_msg) {

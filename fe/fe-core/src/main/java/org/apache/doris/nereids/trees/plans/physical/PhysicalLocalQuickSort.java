@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 
@@ -56,9 +57,9 @@ public class PhysicalLocalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhy
      */
     public PhysicalLocalQuickSort(List<OrderKey> orderKeys,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, CHILD_TYPE child) {
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_LOCAL_QUICK_SORT, orderKeys, groupExpression,
-                logicalProperties, physicalProperties, child);
+                logicalProperties, physicalProperties, statsDeriveResult, child);
     }
 
     public List<OrderKey> getOrderKeys() {
@@ -87,9 +88,10 @@ public class PhysicalLocalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhy
     }
 
     @Override
-    public PhysicalLocalQuickSort<CHILD_TYPE> withPhysicalProperties(PhysicalProperties physicalProperties) {
+    public PhysicalLocalQuickSort<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult) {
         return new PhysicalLocalQuickSort<>(orderKeys, Optional.empty(),
-                getLogicalProperties(), physicalProperties, child());
+                getLogicalProperties(), physicalProperties, statsDeriveResult, child());
     }
 
     @Override

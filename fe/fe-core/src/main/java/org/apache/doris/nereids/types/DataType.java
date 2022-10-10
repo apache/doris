@@ -165,6 +165,12 @@ public abstract class DataType implements AbstractDataType {
                 return FloatType.INSTANCE;
             case "double":
                 return DoubleType.INSTANCE;
+            case "decimal":
+                return DecimalType.SYSTEM_DEFAULT;
+            case "char":
+                return CharType.INSTANCE;
+            case "varchar":
+                return VarcharType.SYSTEM_DEFAULT;
             case "text":
             case "string":
                 return StringType.INSTANCE;
@@ -303,16 +309,48 @@ public abstract class DataType implements AbstractDataType {
         return 0;
     }
 
-    public boolean isDate() {
-        return this instanceof DateType;
+    public boolean isBooleanType() {
+        return this instanceof BooleanType;
+    }
+
+    public boolean isTinyIntType() {
+        return this instanceof TinyIntType;
+    }
+
+    public boolean isSmallIntType() {
+        return this instanceof SmallIntType;
     }
 
     public boolean isIntType() {
         return this instanceof IntegerType;
     }
 
+    public boolean isBigIntType() {
+        return this instanceof BigIntType;
+    }
+
+    public boolean isLargeIntType() {
+        return this instanceof LargeIntType;
+    }
+
+    public boolean isFloatType() {
+        return this instanceof FloatType;
+    }
+
+    public boolean isDoubleType() {
+        return this instanceof DoubleType;
+    }
+
+    public boolean isDecimalType() {
+        return this instanceof DecimalType;
+    }
+
     public boolean isDateTime() {
         return this instanceof DateTimeType;
+    }
+
+    public boolean isDate() {
+        return this instanceof DateType;
     }
 
     public boolean isDateType() {
@@ -325,6 +363,14 @@ public abstract class DataType implements AbstractDataType {
 
     public boolean isNumericType() {
         return this instanceof NumericType;
+    }
+
+    public boolean isCharType() {
+        return this instanceof CharType;
+    }
+
+    public boolean isVarcharType() {
+        return this instanceof VarcharType;
     }
 
     public boolean isStringType() {

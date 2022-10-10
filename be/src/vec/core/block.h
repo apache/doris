@@ -70,11 +70,6 @@ private:
     mutable int64_t _compress_time_ns = 0;
 
 public:
-    // When we have some breaking change for serialize/deserialize, we should update data_version.
-    constexpr static int max_data_version = 0;
-    // -1: not contain data_version.
-    //  0: remove ColumnString's terminating zero.
-
     Block() = default;
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);

@@ -37,13 +37,15 @@ import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhys
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
+import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuter;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
-import org.apache.doris.nereids.rules.rewrite.logical.PushDownExpressionsInHashCondition;
-import org.apache.doris.nereids.rules.rewrite.logical.PushDownJoinOtherCondition;
-import org.apache.doris.nereids.rules.rewrite.logical.PushPredicatesThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 
 import com.google.common.collect.ImmutableList;
@@ -64,16 +66,18 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(new AggregateDisassemble())
             .add(new PushdownFilterThroughProject())
             .add(new MergeConsecutiveProjects())
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
-            new PushDownJoinOtherCondition(),
-            new PushPredicatesThroughJoin(),
-            new PushDownExpressionsInHashCondition(),
+            new PushdownJoinOtherCondition(),
+            new PushdownFilterThroughJoin(),
+            new PushdownExpressionsInHashCondition(),
             new PushdownProjectThroughLimit(),
             new PushdownFilterThroughProject(),
+            EliminateOuter.INSTANCE,
             new MergeConsecutiveProjects(),
             new MergeConsecutiveFilters(),
             new MergeConsecutiveLimits());

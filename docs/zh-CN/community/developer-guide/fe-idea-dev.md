@@ -56,6 +56,18 @@ JDK1.8+, IntelliJ IDEA
            2. `brew extract --version='0.13.0' thrift $USER/local-tap`
            3. `brew install thrift@0.13.0`
         参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+        
+        Linux:
+           1.下载源码包：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
+           2.安装依赖：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
+           3.`tar zxvf thrift-0.13.0.tar.gz`
+           4.`cd thrift-0.13.0`
+           5.`./configure --without-tests`
+           6.`make`
+           7.`make install`
+        安装完成后查看版本：thrift --version  
+        注：如果编译过Doris，则不需要安装thrift,可以直接使用 $DORIS_HOME/thirdparty/installed/bin/thrift
+       
 
 4. 如果是Mac 或者 Linux 环境 可以通过 如下命令自动生成代码：
 
@@ -68,6 +80,14 @@ JDK1.8+, IntelliJ IDEA
 
     ```
     cd fe && mvn clean install -DskipTests
+
+    ```
+
+    如果是mac m1版，则执行：
+
+    ```
+    cd fe && mvn clean install -DskipTests -Dos.arch=x86_64
+
     ```
 
 或者通过图形界面运行 maven 命令生成
@@ -76,7 +96,14 @@ JDK1.8+, IntelliJ IDEA
 
 如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
-5. 如果还未生成过help文档，需要跳转到docs目录，执行`sh build_help_zip.sh`，
+5. 如果是 mac m1 版，可能会找不到 python，则创建一个 python3 到 python 的软链：
+
+    ```
+    ln -s /usr/bin/python3 /usr/bin/python
+    ```
+
+
+6. 如果还未生成过help文档，需要跳转到docs目录，执行`sh build_help_zip.sh`，
    然后将build中的help-resource.zip拷贝到fe/fe-core/target/classes中
 
 ## 2.调试

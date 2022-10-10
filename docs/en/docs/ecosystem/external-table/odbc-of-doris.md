@@ -115,6 +115,10 @@ Parameter | Description
 Remark：
 In addition to adding the above parameters to `PROPERTIES`, you can also add parameters specific to each database's ODBC driver implementation, such as `sslverify` for mysql, etc.
 
+>Notes:
+>
+>If you are on SQL Server 2017 and later, because SQL Server 2017 and later have security authentication enabled by default, you need to add `"TrustServerCertificate"="Yes"` when you define ODBC Resources again
+
 ##### Installation and configuration of ODBC driver
 
 
@@ -384,5 +388,4 @@ This is the compatibility problem between MySQL database ODBC driver and existin
  11. Messy code appears when reading and writing emoji emoji in mysql odbc table
 
     The default encoding used by Doris when connecting to odbc tables is utf8, since the default utf8 encoding in mysql is utf8mb3, it can't represent the emoji expressions which need 4-byte encoding. Here need to set `charset`=`utf8mb4` when you create odbc mysql tables, then can read and write emoji normally 😀.
-
 

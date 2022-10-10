@@ -30,7 +30,7 @@ under the License.
 
 [了解Doris Stream Load ](../data-operate/import/import-way/stream-load-manual.md)
 
-[了解更多关于Doris](../)
+[了解更多关于Doris](/zh-CN)
 
 
 ## 安装和编译

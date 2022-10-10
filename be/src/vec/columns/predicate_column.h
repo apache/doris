@@ -97,7 +97,7 @@ private:
             refs[i].data = sv.ptr;
             refs[i].size = sv.len;
         }
-        res_ptr->insert_many_strings(refs, sel_size);
+        res_ptr->insert_many_continuous_strings(refs, sel_size);
     }
 
     void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
@@ -133,22 +133,16 @@ private:
         }
     }
 
-    // note(wb): Write data one by one has a slight performance improvement than memcpy directly
     void insert_many_default_type(const char* data_ptr, size_t num) {
-        T* input_val_ptr = (T*)data_ptr;
-        T* res_val_ptr = (T*)data.get_end_ptr();
-        for (int i = 0; i < num; i++) {
-            res_val_ptr[i] = input_val_ptr[i];
-        }
-        res_val_ptr += num;
-        data.set_end_ptr(res_val_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
     void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        char* res_ptr = (char*)data.get_end_ptr();
-        memcpy(res_ptr, data_ptr, num * sizeof(T));
-        res_ptr += num * sizeof(T);
-        data.set_end_ptr(res_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
 public:

@@ -179,32 +179,43 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
 
 Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
-                                      size_t /*input_rows_count*/) {
-    // values and patterns
+                                      size_t input_rows_count) {
     const auto values_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-    const auto pattern_col =
-            block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-
     const auto* values = check_and_get_column<ColumnString>(values_col.get());
-    const auto* patterns = check_and_get_column<ColumnString>(pattern_col.get());
 
-    if (!values || !patterns) {
+    if (!values) {
         return Status::InternalError("Not supported input arguments types");
     }
-
     // result column
     auto res = ColumnUInt8::create();
     ColumnUInt8::Container& vec_res = res->get_data();
     // set default value to 0, and match functions only need to set 1/true
-    vec_res.resize_fill(values->size());
-
+    vec_res.resize_fill(input_rows_count);
     auto* state = reinterpret_cast<LikeState*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
+    // for constant_substring_fn, use long run length search for performance
+    if (constant_substring_fn ==
+        *(state->function.target<doris::Status (*)(LikeSearchState * state, const StringValue&,
+                                                   const StringValue&, unsigned char*)>())) {
+        RETURN_IF_ERROR(execute_substring(values->get_chars(), values->get_offsets(), vec_res,
+                                          state->function, &state->search_state));
+    } else {
+        const auto pattern_col = block.get_by_position(arguments[1]).column;
 
-    vector_vector(values->get_chars(), values->get_offsets(), patterns->get_chars(),
-                  patterns->get_offsets(), vec_res, state->function, &state->search_state);
-
+        if (const auto* patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
+            RETURN_IF_ERROR(vector_vector(values->get_chars(), values->get_offsets(),
+                                          patterns->get_chars(), patterns->get_offsets(), vec_res,
+                                          state->function, &state->search_state));
+        } else if (const auto* const_patterns =
+                           check_and_get_column<ColumnConst>(pattern_col.get())) {
+            const auto& pattern_val = const_patterns->get_data_at(0);
+            RETURN_IF_ERROR(vector_const(values->get_chars(), values->get_offsets(), &pattern_val,
+                                         vec_res, state->function, &state->search_state));
+        } else {
+            return Status::InternalError("Not supported input arguments types");
+        }
+    }
     block.replace_by_position(result, std::move(res));
     return Status::OK();
 }
@@ -219,48 +230,64 @@ Status FunctionLikeBase::close(FunctionContext* context,
     return Status::OK();
 }
 
+Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
+                                           const ColumnString::Offsets& value_offsets,
+                                           ColumnUInt8::Container& result, const LikeFn& function,
+                                           LikeSearchState* search_state) {
+    // treat continuous multi string data as a long string data
+    const UInt8* begin = values.data();
+    const UInt8* end = begin + values.size();
+    const UInt8* pos = begin;
+
+    /// Current index in the array of strings.
+    size_t i = 0;
+    size_t needle_size = search_state->substring_pattern.get_pattern_length();
+
+    /// We will search for the next occurrence in all strings at once.
+    while (pos < end) {
+        // search return matched substring start offset
+        pos = (UInt8*)search_state->substring_pattern.search((char*)pos, end - pos);
+        if (pos >= end) break;
+
+        /// Determine which index it refers to.
+        /// begin + value_offsets[i] is the start offset of string at i+1
+        while (begin + value_offsets[i] < pos) ++i;
+
+        /// We check that the entry does not pass through the boundaries of strings.
+        if (pos + needle_size <= begin + value_offsets[i]) {
+            result[i] = 1;
+        }
+
+        // move to next string offset
+        pos = begin + value_offsets[i];
+        ++i;
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::vector_const(const ColumnString::Chars& values,
+                                      const ColumnString::Offsets& value_offsets,
+                                      const StringRef* pattern_val, ColumnUInt8::Container& result,
+                                      const LikeFn& function, LikeSearchState* search_state) {
+    const auto size = value_offsets.size();
+
+    for (int i = 0; i < size; ++i) {
+        char* val_raw_str = (char*)(&values[value_offsets[i - 1]]);
+        UInt32 val_str_size = value_offsets[i] - value_offsets[i - 1];
+
+        RETURN_IF_ERROR((function)(search_state, StringValue(val_raw_str, val_str_size),
+                                   *reinterpret_cast<const StringValue*>(pattern_val), &result[i]));
+    }
+    return Status::OK();
+}
+
 Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
                                        const ColumnString::Offsets& value_offsets,
                                        const ColumnString::Chars& patterns,
                                        const ColumnString::Offsets& pattern_offsets,
                                        ColumnUInt8::Container& result, const LikeFn& function,
                                        LikeSearchState* search_state) {
-    // for constant_substring_fn, use long run length search for performance
-    if (constant_substring_fn ==
-        *(function.target<doris::Status (*)(LikeSearchState * state, const StringValue&,
-                                            const StringValue&, unsigned char*)>())) {
-        // treat continous multi string data as a long string data
-        const UInt8* begin = values.data();
-        const UInt8* end = begin + values.size();
-        const UInt8* pos = begin;
-
-        /// Current index in the array of strings.
-        size_t i = 0;
-        size_t needle_size = search_state->substring_pattern.get_pattern_length();
-
-        /// We will search for the next occurrence in all strings at once.
-        while (pos < end) {
-            // search return matched substring start offset
-            pos = (UInt8*)search_state->substring_pattern.search((char*)pos, end - pos);
-            if (pos >= end) break;
-
-            /// Determine which index it refers to.
-            /// begin + value_offsets[i] is the start offset of string at i+1
-            while (begin + value_offsets[i] < pos) ++i;
-
-            /// We check that the entry does not pass through the boundaries of strings.
-            if (pos + needle_size <= begin + value_offsets[i]) {
-                result[i] = 1;
-            }
-
-            // move to next string offset
-            pos = begin + value_offsets[i];
-            ++i;
-        }
-
-        return Status::OK();
-    }
-
     const auto size = value_offsets.size();
 
     for (int i = 0; i < size; ++i) {
