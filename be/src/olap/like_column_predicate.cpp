@@ -84,7 +84,7 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
                     if (null_map_data[idx]) {
-                        new_size += !_opposite;
+                        new_size += _opposite;
                         continue;
                     }
 
@@ -96,14 +96,14 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                 }
             } else {
                 auto* data_array = vectorized::check_and_get_column<
-                                           vectorized::PredicateColumnType<TYPE_STRING>>(column)
+                                           vectorized::PredicateColumnType<TYPE_STRING>>(nested_col)
                                            ->get_data()
                                            .data();
                 for (uint16_t i = 0; i != size; i++) {
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
                     if (null_map_data[idx]) {
-                        new_size += !_opposite;
+                        new_size += _opposite;
                         continue;
                     }
 
