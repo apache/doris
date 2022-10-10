@@ -49,7 +49,6 @@ NewEsScanNode::NewEsScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
         : VScanNode(pool, tnode, descs),
           _tuple_id(tnode.es_scan_node.tuple_id),
           _tuple_desc(nullptr),
-          _scanner_mem_tracker(nullptr),
           _es_profile(nullptr) {
     _output_tuple_id = tnode.es_scan_node.tuple_id;
 }
@@ -78,7 +77,6 @@ Status NewEsScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << NEW_SCAN_NODE_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    _scanner_mem_tracker = std::make_unique<MemTracker>("NewEsScanner");
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
@@ -203,9 +201,8 @@ Status NewEsScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
                 properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
-        NewEsScanner* scanner =
-                new NewEsScanner(_state, this, _limit_per_scanner, _mem_tracker.get(), _tuple_id,
-                                 properties, _docvalue_context, doc_value_mode);
+        NewEsScanner* scanner = new NewEsScanner(_state, this, _limit_per_scanner, _tuple_id,
+                                                 properties, _docvalue_context, doc_value_mode);
 
         _scanner_pool.add(scanner);
         RETURN_IF_ERROR(scanner->prepare(_state));
