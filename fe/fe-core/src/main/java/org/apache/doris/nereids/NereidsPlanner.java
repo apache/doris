@@ -190,25 +190,32 @@ public class NereidsPlanner extends Planner {
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)
             throws AnalysisException {
-        GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
-                () -> new AnalysisException("lowestCostPlans with physicalProperties doesn't exist")).second;
-        List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
+        try {
+            GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
+                    () -> new AnalysisException("lowestCostPlans with physicalProperties doesn't exist")).second;
+            List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
 
-        List<Plan> planChildren = Lists.newArrayList();
-        for (int i = 0; i < groupExpression.arity(); i++) {
-            planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+            List<Plan> planChildren = Lists.newArrayList();
+            for (int i = 0; i < groupExpression.arity(); i++) {
+                planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+            }
+
+            Plan plan = groupExpression.getPlan().withChildren(planChildren);
+            if (!(plan instanceof PhysicalPlan)) {
+                throw new AnalysisException("Result plan must be PhysicalPlan");
+            }
+
+            // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
+            PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                    groupExpression.getOutputProperties(physicalProperties),
+                    groupExpression.getOwnerGroup().getStatistics());
+            return physicalPlan;
+        } catch (Exception e) {
+            String memo = cascadesContext.getMemo().toString();
+            LOG.warn(memo);
+            LOG.warn("<--|Error|--------->", e);
+            throw new AnalysisException("<--|Error|--------->", e);
         }
-
-        Plan plan = groupExpression.getPlan().withChildren(planChildren);
-        if (!(plan instanceof PhysicalPlan)) {
-            throw new AnalysisException("Result plan must be PhysicalPlan");
-        }
-
-        // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
-        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
-                groupExpression.getOutputProperties(physicalProperties),
-                groupExpression.getOwnerGroup().getStatistics());
-        return physicalPlan;
     }
 
     @Override
