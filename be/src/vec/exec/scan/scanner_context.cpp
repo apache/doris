@@ -220,7 +220,8 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     // before we call the following if() block.
     // So we need "scanner->set_counted_down()" to avoid "_num_unfinished_scanners" being decreased twice by
     // same scanner.
-    if (scanner->need_to_close() && scanner->set_counted_down() && (--_num_unfinished_scanners) == 0) {
+    if (scanner->need_to_close() && scanner->set_counted_down() &&
+        (--_num_unfinished_scanners) == 0) {
         _is_finished = true;
         _blocks_queue_added_cv.notify_one();
     }
