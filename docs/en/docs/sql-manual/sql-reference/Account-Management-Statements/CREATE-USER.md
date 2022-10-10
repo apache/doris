@@ -115,13 +115,13 @@ If a role (ROLE) is specified, the newly created user will be automatically gran
 7. Create a user, set the password to expire after 10 days, and set the account to be locked for one day if you log in failed for 3 times.
 
     ```sql
-    CREATe USER 'jack' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAYS FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1;
+    CREATE USER 'jack' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAYS FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1;
     ```
 
 8. Create a user and restrict non-resetable passwords to the last 8 passwords used.
 
     ```sql
-    CREATe USER 'jack' IDENTIFIED BY '12345' PASSWORD_HISTORY 8;
+    CREATE USER 'jack' IDENTIFIED BY '12345' PASSWORD_HISTORY 8;
     ```
 
 ### Keywords
