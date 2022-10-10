@@ -43,6 +43,7 @@ class PInFilter;
 class PMinMaxFilter;
 class HashJoinNode;
 class RuntimeProfile;
+class BloomFilterFuncBase;
 
 namespace vectorized {
 class VExpr;
@@ -190,7 +191,9 @@ public:
 
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                          UniqueId fragment_id = UniqueId(0, 0), int node_id = -1);
+                          UniqueId fragment_id, bool init_bloom_filter = false, int node_id = -1);
+
+    BloomFilterFuncBase* get_bloomfilter() const;
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
