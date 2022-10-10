@@ -93,6 +93,16 @@ public:
         _conjunct_ctxs = conjunct_ctxs;
     }
 
+    // return false if _is_counted_down is already true,
+    // otherwise, set _is_counted_down to true and return true.
+    bool set_counted_down() {
+        if (_is_counted_down) {
+            return false;
+        }
+        _is_counted_down = true;
+        return true;
+    }
+
 protected:
     void _discard_conjuncts() {
         if (_vconjunct_ctx) {
@@ -151,6 +161,8 @@ protected:
     std::vector<ExprContext*> _conjunct_ctxs;
 
     bool _is_load = false;
+    // set to true after decrease the "_num_unfinished_scanners" in scanner context
+    bool _is_counted_down = false;
 };
 
 } // namespace doris::vectorized
