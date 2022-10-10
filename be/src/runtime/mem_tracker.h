@@ -186,7 +186,7 @@ public:
         for (i = all_trackers_.size() - 1; i >= 0; --i) {
             MemTracker* tracker = all_trackers_[i];
             const int64_t limit = tracker->GetLimit(mode);
-            if (limit < 0 || !config::enable_cancel_query) {
+            if (limit < 0) {
                 tracker->consumption_->add(bytes); // No limit at this tracker.
             } else {
                 // If TryConsume fails, we can try to GC, but we may need to try several times if
