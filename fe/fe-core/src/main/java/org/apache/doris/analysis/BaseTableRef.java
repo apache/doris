@@ -76,5 +76,6 @@ public class BaseTableRef extends TableRef {
         analyzeJoin(analyzer);
         analyzeSortHints();
         analyzeHints();
+        analyzeSample();
     }
 }

@@ -86,7 +86,7 @@ public class TableRef implements ParseNode, Writable {
     // contains the fully-qualified implicit alias to ensure that aliases_[0] always
     // uniquely identifies this table ref regardless of whether it has an explicit alias.
     protected String[] aliases;
-    protected List<Long> sampleTabletIds = Lists.newArrayList();
+    protected List<Long> sampleTabletIds;
     // Indicates whether this table ref is given an explicit alias,
     protected boolean hasExplicitAlias;
     protected JoinOperator joinOp;
@@ -95,7 +95,7 @@ public class TableRef implements ParseNode, Writable {
     protected Expr onClause;
     // the ref to the left of us, if we're part of a JOIN clause
     protected TableRef leftTblRef;
-    protected TableSample tableSample = null;
+    protected TableSample tableSample;
 
     // true if this TableRef has been analyzed; implementing subclass should set it to true
     // at the end of analyze() call.
@@ -402,6 +402,13 @@ public class TableRef implements ParseNode, Writable {
         }
         for (String hint : sortHints) {
             sortColumn = hint;
+        }
+    }
+
+    protected void analyzeSample() throws AnalysisException {
+        if ((sampleTabletIds != null || tableSample != null) && desc.getTable().getType() != TableIf.TableType.OLAP) {
+            throw new AnalysisException("Sample table " + desc.getTable().getName()
+                + " type " + desc.getTable().getType() + " is not OLAP");
         }
     }
 

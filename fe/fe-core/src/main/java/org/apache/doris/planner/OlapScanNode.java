@@ -45,7 +45,6 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -773,10 +772,7 @@ public class OlapScanNode extends ScanNode {
      * And add the manually specified Tablet id to the selected Tablet.
      * simpleTabletNums = simpleRows / partitionNums / (partitionRows / partitionTabletNums)
      */
-    public void computeSampleTabletIds() throws UserException {
-        if (desc.getTable().getType() != TableIf.TableType.OLAP) {
-            throw new AnalysisException("Sample table type " + desc.getTable().getType() + " is not OLAP");
-        }
+    public void computeSampleTabletIds() {
         if (desc.getSampleTabletIds() != null) {
             sampleTabletIds.addAll(desc.getSampleTabletIds());
         }

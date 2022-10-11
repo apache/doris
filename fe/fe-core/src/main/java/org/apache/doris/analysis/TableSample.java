@@ -34,12 +34,11 @@ public class TableSample implements ParseNode {
 
     private final Long sampleValue;
     private final boolean isPercent;
-    private final Long seek;
+    private Long seek = -1L;
 
     public TableSample(boolean isPercent, Long sampleValue) {
         this.sampleValue = sampleValue;
         this.isPercent = isPercent;
-        this.seek = -1L;
     }
 
     public TableSample(boolean isPercent, Long sampleValue, Long seek) {
