@@ -513,6 +513,10 @@ int main(int argc, char** argv) {
         // The process tracker print log usage interval is 1s to avoid a large number of tasks being
         // canceled when the process exceeds the mem limit, resulting in too many duplicate logs.
         doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
+        if (doris::config::memory_verbose_track) {
+            doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage("routine");
+            doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
+        }
         sleep(1);
     }
 
