@@ -1295,7 +1295,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
 
         new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
         ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
         rowset_reader->next_block(ref_block.get());
