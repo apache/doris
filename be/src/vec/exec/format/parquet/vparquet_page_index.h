@@ -32,6 +32,7 @@ public:
                                     int page_idx, RowRange* row_range);
     Status collect_skipped_page_range(tparquet::ColumnIndex* column_index,
                                       ColumnValueRangeType& col_val_range,
+                                      const FieldSchema* col_schema,
                                       std::vector<int>& skipped_ranges);
     bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
     Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
