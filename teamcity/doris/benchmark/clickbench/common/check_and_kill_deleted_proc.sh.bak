@@ -1,0 +1,23 @@
+#!/bin/bash
+
+env_name=$1
+be_list=(`ps -ef|grep palo_be|grep -v grep|awk '{print $2}'`)
+
+echo "===================================="
+echo "START TO DETECT RESIDUAL PROCESSES!"
+
+for be_pid in ${be_list[@]}
+do
+    install_path=$(ls -l /proc/${be_pid}/cwd |awk '{print $11}') 
+    #echo $install_path
+    if [[ "$install_path" =~ "deleted" ]] && [[ "$install_path" =~ "$env_name" ]];then
+	echo "Detected residual processes: ${be_pid} ${install_path}"
+	echo "kill residual processes: kill -9 ${be_pid}"
+        kill -9 $be_pid
+    fi
+
+done
+
+echo "FINISH DETECT RESIDUAL PROCESSES!"
+echo "==================================="
+
