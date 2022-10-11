@@ -99,4 +99,4 @@ INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 
 
 * Doris 主代码编译，请参阅 [编译文档](../../docs/install/source-install/compilation.md)
 * Flink Doris Connector 编译，请参阅 [编译文档](../../docs/ecosystem/flink-doris-connector.md)
-* Spark Doris Connector 编译，请参阅 [编译文档](../../docs/ecosystem/spark-doris-connector.md)
+* Spark Doris Connector 编译，请参阅 [编译文档](/docs/ecosystem/spark-doris-connector)
