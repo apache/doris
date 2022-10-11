@@ -112,6 +112,11 @@ under the License.
                     <id>oracleReleases</id>
                     <url>http://download.oracle.com/maven</url>
                 </repository>
+                <!-- for huawei obs sdk -->
+                <repository>
+                    <id>huawei-obs-sdk</id>
+                    <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+                </repository>
             </repositories>
             <pluginRepositories>
                 <!-- for cup-maven-plugin -->
@@ -267,6 +272,18 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-aws</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/com.huaweicloud/esdk-obs-java-bundle -->
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>esdk-obs-java-bundle</artifactId>
+            <version>3.21.8</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-huaweicloud -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-huaweicloud</artifactId>
             <version>${hadoop.version}</version>
         </dependency>
     </dependencies>
