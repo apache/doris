@@ -555,7 +555,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
     public boolean enableLocalExchange = false;
 
-
     /**
      * For debugg purpose, dont' merge unique key and agg key when reading data.
      */

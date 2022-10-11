@@ -59,7 +59,7 @@ public class LdapPrivsCheckerTest {
     private Env env;
 
     @Mocked
-    private PaloAuth paloAuth;
+    private PaloAuth auth;
 
     @Mocked
     private LdapManager ldapManager;
@@ -79,9 +79,9 @@ public class LdapPrivsCheckerTest {
 
                 env.getAuth();
                 minTimes = 0;
-                result = paloAuth;
+                result = auth;
 
-                paloAuth.getLdapManager();
+                auth.getLdapManager();
                 minTimes = 0;
                 result = ldapManager;
 
@@ -170,7 +170,9 @@ public class LdapPrivsCheckerTest {
 
     @Test
     public void testGetGlobalPrivFromLdap() {
-        Assert.assertEquals(PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.CREATE_PRIV, PaloPrivilege.USAGE_PRIV).toString(),
+        Assert.assertEquals(
+                PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.CREATE_PRIV, PaloPrivilege.USAGE_PRIV)
+                        .toString(),
                 LdapPrivsChecker.getGlobalPrivFromLdap(userIdent).toString());
     }
 

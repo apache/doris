@@ -131,7 +131,7 @@ public class S3ResourceTest {
         Assert.assertEquals("2000", s3Resource.getProperty("s3_connection_timeout_ms"));
     }
 
-    @Test (expected = DdlException.class)
+    @Test(expected = DdlException.class)
     public void testAbnormalResource(@Mocked Env env, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {

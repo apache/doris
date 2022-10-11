@@ -17,40 +17,56 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class PrivInfo implements Writable {
+    @SerializedName(value = "userIdent")
     private UserIdentity userIdent;
+    @SerializedName(value = "tblPattern")
     private TablePattern tblPattern;
+    @SerializedName(value = "resourcePattern")
     private ResourcePattern resourcePattern;
+    @SerializedName(value = "privs")
     private PrivBitSet privs;
+    @SerializedName(value = "passwd")
     private byte[] passwd;
+    @SerializedName(value = "role")
     private String role;
+    @SerializedName(value = "passwordOptions")
+    private PasswordOptions passwordOptions;
 
     private PrivInfo() {
 
     }
 
-    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role) {
+    // For create user/set password/create role/drop role
+    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
+            PasswordOptions passwordOptions) {
         this.userIdent = userIdent;
         this.tblPattern = null;
         this.resourcePattern = null;
         this.privs = privs;
         this.passwd = passwd;
         this.role = role;
+        this.passwordOptions = passwordOptions;
     }
 
+    // For grant/revoke
     public PrivInfo(UserIdentity userIdent, TablePattern tablePattern, PrivBitSet privs,
             byte[] passwd, String role) {
         this.userIdent = userIdent;
@@ -61,8 +77,9 @@ public class PrivInfo implements Writable {
         this.role = role;
     }
 
+    // For grant/revoke resource priv
     public PrivInfo(UserIdentity userIdent, ResourcePattern resourcePattern, PrivBitSet privs,
-                    byte[] passwd, String role) {
+            byte[] passwd, String role) {
         this.userIdent = userIdent;
         this.tblPattern = null;
         this.resourcePattern = resourcePattern;
@@ -95,59 +112,27 @@ public class PrivInfo implements Writable {
         return role;
     }
 
+    public PasswordOptions getPasswordOptions() {
+        return passwordOptions == null ? PasswordOptions.UNSET_OPTION : passwordOptions;
+    }
+
     public static PrivInfo read(DataInput in) throws IOException {
-        PrivInfo info = new PrivInfo();
-        info.readFields(in);
-        return info;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_113) {
+            PrivInfo info = new PrivInfo();
+            info.readFields(in);
+            return info;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), PrivInfo.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        if (userIdent != null) {
-            out.writeBoolean(true);
-            userIdent.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (tblPattern != null) {
-            out.writeBoolean(true);
-            tblPattern.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (resourcePattern != null) {
-            out.writeBoolean(true);
-            resourcePattern.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (privs != null) {
-            out.writeBoolean(true);
-            privs.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (passwd != null) {
-            out.writeBoolean(true);
-            out.writeInt(passwd.length);
-            out.write(passwd);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (!Strings.isNullOrEmpty(role)) {
-            out.writeBoolean(true);
-            Text.writeString(out, role);
-        } else {
-            out.writeBoolean(false);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             userIdent = UserIdentity.read(in);
         }
@@ -174,6 +159,6 @@ public class PrivInfo implements Writable {
             role = Text.readString(in);
         }
 
+        passwordOptions = PasswordOptions.UNSET_OPTION;
     }
-
 }
