@@ -211,6 +211,12 @@ When done, the Schema becomes:
 +-----------+-------+-------------+------+------+---------+-------+
 ```
 
+Because the Schema Chanage job is an asynchronous operation, only one Schema chanage job can be performed on the same table at the same time. To check the operation status of the job, you can use the following command
+
+```sql
+SHOW ALTER TABLE COLUMN\G;
+````
+
 ## Notice
 
 * Only one Schema Change job can be running on a table at a time.
