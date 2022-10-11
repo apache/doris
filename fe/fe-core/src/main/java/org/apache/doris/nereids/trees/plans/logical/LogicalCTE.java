@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -66,7 +67,9 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public String toString() {
-        return null;
+        return Utils.toSqlString("LogicalCTE",
+            "withClauses", withClauses
+        );
     }
 
     @Override

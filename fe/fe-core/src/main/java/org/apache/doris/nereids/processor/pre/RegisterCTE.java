@@ -49,7 +49,7 @@ public class RegisterCTE extends PlanPreprocessor {
     private final CTEContext cteContext;
 
     public RegisterCTE(CTEContext cteContext) {
-        this.cteContext = Objects.requireNonNull(cteContext, "cteContext can not be null");
+        this.cteContext = Objects.requireNonNull(cteContext, "cteContext cannot be null");
     }
 
     @Override

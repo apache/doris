@@ -69,13 +69,21 @@ import java.util.stream.Stream;
  */
 public class BindSlotReference implements AnalysisRuleFactory {
     private final Optional<Scope> outerScope;
+    private final CTEContext cteContext;
 
     public BindSlotReference() {
         this(Optional.empty());
     }
 
-    public BindSlotReference(Optional<Scope> outputScope) {
-        this.outerScope = Objects.requireNonNull(outputScope, "outerScope can not be null");
+    public BindSlotReference(Optional<Scope> outerScope) {
+        this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
+        this.cteContext = new CTEContext();
+    }
+
+    public BindSlotReference(CTEContext cteContext, Optional<Scope> outerScope) {
+        this.cteContext = Objects.requireNonNull(cteContext, "cteContext cannot be null");
+        this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
+
     }
 
     private Scope toScope(List<Slot> slots) {
@@ -199,7 +207,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         List<Slot> boundedSlots = inputs.stream()
                 .flatMap(input -> input.getOutput().stream())
                 .collect(Collectors.toList());
-        return (E) new SlotBinder(toScope(boundedSlots), plan, cascadesContext).bind(expr);
+        return (E) new SlotBinder(toScope(boundedSlots), plan, cascadesContext, cteContext).bind(expr);
     }
 
     private class SlotBinder extends SubExprAnalyzer {
@@ -207,6 +215,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext) {
             super(scope, cascadesContext);
+            this.plan = plan;
+        }
+
+        public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext, CTEContext cteContext) {
+            super(scope, cascadesContext, cteContext);
             this.plan = plan;
         }
 
@@ -377,10 +390,18 @@ public class BindSlotReference implements AnalysisRuleFactory {
     private static class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
         private final Scope scope;
         private final CascadesContext cascadesContext;
+        private final CTEContext cteContext;
 
         public SubExprAnalyzer(Scope scope, CascadesContext cascadesContext) {
             this.scope = scope;
             this.cascadesContext = cascadesContext;
+            this.cteContext = new CTEContext();
+        }
+
+        public SubExprAnalyzer(Scope scope, CascadesContext cascadesContext, CTEContext cteContext) {
+            this.scope = scope;
+            this.cascadesContext = cascadesContext;
+            this.cteContext = cteContext;
         }
 
         @Override
@@ -461,7 +482,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     .newCascadesContext((cascadesContext.getStatementContext()));
             Scope subqueryScope = genScopeWithSubquery(expr);
             subqueryContext
-                    .newAnalyzer(Optional.of(subqueryScope))
+                    .newAnalyzer(Optional.of(subqueryScope), cteContext)
                     .analyze();
             return new AnalyzedResult((LogicalPlan) subqueryContext.getMemo().copyOut(false),
                     subqueryScope.getCorrelatedSlots());

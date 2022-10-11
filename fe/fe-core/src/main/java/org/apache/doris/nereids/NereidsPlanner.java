@@ -144,7 +144,7 @@ public class NereidsPlanner extends Planner {
         optimize();
 
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
-        
+
         // post-process physical plan out of memo, just for future use.
         return postProcess(physicalPlan);
     }

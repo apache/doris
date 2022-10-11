@@ -145,4 +145,41 @@ suite("cte") {
         FROM cte1, cte2
     """
 
+    // using CTE in From Clause
+    order_qt_cte_8 """
+        WITH cte1 (skey, sname) AS (
+            SELECT *
+            FROM supplier
+            WHERE s_suppkey < 30
+        ), cte2 (skey2) AS (
+            SELECT s_suppkey, s_name
+            FROM supplier
+            WHERE s_suppkey < 20
+        )
+        SELECT *
+        FROM (
+            SELECT *
+            FROM cte2
+        ) t1
+    """
+
+    // using CTE in subqueries
+    order_qt_cte_9 """
+        WITH cte1 (skey, sname) AS (
+            SELECT *
+            FROM supplier
+            WHERE s_suppkey < 30
+        ), cte2 (skey2) AS (
+            SELECT s_suppkey, s_name
+            FROM supplier
+            WHERE s_suppkey < 20
+        )
+        SELECT *
+        FROM supplier
+        WHERE s_suppkey in (
+            SELECT skey2
+            FROM cte2
+        )
+    """
+
 }

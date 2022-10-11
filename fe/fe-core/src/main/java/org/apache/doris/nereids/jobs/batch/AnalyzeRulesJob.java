@@ -45,7 +45,7 @@ public class AnalyzeRulesJob extends BatchRulesJob {
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(
                         new BindRelation(cteContext),
-                        new BindSlotReference(scope),
+                        new BindSlotReference(cteContext, scope),
                         new BindFunction(),
                         new ResolveHaving(),
                         new ProjectToGlobalAggregate())

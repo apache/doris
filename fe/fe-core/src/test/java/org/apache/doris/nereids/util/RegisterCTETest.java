@@ -66,6 +66,23 @@ public class RegisterCTETest extends TestWithFeService {
     }
 
     @Test
+    public void cte_test_3() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("  WITH cte1 AS (\n"
+                    + "  \tSELECT *\n"
+                    + "  \tFROM supplier\n"
+                    + "  \tWHERE s_suppkey < 5\n"
+                    + "), cte2 AS (\n"
+                    + "  \tSELECT s_suppkey\n"
+                    + "  \tFROM cte1\n"
+                    + "  \tWHERE s_suppkey < 3\n"
+                    + ")\n"
+                    + "  SELECT *\n"
+                    + "  FROM supplier\n"
+                    + "  WHERE s_suppkey in (select s_suppkey from cte2)");
+    }
+
+    @Test
     public void cte_exception_test_1() {
         try {
             PlanChecker.from(connectContext)
@@ -139,6 +156,27 @@ public class RegisterCTETest extends TestWithFeService {
         } catch (Exception e) {
             Assertions.assertTrue(e instanceof RuntimeException);
             Assertions.assertTrue(e.getMessage().contains("does not exist in database"));
+        }
+    }
+
+    @Test
+    public void cte_exception_test_5() {
+        try {
+            PlanChecker.from(connectContext)
+                    .checkPlannerResult("  WITH cte1 AS (\n"
+                        + "  \tSELECT s_suppkey\n"
+                        + "  \tFROM supplier\n"
+                        + "  \tWHERE s_suppkey < 5\n"
+                        + "), cte1 AS (\n"
+                        + "  \tSELECT s_suppkey\n"
+                        + "  \tFROM supplier\n"
+                        + "  \tWHERE s_suppkey < 3\n"
+                        + ")\n"
+                        + "SELECT *\n"
+                        + "FROM cte1");
+        } catch (Exception e) {
+            Assertions.assertTrue(e instanceof AnalysisException);
+            Assertions.assertTrue(e.getMessage().contains("cannot be used more than once"));
         }
     }
 }

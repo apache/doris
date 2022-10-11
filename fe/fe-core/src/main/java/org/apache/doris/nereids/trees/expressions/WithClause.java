@@ -64,11 +64,19 @@ public class WithClause extends Expression {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append(name + " ");
         columnAliases.ifPresent(column -> stringBuilder.append(column.stream()
-                .collect(Collectors.joining(", ", "(", ") ")).toString()));
-        stringBuilder.append("AS (");
-        stringBuilder.append(query.toString());
-        stringBuilder.append(")");
-        return null;
+                .collect(Collectors.joining(", ", "(", ") "))));
+        stringBuilder.append("AS (" + query + ")");
+        return stringBuilder.toString();
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("(name: " + name + "), ");
+        columnAliases.ifPresent(column -> stringBuilder.append(column.stream()
+                .collect(Collectors.joining(", ", "(columnAliases: ", "), "))));
+        stringBuilder.append("query: (" + query + ")");
+        return stringBuilder.toString();
     }
 
     @Override

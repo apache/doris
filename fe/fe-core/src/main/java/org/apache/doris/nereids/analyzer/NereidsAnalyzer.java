@@ -36,23 +36,16 @@ import java.util.Optional;
 public class NereidsAnalyzer {
     private final CascadesContext cascadesContext;
     private final Optional<Scope> outerScope;
-
-    private CTEContext cteContext;
+    private final CTEContext cteContext;
 
     public NereidsAnalyzer(CascadesContext cascadesContext) {
-        this(cascadesContext, Optional.empty());
+        this(cascadesContext, Optional.empty(), new CTEContext());
     }
 
-    public NereidsAnalyzer(CascadesContext cascadesContext, CTEContext cteContext) {
-        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
-        this.cteContext = cteContext;
-        this.outerScope = Optional.empty();
-    }
-
-    public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope) {
-        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
-        this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
-        this.cteContext = new CTEContext();
+    public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope, CTEContext cteContext) {
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext cannot be null");
+        this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
+        this.cteContext = Objects.requireNonNull(cteContext, "cteContext cannot be null");
     }
 
     /**
@@ -71,11 +64,12 @@ public class NereidsAnalyzer {
         return cascadesContext;
     }
 
+    public Optional<Scope> getOuterScope() {
+        return outerScope;
+    }
+
     public CTEContext getCteContext() {
         return cteContext;
     }
 
-    public Optional<Scope> getOuterScope() {
-        return outerScope;
-    }
 }

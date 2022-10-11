@@ -85,11 +85,11 @@ public class CascadesContext {
     }
 
     public NereidsAnalyzer newAnalyzer(CTEContext cteContext) {
-        return new NereidsAnalyzer(this, cteContext);
+        return new NereidsAnalyzer(this, Optional.empty(), cteContext);
     }
 
-    public NereidsAnalyzer newAnalyzer(Optional<Scope> outerScope) {
-        return new NereidsAnalyzer(this, outerScope);
+    public NereidsAnalyzer newAnalyzer(Optional<Scope> outerScope, CTEContext cteContext) {
+        return new NereidsAnalyzer(this, outerScope, cteContext);
     }
 
     public void pushJob(Job job) {
