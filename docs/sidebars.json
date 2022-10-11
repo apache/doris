@@ -282,7 +282,6 @@
                                 "sql-manual/sql-functions/date-time-functions/yearweek",
                                 "sql-manual/sql-functions/date-time-functions/dayname",
                                 "sql-manual/sql-functions/date-time-functions/monthname",
-                                "sql-manual/sql-functions/date-time-functions/year_floor",
                                 "sql-manual/sql-functions/date-time-functions/hour",
                                 "sql-manual/sql-functions/date-time-functions/minute",
                                 "sql-manual/sql-functions/date-time-functions/second",
