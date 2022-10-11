@@ -82,7 +82,10 @@ public:
     bool eval(const BloomFilter& bf) const;
     bool eval(const segment_v2::BloomFilter* bf) const;
 
-    bool can_do_bloom_filter() const { return op == OP_EQ || op == OP_IN || op == OP_IS; }
+    bool can_do_bloom_filter() const {
+        return op == OP_EQ || op == OP_IN
+            || (op == OP_IS && operand_field->is_null());
+    }
 
     CondOp op = OP_NULL;
     // valid when op is not OP_IN and OP_NOT_IN
