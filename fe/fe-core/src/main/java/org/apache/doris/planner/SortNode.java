@@ -64,6 +64,8 @@ public class SortNode extends PlanNode {
     // info_.sortTupleSlotExprs_ substituted with the outputSmap_ for materialized slots in init().
     List<Expr> resolvedTupleExprs;
 
+    private boolean isUnusedExprRemoved = false;
+
     public void setIsAnalyticSort(boolean v) {
         isAnalyticSort = v;
     }
@@ -122,6 +124,20 @@ public class SortNode extends PlanNode {
         Expr.getIds(info.getOrderingExprs(), null, ids);
     }
 
+    private void removeUnusedExprs() {
+        if (!isUnusedExprRemoved) {
+            if (resolvedTupleExprs != null) {
+                List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+                for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
+                    if (!slotDescriptorList.get(i).isMaterialized()) {
+                        resolvedTupleExprs.remove(i);
+                    }
+                }
+            }
+            isUnusedExprRemoved = true;
+        }
+    }
+
     @Override
     public void setCompactData(boolean on) {
         this.compactData = on;
@@ -156,13 +172,8 @@ public class SortNode extends PlanNode {
 
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
-        List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+        removeUnusedExprs();
         List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
-        for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-            if (!slotDescriptorList.get(i).isMaterialized()) {
-                materializedTupleExprs.remove(i);
-            }
-        }
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
@@ -187,13 +198,8 @@ public class SortNode extends PlanNode {
                 info.getIsAscOrder(),
                 info.getNullsFirst());
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
+        removeUnusedExprs();
         if (resolvedTupleExprs != null) {
-            List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
-            for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-                if (!slotDescriptorList.get(i).isMaterialized()) {
-                    resolvedTupleExprs.remove(i);
-                }
-            }
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
         }
         
