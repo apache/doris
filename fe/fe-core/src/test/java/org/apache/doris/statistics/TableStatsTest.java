@@ -48,8 +48,8 @@ public class TableStatsTest {
         tableStatsUnderTest.updateTableStats(statsTypeToValue);
 
         // Verify the results
-        long rowCount = tableStatsUnderTest.getRowCount();
-        Assert.assertEquals(1000, rowCount);
+        double rowCount = tableStatsUnderTest.getRowCount();
+        Assert.assertEquals(1000, rowCount, 0.01);
 
         long dataSize = tableStatsUnderTest.getDataSize();
         Assert.assertEquals(10240, dataSize);
@@ -111,26 +111,26 @@ public class TableStatsTest {
 
         // Run the test
         tableStatsUnderTest.updateColumnStats("columnName", columnType, statsTypeToValue);
-        ColumnStats columnStats = tableStatsUnderTest.getColumnStats("columnName");
+        ColumnStat columnStats = tableStatsUnderTest.getColumnStats("columnName");
 
         // Verify the results
-        long ndv = columnStats.getNdv();
-        Assert.assertEquals(1L, ndv);
+        double ndv = columnStats.getNdv();
+        Assert.assertEquals(1L, ndv, 0.01);
 
-        float avgSize = columnStats.getAvgSize();
+        double avgSize = columnStats.getAvgSizeByte();
         Assert.assertEquals(8.0f, avgSize, 0.0001);
 
-        long maxSize = columnStats.getMaxSize();
-        Assert.assertEquals(8L, maxSize);
+        double maxSize = columnStats.getMaxSizeByte();
+        Assert.assertEquals(8L, maxSize, 0.01);
 
-        long maxValue = columnStats.getMaxValue().getLongValue();
-        Assert.assertEquals(1000, maxValue);
+        double maxValue = columnStats.getMaxValue();
+        Assert.assertEquals(1000, maxValue, 0.01);
 
-        long minValue = columnStats.getMinValue().getLongValue();
-        Assert.assertEquals(0L, minValue);
+        double minValue = columnStats.getMinValue();
+        Assert.assertEquals(0L, minValue, 0.01);
 
-        long numNulls = columnStats.getNumNulls();
-        Assert.assertEquals(2, numNulls);
+        double numNulls = columnStats.getNumNulls();
+        Assert.assertEquals(2, numNulls, 0.01);
     }
 
     @Test
@@ -152,7 +152,7 @@ public class TableStatsTest {
         statsTypeToValue.put(StatsType.DATA_SIZE, "10240");
 
         tableStatsUnderTest.updateTableStats(statsTypeToValue);
-        String[] expectedInfo = {"1000", "10240"};
+        String[] expectedInfo = {"1000.0", "10240"};
 
         // Run the test
         List<String> showInfo = tableStatsUnderTest.getShowInfo();

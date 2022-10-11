@@ -58,7 +58,7 @@ public class PartitionStats {
 
     private long rowCount = -1;
     private long dataSize = -1;
-    private final Map<String, ColumnStats> nameToColumnStats = Maps.newConcurrentMap();
+    private final Map<String, ColumnStat> nameToColumnStats = Maps.newConcurrentMap();
 
     /**
      * Return a default partition statistic.
@@ -91,20 +91,20 @@ public class PartitionStats {
         this.dataSize = dataSize;
     }
 
-    public Map<String, ColumnStats> getNameToColumnStats() {
+    public Map<String, ColumnStat> getNameToColumnStats() {
         return nameToColumnStats;
     }
 
-    public ColumnStats getColumnStats(String columnName) {
+    public ColumnStat getColumnStats(String columnName) {
         return nameToColumnStats.get(columnName);
     }
 
     /**
      * If the column statistics do not exist, the default statistics will be returned.
      */
-    public ColumnStats getColumnStatsOrDefault(String columnName) {
+    public ColumnStat getColumnStatsOrDefault(String columnName) {
         return nameToColumnStats.getOrDefault(columnName,
-                ColumnStats.getDefaultColumnStats());
+                ColumnStat.getDefaultColumnStats());
     }
 
     /**
@@ -142,8 +142,8 @@ public class PartitionStats {
     public void updateColumnStats(String columnName,
                                   Type columnType,
                                   Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        ColumnStats columnStats = getNotNullColumnStats(columnName);
-        columnStats.updateStats(columnType, statsTypeToValue);
+        ColumnStat columnStat = getNotNullColumnStats(columnName);
+        columnStat.updateStats(columnType, statsTypeToValue);
     }
 
     /**
@@ -152,12 +152,12 @@ public class PartitionStats {
      * @param columnName column name
      * @return @ColumnStats
      */
-    private ColumnStats getNotNullColumnStats(String columnName) {
-        ColumnStats columnStats = nameToColumnStats.get(columnName);
-        if (columnStats == null) {
-            columnStats = new ColumnStats();
-            nameToColumnStats.put(columnName, columnStats);
+    public ColumnStat getNotNullColumnStats(String columnName) {
+        ColumnStat columnStat = nameToColumnStats.get(columnName);
+        if (columnStat == null) {
+            columnStat = new ColumnStat();
+            nameToColumnStats.put(columnName, columnStat);
         }
-        return columnStats;
+        return columnStat;
     }
 }

@@ -30,7 +30,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -66,7 +66,7 @@ public class JoinEstimation {
     private static class JoinEstimationResult {
         public boolean forbiddenReducePropagation = false;
         public boolean isReducedByHashJoin = false;
-        public long rowCount = 0;
+        public double rowCount = 0;
     }
 
     /**
@@ -137,7 +137,7 @@ public class JoinEstimation {
         //         .collect(Collectors.toList());
         boolean isReducedByHashJoin = false;
         boolean forbiddenReducePropagation = false;
-        long rowCount;
+        double rowCount;
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
             if (rightStats.isReduced && rightStats.width <= LIMIT_RIGHT_WIDTH) {
                 rowCount = leftStats.getRowCount() / REDUCE_TIMES;
@@ -179,7 +179,7 @@ public class JoinEstimation {
                 forbiddenReducePropagation = better.forbiddenReducePropagation;
                 isReducedByHashJoin = better.isReducedByHashJoin;
             } else {
-                long childRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+                double childRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
                 rowCount = childRowCount;
             }
         } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
@@ -228,7 +228,7 @@ public class JoinEstimation {
     //       we should handle that properly.
     private static long getSemiJoinRowCount(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
             List<Expression> hashConjuncts, JoinType joinType) {
-        long rowCount;
+        double rowCount;
         if (JoinType.RIGHT_SEMI_JOIN.equals(joinType) || JoinType.RIGHT_ANTI_JOIN.equals(joinType)) {
             if (rightStats.getRowCount() == -1) {
                 return -1;
@@ -240,14 +240,14 @@ public class JoinEstimation {
             }
             rowCount = leftStats.getRowCount();
         }
-        Map<Slot, ColumnStats> leftSlotToColStats = leftStats.getSlotToColumnStats();
-        Map<Slot, ColumnStats> rightSlotToColStats = rightStats.getSlotToColumnStats();
+        Map<Slot, ColumnStat> leftSlotToColStats = leftStats.getSlotToColumnStats();
+        Map<Slot, ColumnStat> rightSlotToColStats = rightStats.getSlotToColumnStats();
         double minSelectivity = 1.0;
         for (Expression hashConjunct : hashConjuncts) {
             // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
-            long lhsNdv = leftSlotToColStats.get(removeCast(hashConjunct.child(0))).getNdv();
+            double lhsNdv = leftSlotToColStats.get(removeCast(hashConjunct.child(0))).getNdv();
             lhsNdv = Math.min(lhsNdv, leftStats.getRowCount());
-            long rhsNdv = rightSlotToColStats.get(removeCast(hashConjunct.child(1))).getNdv();
+            double rhsNdv = rightSlotToColStats.get(removeCast(hashConjunct.child(1))).getNdv();
             rhsNdv = Math.min(rhsNdv, rightStats.getRowCount());
             // Skip conjuncts with unknown NDV on either side.
             if (lhsNdv == -1 || rhsNdv == -1) {
@@ -280,17 +280,17 @@ public class JoinEstimation {
         return Math.round(rowCount * minSelectivity);
     }
 
-    private static long getJoinRowCount(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
+    private static double getJoinRowCount(StatsDeriveResult leftStats, StatsDeriveResult rightStats,
             List<Expression> eqConjunctList, JoinType joinType) {
-        long lhsCard = leftStats.getRowCount();
-        long rhsCard = rightStats.getRowCount();
-        Map<Slot, ColumnStats> leftSlotToColumnStats = leftStats.getSlotToColumnStats();
-        Map<Slot, ColumnStats> rightSlotToColumnStats = rightStats.getSlotToColumnStats();
+        double lhsCard = leftStats.getRowCount();
+        double rhsCard = rightStats.getRowCount();
+        Map<Slot, ColumnStat> leftSlotToColumnStats = leftStats.getSlotToColumnStats();
+        Map<Slot, ColumnStat> rightSlotToColumnStats = rightStats.getSlotToColumnStats();
         if (lhsCard == -1 || rhsCard == -1) {
             return lhsCard;
         }
 
-        long result = -1;
+        double result = -1;
         for (Expression eqJoinConjunct : eqConjunctList) {
             Expression left = eqJoinConjunct.child(0);
             if (!(left instanceof SlotReference)) {
@@ -301,19 +301,19 @@ public class JoinEstimation {
                 continue;
             }
             SlotReference leftSlot = (SlotReference) left;
-            ColumnStats leftColStats = leftSlotToColumnStats.get(leftSlot);
+            ColumnStat leftColStats = leftSlotToColumnStats.get(leftSlot);
             if (leftColStats == null) {
                 continue;
             }
             SlotReference rightSlot = (SlotReference) right;
-            ColumnStats rightColStats = rightSlotToColumnStats.get(rightSlot);
+            ColumnStat rightColStats = rightSlotToColumnStats.get(rightSlot);
             if (rightColStats == null) {
                 continue;
             }
             double leftSideNdv = leftColStats.getNdv();
             double rightSideNdv = rightColStats.getNdv();
             long tmpNdv = (long) Math.max(1, Math.max(leftSideNdv, rightSideNdv));
-            long joinCard = tmpNdv == rhsCard ? lhsCard : CheckedMath.checkedMultiply(
+            double joinCard = tmpNdv == rhsCard ? lhsCard : CheckedMath.checkedMultiply(
                     Math.round((lhsCard / Math.max(1, Math.max(leftSideNdv, rightSideNdv)))), rhsCard);
             if (result == -1) {
                 result = joinCard;

@@ -171,4 +171,5 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     public boolean hasUnbound() {
         return this.anyMatch(Unbound.class::isInstance);
     }
+
 }

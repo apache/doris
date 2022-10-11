@@ -227,6 +227,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
 
+    public static final String ENABLE_NEREIDS_STATS_DERIVE_V2 = "enable_nereids_stats_derive_v2";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -585,6 +587,9 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
     public boolean enableCboStatistics = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_STATS_DERIVE_V2)
+    public boolean enableNereidsStatsDeriveV2 = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -1144,6 +1149,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
         this.enableSingleReplicaInsert = enableSingleReplicaInsert;
+    }
+
+    public boolean isEnableNereidsStatsDeriveV2() {
+        return enableNereidsStatsDeriveV2;
+    }
+
+    public void setEnableNereidsStatsDeriveV2(boolean enableNereidsStatsDeriveV2) {
+        this.enableNereidsStatsDeriveV2 = enableNereidsStatsDeriveV2;
     }
 
     /**

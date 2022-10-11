@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -80,13 +81,11 @@ import java.util.stream.Collectors;
 /**
  * Used to calculate the stats for each plan
  */
-public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
-
-    private static final int DEFAULT_AGGREGATE_RATIO = 1000;
+public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Void> {
 
     private final GroupExpression groupExpression;
 
-    private StatsCalculator(GroupExpression groupExpression) {
+    private StatsCalculatorV2(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
     }
 
@@ -94,12 +93,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
      * estimate stats
      */
     public static void estimate(GroupExpression groupExpression) {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableNereidsStatsDeriveV2) {
-            StatsCalculatorV2.estimate(groupExpression);
-            return;
-        }
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
-        statsCalculator.estimate();
+        StatsCalculatorV2 statsCalculatorV2 = new StatsCalculatorV2(groupExpression);
+        statsCalculatorV2.estimate();
     }
 
     private void estimate() {
@@ -251,12 +246,9 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     private StatsDeriveResult computeFilter(Filter filter) {
         StatsDeriveResult stats = groupExpression.getCopyOfChildStats(0);
-        FilterSelectivityCalculator selectivityCalculator =
-                new FilterSelectivityCalculator(stats.getSlotToColumnStats());
-        double selectivity = selectivityCalculator.estimate(filter.getPredicates());
-        stats.updateRowCountBySelectivity(selectivity);
-        stats.isReduced = selectivity < 1.0;
-        return stats;
+        FilterEstimation selectivityCalculator =
+                new FilterEstimation(stats);
+        return selectivityCalculator.estimate(filter.getPredicates());
     }
 
     // TODO: 1. Subtract the pruned partition
@@ -275,10 +267,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             if (colName == null) {
                 throw new RuntimeException("Column name of SlotReference shouldn't be null here");
             }
-            ColumnStat columnStats = tableStats.getColumnStatsOrDefault(colName);
-            slotToColumnStats.put(slotReference, columnStats);
+            ColumnStat columnStat = tableStats.getColumnStatCopy(colName);
+            slotToColumnStats.put(slotReference, columnStat);
         }
-        long rowCount = (long) tableStats.getRowCount();
+        double rowCount = tableStats.getRowCount();
         StatsDeriveResult stats = new StatsDeriveResult(rowCount,
                 new HashMap<>(), new HashMap<>());
         stats.setSlotToColumnStats(slotToColumnStats);
@@ -314,16 +306,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
         // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
-        // List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
+        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         StatsDeriveResult childStats = groupExpression.getCopyOfChildStats(0);
-        // Map<Slot, ColumnStats> childSlotToColumnStats = childStats.getSlotToColumnStats();
-        // long resultSetCount = groupByExpressions.stream()
-        //         .flatMap(expr -> expr.getInputSlots().stream())
-        //         .filter(childSlotToColumnStats::containsKey)
-        //         .map(childSlotToColumnStats::get)
-        //         .map(ColumnStats::getNdv)
-        //         .reduce(1L, (a, b) -> a * b);
-        long resultSetCount = (long) childStats.getRowCount() / DEFAULT_AGGREGATE_RATIO;
+        Map<Slot, ColumnStat> childSlotToColumnStats = childStats.getSlotToColumnStats();
+        double resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
+                .filter(childSlotToColumnStats::containsKey).map(childSlotToColumnStats::get).map(ColumnStat::getNdv)
+                .reduce(1d, (a, b) -> a * b);
         if (resultSetCount <= 0) {
             resultSetCount = 1L;
         }
@@ -336,7 +324,6 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             slotToColumnStats.put(outputExpression.toSlot(), new ColumnStat());
         }
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotToColumnStats);
-        statsDeriveResult.isReduced = true;
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
     }
@@ -373,10 +360,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Map<Slot, ColumnStat> columnStatsMap = oneRowRelation.getProjects()
                 .stream()
                 .map(project -> {
-                    ColumnStat columnStats = new ColumnStat();
-                    columnStats.setNdv(1);
+                    ColumnStat columnStat = new ColumnStat();
+                    columnStat.setNdv(1);
                     // TODO: compute the literal size
-                    return Pair.of(project.toSlot(), columnStats);
+                    return Pair.of(project.toSlot(), columnStat);
                 })
                 .collect(Collectors.toMap(Pair::key, Pair::value));
         int rowCount = 1;
@@ -387,12 +374,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Map<Slot, ColumnStat> columnStatsMap = emptyRelation.getProjects()
                 .stream()
                 .map(project -> {
-                    ColumnStat columnStats = new ColumnStat();
-                    columnStats.setNdv(0);
-                    columnStats.setMaxSizeByte(0);
-                    columnStats.setNumNulls(0);
-                    columnStats.setAvgSizeByte(0);
-                    return Pair.of(project.toSlot(), columnStats);
+                    ColumnStat columnStat = new ColumnStat();
+                    columnStat.setNdv(0);
+                    columnStat.setMaxSizeByte(0);
+                    columnStat.setNumNulls(0);
+                    columnStat.setAvgSizeByte(0);
+                    return Pair.of(project.toSlot(), columnStat);
                 })
                 .collect(Collectors.toMap(Pair::key, Pair::value));
         int rowCount = 0;

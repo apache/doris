@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
@@ -37,7 +36,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -83,16 +82,17 @@ public class DeriveStatsJobTest {
     }
 
     private LogicalOlapScan constructOlapSCan() throws AnalysisException {
-        ColumnStats columnStats1 = new ColumnStats(10, 0, 0, 5,
-                new NullLiteral(), new NullLiteral());
+        ColumnStat columnStats1 = new ColumnStat(10, 0, 0, 5,
+                Double.NaN, Double.NaN);
         new MockUp<TableStats>(TableStats.class) {
             @Mock
-            public ColumnStats getColumnStats(String columnName) {
+            public ColumnStat getColumnStats(String columnName) {
                 return columnStats1;
             }
         };
 
         long tableId1 = 0;
+
         Statistics statistics = new Statistics();
 
         List<String> qualifier = ImmutableList.of("test", "t");
