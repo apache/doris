@@ -131,8 +131,9 @@ Status MemPool::find_chunk(size_t min_size, bool check_limits) {
         DCHECK_GE(next_chunk_size_, INITIAL_CHUNK_SIZE);
         chunk_size = std::max<size_t>(min_size, next_chunk_size_);
     }
-
-    chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
+    if (chunk_size < config::memory_linear_growth_threshold) {
+        chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
+    }
     if (check_limits &&
         !thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->check_limit(
                 chunk_size)) {

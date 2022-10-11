@@ -231,9 +231,9 @@ private:
         // I refers to https://github.com/mcgov/asan_alignment_example.
 
         ChunkInfo& info = chunks_[current_chunk_idx_];
-        int64_t aligned_allocated_bytes =
-                BitUtil::RoundUpToPowerOf2(info.allocated_bytes + DEFAULT_PADDING_SIZE, alignment);
-        if (aligned_allocated_bytes + size <= info.chunk.size) {
+        int64_t aligned_allocated_bytes = BitUtil::RoundUpToMultiplyOfFactor(
+                info.allocated_bytes + DEFAULT_PADDING_SIZE, alignment);
+        if (aligned_allocated_bytes + size + DEFAULT_PADDING_SIZE <= info.chunk.size) {
             // Ensure the requested alignment is respected.
             int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
             uint8_t* result = info.chunk.data + aligned_allocated_bytes;
