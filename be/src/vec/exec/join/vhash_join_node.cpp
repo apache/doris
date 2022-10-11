@@ -329,8 +329,7 @@ struct ProcessHashTableProbe {
                 // prefetch is more useful while matching to multiple rows
                 if (_probe_index + PREFETCH_STEP < _probe_rows)
                     key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                                       _probe_index + PREFETCH_STEP,
-                                                       _arena);
+                                                       _probe_index + PREFETCH_STEP, _arena);
 
                 if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
                     if (!find_result.is_found()) {
