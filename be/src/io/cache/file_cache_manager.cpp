@@ -44,11 +44,11 @@ bool GCContextPerDisk::try_add_file_cache(FileCachePtr cache, int64_t file_size)
     return false;
 }
 
-void GCContextPerDisk::gc_by_disk_size() {
+void GCContextPerDisk::get_gc_file_caches(std::list<FileCachePtr>& result) {
     while (!_lru_queue.empty() && _used_size > _conf_max_size) {
         auto file_cache = _lru_queue.top();
         _used_size -= file_cache->cache_file_size();
-        file_cache->clean_all_cache();
+        result.push_back(file_cache);
         _lru_queue.pop();
     }
 }
@@ -114,10 +114,11 @@ void FileCacheManager::_gc_unused_file_caches(std::list<FileCachePtr>& result) {
                 std::stringstream ss;
                 ss << tablet->tablet_path() << "/" << seg_filename;
                 std::string cache_path = ss.str();
-                if (exist(cache_path)) {
+
+                std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+                if (_file_cache_map.find(cache_path) != _file_cache_map.end()) {
                     continue;
                 }
-
                 auto file_cache = std::make_shared<DummyFileCache>(
                         cache_path, config::file_cache_alive_time_sec);
                 // load cache meta from disk and clean unfinished cache files
@@ -147,32 +148,44 @@ void FileCacheManager::gc_file_caches() {
     std::list<FileCachePtr> dummy_file_list;
     _gc_unused_file_caches(dummy_file_list);
 
-    std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
-    for (auto item : dummy_file_list) {
-        // check again after _cache_map_lock hold
-        if (_file_cache_map.find(item->cache_dir().native()) != _file_cache_map.end()) {
-            continue;
+    {
+        std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+        for (auto item : dummy_file_list) {
+            // check again after _cache_map_lock hold
+            if (_file_cache_map.find(item->cache_dir().native()) != _file_cache_map.end()) {
+                continue;
+            }
+            // sort file cache by last match time
+            _add_file_cache_for_gc_by_disk(contexts, item);
         }
-        // sort file cache by last match time
-        _add_file_cache_for_gc_by_disk(contexts, item);
-    }
 
-    // process file caches in memory
-    for (std::map<std::string, FileCachePtr>::const_iterator iter = _file_cache_map.cbegin();
-         iter != _file_cache_map.cend(); ++iter) {
-        if (iter->second == nullptr) {
-            continue;
+        // process file caches in memory
+        for (std::map<std::string, FileCachePtr>::const_iterator iter = _file_cache_map.cbegin();
+             iter != _file_cache_map.cend(); ++iter) {
+            if (iter->second == nullptr) {
+                continue;
+            }
+            // policy1: GC file cache by timeout
+            iter->second->clean_timeout_cache();
+            // sort file cache by last match time
+            _add_file_cache_for_gc_by_disk(contexts, iter->second);
         }
-        // policy1: GC file cache by timeout
-        iter->second->clean_timeout_cache();
-        // sort file cache by last match time
-        _add_file_cache_for_gc_by_disk(contexts, iter->second);
     }
 
     // policy2: GC file cache by disk size
     if (gc_conf_size > 0) {
         for (size_t i = 0; i < contexts.size(); ++i) {
-            contexts[i].gc_by_disk_size();
+            std::list<FileCachePtr> gc_file_list;
+            contexts[i].get_gc_file_caches(gc_file_list);
+            for (auto item : gc_file_list) {
+                std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+                // for dummy file cache, check already used or not again
+                if (item->is_dummy_file_cache() &&
+                    _file_cache_map.find(item->cache_dir().native()) != _file_cache_map.end()) {
+                    continue;
+                }
+                item->clean_all_cache();
+            }
         }
     }
 }

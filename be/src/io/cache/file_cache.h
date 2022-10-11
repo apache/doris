@@ -46,6 +46,8 @@ public:
 
     virtual Status clean_all_cache() = 0;
 
+    virtual bool is_dummy_file_cache() { return false; }
+
     Status download_cache_to_local(const Path& cache_file, const Path& cache_done_file,
                                    io::FileReaderSPtr remote_file_reader, size_t req_size,
                                    size_t offset = 0);

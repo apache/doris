@@ -56,6 +56,8 @@ public:
 
     Status load_and_clean();
 
+    bool is_dummy_file_cache() override { return true; }
+
 private:
     Status _clean_unfinished_cache();
     void _update_last_mtime(const Path& done_file);
