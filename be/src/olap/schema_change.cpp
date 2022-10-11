@@ -834,8 +834,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     }
 
     for (auto it : swap_idx_map) {
-        new_block->get_by_position(it.second).column.swap(
-                ref_block->get_by_position(it.first).column);
+        new_block->replace_by_position(it.second, ref_block->get_by_position(it.first).column);
     }
 
     return Status::OK();
@@ -1290,15 +1289,15 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
             std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
     auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
-    int origin_columns_size = ref_block->columns();
-
     rowset_reader->next_block(ref_block.get());
     while (ref_block->rows()) {
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
 
-        new_block->clear_column_data();
-        ref_block->clear_column_data(origin_columns_size);
+        new_block =
+            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+        ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+
         rowset_reader->next_block(ref_block.get());
     }
 
@@ -1526,8 +1525,6 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
             std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
     auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
-    int origin_columns_size = ref_block->columns();
-
     auto create_rowset = [&]() -> Status {
         if (blocks.empty()) {
             return Status::OK();
@@ -1571,7 +1568,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
                 std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block()));
         swap(blocks.back(), new_block);
 
-        ref_block->clear_column_data(origin_columns_size);
+        ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
         rowset_reader->next_block(ref_block.get());
     }
 
