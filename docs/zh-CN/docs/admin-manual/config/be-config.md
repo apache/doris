@@ -1378,6 +1378,8 @@ tablet状态缓存的更新间隔，单位：秒
 
 在远程BE 中打开tablet writer的 rpc 超时。 操作时间短，可设置短超时时间
 
+导入过程中，发送一个 Batch（1024行）的 RPC 超时时间。默认 60 秒。因为该 RPC 可能涉及多个 分片内存块的写盘操作，所以可能会因为写盘导致 RPC 超时，可以适当调整这个超时时间来减少超时错误（如 send batch fail 错误）。同时，如果调大 write_buffer_size 配置，也需要适当调大这个参数
+
 ### `tablet_writer_ignore_eovercrowded`
 
 * 类型：bool
@@ -1475,12 +1477,6 @@ txn_lock 分片大小，取值为2^n，n=0,1,2,3,4，  这是一项增强功能�
 
 上传文件最大线程数
 
-### `use_mmap_allocate_chunk`
-
-默认值：false
-
-是否使用 mmap 分配块。 如果启用此功能，最好增加 vm.max_map_count 的值，其默认值为 65530。您可以通过“sysctl -w vm.max_map_count=262144”或“echo 262144 > /proc/sys/vm/”以 root 身份进行操作 max_map_count" ，当这个设置为true时，你必须将chunk_reserved_bytes_limit设置为一个相对较大的数字，否则性能非常非常糟糕。
-
 ### `user_function_dir`
 
 默认值：${DORIS_HOME}/lib/udf
@@ -1503,6 +1499,8 @@ webserver默认工作线程数
 默认值：104857600
 
 刷写前缓冲区的大小
+
+导入数据在 BE 上会先写入到一个内存块，当这个内存块达到阈值后才会写回磁盘。默认大小是 100MB。过小的阈值可能导致 BE 上存在大量的小文件。可以适当提高这个阈值减少文件数量。但过大的阈值可能导致 RPC 超时
 
 ### `zone_map_row_num_threshold`
 

@@ -73,6 +73,13 @@ public:
     }
 
     Status compress(const Slice& input, faststring* output) override {
+        if (input.size > INT_MAX) {
+            return Status::InvalidArgument(
+                    "LZ4 not support those case(input.size>INT_MAX), maybe you should change "
+                    "fragment_transmission_compression_codec to snappy, size={}",
+                    input.size);
+        }
+
         Context* context;
         RETURN_IF_ERROR(_acquire_compression_ctx(&context));
         bool compress_failed = false;

@@ -63,11 +63,6 @@ private:
 
 private:
     CompactionActionType _type;
-
-    /// running check mutex
-    static std::mutex _compaction_running_mutex;
-    /// whether there is manual compaction running
-    static bool _is_compaction_running;
 };
 
 } // end namespace doris

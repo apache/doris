@@ -168,7 +168,7 @@ private:
     // push down bloom filters to storage engine.
     // 1. std::pair.first :: column name
     // 2. std::pair.second :: shared_ptr of BloomFilterFuncBase
-    std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
+    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
     // push down functions to storage engine

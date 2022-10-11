@@ -62,6 +62,6 @@ hdfsPasswd = ""
 brokerName = "broker_name"
 
 // broker load test config
-enableBrokerLoad=false
+enableBrokerLoad=true
 ak=""
 sk=""

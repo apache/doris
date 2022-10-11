@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`INT upper(VARCHAR str)`
+`VARCHAR upper(VARCHAR str)`
 
 
 Convert all strings in parameters to uppercase
