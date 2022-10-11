@@ -22,14 +22,14 @@
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_jsonb.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_jsonb.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
@@ -37,22 +37,16 @@
 
 namespace doris::vectorized {
 
-
 enum class NullalbeMode {
     NULLABLE = 0,
     NOT_NULL,
     FOLLOW_INPUT,
 };
 
-enum class JsonbParseErrorMode {
-    FAIL = 0,
-    RETURN_NULL,
-    RETURN_VALUE,
-    RETURN_INVALID
-};
+enum class JsonbParseErrorMode { FAIL = 0, RETURN_NULL, RETURN_VALUE, RETURN_INVALID };
 
 // func(string,string) -> json
-template<NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
+template <NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
 class FunctionJsonbParseBase : public IFunction {
 private:
     JsonbParser default_value_parser;
@@ -121,8 +115,8 @@ public:
             break;
         }
 
-        return is_nullable ? make_nullable(std::make_shared<DataTypeJsonb>()) :
-                             std::make_shared<DataTypeJsonb>();
+        return is_nullable ? make_nullable(std::make_shared<DataTypeJsonb>())
+                           : std::make_shared<DataTypeJsonb>();
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -130,7 +124,7 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        if constexpr(parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
+        if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
             if (context->is_col_constant(1)) {
                 const auto default_value_col = context->get_constant_col(1)->column_ptr;
                 const auto& default_value = default_value_col->get_data_at(0);
@@ -138,9 +132,10 @@ public:
                 JsonbErrType error = JsonbErrType::E_NONE;
                 if (!default_value_parser.parse(default_value.data, default_value.size)) {
                     error = default_value_parser.getErrorCode();
-                    return Status::InvalidArgument("invalid default json value: {} , error: {}",
-                        std::string_view(default_value.data, default_value.size),
-                        JsonbErrMsg::getErrMsg(error));
+                    return Status::InvalidArgument(
+                            "invalid default json value: {} , error: {}",
+                            std::string_view(default_value.data, default_value.size),
+                            JsonbErrMsg::getErrMsg(error));
                 }
                 has_const_default_value = true;
             }
@@ -172,7 +167,7 @@ public:
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
                 // of column nullable mem of null map
                 VectorizedUtils::update_null_map(null_map->get_data(),
-                                                nullable->get_null_map_data());
+                                                 nullable->get_null_map_data());
                 argument_column = nullable->get_nested_column_ptr();
             }
             break;
@@ -183,17 +178,15 @@ public:
 
         // const IColumn& col_from = *col_with_type_and_name.column;
 
-        const ColumnString* col_from_string =
-                    check_and_get_column<ColumnString>(col_from);
+        const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
         if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
-            col_from_string = check_and_get_column<ColumnString>(
-                *nullable->get_nested_column_ptr());
+            col_from_string =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }
 
         if (!col_from_string) {
-            return Status::RuntimeError(
-                    "Illegal column {} should be ColumnString",
-                    col_from.get_name());
+            return Status::RuntimeError("Illegal column {} should be ColumnString",
+                                        col_from.get_name());
         }
 
         auto col_to = ColumnJsonb::create();
@@ -224,7 +217,8 @@ public:
                 switch (parse_error_handle_mode) {
                 case JsonbParseErrorMode::FAIL:
                     return Status::InvalidArgument("json parse error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(error), std::string_view(val.data, val.size));
+                                                   JsonbErrMsg::getErrMsg(error),
+                                                   std::string_view(val.data, val.size));
                 case JsonbParseErrorMode::RETURN_NULL: {
                     if (is_nullable) null_map->get_data()[i] = 1;
                     col_to->insert_data("", 0);
@@ -232,17 +226,20 @@ public:
                 }
                 case JsonbParseErrorMode::RETURN_VALUE: {
                     if (has_const_default_value) {
-                        col_to->insert_data(default_value_parser.getWriter().getOutput()->getBuffer(),
-                                        (size_t)default_value_parser.getWriter().getOutput()->getSize());
+                        col_to->insert_data(
+                                default_value_parser.getWriter().getOutput()->getBuffer(),
+                                (size_t)default_value_parser.getWriter().getOutput()->getSize());
                     } else {
                         auto val = block.get_by_position(arguments[1]).column->get_data_at(i);
                         if (parser.parse(val.data, val.size)) {
                             // insert jsonb format data
                             col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
-                                    (size_t)parser.getWriter().getOutput()->getSize());
+                                                (size_t)parser.getWriter().getOutput()->getSize());
                         } else {
-                            return Status::InvalidArgument("json parse error: {} for default value: {}",
-                                JsonbErrMsg::getErrMsg(error), std::string_view(val.data, val.size));
+                            return Status::InvalidArgument(
+                                    "json parse error: {} for default value: {}",
+                                    JsonbErrMsg::getErrMsg(error),
+                                    std::string_view(val.data, val.size));
                         }
                     }
                     continue;
@@ -255,8 +252,8 @@ public:
         }
 
         if (is_nullable) {
-            block.replace_by_position(result,
-                ColumnNullable::create(std::move(col_to), std::move(null_map)));
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
         } else {
             block.replace_by_position(result, std::move(col_to));
         }
@@ -265,34 +262,33 @@ public:
     }
 };
 
-
 // jsonb_parse return type nullable as input
 using FunctionJsonbParse =
-    FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::FAIL>;
+        FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::FAIL>;
 using FunctionJsonbParseErrorNull =
-    FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_NULL>;
+        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_NULL>;
 using FunctionJsonbParseErrorValue =
-    FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::RETURN_VALUE>;
+        FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::RETURN_VALUE>;
 using FunctionJsonbParseErrorInvalid =
-    FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::RETURN_INVALID>;
+        FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::RETURN_INVALID>;
 
 // jsonb_parse return type is nullable
 using FunctionJsonbParseNullable =
-    FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::FAIL>;
+        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::FAIL>;
 using FunctionJsonbParseNullableErrorNull =
-    FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_NULL>;
+        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_NULL>;
 using FunctionJsonbParseNullableErrorValue =
-    FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_VALUE>;
+        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_VALUE>;
 using FunctionJsonbParseNullableErrorInvalid =
-    FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_INVALID>;
+        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_INVALID>;
 
 // jsonb_parse return type is not nullable
 using FunctionJsonbParseNotnull =
-    FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::FAIL>;
+        FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::FAIL>;
 using FunctionJsonbParseNotnullErrorValue =
-    FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::RETURN_VALUE>;
+        FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::RETURN_VALUE>;
 using FunctionJsonbParseNotnullErrorInvalid =
-    FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::RETURN_INVALID>;
+        FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::RETURN_INVALID>;
 
 void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParse>("jsonb_parse");
@@ -301,13 +297,18 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParseErrorInvalid>("jsonb_parse_error_to_invalid");
 
     factory.register_function<FunctionJsonbParseNullable>("jsonb_parse_nullable");
-    factory.register_function<FunctionJsonbParseNullableErrorNull>("jsonb_parse_nullable_error_to_null");
-    factory.register_function<FunctionJsonbParseNullableErrorValue>("jsonb_parse_nullable_error_to_value");
-    factory.register_function<FunctionJsonbParseNullableErrorInvalid>("jsonb_parse_nullable_error_to_invalid");
+    factory.register_function<FunctionJsonbParseNullableErrorNull>(
+            "jsonb_parse_nullable_error_to_null");
+    factory.register_function<FunctionJsonbParseNullableErrorValue>(
+            "jsonb_parse_nullable_error_to_value");
+    factory.register_function<FunctionJsonbParseNullableErrorInvalid>(
+            "jsonb_parse_nullable_error_to_invalid");
 
     factory.register_function<FunctionJsonbParseNotnull>("jsonb_parse_notnull");
-    factory.register_function<FunctionJsonbParseNotnullErrorValue>("jsonb_parse_notnull_error_to_value");
-    factory.register_function<FunctionJsonbParseNotnullErrorInvalid>("jsonb_parse_notnull_error_to_invalid");
+    factory.register_function<FunctionJsonbParseNotnullErrorValue>(
+            "jsonb_parse_notnull_error_to_value");
+    factory.register_function<FunctionJsonbParseNotnullErrorInvalid>(
+            "jsonb_parse_notnull_error_to_invalid");
 }
 
 } // namespace doris::vectorized

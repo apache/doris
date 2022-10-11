@@ -31,9 +31,9 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_jsonb.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -163,7 +163,7 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
 // A DataSet with a constant column can only have one row of data
 template <typename ReturnType, bool nullable = false>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
-                    const DataSet& data_set) {
+                      const DataSet& data_set) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
@@ -252,8 +252,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
-                const auto& expect_data =
-                    std::any_cast<String>(data_set[i].second);
+                const auto& expect_data = std::any_cast<String>(data_set[i].second);
                 auto s = column->get_data_at(i);
                 if (expect_data.size() == 0) {
                     // zero size result means invalid
@@ -262,7 +261,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     // convert jsonb binary value to json string to compare with expected json text
                     JsonbToJson to_json;
                     doris::JsonbValue* val =
-                        doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
+                            doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
                     EXPECT_EQ(to_json.jsonb_to_string(val), expect_data) << " for row " << i;
                 }
             } else {
