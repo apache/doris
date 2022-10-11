@@ -185,6 +185,8 @@ ADD COLUMN k5 INT default "1" to rollup2;
 
 修改表的 Key 列是通过 `key` 关键字完成，下面我们通过一个例子来看。
 
+**这个用法只针对 Duplicate key 表的 key 列**
+
 源 Schema :
 
 ```text

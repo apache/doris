@@ -176,6 +176,8 @@ At the same time, columns that already exist in the Base table are not allowed t
 
 Modifying the Key column of a table is done through the `key` keyword. Let's take a look at an example below.
 
+**This usage is only for the key column of the duplicate key table**
+
 Source Schema :
 
 ```text
