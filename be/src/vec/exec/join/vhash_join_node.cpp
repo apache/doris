@@ -32,7 +32,7 @@ namespace doris::vectorized {
 
 // TODO: Best prefetch step is decided by machine. We should also provide a
 //  SQL hint to allow users to tune by hand.
-static constexpr int PREFETCH_STEP = 64;
+static constexpr int PREFETCH_STEP = 32;
 
 using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext>
@@ -326,6 +326,11 @@ struct ProcessHashTableProbe {
                                                                           _arena)) {nullptr, false}
                                            : key_getter.find_key(hash_table_ctx.hash_table,
                                                                  _probe_index, _arena);
+                // prefetch is more useful while matching to multiple rows
+                if (_probe_index + PREFETCH_STEP < _probe_rows)
+                    key_getter.template prefetch<true>(hash_table_ctx.hash_table,
+                                                       _probe_index + PREFETCH_STEP,
+                                                       _arena);
 
                 if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
                     if (!find_result.is_found()) {
@@ -349,12 +354,6 @@ struct ProcessHashTableProbe {
                                 ++current_offset;
                             }
                         } else {
-                            // prefetch is more useful while matching to multiple rows
-                            if (_probe_index + PREFETCH_STEP < _probe_rows)
-                                key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                                                   _probe_index + PREFETCH_STEP,
-                                                                   _arena);
-
                             for (auto it = mapped.begin(); it.ok(); ++it) {
                                 if constexpr (!is_right_semi_anti_join) {
                                     if (current_offset < _batch_size) {
