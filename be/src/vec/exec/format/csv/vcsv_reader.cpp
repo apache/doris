@@ -50,14 +50,9 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _skip_lines(0) {
     _file_format_type = _params.format_type;
     _size = _range.size;
-    _start_offset = _range.start_offset;
 
-    int64_t start_offset = _start_offset;
-    if (start_offset != 0) {
-        start_offset -= 1;
-    }
-    //means first range, skip
-    if (start_offset == 0 && _params.__isset.file_attributes &&
+    //means first range
+    if (_range.start_offset == 0 && _params.__isset.file_attributes &&
         _params.file_attributes.__isset.header_type &&
         _params.file_attributes.header_type.size() > 0) {
         std::string header_type = to_lower(_params.file_attributes.header_type);
@@ -99,7 +94,8 @@ Status CsvReader::init_reader() {
     } else {
         return Status::InternalError("Can not find line_delimiter");
     }
-    if (_start_offset != 0) {
+
+    if (_range.start_offset != 0) {
         if (_file_format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
             return Status::InternalError("For now we do not support split compressed file");
         }
@@ -155,8 +151,14 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             continue;
         }
 
+        // TODO(ftw): check read_rows?
         ++(*read_rows);
         RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), columns));
+
+        if (_line_reader_eof == true) {
+            *eof = true;
+            break;
+        }
     }
     columns.clear();
 

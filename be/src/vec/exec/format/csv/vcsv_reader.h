@@ -28,7 +28,7 @@ class SlotDescriptor;
 
 namespace vectorized {
 
-class ScannerCounter;
+struct ScannerCounter;
 class CsvReader : public GenericReader {
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
@@ -66,7 +66,6 @@ private:
 
     TFileFormatType::type _file_format_type;
     int64_t _size;
-    int64_t _start_offset;
     // When we fetch range start from 0, header_type="csv_with_names" skip first line
     // When we fetch range start from 0, header_type="csv_with_names_and_types" skip first two line
     // When we fetch range doesn't start from 0 will always skip the first line
