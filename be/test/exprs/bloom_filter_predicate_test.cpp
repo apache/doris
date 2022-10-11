@@ -31,7 +31,7 @@ public:
 };
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_func_int_test) {
-    std::unique_ptr<IBloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_INT));
+    std::unique_ptr<BloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_INT));
     EXPECT_TRUE(func->init(1024, 0.05).ok());
     const int data_size = 1024;
     int data[data_size];
@@ -51,7 +51,7 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_int_test) {
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
-    std::unique_ptr<IBloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_VARCHAR));
+    std::unique_ptr<BloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_VARCHAR));
     EXPECT_TRUE(func->init(1024, 0.05).ok());
     ObjectPool obj_pool;
     const int data_size = 1024;
@@ -100,7 +100,7 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_size_test) {
-    std::unique_ptr<IBloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_VARCHAR));
+    std::unique_ptr<BloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_VARCHAR));
     int length = 4096;
     func->init_with_fixed_length(4096);
     char* data = nullptr;

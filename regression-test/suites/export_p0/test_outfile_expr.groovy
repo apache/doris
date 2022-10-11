@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_outfile") {
+suite("test_outfile_expr") {
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
@@ -45,7 +45,7 @@ suite("test_outfile") {
         }
     }
     if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
+        logger.warn("Please set enable_outfile_to_local to true to run test_outfile_expr")
         return
     }
     def tableName = "outfile_test_expr"

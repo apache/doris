@@ -160,6 +160,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(
 void OlapBlockDataConvertor::OlapColumnDataConvertorBase::clear_source_column() {
     // just to reduce the source column's ref count to 1
     _typed_column.column = nullptr;
+    _nullmap = nullptr;
 }
 
 // This should be called only in SegmentWriter. If you want to access nullmap in Convertor,

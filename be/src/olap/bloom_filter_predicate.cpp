@@ -40,9 +40,9 @@
 
 namespace doris {
 ColumnPredicate* BloomFilterColumnPredicateFactory::create_column_predicate(
-        uint32_t column_id, const std::shared_ptr<IBloomFilterFuncBase>& bloom_filter,
+        uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& bloom_filter,
         FieldType type) {
-    std::shared_ptr<IBloomFilterFuncBase> filter;
+    std::shared_ptr<BloomFilterFuncBase> filter;
     switch (type) {
 #define M(NAME)                                                         \
     case OLAP_FIELD_##NAME: {                                           \

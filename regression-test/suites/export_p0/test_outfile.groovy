@@ -49,7 +49,7 @@ suite("test_outfile") {
         return
     }
     def tableName = "outfile_test"
-    def outFilePath = """${context.file.parent}/tmp"""
+    def outFilePath = """${context.file.parent}/test_outfile"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """

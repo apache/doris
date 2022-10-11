@@ -39,7 +39,7 @@ Any questions, you can contact us to get timely answers, including Wechat, Gitte
 For the first time in Doris community, you can:
 
 * Follow [Doris Github](https://github.com/apache/doris)
-* Subscribe to our [mailing list](./subscribe-mail-list);
+* Subscribe to our [mailing list](../subscribe-mail-list);
 * Join Doris Wechat Group (add WeChat-ID: morningman-cmy, note: join Doris Group) and ask questions at any time.
 * Enter Doris's [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 

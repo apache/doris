@@ -681,7 +681,8 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-CATALOG"
                                     ]
                                 },
                                 {
@@ -698,7 +699,8 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FUNCTION",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG"
                                     ]
                                 }
                             ]
@@ -870,7 +872,9 @@
                             "items": [
                                 "sql-manual/sql-reference/Utility-Statements/HELP",
                                 "sql-manual/sql-reference/Utility-Statements/USE",
-                                "sql-manual/sql-reference/Utility-Statements/DESCRIBE"
+                                "sql-manual/sql-reference/Utility-Statements/DESCRIBE",
+                                "sql-manual/sql-reference/Utility-Statements/SWITCH",
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG"
                             ]
                         }
                     ]

@@ -670,7 +670,8 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CREATE_CATALOG:
             case OperationType.OP_DROP_CATALOG:
             case OperationType.OP_ALTER_CATALOG_NAME:
-            case OperationType.OP_ALTER_CATALOG_PROPS: {
+            case OperationType.OP_ALTER_CATALOG_PROPS:
+            case OperationType.OP_REFRESH_CATALOG: {
                 data = CatalogLog.read(in);
                 isRead = true;
                 break;

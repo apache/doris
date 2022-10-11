@@ -28,7 +28,6 @@
 namespace doris {
 
 TEST(ChunkAllocatorTest, Normal) {
-    config::use_mmap_allocate_chunk = true;
     for (size_t size = 4096; size <= 1024 * 1024; size <<= 1) {
         Chunk chunk;
         EXPECT_TRUE(ChunkAllocator::instance()->allocate(size, &chunk).ok());

@@ -91,7 +91,8 @@ public class PhysicalHashJoin<
         return Utils.toSqlString("PhysicalHashJoin",
                 "type", joinType,
                 "hashJoinCondition", hashJoinConjuncts,
-                "otherJoinCondition", otherJoinCondition);
+                "otherJoinCondition", otherJoinCondition,
+                "stats", statsDeriveResult);
     }
 
     @Override

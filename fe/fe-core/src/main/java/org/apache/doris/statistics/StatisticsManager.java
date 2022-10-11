@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -91,7 +92,8 @@ public class StatisticsManager {
         List<String> partitionNames = stmt.getPartitionNames();
         Map<StatsType, String> statsTypeToValue = stmt.getStatsTypeToValue();
 
-        if ((partitionNames.isEmpty()) && table.isPartitioned()) {
+        if ((partitionNames.isEmpty()) && table instanceof OlapTable
+                && !((OlapTable) table).getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
             throw new AnalysisException("Partitioned table must specify partition name.");
         }
 
