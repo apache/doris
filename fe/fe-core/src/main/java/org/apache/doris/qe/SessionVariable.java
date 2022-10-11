@@ -553,7 +553,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFunctionPushdown;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
-    public boolean enableLocalExchange = false;
+    public boolean enableLocalExchange = true;
 
 
     /**
