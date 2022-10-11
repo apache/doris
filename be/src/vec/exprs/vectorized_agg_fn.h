@@ -55,7 +55,7 @@ public:
     void execute_single_add(Block* block, AggregateDataPtr place, Arena* arena = nullptr);
 
     void execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
-                           Arena* arena = nullptr);
+                           Arena* arena = nullptr, bool agg_many = false);
 
     void insert_result_info(AggregateDataPtr place, IColumn* column);
 
