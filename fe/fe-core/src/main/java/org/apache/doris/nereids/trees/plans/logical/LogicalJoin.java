@@ -44,9 +44,6 @@ import java.util.stream.Collectors;
  */
 public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
-
-    public static final List<Expression> EMPTY_LIST = ImmutableList.of();
-
     private final JoinType joinType;
     private final List<Expression> otherJoinConjuncts;
     private final List<Expression> hashJoinConjuncts;
@@ -60,13 +57,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * @param joinType logical type for join
      */
     public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, ImmutableList.of(), EMPTY_LIST, Optional.empty(),
+        this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, Optional.empty(),
                 Optional.empty(), leftChild, rightChild);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts, EMPTY_LIST, Optional.empty(), Optional.empty(), leftChild, rightChild);
+        this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, Optional.empty(), Optional.empty(),
+                leftChild, rightChild);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
@@ -77,7 +75,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
-        this(joinType, hashJoinConjuncts, EMPTY_LIST,
+        this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
                 Optional.empty(), Optional.empty(), leftChild, rightChild);
         this.joinReorderContext.copyFrom(joinReorderContext);
     }

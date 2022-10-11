@@ -83,7 +83,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, LogicalJoin.EMPTY_LIST, condition, left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -123,7 +123,7 @@ public class PushdownJoinOtherConditionTest {
         Expression rightSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         List<Expression> condition = ImmutableList.of(leftSide, rightSide);
 
-        Plan join = new LogicalJoin<>(joinType, LogicalJoin.EMPTY_LIST, condition, rStudent, rScore);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, rStudent, rScore);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -165,7 +165,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, LogicalJoin.EMPTY_LIST, condition, left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);

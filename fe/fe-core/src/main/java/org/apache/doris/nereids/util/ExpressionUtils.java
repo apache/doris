@@ -48,6 +48,8 @@ import java.util.Set;
  */
 public class ExpressionUtils {
 
+    public static final List<Expression> EMPTY_CONDITION = ImmutableList.of();
+
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
     }

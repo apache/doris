@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -43,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -110,7 +110,7 @@ public class ChildOutputPropertyDeriverTest {
         };
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                LogicalJoin.EMPTY_LIST, LogicalJoin.EMPTY_LIST, logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         PhysicalProperties left = new PhysicalProperties(
@@ -159,7 +159,7 @@ public class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                LogicalJoin.EMPTY_LIST, logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         Map<ExprId, Integer> leftMap = Maps.newHashMap();
@@ -205,7 +205,7 @@ public class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                LogicalJoin.EMPTY_LIST, logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         Map<ExprId, Integer> leftMap = Maps.newHashMap();
@@ -242,7 +242,7 @@ public class ChildOutputPropertyDeriverTest {
     @Test
     public void testNestedLoopJoin() {
         PhysicalNestedLoopJoin<GroupPlan, GroupPlan> join = new PhysicalNestedLoopJoin<>(JoinType.CROSS_JOIN,
-                LogicalJoin.EMPTY_LIST, LogicalJoin.EMPTY_LIST, logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         Map<ExprId, Integer> leftMap = Maps.newHashMap();

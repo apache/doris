@@ -93,7 +93,7 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
             conjunctsKeepInFilter = pair.second;
 
             return new LogicalJoin<>(JoinType.INNER_JOIN,
-                    LogicalJoin.EMPTY_LIST,
+                    ExpressionUtils.EMPTY_CONDITION,
                     joinConditions,
                     joinInputs.get(0), joinInputs.get(1));
         }
@@ -133,9 +133,8 @@ public class MultiJoin extends PlanVisitor<Void, Void> {
                 conjuncts);
         List<Expression> joinConditions = pair.first;
         List<Expression> nonJoinConditions = pair.second;
-        LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, LogicalJoin.EMPTY_LIST,
-                joinConditions,
-                left, right);
+        LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, ExpressionUtils.EMPTY_CONDITION,
+                joinConditions, left, right);
 
         List<Plan> newInputs = new ArrayList<>();
         newInputs.add(join);

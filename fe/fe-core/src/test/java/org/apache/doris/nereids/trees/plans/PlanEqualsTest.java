@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
@@ -219,20 +220,20 @@ public class PlanEqualsTest {
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                LogicalJoin.EMPTY_LIST, logicalProperties, left, right);
+                ExpressionUtils.EMPTY_CONDITION, logicalProperties, left, right);
 
         PhysicalHashJoin<Plan, Plan> expected = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                LogicalJoin.EMPTY_LIST, logicalProperties, left, right);
+                ExpressionUtils.EMPTY_CONDITION, logicalProperties, left, right);
         Assertions.assertEquals(expected, actual);
 
         PhysicalHashJoin<Plan, Plan> unexpected = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, false, Lists.newArrayList()),
                         new SlotReference(new ExprId(3), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                LogicalJoin.EMPTY_LIST, logicalProperties, left, right);
+                ExpressionUtils.EMPTY_CONDITION, logicalProperties, left, right);
         Assertions.assertNotEquals(unexpected, actual);
     }
 

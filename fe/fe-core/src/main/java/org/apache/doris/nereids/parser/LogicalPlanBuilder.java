@@ -649,8 +649,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 left = (left == null) ? right :
                         new LogicalJoin<>(
                                 JoinType.CROSS_JOIN,
-                                LogicalJoin.EMPTY_LIST,
-                                LogicalJoin.EMPTY_LIST,
+                                ExpressionUtils.EMPTY_CONDITION,
+                                ExpressionUtils.EMPTY_CONDITION,
                                 left,
                                 right);
                 left = withJoinRelations(left, relation);
@@ -837,9 +837,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
             }
 
-            last = new LogicalJoin<>(joinType, LogicalJoin.EMPTY_LIST,
+            last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
                     condition.map(ExpressionUtils::extractConjunction)
-                            .orElse(LogicalJoin.EMPTY_LIST),
+                            .orElse(ExpressionUtils.EMPTY_CONDITION),
                     last, plan(join.relationPrimary()));
         }
         return last;

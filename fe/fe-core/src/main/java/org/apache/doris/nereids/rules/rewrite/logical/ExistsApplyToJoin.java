@@ -90,16 +90,16 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
         Optional<Expression> correlationFilter = apply.getCorrelationFilter();
 
         if (((Exists) apply.getSubqueryExpr()).isNot()) {
-            return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, LogicalJoin.EMPTY_LIST,
+            return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter
                             .map(ExpressionUtils::extractConjunction)
-                            .orElse(LogicalJoin.EMPTY_LIST),
+                            .orElse(ExpressionUtils.EMPTY_CONDITION),
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         } else {
-            return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, LogicalJoin.EMPTY_LIST,
+            return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter
                             .map(ExpressionUtils::extractConjunction)
-                            .orElse(LogicalJoin.EMPTY_LIST),
+                            .orElse(ExpressionUtils.EMPTY_CONDITION),
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         }
     }

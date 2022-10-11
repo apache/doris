@@ -63,10 +63,10 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
     private Plan correlatedToJoin(LogicalApply apply) {
         Optional<Expression> correlationFilter = apply.getCorrelationFilter();
         return new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                LogicalJoin.EMPTY_LIST,
+                ExpressionUtils.EMPTY_CONDITION,
                 correlationFilter
                         .map(ExpressionUtils::extractConjunction)
-                        .orElse(LogicalJoin.EMPTY_LIST),
+                        .orElse(ExpressionUtils.EMPTY_CONDITION),
                 (LogicalPlan) apply.left(),
                 (LogicalPlan) apply.right());
     }
