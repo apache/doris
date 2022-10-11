@@ -126,22 +126,19 @@ private:
                            vectorized::ColumnVector<T>* res_ptr) {
         auto& res_data = res_ptr->data;
         DCHECK(res_data.empty());
-        res_data.reserve(sel_size);
-        T* t = (T*)res_data.get_end_ptr();
+        res_data.resize(sel_size);
         for (size_t i = 0; i < sel_size; i++) {
-            t[i] = T(data[sel[i]]);
+            res_data[i] = T(data[sel[i]]);
         }
-        res_data.set_end_ptr(t + sel_size);
     }
 
     void insert_many_default_type(const char* data_ptr, size_t num) {
+        auto old_size = data.size();
+        data.resize(old_size + num);
         T* input_val_ptr = (T*)data_ptr;
-        T* res_val_ptr = (T*)data.get_end_ptr();
         for (int i = 0; i < num; i++) {
-            res_val_ptr[i] = input_val_ptr[i];
+            data[old_size + i] = input_val_ptr[i];
         }
-        res_val_ptr += num;
-        data.set_end_ptr(res_val_ptr);
     }
 
 public:
@@ -163,10 +160,9 @@ public:
 
     // note(wb) type of data_ptr element should be same with current column_vector's T
     void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        char* res_ptr = (char*)data.get_end_ptr();
-        memcpy(res_ptr, data_ptr, num * sizeof(T));
-        res_ptr += num * sizeof(T);
-        data.set_end_ptr(res_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
     void insert_date_column(const char* data_ptr, size_t num) {

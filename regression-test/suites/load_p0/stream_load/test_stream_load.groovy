@@ -63,6 +63,7 @@ suite("test_stream_load", "p0") {
         time 10000 // limit inflight 10s
     }
 
+    sql "sync"
     qt_sql "select * from ${tableName} order by k1, k2"
 
     // test strict_mode fail
@@ -128,6 +129,7 @@ suite("test_stream_load", "p0") {
         }
     }
 
+    sql "sync"
     rowCount = sql "select count(1) from ${tableName}"
     assertEquals(3, rowCount[0][0])
 }

@@ -513,13 +513,13 @@ Status ScalarColumnWriter::finish_current_page() {
 ////////////////////////////////////////////////////////////////////////////////
 
 ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                                     ScalarColumnWriter* length_writer,
+                                     ScalarColumnWriter* offset_writer,
                                      ScalarColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()),
           _item_writer(std::move(item_writer)),
           _opts(opts) {
-    _offset_writer.reset(length_writer);
+    _offset_writer.reset(offset_writer);
     if (is_nullable()) {
         _null_writer.reset(null_writer);
     }

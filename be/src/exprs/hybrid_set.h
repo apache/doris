@@ -41,6 +41,8 @@ public:
     // use in vectorize execute engine
     virtual void insert(void* data, size_t) = 0;
 
+    virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
+
     virtual void insert(HybridSetBase* set) = 0;
 
     virtual int size() = 0;
@@ -105,6 +107,12 @@ public:
         }
     }
     void insert(void* data, size_t) override { insert(data); }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        for (int i = 0; i < number; i++) {
+            _set.insert(*((CppType*)data + offsets[i]));
+        }
+    }
 
     void insert(HybridSetBase* set) override {
         HybridSet<T, is_vec>* hybrid_set = reinterpret_cast<HybridSet<T, is_vec>*>(set);
@@ -173,9 +181,14 @@ public:
         std::string str_value(value->ptr, value->len);
         _set.insert(str_value);
     }
+
     void insert(void* data, size_t size) override {
         std::string str_value(reinterpret_cast<char*>(data), size);
         _set.insert(str_value);
+    }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        LOG(FATAL) << "string set not support insert_fixed_len";
     }
 
     void insert(HybridSetBase* set) override {
@@ -259,9 +272,14 @@ public:
         StringValue sv(value->ptr, value->len);
         _set.insert(sv);
     }
+
     void insert(void* data, size_t size) override {
         StringValue sv(reinterpret_cast<char*>(data), size);
         _set.insert(sv);
+    }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        LOG(FATAL) << "string set not support insert_fixed_len";
     }
 
     void insert(HybridSetBase* set) override {

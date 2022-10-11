@@ -107,6 +107,7 @@ suite("test_string_function") {
     qt_sql "SELECT repeat(null,1);"
 
     qt_sql "select replace(\"https://doris.apache.org:9090\", \":9090\", \"\");"
+    qt_sql "select replace(\"https://doris.apache.org:9090\", \"\", \"new_str\");"
 
     qt_sql "SELECT REVERSE('hello');"
 

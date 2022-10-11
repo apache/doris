@@ -375,7 +375,7 @@ public:
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* length_reader,
+    explicit ArrayFileColumnIterator(ColumnReader* reader, FileColumnIterator* offset_reader,
                                      ColumnIterator* item_iterator, ColumnIterator* null_iterator);
 
     ~ArrayFileColumnIterator() override = default;

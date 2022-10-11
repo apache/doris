@@ -170,7 +170,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         _master_info->__set_backend_id(master_info.backend_id);
     }
 
-    if (master_info.__isset.be_exec_version && check_be_exec_version(master_info.be_exec_version)) {
+    if (master_info.__isset.be_exec_version && check_be_exec_version(master_info.be_exec_version) &&
+        be_exec_version != master_info.be_exec_version) {
         LOG(INFO) << fmt::format("be_exec_version changed from {} to {}", be_exec_version,
                                  master_info.be_exec_version);
         be_exec_version = master_info.be_exec_version;

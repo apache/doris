@@ -159,7 +159,7 @@ public:
     virtual const VExpr* get_impl() const { return nullptr; }
 
     // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
-    virtual std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() const {
+    virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {
         LOG(FATAL) << "Method 'get_bloom_filter_func()' is not supported in expression: "
                    << this->debug_string();
         return nullptr;

@@ -67,7 +67,8 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalFilter",
-                "predicates", predicates
+                "predicates", predicates,
+                "stats", statsDeriveResult
         );
     }
 

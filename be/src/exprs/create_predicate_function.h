@@ -28,7 +28,7 @@ public:
     using BasePtr = MinMaxFuncBase*;
     template <PrimitiveType type>
     static BasePtr get_function() {
-        return new (std::nothrow) MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
+        return new MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
     };
 };
 
@@ -41,16 +41,16 @@ public:
         using CppType = typename PrimitiveTypeTraits<type>::CppType;
         using Set = std::conditional_t<std::is_same_v<CppType, StringValue>, StringSet,
                                        HybridSet<type, is_vec>>;
-        return new (std::nothrow) Set();
+        return new Set();
     };
 };
 
 class BloomFilterTraits {
 public:
-    using BasePtr = IBloomFilterFuncBase*;
+    using BasePtr = BloomFilterFuncBase*;
     template <PrimitiveType type>
     static BasePtr get_function() {
-        return new BloomFilterFunc<type, CurrentBloomFilterAdaptor>();
+        return new BloomFilterFunc<type>();
     };
 };
 
