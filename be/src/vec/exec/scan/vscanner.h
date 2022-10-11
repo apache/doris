@@ -30,7 +30,7 @@ class VScanNode;
 
 class VScanner {
 public:
-    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, MemTracker* mem_tracker);
+    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit);
 
     virtual ~VScanner() {}
 
@@ -117,7 +117,6 @@ protected:
     VScanNode* _parent;
     // Set if scan node has sort limit info
     int64_t _limit = -1;
-    MemTracker* _mem_tracker;
 
     const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;

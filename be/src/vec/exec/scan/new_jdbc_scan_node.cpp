@@ -38,7 +38,6 @@ Status NewJdbcScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << "VNewJdbcScanNode::Prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    _scanner_mem_tracker = std::make_unique<MemTracker>("NewJdbcScanners");
     return Status::OK();
 }
 
@@ -51,8 +50,8 @@ Status NewJdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    NewJdbcScanner* scanner = new NewJdbcScanner(
-            _state, this, _limit_per_scanner, _scanner_mem_tracker.get(), _tuple_id, _query_string);
+    NewJdbcScanner* scanner =
+            new NewJdbcScanner(_state, this, _limit_per_scanner, _tuple_id, _query_string);
     _scanner_pool.add(scanner);
     RETURN_IF_ERROR(scanner->prepare(_state));
     scanners->push_back(static_cast<VScanner*>(scanner));

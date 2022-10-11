@@ -24,11 +24,10 @@ static const std::string NEW_SCANNER_TYPE = "NewEsScanner";
 namespace doris::vectorized {
 
 NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t limit,
-                           MemTracker* mem_tracker, TupleId tuple_id,
-                           const std::map<std::string, std::string>& properties,
+                           TupleId tuple_id, const std::map<std::string, std::string>& properties,
                            const std::map<std::string, std::string>& docvalue_context,
                            bool doc_value_mode)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, mem_tracker),
+        : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _is_init(false),
           _es_eof(false),
           _properties(properties),
@@ -52,8 +51,6 @@ Status NewEsScanner::prepare(RuntimeState* state) {
     if (nullptr == state) {
         return Status::InternalError("input pointer is null.");
     }
-
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (nullptr == _tuple_desc) {
@@ -83,10 +80,9 @@ Status NewEsScanner::open(RuntimeState* state) {
 
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     RETURN_IF_ERROR(_es_reader->open());
-    _mem_pool.reset(new MemPool(_mem_tracker));
+    _mem_pool.reset(new MemPool());
 
     return Status::OK();
 }
