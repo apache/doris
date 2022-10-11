@@ -227,8 +227,6 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
-//file descriptors cache, by default, cache 32768 descriptors
-CONF_Int32(file_descriptor_cache_capacity, "32768");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
