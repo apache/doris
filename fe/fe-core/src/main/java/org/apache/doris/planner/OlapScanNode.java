@@ -438,6 +438,7 @@ public class OlapScanNode extends ScanNode {
         computeColumnFilter();
         computePartitionInfo();
         computeTupleState(analyzer);
+        computeSampleTabletIds();
 
         /**
          * Compute InAccurate cardinality before mv selector and tablet pruning.
@@ -846,7 +847,6 @@ public class OlapScanNode extends ScanNode {
          */
         Preconditions.checkState(scanBackendIds.size() == 0);
         Preconditions.checkState(scanTabletIds.size() == 0);
-        computeSampleTabletIds();
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
