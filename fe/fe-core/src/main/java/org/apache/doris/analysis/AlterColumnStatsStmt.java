@@ -31,7 +31,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.StatsType;
 
 import com.google.common.collect.ImmutableSet;
@@ -55,12 +55,12 @@ import java.util.Set;
 public class AlterColumnStatsStmt extends DdlStmt {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
-            .add(ColumnStats.NDV)
-            .add(ColumnStats.AVG_SIZE)
-            .add(ColumnStats.MAX_SIZE)
-            .add(ColumnStats.NUM_NULLS)
-            .add(ColumnStats.MIN_VALUE)
-            .add(ColumnStats.MAX_VALUE)
+            .add(ColumnStat.NDV)
+            .add(ColumnStat.AVG_SIZE)
+            .add(ColumnStat.MAX_SIZE)
+            .add(ColumnStat.NUM_NULLS)
+            .add(ColumnStat.MIN_VALUE)
+            .add(ColumnStat.MAX_VALUE)
             .build();
 
     private final TableName tableName;

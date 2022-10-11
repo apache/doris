@@ -75,7 +75,7 @@ public class BaseStatsDerive {
     private void applySelectivity() {
         double selectivity = computeSelectivity();
         Preconditions.checkState(rowCount >= 0);
-        long preConjunctrowCount = rowCount;
+        double preConjunctrowCount = rowCount;
         rowCount = Math.round(rowCount * selectivity);
         // don't round rowCount down to zero for safety.
         if (rowCount == 0 && preConjunctrowCount > 0) {
@@ -144,7 +144,7 @@ public class BaseStatsDerive {
     // Currently it simply adds the number of rows of children
     protected long deriveRowCount() {
         for (StatsDeriveResult statsDeriveResult : childrenStatsResult) {
-            rowCount = Math.max(rowCount, statsDeriveResult.getRowCount());
+            rowCount = (long) Math.max(rowCount, statsDeriveResult.getRowCount());
         }
         applyConjunctsSelectivity();
         capRowCountAtLimit();

@@ -838,7 +838,7 @@ public class HashJoinNode extends PlanNode {
         }
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats HashJoin:" + id + ", cardinality: " + cardinality);
@@ -961,7 +961,7 @@ public class HashJoinNode extends PlanNode {
         Preconditions.checkState(joinOp.isSemiJoin());
 
         // Return -1 if the cardinality of the returned side is unknown.
-        long cardinality;
+        double cardinality;
         if (joinOp == JoinOperator.RIGHT_SEMI_JOIN || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
             if (getChild(1).cardinality == -1) {
                 return -1;

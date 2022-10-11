@@ -190,7 +190,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     return;
                 }
                 StatsCalculator.estimate(groupExpression);
-
                 curTotalCost -= curNodeCost;
                 curNodeCost = CostCalculator.calculateCost(groupExpression);
                 curTotalCost += curNodeCost;

@@ -219,7 +219,7 @@ public class SlotDescriptor {
             }
         }
         // FIXME(dhc): mock ndv
-        stats.setNumDistinctValues(parent.getCardinality());
+        stats.setNumDistinctValues((long) parent.getCardinality());
         return stats;
     }
 

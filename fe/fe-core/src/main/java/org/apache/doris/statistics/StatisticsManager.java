@@ -334,7 +334,7 @@ public class StatisticsManager {
 
     private List<List<String>> showColumnStats(long tableId) throws AnalysisException {
         List<List<String>> result = Lists.newArrayList();
-        Map<String, ColumnStats> columnStats = statistics.getColumnStats(tableId);
+        Map<String, ColumnStat> columnStats = statistics.getColumnStats(tableId);
         columnStats.forEach((key, stats) -> {
             List<String> row = Lists.newArrayList();
             row.add(key);
@@ -346,7 +346,7 @@ public class StatisticsManager {
 
     private List<List<String>> showColumnStats(long tableId, String partitionName) throws AnalysisException {
         List<List<String>> result = Lists.newArrayList();
-        Map<String, ColumnStats> columnStats = statistics.getColumnStats(tableId, partitionName);
+        Map<String, ColumnStat> columnStats = statistics.getColumnStats(tableId, partitionName);
         columnStats.forEach((key, stats) -> {
             List<String> row = Lists.newArrayList();
             row.add(key);

@@ -102,9 +102,9 @@ public class Statistics {
      * @return column name and @ColumnStats
      * @throws AnalysisException if columns stats not exists
      */
-    public Map<String, ColumnStats> getColumnStats(long tableId) throws AnalysisException {
+    public Map<String, ColumnStat> getColumnStats(long tableId) throws AnalysisException {
         TableStats tableStats = getTableStats(tableId);
-        Map<String, ColumnStats> nameToColumnStats = tableStats.getNameToColumnStats();
+        Map<String, ColumnStat> nameToColumnStats = tableStats.getNameToColumnStats();
         if (nameToColumnStats == null) {
             throw new AnalysisException("Table " + tableId + " has no column statistics");
         }
@@ -119,7 +119,7 @@ public class Statistics {
      * @return column name and @ColumnStats
      * @throws AnalysisException if column stats not exists
      */
-    public Map<String, ColumnStats> getColumnStats(long tableId, String partitionName) throws AnalysisException {
+    public Map<String, ColumnStat> getColumnStats(long tableId, String partitionName) throws AnalysisException {
         Map<String, PartitionStats> partitionStats = getPartitionStats(tableId, partitionName);
         PartitionStats partitionStat = partitionStats.get(partitionName);
         if (partitionStat == null) {
@@ -160,7 +160,7 @@ public class Statistics {
     }
 
     // TODO: mock statistics need to be removed in the future
-    public void mockTableStatsWithRowCount(long tableId, long rowCount) {
+    public void mockTableStatsWithRowCount(long tableId, double rowCount) {
         TableStats tableStats = idToTableStats.get(tableId);
         if (tableStats == null) {
             tableStats = new TableStats(rowCount, 1);
