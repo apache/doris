@@ -38,8 +38,6 @@ private:
     std::string _table_name;
     TupleId _tuple_id;
     std::string _query_string;
-
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
 };
 } // namespace vectorized
 } // namespace doris

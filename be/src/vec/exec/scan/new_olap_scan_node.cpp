@@ -38,7 +38,6 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
 Status NewOlapScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    _scanner_mem_tracker = std::make_unique<MemTracker>("OlapScanners");
     return Status::OK();
 }
 
@@ -307,9 +306,9 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
 
-            NewOlapScanner* scanner = new NewOlapScanner(
-                    _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
-                    _need_agg_finalize, *scan_range, _scanner_mem_tracker.get());
+            NewOlapScanner* scanner = new NewOlapScanner(_state, this, _limit_per_scanner,
+                                                         _olap_scan_node.is_preaggregation,
+                                                         _need_agg_finalize, *scan_range);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);

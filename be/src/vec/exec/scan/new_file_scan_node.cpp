@@ -39,7 +39,6 @@ Status NewFileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status NewFileScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    _scanner_mem_tracker = std::make_unique<MemTracker>("NewFileScanners");
     return Status::OK();
 }
 
@@ -105,26 +104,22 @@ Status NewFileScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
     VScanner* scanner = nullptr;
     if (config::enable_new_file_scanner) {
-        scanner = new VFileScanner(_state, this, _limit_per_scanner, scan_range,
-                                   _scanner_mem_tracker.get(), runtime_profile());
+        scanner = new VFileScanner(_state, this, _limit_per_scanner, scan_range, runtime_profile());
         ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range);
     } else {
         switch (scan_range.params.format_type) {
         case TFileFormatType::FORMAT_PARQUET:
             scanner = new NewFileParquetScanner(_state, this, _limit_per_scanner, scan_range,
-                                                _scanner_mem_tracker.get(), runtime_profile(),
-                                                std::vector<TExpr>());
+                                                runtime_profile(), std::vector<TExpr>());
             break;
         case TFileFormatType::FORMAT_ORC:
             scanner = new NewFileORCScanner(_state, this, _limit_per_scanner, scan_range,
-                                            _scanner_mem_tracker.get(), runtime_profile(),
-                                            std::vector<TExpr>());
+                                            runtime_profile(), std::vector<TExpr>());
             break;
 
         default:
             scanner = new NewFileTextScanner(_state, this, _limit_per_scanner, scan_range,
-                                             _scanner_mem_tracker.get(), runtime_profile(),
-                                             std::vector<TExpr>());
+                                             runtime_profile(), std::vector<TExpr>());
             break;
         }
         ((NewFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get());
