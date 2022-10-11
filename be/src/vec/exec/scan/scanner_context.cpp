@@ -214,7 +214,14 @@ void ScannerContext::push_back_scanner_and_reschedule(VScanner* scanner) {
     _num_running_scanners--;
     _num_scheduling_ctx++;
     _state->exec_env()->scanner_scheduler()->submit(this);
-    if (scanner->need_to_close() && (--_num_unfinished_scanners) == 0) {
+
+    // Notice that after calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
+    // to schedule that scanner right away, and in that schedule run, the scanner may be marked as closed
+    // before we call the following if() block.
+    // So we need "scanner->set_counted_down()" to avoid "_num_unfinished_scanners" being decreased twice by
+    // same scanner.
+    if (scanner->need_to_close() && scanner->set_counted_down() &&
+        (--_num_unfinished_scanners) == 0) {
         _is_finished = true;
         _blocks_queue_added_cv.notify_one();
     }

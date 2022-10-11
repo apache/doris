@@ -17,9 +17,8 @@
 
 suite("test_load_json_null_to_nullable", "p0") {
     // define a sql table
-    def testTable = "tbl_test_json_load"
-    def dbName = "test_query_db"
-    
+    def testTable = "tbl_test_load_json_null_to_nullable"
+
     def create_test_table = {enable_vectorized_flag ->
         if (enable_vectorized_flag) {
             sql """ set enable_vectorized_engine = true """
@@ -85,6 +84,7 @@ suite("test_load_json_null_to_nullable", "p0") {
 
         load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
+        sql "sync"
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
 
@@ -100,6 +100,7 @@ suite("test_load_json_null_to_nullable", "p0") {
 
         load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
+        sql "sync"
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
 

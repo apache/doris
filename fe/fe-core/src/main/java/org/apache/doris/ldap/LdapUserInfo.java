@@ -26,19 +26,19 @@ import java.util.Objects;
  * Used to cache LDAP information of user, such as password and privileges.
  */
 public class LdapUserInfo {
-    public LdapUserInfo(String userName, boolean isSetPasswd, String passwd, PaloRole paloRole) {
+    public LdapUserInfo(String userName, boolean isSetPasswd, String passwd, PaloRole role) {
         this.userName = userName;
         this.isSetPasswd = isSetPasswd;
         this.passwd = passwd;
-        this.paloRole = paloRole;
+        this.role = role;
         this.lastTimeStamp = System.currentTimeMillis();
     }
 
-    private LdapUserInfo(String userName, boolean isSetPasswd, String passwd, PaloRole paloRole, long lastTimeStamp) {
+    private LdapUserInfo(String userName, boolean isSetPasswd, String passwd, PaloRole role, long lastTimeStamp) {
         this.userName = userName;
         this.isSetPasswd = isSetPasswd;
         this.passwd = passwd;
-        this.paloRole = paloRole;
+        this.role = role;
         this.lastTimeStamp = lastTimeStamp;
     }
 
@@ -48,7 +48,7 @@ public class LdapUserInfo {
 
     private final String passwd;
 
-    private final PaloRole paloRole;
+    private final PaloRole role;
 
     private final long lastTimeStamp;
 
@@ -66,15 +66,15 @@ public class LdapUserInfo {
     }
 
     public PaloRole getPaloRole() {
-        return paloRole;
+        return role;
     }
 
     public LdapUserInfo cloneWithPasswd(String passwd) {
         if (Objects.isNull(passwd)) {
-            return new LdapUserInfo(userName, isSetPasswd, this.passwd, paloRole, lastTimeStamp);
+            return new LdapUserInfo(userName, isSetPasswd, this.passwd, role, lastTimeStamp);
         }
 
-        return new LdapUserInfo(userName, true, passwd, paloRole, lastTimeStamp);
+        return new LdapUserInfo(userName, true, passwd, role, lastTimeStamp);
     }
 
     // Return true if LdapUserInfo is exceeded the time limit;

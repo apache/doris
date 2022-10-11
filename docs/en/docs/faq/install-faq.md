@@ -155,10 +155,6 @@ In many cases, we need to troubleshoot problems through logs. The format and vie
 
       Logs starting with F are Fatal logs. For example, F0916 , indicating the Fatal log on September 16th. Fatal logs usually indicate a program assertion error, and an assertion error will directly cause the process to exit (indicating a bug in the program). Welcome to the WeChat group, github discussion or dev mail group for help.
 
-   4. Minidump(removed)
-
-      Mindump is a function added after Doris version 0.15. For details, please refer to [document](https://doris.apache.org/zh-CN/developer-guide/minidump.html).
-
 2. FE
 
    FE is a java process, and the robustness is better than the C/C++ program. Usually the reason for FE to hang up may be OOM (Out-of-Memory) or metadata write failure. These errors usually have an error stack in fe.log or fe.out. Further investigation is required based on the error stack information.

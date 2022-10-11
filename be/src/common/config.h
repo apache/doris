@@ -437,14 +437,6 @@ CONF_Int32(max_free_io_buffers, "128");
 // including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
-// Whether to allocate chunk using mmap. If you enable this, you'd better to
-// increase vm.max_map_count's value whose default value is 65530.
-// you can do it as root via "sysctl -w vm.max_map_count=262144" or
-// "echo 262144 > /proc/sys/vm/max_map_count"
-// NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
-// to a relative large number or the performance is very very bad.
-CONF_Bool(use_mmap_allocate_chunk, "false");
-
 // The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
 // defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
@@ -585,7 +577,7 @@ CONF_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 // The min bytes that should be left of a data dir
 CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
-CONF_Int32(flush_thread_num_per_store, "2");
+CONF_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
 CONF_Int32(high_priority_flush_thread_num_per_store, "1");
 
@@ -819,7 +811,6 @@ CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
-CONF_Bool(parquet_predicate_push_down, "true");
 // Max size of parquet page header in bytes
 CONF_mInt32(parquet_header_max_size_mb, "1");
 // Max buffer size for parquet row group
@@ -884,10 +875,10 @@ CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 
 // Temp config. True to use new file scan node to do load job. Will remove after fully test.
-CONF_Bool(enable_new_load_scan_node, "false");
+CONF_mBool(enable_new_load_scan_node, "false");
 
 // Temp config. True to use new file scanner. Will remove after fully test.
-CONF_Bool(enable_new_file_scanner, "false");
+CONF_mBool(enable_new_file_scanner, "false");
 
 #ifdef BE_TEST
 // test s3

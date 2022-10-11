@@ -25,10 +25,9 @@
 namespace doris::vectorized {
 
 NewFileTextScanner::NewFileTextScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                                       const TFileScanRange& scan_range, MemTracker* tracker,
-                                       RuntimeProfile* profile,
+                                       const TFileScanRange& scan_range, RuntimeProfile* profile,
                                        const std::vector<TExpr>& pre_filter_texprs)
-        : NewFileScanner(state, parent, limit, scan_range, tracker, profile, pre_filter_texprs),
+        : NewFileScanner(state, parent, limit, scan_range, profile, pre_filter_texprs),
           _cur_file_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_line_reader_eof(false),

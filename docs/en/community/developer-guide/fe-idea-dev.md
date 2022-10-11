@@ -63,6 +63,17 @@ under the License.
       2. `brew extract --version='0.13.0' thrift $USER/local-tap`
       3. `brew install thrift@0.13.0`
    Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+   
+   Linux:
+      1.Download source package：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
+      2.Install dependencies：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
+      3.`tar zxvf thrift-0.13.0.tar.gz`
+      4.`cd thrift-0.13.0`
+      5.`./configure --without-tests`
+      6.`make`
+      7.`make install`
+   Check the version after installation is complete：thrift --version
+   Note: If you have compiled Doris, you do not need to install thrift, you can directly use $DORIS_HOME/thirdparty/installed/bin/thrift
    ```
 
 4. Go to `./fe` folder and run the following maven command to generate sources.
@@ -76,6 +87,12 @@ under the License.
    ```
    mvn clean install -DskipTests
    ```
+
+   If it's MAC M1, run following command
+
+   ```
+   mvn clean install -DskipTests -Dos.arch=x86_64
+   ```
    
    You can also use IDE embedded GUI tools to run maven command to generate sources
 
@@ -84,7 +101,13 @@ under the License.
 If you are developing on the OS which lack of support to run `shell script` and `make` such as Windows, a workround here 
 is generate codes in Linux and copy them back. Using Docker should also be an option.
 
-5. If a help document has not been generated, go to the docs directory and run`sh build_help_zip.sh`，
+5. If it's MAC M1, python may not be found, so create a soft link from python3 to python: 
+
+   ```
+   ln -s /usr/bin/python3 /usr/bin/python
+   ```
+
+6. If a help document has not been generated, go to the docs directory and run`sh build_help_zip.sh`，
    Then copy help-resource.zip from build to fe/fe-core/target/classes
 
 ## 2. Debug

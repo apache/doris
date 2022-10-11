@@ -40,6 +40,8 @@ public:
 private:
     JdbcConnectorParam _jdbc_param;
     std::unique_ptr<JdbcConnector> _writer;
+    //if is ORACLE and date type, insert into need convert
+    bool _need_extra_convert = false;
 };
 } // namespace vectorized
 } // namespace doris

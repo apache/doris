@@ -43,7 +43,7 @@ struct ScannerCounter {
 class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile);
+                 const TFileScanRange& scan_range, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
 
@@ -55,8 +55,6 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
-
-    Status _fill_columns_from_path();
 
     Status _get_next_reader();
 
@@ -142,9 +140,11 @@ private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
     Status _cast_to_input_block(Block* block);
+    Status _fill_columns_from_path(size_t rows);
+    Status _fill_missing_columns(size_t rows);
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
-    Status _fill_missing_columns();
+
     void _reset_counter() {
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;

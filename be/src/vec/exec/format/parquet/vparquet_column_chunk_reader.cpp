@@ -214,9 +214,7 @@ void ColumnChunkReader::insert_null_values(ColumnPtr& doris_column, size_t num_v
 
 void ColumnChunkReader::insert_null_values(MutableColumnPtr& doris_column, size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    for (int i = 0; i < num_values; ++i) {
-        doris_column->insert_default();
-    }
+    doris_column->insert_many_defaults(num_values);
     _remaining_num_values -= num_values;
 }
 

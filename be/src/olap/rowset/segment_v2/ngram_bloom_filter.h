@@ -28,14 +28,15 @@ public:
     static const size_t HASH_FUNCTIONS = 2;
     using UnderType = uint64_t;
     NGramBloomFilter(size_t size);
-    void add_bytes(const char * data, uint32_t len) override;
-    bool contains(const BloomFilter & bf_) const override;
-
+    void add_bytes(const char* data, uint32_t len) override;
+    bool contains(const BloomFilter& bf_) const override;
     virtual Status init(const char* buf, uint32_t size, HashStrategyPB strategy) override;
-    char* data() const override { return reinterpret_cast<char *>(const_cast<uint64_t *>(filter.data())); }
+    char* data() const override {
+        return reinterpret_cast<char*>(const_cast<uint64_t*>(filter.data()));
+    }
     uint32_t size() const override { return _size; }
-    void add_hash(uint64_t ) override {}
-    bool test_hash(uint64_t hash) const override { return true;}
+    void add_hash(uint64_t) override {}
+    bool test_hash(uint64_t hash) const override { return true; }
     bool has_null() const override { return true; }
     bool is_ngram_bf() const override { return true; }
 

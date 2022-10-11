@@ -63,6 +63,7 @@ suite("test_stream_load", "p0") {
         time 10000 // limit inflight 10s
     }
 
+    sql "sync"
     qt_sql "select * from ${tableName} order by k1, k2"
 
     // test strict_mode fail
@@ -88,4 +89,47 @@ suite("test_stream_load", "p0") {
             assertEquals(1, json.NumberFilteredRows)
         }
     }
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+        CREATE TABLE ${tableName} (
+          `id` int(11) NULL,
+          `value` varchar(64) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    streamLoad {
+        table "${tableName}"
+
+        set 'line_delimiter', 'weizuo'
+        set 'column_separator', '|'
+        set 'columns', 'id, value'
+
+        file 'test_line_delimiter.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(3, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+
+    sql "sync"
+    rowCount = sql "select count(1) from ${tableName}"
+    assertEquals(3, rowCount[0][0])
 }

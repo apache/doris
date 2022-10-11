@@ -51,7 +51,7 @@ public abstract class DistributionSpec {
 
     @Override
     public String toString() {
-        return this.getClass().toString();
+        return this.getClass().getSimpleName();
     }
 
     @Override

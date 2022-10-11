@@ -53,7 +53,7 @@ suite("test_outfile_parquet") {
     }
     def tableName = "outfile_parquet_test"
     def tableName2 = "outfile_parquet_test2"
-    def outFilePath = """${context.file.parent}/tmp"""
+    def outFilePath = """${context.file.parent}/test_outfile_parquet"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """

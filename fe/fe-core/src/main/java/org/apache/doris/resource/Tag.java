@@ -71,7 +71,7 @@ public class Tag implements Writable {
     public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(
             VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
             VALUE_DEFAULT_CLUSTER);
-    private static final String TAG_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+    private static final String TAG_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,32}$";
 
     public static final Tag DEFAULT_BACKEND_TAG;
     public static final Tag INVALID_TAG;

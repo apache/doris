@@ -1867,6 +1867,9 @@ visible_functions = [
     [['greatest'], 'DATETIME', ['DATETIME', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE',
             '', '', 'vec', ''],
+    [['greatest'], 'DATETIMEV2', ['DATETIMEV2', '...'],
+             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE',
+             '', '', 'vec', ''],
     [['greatest'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -1905,6 +1908,8 @@ visible_functions = [
     [['nullif'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['nullif'], 'DATETIME', ['DATETIME', 'DATETIME'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['nullif'], 'DATE', ['DATE', 'DATE'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['nullif'], 'DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['nullif'], 'DATEV2', ['DATEV2', 'DATEV2'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['nullif'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -1922,6 +1927,10 @@ visible_functions = [
     [['ifnull', 'nvl'], 'DATETIME', ['DATETIME', 'DATETIME'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DATETIME', ['DATE', 'DATETIME'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DATETIME', ['DATETIME', 'DATE'], '', '', '', 'vec', 'CUSTOM'],
+    [['ifnull', 'nvl'], 'DATEV2', ['DATE', 'DATE'], '', '', '', 'vec', 'CUSTOM'],
+    [['ifnull', 'nvl'], 'DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], '', '', '', 'vec', 'CUSTOM'],
+    [['ifnull', 'nvl'], 'DATETIMEV2', ['DATEV2', 'DATETIMEV2'], '', '', '', 'vec', 'CUSTOM'],
+    [['ifnull', 'nvl'], 'DATETIMEV2', ['DATETIMEV2', 'DATEV2'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', 'CUSTOM'],
     [['ifnull', 'nvl'], 'BITMAP', ['BITMAP', 'BITMAP'], '', '', '', 'vec', 'CUSTOM'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -1938,6 +1947,8 @@ visible_functions = [
     [['coalesce'], 'DOUBLE', ['DOUBLE', '...'], '', '', '', 'vec', 'CUSTOM'],
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], '', '', '', 'vec', 'CUSTOM'],
     [['coalesce'], 'DATE', ['DATE', '...'], '', '', '', 'vec', 'CUSTOM'],
+    [['coalesce'], 'DATETIMEV2', ['DATETIMEV2', '...'], '', '', '', 'vec', 'CUSTOM'],
+    [['coalesce'], 'DATEV2', ['DATEV2', '...'], '', '', '', 'vec', 'CUSTOM'],
     [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], '', '', '', 'vec', 'CUSTOM'],
     [['coalesce'], 'BITMAP', ['BITMAP', '...'], '', '', '', 'vec', 'CUSTOM'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.

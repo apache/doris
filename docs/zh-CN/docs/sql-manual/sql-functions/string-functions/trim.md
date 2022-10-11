@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`VARCHAR ltrim(VARCHAR str)`
+`VARCHAR trim(VARCHAR str)`
 
 
 将参数 str 中右侧和左侧开始部分连续出现的空格去掉
