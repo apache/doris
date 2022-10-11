@@ -181,6 +181,42 @@ ADD COLUMN k5 INT default "1" to rollup2;
 
 同时，不允许向 Rollup 中加入 Base 表已经存在的列。如果用户需要这样做，可以重新建立一个包含新增列的 Rollup，之后再删除原 Rollup。
 
+### 修改 Key 列
+
+修改表的 Key 列是通过 `key` 关键字完成，下面我们通过一个例子来看。
+
+源 Schema :
+
+```text
++-----------+-------+-------------+------+------+---------+-------+
+| IndexName | Field | Type        | Null | Key  | Default | Extra |
++-----------+-------+-------------+------+------+---------+-------+
+| tbl1      | k1    | INT         | No   | true | N/A     |       |
+|           | k2    | INT         | No   | true | N/A     |       |
+|           | k3    | varchar(20) | No   | true | N/A     |       |
+|           | k4    | INT         | No   | false| N/A     |       |
++-----------+-------+-------------+------+------+---------+-------+
+```
+
+修改语句如下，我们将 k3 列的程度改成 50
+
+
+```sql
+alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
+```
+
+完成后，Schema 变为：
+```text
++-----------+-------+-------------+------+------+---------+-------+
+| IndexName | Field | Type        | Null | Key  | Default | Extra |
++-----------+-------+-------------+------+------+---------+-------+
+| tbl1      | k1    | INT         | No   | true | N/A     |       |
+|           | k2    | INT         | No   | true | N/A     |       |
+|           | k3    | varchar(50) | No   | true | N/A     |       |
+|           | k4    | INT         | No   | false| N/A     |       |
++-----------+-------+-------------+------+------+---------+-------+
+```
+
 ## 注意事项
 
 - 一张表在同一时间只能有一个 Schema Change 作业在运行。

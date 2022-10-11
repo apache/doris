@@ -171,6 +171,44 @@ When completion, the Schema becomes:
 As you can see, the base table tbl1 also automatically added k4, k5 columns. That is, columns added to any rollup are automatically added to the Base table.
 
 At the same time, columns that already exist in the Base table are not allowed to be added to Rollup. If you need to do this, you can re-create a Rollup with the new columns and then delete the original Rollup.
+
+### Modify Key column
+
+Modifying the Key column of a table is done through the `key` keyword. Let's take a look at an example below.
+
+Source Schema :
+
+```text
++-----------+-------+-------------+------+------+---------+-------+
+| IndexName | Field | Type        | Null | Key  | Default | Extra |
++-----------+-------+-------------+------+------+---------+-------+
+| tbl1      | k1    | INT         | No   | true | N/A     |       |
+|           | k2    | INT         | No   | true | N/A     |       |
+|           | k3    | varchar(20) | No   | true | N/A     |       |
+|           | k4    | INT         | No   | false| N/A     |       |
++-----------+-------+-------------+------+------+---------+-------+
+```
+
+The modification statement is as follows, we will change the degree of the k3 column to 50
+
+
+```sql
+alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
+````
+
+When done, the Schema becomes:
+
+```text
++-----------+-------+-------------+------+------+---------+-------+
+| IndexName | Field | Type        | Null | Key  | Default | Extra |
++-----------+-------+-------------+------+------+---------+-------+
+| tbl1      | k1    | INT         | No   | true | N/A     |       |
+|           | k2    | INT         | No   | true | N/A     |       |
+|           | k3    | varchar(50) | No   | true | N/A     |       |
+|           | k4    | INT         | No   | false| N/A     |       |
++-----------+-------+-------------+------+------+---------+-------+
+```
+
 ## Notice
 
 * Only one Schema Change job can be running on a table at a time.
