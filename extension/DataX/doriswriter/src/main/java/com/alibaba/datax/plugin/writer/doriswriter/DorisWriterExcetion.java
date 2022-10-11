@@ -17,11 +17,30 @@
 
 package com.alibaba.datax.plugin.writer.doriswriter;
 
-import com.alibaba.datax.common.element.Record;
+import java.io.IOException;
+import java.util.Map;
 
-import java.io.Serializable;
+public class DorisWriterExcetion extends IOException {
 
-public interface DorisCodec extends Serializable {
+    private final Map<String, Object> response;
+    private boolean reCreateLabel;
 
-    String codec( Record row);
+    public DorisWriterExcetion ( String message, Map<String, Object> response) {
+        super(message);
+        this.response = response;
+    }
+
+    public DorisWriterExcetion ( String message, Map<String, Object> response, boolean reCreateLabel) {
+        super(message);
+        this.response = response;
+        this.reCreateLabel = reCreateLabel;
+    }
+
+    public Map<String, Object> getFailedResponse() {
+        return response;
+    }
+
+    public boolean needReCreateLabel() {
+        return reCreateLabel;
+    }
 }
