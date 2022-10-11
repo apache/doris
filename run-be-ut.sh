@@ -74,7 +74,7 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$[$(nproc)/5+1]
+PARALLEL=4
 
 if [[ -z ${USE_LLD} ]]; then
     USE_LLD=OFF
