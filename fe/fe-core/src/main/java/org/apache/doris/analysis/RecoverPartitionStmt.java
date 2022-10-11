@@ -61,9 +61,9 @@ public class RecoverPartitionStmt extends DdlStmt {
                 dbTblName.getTbl(), PrivPredicate.of(PrivBitSet.of(
                         PaloPrivilege.ALTER_PRIV, PaloPrivilege.CREATE_PRIV, PaloPrivilege.ADMIN_PRIV), Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "RECOVERY",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbTblName.getDb() + ": " + dbTblName.getTbl());
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbTblName.getDb() + ": " + dbTblName.getTbl());
         }
     }
 

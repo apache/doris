@@ -208,7 +208,7 @@ public abstract class DorisHttpTestCase {
     private static Env newDelegateCatalog() {
         try {
             Env env = Deencapsulation.newInstance(Env.class);
-            PaloAuth paloAuth = new PaloAuth();
+            PaloAuth auth = new PaloAuth();
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "default_cluster:testDb");
             OlapTable table = newTable(TABLE_NAME);
@@ -268,7 +268,7 @@ public abstract class DorisHttpTestCase {
                 {
                     env.getAuth();
                     minTimes = 0;
-                    result = paloAuth;
+                    result = auth;
 
                     env.isMaster();
                     minTimes = 0;

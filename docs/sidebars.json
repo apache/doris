@@ -608,7 +608,8 @@
                                 "sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE",
                                 "sql-manual/sql-reference/Account-Management-Statements/CREATE-USER",
                                 "sql-manual/sql-reference/Account-Management-Statements/DROP-USER",
-                                "sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD"
+                                "sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD",
+                                "sql-manual/sql-reference/Account-Management-Statements/ALTER-USER"
                             ]
                         },
                         {

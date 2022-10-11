@@ -41,6 +41,7 @@ import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.AlterTableStmt;
+import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.BackupStmt;
@@ -336,6 +337,8 @@ public class DdlExecutor {
             env.refreshMaterializedView((RefreshMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
             env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterUserStmt) {
+            env.getAuth().alterUser((AlterUserStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

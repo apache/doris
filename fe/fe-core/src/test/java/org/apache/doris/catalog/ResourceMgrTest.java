@@ -99,7 +99,7 @@ public class ResourceMgrTest {
 
     @Test
     public void testAddAlterDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
-                                    @Mocked Env env, @Injectable PaloAuth auth) throws UserException {
+            @Mocked Env env, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {
                 env.getBrokerMgr();

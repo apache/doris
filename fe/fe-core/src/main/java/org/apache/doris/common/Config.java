@@ -1030,11 +1030,6 @@ public class Config extends ConfigBase {
     @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
 
     /**
-     * if set to false, auth check will be disable, in case some goes wrong with the new privilege system.
-     */
-    @ConfField public static boolean enable_auth_check = true;
-
-    /**
      * Max bytes a broker scanner can process in one broker load job.
      * Commonly, each Backends has one broker scanner.
      */

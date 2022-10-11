@@ -240,6 +240,8 @@ parser code {:
 
 // Total keywords of doris, keep them in lexicographical order
 terminal String
+    KW_ACCOUNT_LOCK,
+    KW_ACCOUNT_UNLOCK,
     KW_ADD,
     KW_ADMIN,
     KW_AFTER,
@@ -353,6 +355,7 @@ terminal String
     KW_EXTENDED,
     KW_EXTERNAL,
     KW_EXTRACT,
+    KW_FAILED_LOGIN_ATTEMPTS,
     KW_FALSE,
     KW_FAST,
     KW_FEATURE,
@@ -448,7 +451,6 @@ terminal String
     KW_NEXT,
     KW_NO,
     KW_NOT,
-    KW_NOT_NULL,
     KW_NULL,
     KW_NULLS,
     KW_OBSERVER,
@@ -465,6 +467,10 @@ terminal String
     KW_PARTITION,
     KW_PARTITIONS,
     KW_PASSWORD,
+    KW_PASSWORD_EXPIRE,
+    KW_PASSWORD_HISTORY,
+    KW_PASSWORD_LOCK_TIME,
+    KW_PASSWORD_REUSE,
     KW_PATH,
     KW_PAUSE,
     KW_PIPE,
@@ -792,6 +798,12 @@ nonterminal TablePattern tbl_pattern;
 nonterminal ResourcePattern resource_pattern;
 nonterminal String ident_or_star;
 
+// password policy
+nonterminal PasswordOptions opt_password_option;
+nonterminal Integer opt_passwd_history_policy, opt_passwd_reuse_policy;
+nonterminal Integer opt_failed_login_attempts, passwd_history_opt, passwd_reuse_opt, opt_lock_account, passwd_time_unit;
+nonterminal Long opt_passwd_expire_policy, opt_password_lock_time, passwd_expire_opt, passwd_lock_time_opt;
+
 // Routine load
 nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
@@ -812,10 +824,11 @@ nonterminal List<ArrayList<Expr>> grouping_set_list;
 nonterminal ArrayList<Expr> grouping_set;
 nonterminal GroupByClause group_by_clause, grouping_elements;
 //
-nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
+nonterminal String keyword, ident, ident_or_text, variable_name,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
         collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit,
         literal_or_ident;
+nonterminal PassVar text_or_password;
 
 // sync job
 nonterminal List<ChannelDescription> channel_desc_list;
@@ -1258,6 +1271,14 @@ alter_stmt ::=
     | KW_ALTER KW_MATERIALIZED KW_VIEW table_name:mv opt_mv_refersh_info:refreshInfo
     {:
         RESULT = new AlterMaterializedViewStmt(mv, refreshInfo);
+    :}
+    | KW_ALTER KW_USER
+      opt_if_exists:ifExists
+      grant_user:user
+      opt_user_role:userRole
+      opt_password_option:passwdOptions
+    {:
+        RESULT = new AlterUserStmt(ifExists, user, userRole, passwdOptions);
     :}
     ;
 
@@ -1753,9 +1774,13 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index), columns, query_def);
     :}
     /* User */
-    | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
+    | KW_CREATE KW_USER
+      opt_if_not_exists:ifNotExists
+      grant_user:user
+      opt_user_role:userRole
+      opt_password_option:passwdOptions
     {:
-        RESULT = new CreateUserStmt(ifNotExists, user, userRole);
+        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions);
     :}
     | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
@@ -1936,12 +1961,12 @@ grant_user ::=
     | user_identity:user_id KW_IDENTIFIED KW_BY STRING_LITERAL:password
     {:
         /* plain text password */
-        RESULT = new UserDesc(user_id, password, true);
+        RESULT = new UserDesc(user_id, new PassVar(password, true));
     :}
     | user_identity:user_id KW_IDENTIFIED KW_BY KW_PASSWORD STRING_LITERAL:password
     {:
         /* hashed password */
-        RESULT = new UserDesc(user_id, password, false);
+        RESULT = new UserDesc(user_id, new PassVar(password, false));
     :}
     ;
 
@@ -1957,6 +1982,145 @@ opt_user_role ::=
     | KW_DEFAULT KW_ROLE STRING_LITERAL:role
     {:
         RESULT = role;
+    :}
+    ;
+
+opt_password_option ::=
+    opt_passwd_history_policy:historyPolicy
+    opt_passwd_expire_policy:expirePolicy
+    opt_passwd_reuse_policy:reusePolicy
+    opt_failed_login_attempts:loginAttempts
+    opt_password_lock_time:passwdLockTime
+    opt_lock_account:lockAccount
+    {:
+        RESULT = new PasswordOptions(expirePolicy, historyPolicy, reusePolicy, loginAttempts, passwdLockTime, lockAccount);
+    :}
+    ;
+
+opt_passwd_expire_policy ::=
+    {:
+        RESULT = (long) PasswordOptions.UNSET;
+    :}
+    | KW_PASSWORD_EXPIRE passwd_expire_opt:opt
+    {:
+        RESULT = opt;
+    :}
+    ;
+
+opt_passwd_history_policy ::=
+    {:
+        RESULT = PasswordOptions.UNSET;
+    :}
+    | KW_PASSWORD_HISTORY passwd_history_opt:opt
+    {:
+        RESULT = opt;
+    :}
+    ;
+
+opt_passwd_reuse_policy ::=
+    {:
+        RESULT = PasswordOptions.UNSET;
+    :}
+    | KW_PASSWORD_REUSE KW_INTERVAL passwd_reuse_opt:opt
+    {:
+        RESULT = opt;
+    :}
+    ;
+
+opt_lock_account ::=
+    {:
+        RESULT = PasswordOptions.UNSET;
+    :}
+    | KW_ACCOUNT_LOCK
+    {:
+        RESULT = -1;
+    :}
+    | KW_ACCOUNT_UNLOCK
+    {:
+        RESULT = 1;
+    :}
+    ;
+
+passwd_expire_opt ::=
+    KW_DEFAULT
+    {:
+        RESULT = -1L;
+    :}
+    | KW_NEVER
+    {:
+        RESULT = 0L;
+    :}
+    | KW_INTERVAL INTEGER_LITERAL:n passwd_time_unit:unit
+    {:
+        RESULT = n * unit;
+    :}
+    ;
+
+passwd_time_unit ::=
+    KW_DAY
+    {:
+        RESULT = 86400;
+    :}
+    | KW_HOUR
+    {:
+        RESULT = 3600;
+    :}
+    | KW_SECOND
+    {:
+        RESULT = 1;
+    :}
+    ;
+
+passwd_history_opt ::=
+    KW_DEFAULT
+    {:
+        RESULT = -1;
+    :}
+    | INTEGER_LITERAL:n
+    {:
+        RESULT = n.intValue();
+    :}
+    ;
+
+passwd_reuse_opt ::=
+    KW_DEFAULT
+    {:
+        RESULT = -1;
+    :}
+    | INTEGER_LITERAL:n KW_DAY
+    {:
+        RESULT = n.intValue();
+    :}
+    ;
+
+opt_failed_login_attempts ::=
+    {:
+        RESULT = PasswordOptions.UNSET;
+    :}
+    | KW_FAILED_LOGIN_ATTEMPTS INTEGER_LITERAL:n
+    {:
+        RESULT = n.intValue();
+    :}
+    ;
+
+opt_password_lock_time ::=
+    {:
+        RESULT = (long) PasswordOptions.UNSET;
+    :}
+    | KW_PASSWORD_LOCK_TIME passwd_lock_time_opt:opt
+    {:
+        RESULT = opt;
+    :} 
+    ;
+
+passwd_lock_time_opt ::=
+    INTEGER_LITERAL:n passwd_time_unit:unit
+    {:
+        RESULT = n * unit;
+    :}
+    | KW_UNBOUNDED
+    {:
+        RESULT = -1L;
     :}
     ;
 
@@ -4277,12 +4441,12 @@ text_or_password ::=
     STRING_LITERAL:text
     {:
         // This is hashed text
-        RESULT = text;
+        RESULT = new PassVar(text, false);
     :}
-    | KW_PASSWORD LPAREN STRING_LITERAL:passwd RPAREN
+    | KW_PASSWORD LPAREN STRING_LITERAL:text RPAREN
     {:
         // This is plain text
-        RESULT = new String(MysqlPassword.makeScrambledPassword(passwd));
+        RESULT = new PassVar(text, true);
     :}
     ;
 
@@ -6176,6 +6340,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_FAST:id
     {: RESULT = id; :}
+    | KW_FAILED_LOGIN_ATTEMPTS:id
+    {: RESULT = id; :}
     | KW_FILE:id
     {: RESULT = id; :}
     | KW_FIELDS:id
@@ -6283,6 +6449,14 @@ keyword ::=
     | KW_PARTITIONS:id
     {: RESULT = id; :}
     | KW_PASSWORD:id
+    {: RESULT = id; :}
+    | KW_PASSWORD_EXPIRE:id
+    {: RESULT = id; :}
+    | KW_PASSWORD_REUSE:id
+    {: RESULT = id; :}
+    | KW_PASSWORD_HISTORY:id
+    {: RESULT = id; :}
+    | KW_PASSWORD_LOCK_TIME:id
     {: RESULT = id; :}
     | KW_LDAP_ADMIN_PASSWORD:id
     {: RESULT = id; :}
