@@ -36,12 +36,12 @@ public class CastExprTest {
             Assert.assertEquals(subStringValue, "20");
         }
         if (varcharType.getLength() >= 0  && value.getStringValue() != null
-            && varcharType.getLength() < value.getStringValue().length()) {
+               && varcharType.getLength() < value.getStringValue().length()) {
             String subStringValue = value.getStringValue().substring(0, varcharType.getLength());
             Assert.assertEquals(subStringValue, "20");
         }
         if (stringType.getLength() >= 0  && value.getStringValue() != null
-            && stringType.getLength() < value.getStringValue().length()) {
+               && stringType.getLength() < value.getStringValue().length()) {
             String subStringValue = value.getStringValue().substring(0, stringType.getLength());
             Assert.assertEquals(subStringValue, "20");
         }
