@@ -336,7 +336,7 @@ Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         value = BigEndian::ToHost128(value);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
@@ -361,7 +361,7 @@ Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_colum
         Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
@@ -430,7 +430,7 @@ Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         value = BigEndian::ToHost128(value);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);

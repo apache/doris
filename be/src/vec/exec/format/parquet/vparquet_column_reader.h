@@ -55,9 +55,11 @@ public:
                   decode_header_time(0),
                   decode_value_time(0),
                   decode_dict_time(0),
-                  decode_level_time(0) {}
+                  decode_level_time(0),
+                  decode_null_map_time(0) {}
 
-        Statistics(BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs)
+        Statistics(BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs,
+                   int64_t null_map_time)
                 : read_time(fs.read_time),
                   read_calls(fs.read_calls),
                   read_bytes(fs.read_bytes),
@@ -66,7 +68,8 @@ public:
                   decode_header_time(cs.decode_header_time),
                   decode_value_time(cs.decode_value_time),
                   decode_dict_time(cs.decode_dict_time),
-                  decode_level_time(cs.decode_level_time) {}
+                  decode_level_time(cs.decode_level_time),
+                  decode_null_map_time(null_map_time) {}
 
         int64_t read_time;
         int64_t read_calls;
@@ -77,6 +80,7 @@ public:
         int64_t decode_value_time;
         int64_t decode_dict_time;
         int64_t decode_level_time;
+        int64_t decode_null_map_time;
 
         void merge(Statistics& statistics) {
             read_time += statistics.read_time;
@@ -88,6 +92,7 @@ public:
             decode_value_time += statistics.decode_value_time;
             decode_dict_time += statistics.decode_dict_time;
             decode_level_time += statistics.decode_level_time;
+            decode_null_map_time += statistics.decode_null_map_time;
         }
     };
 
@@ -107,7 +112,8 @@ public:
     void init_column_metadata(const tparquet::ColumnChunk& chunk);
     void add_offset_index(tparquet::OffsetIndex* offset_index) { _offset_index = offset_index; }
     Statistics statistics() {
-        return Statistics(_stream_reader->statistics(), _chunk_reader->statistics());
+        return Statistics(_stream_reader->statistics(), _chunk_reader->statistics(),
+                          _decode_null_map_time);
     }
     virtual void close() = 0;
 
@@ -123,6 +129,7 @@ protected:
     tparquet::OffsetIndex* _offset_index;
     int64_t _current_row_index = 0;
     int _row_range_index = 0;
+    int64_t _decode_null_map_time = 0;
 };
 
 class ScalarColumnReader : public ParquetColumnReader {
