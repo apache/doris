@@ -445,8 +445,8 @@ suite("test_date_function") {
         ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
         ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59');"""
     qt_sql """
-        select last_month_day(birth), last_month_day(birth1), 
-                last_month_day(birth2), last_month_day(birth3) 
+        select last_day(birth), last_day(birth1), 
+                last_day(birth2), last_day(birth3) 
                 from ${tableName};
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
