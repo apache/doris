@@ -22,6 +22,7 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 #include "exprs/math_functions.h"
@@ -1150,6 +1151,64 @@ public:
         block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
+};
+
+class FunctionExtractURLParameter : public IFunction {
+public:
+    static constexpr auto name = "extract_url_parameter";
+    static FunctionPtr create() { return std::make_shared<FunctionExtractURLParameter>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+     return std::make_shared<DataTypeString>();
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }  
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto col_url =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_target =
+            block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
+        ColumnString::MutablePtr col_res = ColumnString::create();        
+
+        for(int i = 0; i < input_rows_count; ++i) {
+            StringRef target_str =
+                assert_cast<const ColumnString*>(col_target.get())->get_data_at(i);
+            StringRef url_str =
+                assert_cast<const ColumnString*>(col_url.get())->get_data_at(i);
+            std::string result = extract_url(url_str, target_str);
+            
+            col_res->insert_data(result.data(), result.length());
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    std::string extract_url(StringRef url_str, StringRef target_str) {
+        std::string str = url_str.to_string();
+        std::string_view target = target_str.to_string_view();
+
+        if(target.empty()) {
+            return str;
+        }
+        std::string::size_type idx = str.find(target);
+        if(idx != string::npos) {
+            return target_str.to_string();
+        } else {
+            return "";
+        }
+    }
+
 };
 
 class FunctionStringParseUrl : public IFunction {

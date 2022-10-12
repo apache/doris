@@ -952,6 +952,24 @@ TEST(function_string_test, function_sm4_decrypt_test) {
     }
 }
 
+TEST(function_string_test, function_extract_url_parameter) {
+    std::string func_name = "extract_url_parameter";
+    InputTypeSet input_types = {
+            TypeIndex::String,
+            TypeIndex::String
+    };
+    DataSet data_set = {{{{VARCHAR(""), VARCHAR("doris"))}, {VARCHAR("")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("doorg")},{VARCHAR("")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("s.")},{VARCHAR("s.")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("doris")},{VARCHAR("doris")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("://doris")},{VARCHAR("://doris.")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("doris.apache.org")},{VARCHAR("doris.apache.org")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("")},{VARCHAR("https://doris.apache.org/")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("https://doris.apache.org/")},{VARCHAR("")}};
+
+    check_function<DataTypeString, true>(func_name, input_types, data_set);
+}
+
 TEST(function_string_test, function_parse_url_test) {
     std::string func_name = "parse_url";
 
