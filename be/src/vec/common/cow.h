@@ -195,6 +195,12 @@ protected:
             return ret;
         }
 
+        void swap(intrusive_ptr& rhs) {
+            T* tmp = t;
+            t = rhs.t;
+            rhs.t = tmp;
+        }
+
         T& operator*() const& { return *t; }
 
         T&& operator*() const&& { return const_cast<std::remove_const_t<T>&&>(*t); }
@@ -204,13 +210,6 @@ protected:
         operator bool() const { return t != nullptr; }
 
         operator T*() const { return t; }
-
-    private:
-        void swap(intrusive_ptr& rhs) {
-            T* tmp = t;
-            t = rhs.t;
-            rhs.t = tmp;
-        }
 
     private:
         T* t;
