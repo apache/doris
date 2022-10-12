@@ -71,6 +71,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -247,7 +248,7 @@ public class OlapScanNode extends ScanNode {
     /**
      * Only used for Neredis to set rollup or materialized view selection result.
      */
-    public void selectSelectIndexInfo(
+    public void setSelectedIndexInfo(
             long selectedIndexId,
             boolean isPreAggregation,
             String reasonOfPreAggregation) {
@@ -533,7 +534,7 @@ public class OlapScanNode extends ScanNode {
 
     private void computeInaccurateCardinality() throws UserException {
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
@@ -912,8 +913,8 @@ public class OlapScanNode extends ScanNode {
         }
 
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
-        msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation,
-                columnsDesc);
+        msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
+        msg.olap_scan_node.setColumnsDesc(columnsDesc);
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
@@ -1103,5 +1104,10 @@ public class OlapScanNode extends ScanNode {
         } else {
             return DataPartition.RANDOM;
         }
+    }
+
+    @VisibleForTesting
+    public String getReasonOfPreAggregation() {
+        return reasonOfPreAggregation;
     }
 }

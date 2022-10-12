@@ -755,6 +755,7 @@ Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::Mutable
 Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                       bool* has_null) {
     size_t curr_size = dst->byte_size();
+    dst->reserve(*n);
     size_t remaining = *n;
     *has_null = false;
     while (remaining > 0) {
@@ -1076,7 +1077,8 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     }
     case OLAP_FIELD_TYPE_STRING:
     case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_CHAR: {
+    case OLAP_FIELD_TYPE_CHAR:
+    case OLAP_FIELD_TYPE_JSONB: {
         data_ptr = ((Slice*)mem_value)->data;
         data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);

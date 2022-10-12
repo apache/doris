@@ -303,7 +303,8 @@ public class ChildOutputPropertyDeriverTest {
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
-        PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
+        DistributionSpecHash childHash = new DistributionSpecHash(Lists.newArrayList(partition.getExprId()), ShuffleType.BUCKETED);
+        PhysicalProperties child = new PhysicalProperties(childHash,
                 new OrderSpec(Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
@@ -331,7 +332,7 @@ public class ChildOutputPropertyDeriverTest {
         );
 
         GroupExpression groupExpression = new GroupExpression(aggregate);
-        PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
+        PhysicalProperties child = new PhysicalProperties(DistributionSpecGather.INSTANCE,
                 new OrderSpec(Lists.newArrayList(new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));

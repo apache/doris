@@ -187,6 +187,10 @@ private:
             }
 
             int fixed_pos = start[i];
+            if (fixed_pos < -(int)index.size()) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
             if (fixed_pos < 0) {
                 fixed_pos = index.size() + fixed_pos + 1;
             }
@@ -1013,7 +1017,7 @@ public:
                 int32_t num = 0;
                 while (num < part_number) {
                     pre_offset = offset;
-                    size_t n = str.size - offset;
+                    size_t n = str.size - offset - 1;
                     const char* pos = reinterpret_cast<const char*>(
                             memchr(str.data + offset + 1, delimiter_str[0], n));
                     if (pos != nullptr) {
@@ -1466,6 +1470,9 @@ public:
 
 private:
     std::string replace(std::string str, std::string_view old_str, std::string_view new_str) {
+        if (old_str.empty()) {
+            return str;
+        }
         std::string::size_type pos = 0;
         std::string::size_type oldLen = old_str.size();
         std::string::size_type newLen = new_str.size();

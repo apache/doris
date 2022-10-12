@@ -24,12 +24,9 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h"
 #include "service/backend_options.h"
-#include "service/brpc.h"
-#include "util/brpc_client_cache.h"
-#include "util/network_util.h"
 #include "util/ref_count_closure.h"
 #include "util/uid_util.h"
-#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class ObjectPool;
@@ -59,18 +56,18 @@ public:
     VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc, int per_channel_buffer_size,
                       bool send_query_statistics_with_every_batch);
 
-    ~VDataStreamSender();
+    ~VDataStreamSender() override;
 
-    virtual Status init(const TDataSink& thrift_sink) override;
+    Status init(const TDataSink& thrift_sink) override;
 
-    virtual Status prepare(RuntimeState* state) override;
-    virtual Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
-    virtual Status send(RuntimeState* state, RowBatch* batch) override;
-    virtual Status send(RuntimeState* state, Block* block) override;
+    Status send(RuntimeState* state, RowBatch* batch) override;
+    Status send(RuntimeState* state, Block* block) override;
 
-    virtual Status close(RuntimeState* state, Status exec_status) override;
-    virtual RuntimeProfile* profile() override { return _profile; }
+    Status close(RuntimeState* state, Status exec_status) override;
+    RuntimeProfile* profile() override { return _profile; }
 
     RuntimeState* state() { return _state; }
 
@@ -89,8 +86,8 @@ protected:
     }
 
     template <typename Channels>
-    Status channel_add_rows(Channels& channels, int num_channels, uint64_t* channel_ids, int rows,
-                            Block* block);
+    Status channel_add_rows(Channels& channels, int num_channels, const uint64_t* channel_ids,
+                            int rows, Block* block);
 
     struct hash_128 {
         uint64_t high;
@@ -246,7 +243,9 @@ public:
 private:
     Status _wait_last_brpc() {
         SCOPED_TIMER(_parent->_brpc_wait_timer);
-        if (_closure == nullptr) return Status::OK();
+        if (_closure == nullptr) {
+            return Status::OK();
+        }
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
         brpc::Join(call_id);
@@ -310,12 +309,12 @@ private:
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
 
-    bool _enable_local_exchange = false;
+    bool _enable_local_exchange = true;
 };
 
 template <typename Channels>
 Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels,
-                                           uint64_t* __restrict channel_ids, int rows,
+                                           const uint64_t* __restrict channel_ids, int rows,
                                            Block* block) {
     std::vector<int> channel2rows[num_channels];
 

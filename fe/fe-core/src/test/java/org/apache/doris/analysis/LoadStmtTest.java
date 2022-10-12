@@ -78,7 +78,7 @@ public class LoadStmtTest {
 
     @Test
     public void testNormal(@Injectable DataDescription desc, @Mocked Env env,
-                           @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
+            @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
         String resourceName = "spark0";

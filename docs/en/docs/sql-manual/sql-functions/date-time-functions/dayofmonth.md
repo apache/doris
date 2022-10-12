@@ -47,4 +47,4 @@ mysql> select dayofmonth('1987-01-31');
 +-----------------------------------+
 ```
 ### keywords
-DAYOFMONTH
+    DAYOFMONTH

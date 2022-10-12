@@ -464,7 +464,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
-        const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter) {
+        const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter) {
     int32_t index = _tablet_schema->field_index(bloom_filter.first);
     if (index < 0) {
         return nullptr;

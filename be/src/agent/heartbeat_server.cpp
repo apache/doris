@@ -41,6 +41,15 @@ using apache::thrift::TProcessor;
 
 namespace doris {
 
+// When we have some breaking change for execute engine, we should update be_exec_version.
+// 0: not contain be_exec_version.
+// 1: remove ColumnString's terminating zero.
+const int HeartbeatServer::max_be_exec_version = 1;
+const int HeartbeatServer::min_be_exec_version = 0;
+
+// For support rolling upgrade, we send data as second newest version.
+int HeartbeatServer::be_exec_version = max_be_exec_version - 1;
+
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info)
         : _master_info(master_info), _fe_epoch(0) {
     _olap_engine = StorageEngine::instance();
@@ -159,6 +168,13 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (master_info.__isset.backend_id) {
         _master_info->__set_backend_id(master_info.backend_id);
+    }
+
+    if (master_info.__isset.be_exec_version && check_be_exec_version(master_info.be_exec_version) &&
+        be_exec_version != master_info.be_exec_version) {
+        LOG(INFO) << fmt::format("be_exec_version changed from {} to {}", be_exec_version,
+                                 master_info.be_exec_version);
+        be_exec_version = master_info.be_exec_version;
     }
 
     if (need_report) {

@@ -20,11 +20,13 @@ package org.apache.doris.analysis;
 import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ParseUtil;
@@ -64,6 +66,7 @@ public class OutFileClause {
     public static final Map<String, TParquetDataType> PARQUET_DATA_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetVersion> PARQUET_VERSION_MAP = Maps.newHashMap();
+    public static final Set<String> ORC_DATA_TYPE = Sets.newHashSet();
 
     static {
         RESULT_COL_NAMES.add("FileNumber");
@@ -100,6 +103,15 @@ public class OutFileClause {
 
         PARQUET_VERSION_MAP.put("v1", TParquetVersion.PARQUET_1_0);
         PARQUET_VERSION_MAP.put("latest", TParquetVersion.PARQUET_2_LATEST);
+
+        ORC_DATA_TYPE.add("bigint");
+        ORC_DATA_TYPE.add("boolean");
+        ORC_DATA_TYPE.add("double");
+        ORC_DATA_TYPE.add("float");
+        ORC_DATA_TYPE.add("int");
+        ORC_DATA_TYPE.add("smallint");
+        ORC_DATA_TYPE.add("string");
+        ORC_DATA_TYPE.add("tinyint");
     }
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
@@ -114,6 +126,7 @@ public class OutFileClause {
     private static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
     private static final String PARQUET_PROP_PREFIX = "parquet.";
+    private static final String ORC_PROP_PREFIX = "orc.";
     private static final String SCHEMA = "schema";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
@@ -138,13 +151,15 @@ public class OutFileClause {
 
     private List<TParquetSchema> parquetSchemas = new ArrayList<>();
 
+    private List<Pair<String, String>> orcSchemas = new ArrayList<>();
+
     private boolean isAnalyzed = false;
     private String headerType = "";
 
     private static final String PARQUET_COMPRESSION = "compression";
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.UNCOMPRESSED;
     private static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
-    private boolean parquetDisableDictionary = true;
+    private boolean parquetDisableDictionary = false;
     private static final String PARQUET_VERSION = "version";
     private static TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
 
@@ -190,7 +205,7 @@ public class OutFileClause {
         return parquetSchemas;
     }
 
-    public void analyze(Analyzer analyzer, List<Expr> resultExprs) throws UserException {
+    public void analyze(Analyzer analyzer, List<Expr> resultExprs, List<String> colLabels) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,
@@ -206,6 +221,9 @@ public class OutFileClause {
                 break;
             case "parquet":
                 fileFormatType = TFileFormatType.FORMAT_PARQUET;
+                break;
+            case "orc":
+                fileFormatType = TFileFormatType.FORMAT_ORC;
                 break;
             case "csv_with_names":
                 headerType = FeConstants.csv_with_names;
@@ -229,13 +247,153 @@ public class OutFileClause {
         isAnalyzed = true;
 
         if (isParquetFormat()) {
-            analyzeForParquetFormat(resultExprs);
+            analyzeForParquetFormat(resultExprs, colLabels);
+        } else if (isOrcFormat()) {
+            analyzeForOrcFormat(resultExprs, colLabels);
         }
     }
 
-    private void analyzeForParquetFormat(List<Expr> resultExprs) throws AnalysisException {
+    private void genOrcSchema(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
+        Preconditions.checkState(this.parquetSchemas.isEmpty());
+        for (int i = 0; i < resultExprs.size(); ++i) {
+            Expr expr = resultExprs.get(i);
+            String type = "";
+            switch (expr.getType().getPrimitiveType()) {
+                case BOOLEAN:
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                case BIGINT:
+                case FLOAT:
+                case DOUBLE:
+                case STRING:
+                    type = expr.getType().getPrimitiveType().toString().toLowerCase();
+                    break;
+                case HLL:
+                case BITMAP:
+                    if (!(ConnectContext.get() != null && ConnectContext.get()
+                            .getSessionVariable().isReturnObjectDataAsBinary())) {
+                        break;
+                    }
+                    type = "string";
+                    break;
+                case DATE:
+                case DATETIME:
+                case DATETIMEV2:
+                case DATEV2:
+                case CHAR:
+                case VARCHAR:
+                    type = "string";
+                    break;
+                case DECIMALV2:
+                    if (!expr.getType().isWildcardDecimal()) {
+                        type = String.format("decimal(%d, %d)", ScalarType.MAX_DECIMAL128_PRECISION,
+                                ((ScalarType) expr.getType()).decimalScale());
+                    } else {
+                        throw new AnalysisException("currently ORC writer do not support WildcardDecimal!");
+                    }
+                    break;
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                    if (!expr.getType().isWildcardDecimal()) {
+                        type = String.format("decimal(%d, %d)", ((ScalarType) expr.getType()).getPrecision(),
+                                ((ScalarType) expr.getType()).decimalScale());
+                    } else {
+                        throw new AnalysisException("currently ORC writer do not support WildcardDecimal!");
+                    }
+                    break;
+                default:
+                    throw new AnalysisException("currently orc do not support column type: "
+                            + expr.getType().getPrimitiveType());
+            }
+            orcSchemas.add(Pair.of(colLabels.get(i), type));
+        }
+    }
+
+    private String serializeOrcSchema() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("struct<");
+        this.orcSchemas.forEach(pair -> sb.append(pair.first + ":" + pair.second + ","));
+        if (!this.orcSchemas.isEmpty()) {
+            return sb.substring(0, sb.length() - 1) + ">";
+        } else {
+            return sb.toString() + ">";
+        }
+    }
+
+    private void analyzeForOrcFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
+        if (this.orcSchemas.isEmpty()) {
+            genOrcSchema(resultExprs, colLabels);
+        }
+        // check schema number
+        if (resultExprs.size() != this.orcSchemas.size()) {
+            throw new AnalysisException("Orc schema number does not equal to select item number");
+        }
+        // check type
+        for (int i = 0; i < this.orcSchemas.size(); ++i) {
+            Pair<String, String> schema = this.orcSchemas.get(i);
+            Type resultType = resultExprs.get(i).getType();
+            switch (resultType.getPrimitiveType()) {
+                case BOOLEAN:
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                case BIGINT:
+                case FLOAT:
+                case DOUBLE:
+                case STRING:
+                    if (!schema.second.equals(resultType.getPrimitiveType().toString().toLowerCase())) {
+                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
+                                + ", should use "  + resultType.getPrimitiveType().toString() +  ","
+                                + " but the type of column " + i + " is " + schema.second);
+                    }
+                    break;
+                case DATE:
+                case DATETIME:
+                case DATETIMEV2:
+                case DATEV2:
+                case CHAR:
+                case VARCHAR:
+                    if (!schema.second.equals("string")) {
+                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
+                                + ", should use string, but the definition type of column " + i + " is "
+                                + schema.second);
+                    }
+                    break;
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMALV2:
+                    if (!schema.second.startsWith("decimal")) {
+                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
+                                + ", should use string, but the definition type of column " + i + " is "
+                                + schema.second);
+                    }
+                    break;
+                case HLL:
+                case BITMAP:
+                    if (ConnectContext.get() != null && ConnectContext.get()
+                            .getSessionVariable().isReturnObjectDataAsBinary()) {
+                        if (!schema.second.equals("string")) {
+                            throw new AnalysisException("project field type is HLL/BITMAP, should use string, "
+                                    + "but the definition type of column " + i + " is " + schema.second);
+                        }
+                    } else {
+                        throw new AnalysisException("Orc format does not support column type: "
+                                + resultType.getPrimitiveType());
+                    }
+                    break;
+                default:
+                    throw new AnalysisException("Orc format does not support column type: "
+                            + resultType.getPrimitiveType());
+            }
+        }
+    }
+
+    private void analyzeForParquetFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
         if (this.parquetSchemas.isEmpty()) {
-            genParquetSchema(resultExprs);
+            genParquetSchema(resultExprs, colLabels);
         }
 
         // check schema number
@@ -265,10 +423,8 @@ public class OutFileClause {
                 case BIGINT:
                 case DATE:
                 case DATETIME:
-                case DATETIMEV2:
-                case DATEV2:
                     if (!PARQUET_DATA_TYPE_MAP.get("int64").equals(type)) {
-                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME/DATEV2/DATETIMEV2,"
+                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME,"
                                 + "should use int64, but the definition type of column " + i + " is " + type);
                     }
                     break;
@@ -291,9 +447,12 @@ public class OutFileClause {
                 case DECIMAL64:
                 case DECIMAL128:
                 case DECIMALV2:
+                case DATETIMEV2:
+                case DATEV2:
                     if (!PARQUET_DATA_TYPE_MAP.get("byte_array").equals(type)) {
-                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL,"
-                                + " should use byte_array, but the definition type of column " + i + " is " + type);
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL/DATEV2"
+                                + "/DATETIMEV2, should use byte_array, but the definition type of column "
+                                + i + " is " + type);
                     }
                     break;
                 case HLL:
@@ -316,12 +475,16 @@ public class OutFileClause {
         }
     }
 
-    private void genParquetSchema(List<Expr> resultExprs) throws AnalysisException {
+    private void genParquetSchema(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
         Preconditions.checkState(this.parquetSchemas.isEmpty());
         for (int i = 0; i < resultExprs.size(); ++i) {
             Expr expr = resultExprs.get(i);
             TParquetSchema parquetSchema = new TParquetSchema();
-            parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get("required");
+            if (resultExprs.get(i).isNullable()) {
+                parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get("optional");
+            } else {
+                parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get("required");
+            }
             switch (expr.getType().getPrimitiveType()) {
                 case BOOLEAN:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("boolean");
@@ -334,8 +497,6 @@ public class OutFileClause {
                 case BIGINT:
                 case DATE:
                 case DATETIME:
-                case DATETIMEV2:
-                case DATEV2:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("int64");
                     break;
                 case FLOAT:
@@ -351,6 +512,8 @@ public class OutFileClause {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
+                case DATETIMEV2:
+                case DATEV2:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("byte_array");
                     break;
                 case HLL:
@@ -364,7 +527,7 @@ public class OutFileClause {
                     throw new AnalysisException("currently parquet do not support column type: "
                             + expr.getType().getPrimitiveType());
             }
-            parquetSchema.schema_column_name = "col" + i;
+            parquetSchema.schema_column_name = colLabels.get(i);
             parquetSchemas.add(parquetSchema);
         }
     }
@@ -431,6 +594,10 @@ public class OutFileClause {
 
         if (this.fileFormatType == TFileFormatType.FORMAT_PARQUET) {
             getParquetProperties(processedPropKeys);
+        }
+
+        if (this.fileFormatType == TFileFormatType.FORMAT_ORC) {
+            getOrcProperties(processedPropKeys);
         }
 
         if (processedPropKeys.size() != properties.size()) {
@@ -570,6 +737,41 @@ public class OutFileClause {
         processedPropKeys.add(SCHEMA);
     }
 
+    private void getOrcProperties(Set<String> processedPropKeys) throws AnalysisException {
+        // check schema. if schema is not set, Doris will gen schema by select items
+        String schema = properties.get(SCHEMA);
+        if (schema == null) {
+            return;
+        }
+        if (schema.isEmpty()) {
+            throw new AnalysisException("Orc schema property should not be empty");
+        }
+        schema = schema.replace(" ", "");
+        schema = schema.toLowerCase();
+        String[] schemas = schema.split(";");
+        for (String item : schemas) {
+            String[] properties = item.split(",");
+            if (properties.length != 2) {
+                throw new AnalysisException("must only contains type and column name");
+            }
+            if (!ORC_DATA_TYPE.contains(properties[1]) && !properties[1].startsWith("decimal")) {
+                throw new AnalysisException("data type is not supported:" + properties[1]);
+            } else if (!ORC_DATA_TYPE.contains(properties[1]) && properties[1].startsWith("decimal")) {
+                String errorMsg = "Format of decimal type must be decimal(%d,%d)";
+                String precisionAndScale = properties[1].substring(0, "decimal".length()).trim();
+                if (!precisionAndScale.startsWith("(") || !precisionAndScale.endsWith(")")) {
+                    throw new AnalysisException(errorMsg);
+                }
+                String[] str = precisionAndScale.substring(1, precisionAndScale.length() - 1).split(",");
+                if (str.length != 2) {
+                    throw new AnalysisException(errorMsg);
+                }
+            }
+            orcSchemas.add(Pair.of(properties[0], properties[1]));
+        }
+        processedPropKeys.add(SCHEMA);
+    }
+
     private boolean isCsvFormat() {
         return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
                 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
@@ -582,6 +784,10 @@ public class OutFileClause {
 
     private boolean isParquetFormat() {
         return fileFormatType == TFileFormatType.FORMAT_PARQUET;
+    }
+
+    private boolean isOrcFormat() {
+        return fileFormatType == TFileFormatType.FORMAT_ORC;
     }
 
     @Override
@@ -629,6 +835,9 @@ public class OutFileClause {
             sinkOptions.setParquetDisableDictionary(parquetDisableDictionary);
             sinkOptions.setParquetVersion(parquetVersion);
             sinkOptions.setParquetSchemas(parquetSchemas);
+        }
+        if (isOrcFormat()) {
+            sinkOptions.setOrcSchema(serializeOrcSchema());
         }
         return sinkOptions;
     }

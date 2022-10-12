@@ -303,7 +303,7 @@ public class SetOperationStmt extends QueryStmt {
         baseTblResultExprs = resultExprs;
 
         if (hasOutFileClause()) {
-            outFileClause.analyze(analyzer, resultExprs);
+            outFileClause.analyze(analyzer, resultExprs, getColLabels());
         }
     }
 

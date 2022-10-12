@@ -199,6 +199,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
+    public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
+    public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
 
@@ -222,6 +224,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
+
+    public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
+
+    public static final String ENABLE_NEREIDS_STATS_DERIVE_V2 = "enable_nereids_stats_derive_v2";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -519,6 +525,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
     private boolean enableNereidsPlanner = false;
 
+    @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
+    private boolean nereidsStarSchemaSupport = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
+    private boolean enableNereidsTrace = true;
+
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
     private boolean enableNereidsRuntimeFilter = true;
 
@@ -543,8 +555,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFunctionPushdown;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
-    public boolean enableLocalExchange = false;
-
+    public boolean enableLocalExchange = true;
 
     /**
      * For debugg purpose, dont' merge unique key and agg key when reading data.
@@ -569,6 +580,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
+
+    /**
+     * The current statistics are only used for CBO test,
+     * and are not available to users. (work in progress)
+     */
+    @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
+    public boolean enableCboStatistics = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_STATS_DERIVE_V2)
+    public boolean enableNereidsStatsDeriveV2 = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -975,6 +996,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableLocalExchange;
     }
 
+    public boolean getEnableCboStatistics() {
+        return enableCboStatistics;
+    }
+
     /**
      * getInsertVisibleTimeoutMs.
      **/
@@ -1094,6 +1119,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
+    public boolean isNereidsStarSchemaSupport() {
+        return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
+    }
+
+    public boolean isEnableNereidsTrace() {
+        return isEnableNereidsPlanner() && enableNereidsTrace;
+    }
+
     public boolean isEnableNereidsRuntimeFilter() {
         return enableNereidsRuntimeFilter;
     }
@@ -1116,6 +1149,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
         this.enableSingleReplicaInsert = enableSingleReplicaInsert;
+    }
+
+    public boolean isEnableNereidsStatsDeriveV2() {
+        return enableNereidsStatsDeriveV2;
+    }
+
+    public void setEnableNereidsStatsDeriveV2(boolean enableNereidsStatsDeriveV2) {
+        this.enableNereidsStatsDeriveV2 = enableNereidsStatsDeriveV2;
     }
 
     /**

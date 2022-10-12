@@ -233,14 +233,21 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
         _query_mem_tracker =
                 _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
                         print_id(query_id), bytes_limit);
+        _scanner_mem_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->register_query_scanner_mem_tracker(
+                        print_id(query_id));
     } else if (query_type() == TQueryType::LOAD) {
         _query_mem_tracker = _exec_env->task_pool_mem_tracker_registry()->register_load_mem_tracker(
                 print_id(query_id), bytes_limit);
+        _scanner_mem_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->register_load_scanner_mem_tracker(
+                        print_id(query_id));
     } else {
         DCHECK(false);
         _query_mem_tracker = ExecEnv::GetInstance()->query_pool_mem_tracker();
     }
     _query_mem_tracker->enable_reset_zero();
+    _scanner_mem_tracker->enable_reset_zero();
 
     _instance_mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, "RuntimeState:instance:" + print_id(_fragment_instance_id), _query_mem_tracker,

@@ -124,7 +124,7 @@ public:
     }
 
     // shrink the end zeros for CHAR type or ARRAY<CHAR> type
-    virtual MutablePtr get_shinked_column() {
+    virtual MutablePtr get_shrinked_column() {
         LOG(FATAL) << "Cannot clone_resized() column " << get_name();
         return nullptr;
     }
@@ -299,6 +299,7 @@ public:
     /// This is for calculating the memory size for vectorized serialization of aggregation keys.
     virtual size_t get_max_row_byte_size() const {
         LOG(FATAL) << "get_max_row_byte_size not supported";
+        return 0;
     }
 
     virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,

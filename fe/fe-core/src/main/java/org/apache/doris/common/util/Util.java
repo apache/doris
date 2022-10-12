@@ -74,6 +74,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "jsonb");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d,%d)");
@@ -354,15 +355,15 @@ public class Util {
         return result;
     }
 
-    public static float getFloatPropertyOrDefault(String valStr, float defaultVal, Predicate<Float> pred,
+    public static double getDoublePropertyOrDefault(String valStr, double defaultVal, Predicate<Double> pred,
                                                 String hintMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
 
-        float result = defaultVal;
+        double result = defaultVal;
         try {
-            result = Float.valueOf(valStr);
+            result = Double.parseDouble(valStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
@@ -506,5 +507,17 @@ public class Util {
             }
         }
         return false;
+    }
+
+    private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
+
+    public static String bytesToHex(byte[] bytes) {
+        char[] hexChars = new char[bytes.length * 2];
+        for (int j = 0; j < bytes.length; j++) {
+            int v = bytes[j] & 0xFF;
+            hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+            hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+        }
+        return new String(hexChars);
     }
 }

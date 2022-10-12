@@ -461,6 +461,9 @@ public:
     template <TimeUnit unit>
     bool date_add_interval(const TimeInterval& interval);
 
+    template <TimeUnit unit>
+    bool datetime_trunc(); //datetime trunc, like trunc minute = 0
+
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
@@ -781,17 +784,6 @@ public:
         return val;
     }
 
-    uint64_t to_olap_datetime() const {
-        uint64_t date_val =
-                date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
-        uint64_t time_val = 0;
-        if constexpr (is_datetime) {
-            time_val = date_v2_value_.hour_ * 10000 + date_v2_value_.minute_ * 100 +
-                       date_v2_value_.second_;
-        }
-        return date_val * 1000000 + time_val;
-    }
-
     bool to_format_string(const char* format, int len, char* to) const;
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
@@ -922,6 +914,9 @@ public:
 
     template <TimeUnit unit>
     bool date_add_interval(const TimeInterval& interval);
+
+    template <TimeUnit unit>
+    bool datetime_trunc(); //datetime trunc, like trunc minute = 0
 
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC

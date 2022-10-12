@@ -25,6 +25,7 @@ namespace doris {
 class MinMaxFuncBase {
 public:
     virtual void insert(const void* data) = 0;
+    virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
     virtual bool find(void* data) = 0;
     virtual bool is_empty() = 0;
     virtual void* get_max() = 0;
@@ -66,6 +67,21 @@ public:
         } else if (val_data > _max) {
             _max = val_data;
         }
+    }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        if (!number) {
+            return;
+        }
+        if (_empty) {
+            _min = *((T*)data + offsets[0]);
+            _max = *((T*)data + offsets[0]);
+        }
+        for (int i = _empty; i < number; i++) {
+            _min = std::min(_min, *((T*)data + offsets[i]));
+            _max = std::max(_max, *((T*)data + offsets[i]));
+        }
+        _empty = false;
     }
 
     bool find(void* data) override {

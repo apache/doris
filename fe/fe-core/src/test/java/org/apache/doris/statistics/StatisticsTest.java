@@ -44,10 +44,10 @@ public class StatisticsTest {
 
         // Run the test
         statisticsUnderTest.updateTableStats(0L, statsTypeToValue);
-        long rowCount = statisticsUnderTest.getTableStats(0L).getRowCount();
+        long rowCount = (long) statisticsUnderTest.getTableStats(0L).getRowCount();
 
         // Verify the results
-        Assert.assertEquals(rowCount, 1000L);
+        Assert.assertEquals(1000L, rowCount);
     }
 
     @Test
@@ -74,7 +74,7 @@ public class StatisticsTest {
         long rowCount = partitionStats.get("partitionName").getRowCount();
 
         // Verify the results
-        Assert.assertEquals(rowCount, 1000L);
+        Assert.assertEquals(1000L, rowCount);
     }
 
     @Test
@@ -97,11 +97,11 @@ public class StatisticsTest {
 
         // Run the test
         statisticsUnderTest.updateColumnStats(0L, "columnName", columnType, statsTypeToValue);
-        Map<String, ColumnStats> columnStats = statisticsUnderTest.getColumnStats(0L);
-        long numNulls = columnStats.get("columnName").getNumNulls();
+        Map<String, ColumnStat> columnStats = statisticsUnderTest.getColumnStats(0L);
+        long numNulls = (long) columnStats.get("columnName").getNumNulls();
 
         // Verify the results
-        Assert.assertEquals(numNulls, 1000L);
+        Assert.assertEquals(1000L, numNulls);
     }
 
     @Test
@@ -126,12 +126,12 @@ public class StatisticsTest {
         // Run the test
         statisticsUnderTest.updateColumnStats(0L, "partitionName",
                 "columnName", columnType, statsTypeToValue);
-        Map<String, ColumnStats> columnStats = statisticsUnderTest
+        Map<String, ColumnStat> columnStats = statisticsUnderTest
                 .getColumnStats(0L, "partitionName");
-        long numNulls = columnStats.get("columnName").getNumNulls();
+        long numNulls = (long) columnStats.get("columnName").getNumNulls();
 
         // Verify the results
-        Assert.assertEquals(numNulls, 1000L);
+        Assert.assertEquals(1000L, numNulls);
     }
 
     @Test
@@ -147,15 +147,6 @@ public class StatisticsTest {
     }
 
     @Test
-    public void testGetNotNullTableStats() {
-        // Run the test
-        TableStats result = statisticsUnderTest.getNotNullTableStats(0L);
-
-        // Verify the results
-        Assert.assertNotNull(result);
-    }
-
-    @Test
     public void testGetTableStats() throws Exception {
         // Setup
         Map<StatsType, String> statsTypeToValue = new HashMap<>();
@@ -166,7 +157,8 @@ public class StatisticsTest {
         TableStats result = statisticsUnderTest.getTableStats(0L);
 
         // Verify the results
-        Assert.assertNotNull(result);
+        double rowCount = result.getRowCount();
+        Assert.assertEquals(1000, rowCount, 0.1);
     }
 
     @Test
@@ -174,16 +166,6 @@ public class StatisticsTest {
         // Verify the results
         Assert.assertThrows(AnalysisException.class,
                 () -> statisticsUnderTest.getTableStats(0L));
-    }
-
-    @Test
-    public void testGetNotNullPartitionStats() {
-        // Run the test
-        PartitionStats result = statisticsUnderTest
-                .getNotNullPartitionStats(0L, "partitionName");
-
-        // Verify the results
-        Assert.assertNotNull(result);
     }
 
     @Test
@@ -197,7 +179,9 @@ public class StatisticsTest {
         Map<String, PartitionStats> result = statisticsUnderTest.getPartitionStats(0L);
 
         // Verify the results
-        Assert.assertNotNull(result);
+        PartitionStats partitionStats = result.get("partitionName");
+        long rowCount = partitionStats.getRowCount();
+        Assert.assertEquals(1000, rowCount);
     }
 
     @Test
@@ -219,7 +203,9 @@ public class StatisticsTest {
                 .getPartitionStats(0L, "partitionName");
 
         // Verify the results
-        Assert.assertNotNull(result);
+        PartitionStats partitionStats = result.get("partitionName");
+        long rowCount = partitionStats.getRowCount();
+        Assert.assertEquals(1000, rowCount);
     }
 
     @Test
@@ -238,10 +224,12 @@ public class StatisticsTest {
         statisticsUnderTest.updateColumnStats(0L, "columnName", columnType, statsTypeToValue);
 
         // Run the test
-        Map<String, ColumnStats> result = statisticsUnderTest.getColumnStats(0L);
+        Map<String, ColumnStat> result = statisticsUnderTest.getColumnStats(0L);
 
         // Verify the results
-        Assert.assertNotNull(result);
+        ColumnStat columnStats = result.get("columnName");
+        double numNulls = columnStats.getNumNulls();
+        Assert.assertEquals(1000, numNulls, 0.1);
     }
 
     @Test
@@ -261,11 +249,13 @@ public class StatisticsTest {
                 "columnName", columnType, statsTypeToValue);
 
         // Run the test
-        Map<String, ColumnStats> result = statisticsUnderTest
+        Map<String, ColumnStat> result = statisticsUnderTest
                 .getColumnStats(0L, "partitionName");
 
         // Verify the results
-        Assert.assertNotNull(result);
+        ColumnStat columnStats = result.get("columnName");
+        double numNulls = columnStats.getNumNulls();
+        Assert.assertEquals(1000, numNulls, 0.1);
     }
 
     @Test

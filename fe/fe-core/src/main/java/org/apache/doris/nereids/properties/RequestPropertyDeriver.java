@@ -69,8 +69,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visit(Plan plan, PlanContext context) {
-        List<PhysicalProperties> requiredPropertyList = Lists.newArrayList();
-        for (int i = 0; i < context.getGroupExpression().arity(); i++) {
+        List<PhysicalProperties> requiredPropertyList =
+                Lists.newArrayListWithCapacity(context.getGroupExpression().arity());
+        for (int i = context.getGroupExpression().arity(); i > 0; --i) {
             requiredPropertyList.add(PhysicalProperties.ANY);
         }
         requestPropertyToChildren.add(requiredPropertyList);
@@ -80,7 +81,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, PlanContext context) {
         // 1. first phase agg just return any
-        if (agg.getAggPhase().isLocal()) {
+        if (agg.getAggPhase().isLocal() && !agg.isFinalPhase()) {
             addToRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         }

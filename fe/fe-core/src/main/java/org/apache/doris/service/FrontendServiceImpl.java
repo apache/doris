@@ -53,6 +53,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -501,6 +502,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         context.setCurrentConnectedFEIp(clientAddr.getHostname());
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
+        if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
+            context.getState().setError(result.getStatus());
+        } else {
+            context.getState().setOk();
+        }
         ConnectContext.remove();
         return result;
     }
@@ -525,9 +531,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
         List<UserIdentity> currentUser = Lists.newArrayList();
-        if (!Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser)) {
-            throw new AuthenticationException("Access denied for " + fullUserName + "@" + clientIp);
-        }
+        Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
 
         Preconditions.checkState(currentUser.size() == 1);
         if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {

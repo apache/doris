@@ -261,17 +261,18 @@ struct TFileScanRangeParams {
     // The convert exprt map for load job
     // desc slot id -> expr
     9: optional map<Types.TSlotId, Exprs.TExpr> expr_of_dest_slot
+    10: optional map<Types.TSlotId, Exprs.TExpr> default_value_of_src_slot
     // This is the mapping of dest slot id and src slot id in load expr
     // It excludes the slot id which has the transform expr
-    10: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
+    11: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
 
     // strictMode is a boolean
     // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
-    11: optional bool strict_mode
+    12: optional bool strict_mode
 
-    12: optional list<Types.TNetworkAddress> broker_addresses
-    13: optional TFileAttributes file_attributes
-    14: optional Exprs.TExpr pre_filter_exprs
+    13: optional list<Types.TNetworkAddress> broker_addresses
+    14: optional TFileAttributes file_attributes
+    15: optional Exprs.TExpr pre_filter_exprs
 }
 
 struct TFileRangeDesc {
@@ -478,7 +479,7 @@ struct TOlapScanNode {
   5: optional string sort_column
   6: optional Types.TKeysType keyType
   7: optional string table_name
-  8: required list<Descriptors.TColumn> columns_desc
+  8: optional list<Descriptors.TColumn> columns_desc
   9: optional TSortInfo sort_info
   // When scan match sort_info, we can push limit into OlapScanNode.
   // It's limit for scanner instead of scanNode so we add a new limit.

@@ -19,6 +19,7 @@ package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -56,4 +57,6 @@ public interface FileScanProviderIf {
     int getInputSplitNum();
 
     long getInputFileSize();
+
+    TableIf getTargetTable();
 }

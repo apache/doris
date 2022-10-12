@@ -30,7 +30,7 @@ public:
 
     ~TopNSorter() override = default;
 
-    Status append_block(Block* block, bool* mem_reuse) override;
+    Status append_block(Block* block) override;
 
     Status prepare_for_read() override;
 
@@ -39,9 +39,10 @@ public:
     static constexpr size_t TOPN_SORT_THRESHOLD = 256;
 
 private:
-    Status _do_sort(Block* block, bool* mem_reuse);
+    Status _do_sort(Block* block);
 
     std::unique_ptr<MergeSorterState> _state;
+    const RowDescriptor& _row_desc;
 };
 
 } // namespace doris::vectorized

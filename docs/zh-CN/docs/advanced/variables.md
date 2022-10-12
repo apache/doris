@@ -80,6 +80,9 @@ SET GLOBAL exec_mem_limit = 137438953472
 只支持全局生效的变量包括：
 
 - `default_rowset_type`
+- `default_password_lifetime`
+- `password_history`
+- `validate_password_policy`
 
 同时，变量设置也支持常量表达式。如：
 
@@ -520,4 +523,27 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
   用于调试目的。在向量化执行引擎中，当发现读取Aggregate Key模型或者Unique Key模型的数据结果有问题的时候，把此变量的值设置为`true`，将会把Aggregate Key模型或者Unique Key模型的数据当成Duplicate Key模型读取。
 
 * `skip_delete_predicate`
-  用于调试目的。在向量化执行引擎中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被删除的数据当成正常数据读取。
+
+	用于调试目的。在向量化执行引擎中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被删除的数据当成正常数据读取。
+
+* `default_password_lifetime`
+
+ 	默认的密码过期时间。默认值为 0，即表示不过期。单位为天。该参数只有当用户的密码过期属性为 DEFAULT 值时，才启用。如：
+ 	
+ 	```
+ 	CREATE USER user1 IDENTIFIED BY "12345" PASSWORD_EXPIRE DEFAULT;
+ 	ALTER USER user1 PASSWORD_EXPIRE DEFAULT;
+	```
+* `password_history`
+
+	默认的历史密码次数。默认值为0，即不做限制。该参数只有当用户的历史密码次数属性为 DEFAULT 值时，才启用。如：
+
+	```
+ 	CREATE USER user1 IDENTIFIED BY "12345" PASSWORD_HISTORY DEFAULT;
+ 	ALTER USER user1 PASSWORD_HISTORY DEFAULT;
+	```
+	
+* `validate_password_policy`
+
+	密码强度校验策略。默认为 `NONE` 或 `0`，即不做校验。可以设置为 `STRONG` 或 `2`。当设置为 `STRONG` 或 `2` 时，通过 `ALTER USER` 或 `SET PASSWORD` 命令设置密码时，密码必须包含“大写字母”，“小写字母”，“数字”和“特殊字符”中的3项，并且长度必须大于等于8。特殊字符包括：`~!@#$%^&*()_+|<>,.?/:;'[]{}"`。
+	

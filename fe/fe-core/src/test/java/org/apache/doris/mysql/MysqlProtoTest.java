@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.InternalCatalog;
@@ -65,7 +66,7 @@ public class MysqlProtoTest {
     private MysqlClearTextPacket clearTextPacket;
 
     @Before
-    public void setUp() throws DdlException {
+    public void setUp() throws DdlException, AuthenticationException {
 
         // mock auth
         new Expectations() {
@@ -77,11 +78,11 @@ public class MysqlProtoTest {
                 auth.checkPassword(anyString, anyString, (byte[]) any, (byte[]) any, (List<UserIdentity>) any);
                 minTimes = 0;
                 result = new Delegate() {
-                    boolean fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
+                    void fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
                             byte[] randomString, List<UserIdentity> currentUser) {
                         UserIdentity userIdentity = new UserIdentity("default_cluster:user", "192.168.1.1");
                         currentUser.add(userIdentity);
-                        return true;
+                        return;
                     }
                 };
 
