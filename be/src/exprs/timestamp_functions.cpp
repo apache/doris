@@ -707,20 +707,22 @@ DateTimeVal TimestampFunctions::from_days(FunctionContext* ctx, const IntVal& da
     return ts_val;
 }
 
-DateTimeVal TimestampFunctions::last_month_day(FunctionContext* ctx, const DateTimeVal& ts_val) {
+DateTimeVal TimestampFunctions::last_day(FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return DateTimeVal::null();
     }
 
     DateTimeValue ts_value = DateTimeValue::from_datetime_val(ts_val);
 
-    bool is_leap_year = (ts_value.year() % 400 == 0) || (ts_value.year() % 4 == 0 && ts_value.year() % 100 != 0);
+    bool is_leap_year = (ts_value.year() % 400 == 0) ||
+                        (ts_value.year() % 4 == 0 && ts_value.year() % 100 != 0);
     if (ts_value.month() == 2) {
         int day = is_leap_year ? 29 : 28;
         ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
     } else {
-        if (ts_value.month() == 1 || ts_value.month() == 3 || ts_value.month() == 5 || ts_value.month() == 7 
-                || ts_value.month() == 8 || ts_value.month() == 10 || ts_value.month() == 12) {
+        if (ts_value.month() == 1 || ts_value.month() == 3 || ts_value.month() == 5 ||
+            ts_value.month() == 7 || ts_value.month() == 8 || ts_value.month() == 10 ||
+            ts_value.month() == 12) {
             ts_value.set_time(ts_value.year(), ts_value.month(), 31, 0, 0, 0, 0);
         } else {
             ts_value.set_time(ts_value.year(), ts_value.month(), 30, 0, 0, 0, 0);

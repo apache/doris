@@ -569,11 +569,13 @@ public:
     }
 };
 
-template <typename Impl>
-class LastMonthDay : public IFunction {
+template <typename Impl, typename DateType>
+class FunctionDateOrDateTimeToDate : public IFunction {
 public:
-    static constexpr auto name = "last_month_day";
-    static FunctionPtr create() { return std::make_shared<LastMonthDay<Impl>>(); }
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() {
+        return std::make_shared<FunctionDateOrDateTimeToDate<Impl, DateType>>();
+    }
 
     String get_name() const override { return name; }
 
@@ -583,24 +585,21 @@ public:
 
     bool is_variadic() const override { return true; }
 
+    // input DateTime and Date, return Date
+    // input DateTimeV2 and DateV2, return DateV2
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return Impl::get_return_type_impl(arguments);
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+            return make_nullable(std::make_shared<DataTypeDate>());
+        } else if constexpr (std::is_same_v<DateType, DataTypeDate>) {
+            return make_nullable(std::make_shared<DataTypeDate>());
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
+            return make_nullable(std::make_shared<DataTypeDateV2>());
+        } else {
+            return make_nullable(std::make_shared<DataTypeDateV2>());
+        }
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        return Impl::get_variadic_argument_types();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
-    }
-};
-
-template <typename DateType>
-struct LastMonthDayImpl {
-
-    static DataTypes get_variadic_argument_types() {
         if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
             return {std::make_shared<DataTypeDate>()};
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
@@ -610,17 +609,15 @@ struct LastMonthDayImpl {
         }
     }
 
-    // input DateTime and Date, return Date
-    // input DateTimeV2 and DateV2, return DateV2
-    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
-            return make_nullable(std::make_shared<DataTypeDate>());
-        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-            return make_nullable(std::make_shared<DataTypeDateV2>());
-        } else {
-            return make_nullable(std::make_shared<DataTypeDateV2>());
-        }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
+};
+
+template <typename DateType>
+struct LastDayImpl {
+    static constexpr auto name = "last_day";
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
@@ -662,7 +659,7 @@ struct LastMonthDayImpl {
 
             null_map = ColumnUInt8::create(input_rows_count, 1);
             block.replace_by_position(
-                result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
+                    result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
             return Status::OK();
         }
 
@@ -673,12 +670,12 @@ struct LastMonthDayImpl {
 
     template <typename DateValueType, typename ReturnType, typename InputDateType>
     static void execute_straight(size_t input_rows_count, NullMap& null_map,
-                          const PaddedPODArray<InputDateType>& data_col,
-                          PaddedPODArray<ReturnType>& res_data) {
+                                 const PaddedPODArray<InputDateType>& data_col,
+                                 PaddedPODArray<ReturnType>& res_data) {
         for (int i = 0; i < input_rows_count; i++) {
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                 const auto& cur_data = data_col[i];
-                auto ts_value = binary_cast<Int64, VecDateTimeValue> (cur_data);
+                auto ts_value = binary_cast<Int64, VecDateTimeValue>(cur_data);
                 int day = get_last_month_day(ts_value.year(), ts_value.month());
                 ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
                 ts_value.set_type(TIME_DATE);
@@ -686,22 +683,22 @@ struct LastMonthDayImpl {
                     null_map[i] = 1;
                     continue;
                 }
-                res_data[i] = binary_cast<VecDateTimeValue, Int64> (ts_value);
+                res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
 
             } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
                 const auto& cur_data = data_col[i];
-                auto ts_value = binary_cast<UInt32, DateValueType> (cur_data);
+                auto ts_value = binary_cast<UInt32, DateValueType>(cur_data);
                 int day = get_last_month_day(ts_value.year(), ts_value.month());
                 ts_value.template set_time_unit<TimeUnit::DAY>(day);
                 if (!ts_value.is_valid_date()) {
                     null_map[i] = 1;
                     continue;
                 }
-                res_data[i] = binary_cast<DateValueType, UInt32> (ts_value);
+                res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
 
             } else {
                 const auto& cur_data = data_col[i];
-                auto ts_value = binary_cast<UInt64, DateValueType> (cur_data);
+                auto ts_value = binary_cast<UInt64, DateValueType>(cur_data);
                 int day = get_last_month_day(ts_value.year(), ts_value.month());
                 ts_value.template set_time_unit<TimeUnit::DAY>(day);
                 ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
@@ -709,7 +706,7 @@ struct LastMonthDayImpl {
                     null_map[i] = 1;
                     continue;
                 }
-                UInt64 cast_value = binary_cast<DateValueType, UInt64> (ts_value);
+                UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
         }
@@ -720,7 +717,8 @@ struct LastMonthDayImpl {
         if (month == 2) {
             return is_leap_year ? 29 : 28;
         } else {
-            if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12) {
+            if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 ||
+                month == 12) {
                 return 31;
             } else {
                 return 30;
@@ -776,10 +774,14 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTimeV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDate>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDateV2>>>();
-    factory.register_function<LastMonthDay<LastMonthDayImpl<DataTypeDateTime>>>();
-    factory.register_function<LastMonthDay<LastMonthDayImpl<DataTypeDate>>>();
-    factory.register_function<LastMonthDay<LastMonthDayImpl<DataTypeDateV2>>>();
-    factory.register_function<LastMonthDay<LastMonthDayImpl<DataTypeDateTimeV2>>>();
+    factory.register_function<
+            FunctionDateOrDateTimeToDate<LastDayImpl<DataTypeDateTime>, DataTypeDateTime>>();
+    factory.register_function<
+            FunctionDateOrDateTimeToDate<LastDayImpl<DataTypeDate>, DataTypeDate>>();
+    factory.register_function<
+            FunctionDateOrDateTimeToDate<LastDayImpl<DataTypeDateV2>, DataTypeDateV2>>();
+    factory.register_function<
+            FunctionDateOrDateTimeToDate<LastDayImpl<DataTypeDateTimeV2>, DataTypeDateTimeV2>>();
     factory.register_function<
             FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDateTimeV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl>>();
