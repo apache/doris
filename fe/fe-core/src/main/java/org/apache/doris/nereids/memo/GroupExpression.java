@@ -228,8 +228,7 @@ public class GroupExpression {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append(ownerGroup.getGroupId())
-                .append("(plan=" + plan.toString() + ") children=[");
+        builder.append(ownerGroup.getGroupId()).append("(plan=").append(plan).append(") children=[");
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");
         }
