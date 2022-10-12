@@ -76,11 +76,9 @@ public class ColumnStat {
     private static final Predicate<Double> DESIRED_MAX_SIZE_PRED = (v) -> v >= -1L;
     private static final Predicate<Double> DESIRED_NUM_NULLS_PRED = (v) -> v >= -1L;
 
-    private static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
+    public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
 
     static {
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.VARCHAR);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.CHAR);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.HLL);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.BITMAP);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.ARRAY);
@@ -97,6 +95,8 @@ public class ColumnStat {
     // For display only.
     private LiteralExpr minExpr;
     private LiteralExpr maxExpr;
+
+    private double selectivity = 1.0;
 
     public static ColumnStat createDefaultColumnStats() {
         ColumnStat columnStat = new ColumnStat();
@@ -121,6 +121,7 @@ public class ColumnStat {
         this.numNulls = other.numNulls;
         this.minValue = other.minValue;
         this.maxValue = other.maxValue;
+        this.selectivity = other.selectivity;
     }
 
     public ColumnStat(double ndv, double avgSizeByte,
@@ -301,7 +302,10 @@ public class ColumnStat {
     }
 
     public ColumnStat updateBySelectivity(double selectivity, double rowCount) {
-        ndv = ndv * selectivity;
+        if (ColumnStat.isAlmostUnique(ndv, rowCount)) {
+            this.selectivity = selectivity;
+            ndv = ndv * selectivity;
+        }
         numNulls = (long) Math.ceil(numNulls * selectivity);
         if (ndv > rowCount) {
             ndv = rowCount;
@@ -434,4 +438,15 @@ public class ColumnStat {
         }
     }
 
+    public static boolean isAlmostUnique(double ndv, double rowCount) {
+        return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
+    }
+
+    public double getSelectivity() {
+        return selectivity;
+    }
+
+    public void setSelectivity(double selectivity) {
+        this.selectivity = selectivity;
+    }
 }

@@ -54,11 +54,11 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
     private static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
 
-    private final StatsDeriveResult stats;
+    private final StatsDeriveResult inputStats;
 
-    public FilterEstimation(StatsDeriveResult stats) {
-        Preconditions.checkNotNull(stats);
-        this.stats = stats;
+    public FilterEstimation(StatsDeriveResult inputStats) {
+        Preconditions.checkNotNull(inputStats);
+        this.inputStats = inputStats;
     }
 
     /**
@@ -67,14 +67,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
     public StatsDeriveResult estimate(Expression expression) {
         // For a comparison predicate, only when it's left side is a slot and right side is a literal, we would
         // consider is a valid predicate.
-        StatsDeriveResult stats = calculate(expression);
-        double expectedRowCount = stats.getRowCount();
-        for (ColumnStat columnStat : stats.getSlotToColumnStats().values()) {
-            if (columnStat.getNdv() > expectedRowCount) {
-                columnStat.setNdv(expectedRowCount);
-            }
-        }
-        return stats;
+        return calculate(expression);
     }
 
     private StatsDeriveResult calculate(Expression expression) {
@@ -83,7 +76,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
     @Override
     public StatsDeriveResult visit(Expression expr, EstimationContext context) {
-        return new StatsDeriveResult(stats).updateRowCountBySelectivity(DEFAULT_SELECTIVITY);
+        return new StatsDeriveResult(inputStats).updateBySelectivity(DEFAULT_SELECTIVITY);
     }
 
     @Override
@@ -97,7 +90,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
             StatsDeriveResult rightStats = rightExpr.accept(this, null);
             StatsDeriveResult andStats = rightExpr.accept(new FilterEstimation(leftStats), null);
             double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStats.getRowCount();
-            StatsDeriveResult orStats = new StatsDeriveResult(stats).setRowCount(rowCount);
+            StatsDeriveResult orStats = new StatsDeriveResult(inputStats).setRowCount(rowCount);
             for (Map.Entry<Slot, ColumnStat> entry : leftStats.getSlotToColumnStats().entrySet()) {
                 Slot keySlot = entry.getKey();
                 ColumnStat leftColStats = entry.getValue();
@@ -117,17 +110,109 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
     public StatsDeriveResult visitComparisonPredicate(ComparisonPredicate cp, EstimationContext context) {
         Expression left = cp.left();
         Expression right = cp.right();
-        ColumnStat statsForLeft = ExpressionEstimation.estimate(left, stats);
-        ColumnStat statsForRight = ExpressionEstimation.estimate(right, stats);
+        ColumnStat statsForLeft = ExpressionEstimation.estimate(left, inputStats);
+        ColumnStat statsForRight = ExpressionEstimation.estimate(right, inputStats);
 
         double selectivity;
         if (!(left instanceof Literal) && !(right instanceof Literal)) {
             selectivity = calculateWhenBothChildIsColumn(cp, statsForLeft, statsForRight);
         } else {
             // For literal, it's max min is same value.
-            selectivity = calculateWhenRightChildIsLiteral(cp, statsForLeft, statsForRight.getMaxValue());
+            selectivity = updateLeftStatsWhenRightChildIsLiteral(cp, statsForLeft, statsForRight.getMaxValue());
         }
-        return new StatsDeriveResult(stats).updateRowCountOnCopy(selectivity);
+        StatsDeriveResult outputStats = new StatsDeriveResult(inputStats);
+        outputStats.updateBySelectivity(selectivity, cp.getInputSlots());
+        if (left.getInputSlots().size() == 1) {
+            Slot leftSlot = left.getInputSlots().iterator().next();
+            outputStats.updateColumnStatsForSlot(leftSlot, statsForLeft);
+        }
+        return outputStats;
+    }
+
+    private double updateLeftStatsWhenRightChildIsLiteral(ComparisonPredicate cp,
+            ColumnStat statsForLeft, double val) {
+        if (statsForLeft == ColumnStat.UNKNOWN) {
+            return 1.0;
+        }
+        double selectivity = 1.0;
+        double ndv = statsForLeft.getNdv();
+        double max = statsForLeft.getMaxValue();
+        double min = statsForLeft.getMinValue();
+        if (cp instanceof EqualTo) {
+            statsForLeft.setNdv(1);
+            statsForLeft.setMaxValue(val);
+            statsForLeft.setMinValue(val);
+            if (val > max || val < min) {
+                selectivity = 0.0;
+            } else {
+                selectivity = 1.0 / ndv;
+            }
+        } else if (cp instanceof LessThan) {
+            if (val <= min) {
+                statsForLeft.setMaxValue(val);
+                statsForLeft.setMinValue(0);
+                statsForLeft.setNdv(0);
+                selectivity = 0.0;
+            } else if (val > max) {
+                selectivity = 1.0;
+            } else if (val == max) {
+                selectivity = 1.0 - 1.0 / ndv;
+            } else {
+                statsForLeft.setMaxValue(val);
+                selectivity = (val - min) / (max - min);
+                statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+            }
+        } else if (cp instanceof LessThanEqual) {
+            if (val < min) {
+                statsForLeft.setMaxValue(val);
+                statsForLeft.setMinValue(val);
+                selectivity = 0.0;
+            } else if (val == min) {
+                statsForLeft.setMaxValue(val);
+                selectivity = 1.0 / ndv;
+            } else if (val >= max) {
+                selectivity = 1.0;
+            } else {
+                statsForLeft.setMaxValue(val);
+                selectivity = (val - min) / (max - min);
+                statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+            }
+        } else if (cp instanceof GreaterThan) {
+            if (val >= max) {
+                statsForLeft.setMaxValue(val);
+                statsForLeft.setMinValue(val);
+                statsForLeft.setNdv(0);
+                selectivity = 0.0;
+            } else if (val == min) {
+                selectivity = 1.0 - 1.0 / ndv;
+            } else if (val < min) {
+                selectivity = 1.0;
+            } else {
+                statsForLeft.setMinValue(val);
+                selectivity = (max - val) / (max - min);
+                statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+            }
+        } else if (cp instanceof GreaterThanEqual) {
+            if (val > max) {
+                statsForLeft.setMinValue(val);
+                statsForLeft.setMaxValue(val);
+                selectivity = 0.0;
+            } else if (val == max) {
+                statsForLeft.setMinValue(val);
+                statsForLeft.setMaxValue(val);
+                selectivity = 1.0 / ndv;
+            } else if (val <= min) {
+                selectivity = 1.0;
+            } else {
+                statsForLeft.setMinValue(val);
+                selectivity = (max - val) / (max - min);
+                statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+            }
+        } else {
+            throw new RuntimeException(String.format("Unexpected expression : %s", cp.toSql()));
+        }
+        return selectivity;
+
     }
 
     private double calculateWhenRightChildIsLiteral(ComparisonPredicate cp,
@@ -247,18 +332,18 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
     public StatsDeriveResult visitInPredicate(InPredicate inPredicate, EstimationContext context) {
         boolean isNotIn = context != null && context.isNot;
         Expression compareExpr = inPredicate.getCompareExpr();
-        ColumnStat compareExprStats = ExpressionEstimation.estimate(compareExpr, stats);
+        ColumnStat compareExprStats = ExpressionEstimation.estimate(compareExpr, inputStats);
         if (ColumnStat.isInvalid(compareExprStats)) {
-            return stats;
+            return inputStats;
         }
         List<Expression> options = inPredicate.getOptions();
         double maxOption = 0;
         double minOption = Double.MAX_VALUE;
         double optionDistinctCount = 0;
         for (Expression option : options) {
-            ColumnStat optionStats = ExpressionEstimation.estimate(option, stats);
+            ColumnStat optionStats = ExpressionEstimation.estimate(option, inputStats);
             if (ColumnStat.isInvalid(optionStats)) {
-                return stats;
+                return inputStats;
             }
             optionDistinctCount += optionStats.getNdv();
             maxOption = Math.max(optionStats.getMaxValue(), maxOption);
@@ -277,7 +362,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         double expectedMin = Math.max(cmpExprMin, minOption);
         compareExprStats.setMaxValue(expectedMax);
         compareExprStats.setMinValue(expectedMin);
-        StatsDeriveResult estimated = new StatsDeriveResult(stats);
+        StatsDeriveResult estimated = new StatsDeriveResult(inputStats);
         if (compareExpr instanceof SlotReference && !isNotIn) {
             estimated.addColumnStats((SlotReference) compareExpr, compareExprStats);
         }

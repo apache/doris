@@ -99,7 +99,10 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
 
     private void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
-        groupExpression.getOwnerGroup().setStatistics(stats);
+        StatsDeriveResult originStats = groupExpression.getOwnerGroup().getStatistics();
+        if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
+            groupExpression.getOwnerGroup().setStatistics(stats);
+        }
         groupExpression.setStatDerived(true);
     }
 

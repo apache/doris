@@ -55,8 +55,8 @@ public class CostCalculator {
         PlanContext planContext = new PlanContext(groupExpression);
         CostEstimator costCalculator = new CostEstimator();
         CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
-
-        CostWeight costWeight = new CostWeight(0.5, 2, 1.5);
+        groupExpression.estimate = costEstimate;
+        CostWeight costWeight = new CostWeight(1, 1, 2);
         return costWeight.calculate(costEstimate);
     }
 
@@ -84,7 +84,7 @@ public class CostCalculator {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
 
-            return new CostEstimate(
+            return CostEstimate.of(
                     childStatistics.computeSize(),
                     statistics.computeSize(),
                     childStatistics.computeSize());
@@ -96,7 +96,7 @@ public class CostCalculator {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
 
-            return new CostEstimate(
+            return CostEstimate.of(
                     childStatistics.computeSize(),
                     statistics.computeSize(),
                     childStatistics.computeSize());
@@ -109,7 +109,7 @@ public class CostCalculator {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
 
-            return new CostEstimate(
+            return CostEstimate.of(
                     childStatistics.computeSize(),
                     statistics.computeSize(),
                     0);
@@ -122,7 +122,7 @@ public class CostCalculator {
             DistributionSpec spec = distribute.getDistributionSpec();
             // shuffle
             if (spec instanceof DistributionSpecHash) {
-                return new CostEstimate(
+                return CostEstimate.of(
                         childStatistics.computeSize(),
                         0,
                         childStatistics.computeSize());
@@ -134,7 +134,7 @@ public class CostCalculator {
                 int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
                 beNumber = Math.max(1, beNumber);
 
-                return new CostEstimate(
+                return CostEstimate.of(
                         childStatistics.computeSize() * beNumber,
                         childStatistics.computeSize() * beNumber * instanceNumber,
                         childStatistics.computeSize() * beNumber * instanceNumber);
@@ -142,14 +142,14 @@ public class CostCalculator {
 
             // gather
             if (spec instanceof DistributionSpecGather) {
-                return new CostEstimate(
+                return CostEstimate.of(
                         childStatistics.computeSize(),
                         0,
                         childStatistics.computeSize());
             }
 
             // any
-            return new CostEstimate(
+            return CostEstimate.of(
                     childStatistics.computeSize(),
                     0,
                     0);
@@ -161,7 +161,7 @@ public class CostCalculator {
 
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult inputStatistics = context.getChildStatistics(0);
-            return new CostEstimate(inputStatistics.computeSize(), statistics.computeSize(), 0);
+            return CostEstimate.of(inputStatistics.computeSize(), statistics.computeSize(), 0);
         }
 
         @Override
@@ -170,16 +170,31 @@ public class CostCalculator {
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
             Preconditions.checkState(context.getChildrenStats().size() == 2);
 
-            CostEstimate inputCost = calculateJoinInputCost(context);
-            CostEstimate outputCost = calculateJoinOutputCost(physicalHashJoin);
+            StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
+            double outputRowCount = outputStats.computeSize();
 
-            // TODO: handle some case
-            // handle cross join, onClause is empty .....
-            if (physicalHashJoin.getJoinType().isCrossJoin()) {
-                return CostEstimate.sum(inputCost, outputCost, outputCost);
+            StatsDeriveResult probeStats = context.getChildStatistics(0);
+            StatsDeriveResult buildStats = context.getChildStatistics(1);
+            List<Id> leftIds = context.getChildOutputIds(0);
+            List<Id> rightIds = context.getChildOutputIds(1);
+
+            double leftRowCount = probeStats.computeColumnSize(leftIds);
+            double rightRowCount = buildStats.computeColumnSize(rightIds);
+            double rightDeepPenalty = 0.0;
+            if (buildStats.width > 2) {
+                rightDeepPenalty = Math.abs(leftRowCount - rightRowCount);
             }
-
-            return CostEstimate.sum(inputCost, outputCost);
+            if (physicalHashJoin.getJoinType().isCrossJoin()) {
+                return CostEstimate.of(leftRowCount + rightRowCount + outputRowCount,
+                        0,
+                        leftRowCount + rightRowCount,
+                        rightDeepPenalty);
+            }
+            return CostEstimate.of(leftRowCount + rightRowCount + outputRowCount,
+                    rightRowCount,
+                    0,
+                    rightDeepPenalty
+            );
         }
 
         @Override
@@ -193,30 +208,30 @@ public class CostCalculator {
             StatsDeriveResult leftStatistics = context.getChildStatistics(0);
             StatsDeriveResult rightStatistics = context.getChildStatistics(1);
 
-            return new CostEstimate(
+            return CostEstimate.of(
                     leftStatistics.computeSize() * rightStatistics.computeSize(),
                     rightStatistics.computeSize(),
                     0);
         }
     }
 
-    private static CostEstimate calculateJoinInputCost(PlanContext context) {
-        StatsDeriveResult probeStats = context.getChildStatistics(0);
-        StatsDeriveResult buildStats = context.getChildStatistics(1);
-        List<Id> leftIds = context.getChildOutputIds(0);
-        List<Id> rightIds = context.getChildOutputIds(1);
+    //private static CostEstimate calculateJoinInputCost(PlanContext context) {
+    //    StatsDeriveResult probeStats = context.getChildStatistics(0);
+    //    StatsDeriveResult buildStats = context.getChildStatistics(1);
+    //    List<Id> leftIds = context.getChildOutputIds(0);
+    //    List<Id> rightIds = context.getChildOutputIds(1);
+    //
+    //    double cpuCost = probeStats.computeColumnSize(leftIds) + buildStats.computeColumnSize(rightIds);
+    //    double memoryCost = buildStats.computeColumnSize(rightIds);
+    //
+    //    return CostEstimate.of(cpuCost, memoryCost, 0);
+    //}
 
-        double cpuCost = probeStats.computeColumnSize(leftIds) + buildStats.computeColumnSize(rightIds);
-        double memoryCost = buildStats.computeColumnSize(rightIds);
-
-        return CostEstimate.of(cpuCost, memoryCost, 0);
-    }
-
-    private static CostEstimate calculateJoinOutputCost(
-            PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin) {
-        StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
-
-        double size = outputStats.computeSize();
-        return CostEstimate.ofCpu(size);
-    }
+    //private static CostEstimate calculateJoinOutputCost(
+    //        PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin) {
+    //    StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
+    //
+    //    double size = outputStats.computeSize();
+    //    return CostEstimate.ofCpu(size);
+    //}
 }

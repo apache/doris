@@ -82,6 +82,10 @@ public abstract class Literal extends Expression implements LeafExpression {
 
     public abstract Object getValue();
 
+    public double getDouble() {
+        return Double.parseDouble(getValue().toString());
+    }
+
     public String getStringValue() {
         return String.valueOf(getValue());
     }

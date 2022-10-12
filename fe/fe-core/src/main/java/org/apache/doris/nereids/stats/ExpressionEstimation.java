@@ -19,6 +19,8 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -47,6 +49,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
 
     private static ExpressionEstimation INSTANCE = new ExpressionEstimation();
 
+    /**
+     * returned columnStat is newly created or a copy of stats
+     */
     public static ColumnStat estimate(Expression expression, StatsDeriveResult stats) {
         return INSTANCE.visit(expression, stats);
     }
@@ -56,12 +61,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
         return expr.accept(this, context);
     }
 
+    public ColumnStat visitCaseWhen(CaseWhen caseWhen, StatsDeriveResult context) {
+        throw new RuntimeException("ExpressionEstimation case-when not done");
+    }
+
+    public ColumnStat visitCast(Cast cast, StatsDeriveResult context) {
+        return cast.child().accept(this, context);
+    }
+
     @Override
     public ColumnStat visitLiteral(Literal literal, StatsDeriveResult context) {
-        if (literal.isStringLiteral()) {
+        if (ColumnStat.MAX_MIN_UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
             return ColumnStat.UNKNOWN;
         }
-        double literalVal = Double.parseDouble(literal.getValue().toString());
+        double literalVal = literal.getDouble();
         ColumnStat columnStat = new ColumnStat();
         columnStat.setMaxValue(literalVal);
         columnStat.setMinValue(literalVal);
@@ -75,7 +88,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
     public ColumnStat visitSlotReference(SlotReference slotReference, StatsDeriveResult context) {
         ColumnStat columnStat = context.getColumnStatsBySlot(slotReference);
         Preconditions.checkState(columnStat != null);
-        return columnStat;
+        return columnStat.copy();
     }
 
     @Override

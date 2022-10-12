@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 /**
  * This structure is maintained in each operator to store the statistical information results obtained by the operator.
@@ -55,7 +56,7 @@ public class StatsDeriveResult {
         this.columnIdToNdv.putAll(columnIdToNdv);
     }
 
-    public StatsDeriveResult(StatsDeriveResult another) {
+    public  StatsDeriveResult(StatsDeriveResult another) {
         this.rowCount = another.rowCount;
         this.columnIdToDataSize.putAll(another.columnIdToDataSize);
         this.columnIdToNdv.putAll(another.columnIdToNdv);
@@ -118,20 +119,37 @@ public class StatsDeriveResult {
         this.slotToColumnStats = slotToColumnStats;
     }
 
-    public StatsDeriveResult updateRowCountBySelectivity(double selectivity) {
-        rowCount *= selectivity;
+    public void updateColumnStatsForSlot(Slot slot, ColumnStat columnStat) {
+        slotToColumnStats.put(slot, columnStat);
+    }
+
+    public StatsDeriveResult updateBySelectivity(double selectivity, Set<Slot> exclude) {
+        double originRowCount = rowCount;
         for (Entry<Slot, ColumnStat> entry : slotToColumnStats.entrySet()) {
-            entry.getValue().updateBySelectivity(selectivity, rowCount);
+            if (!exclude.contains(entry.getKey())) {
+                entry.getValue().updateBySelectivity(selectivity, originRowCount);
+            }
         }
+        rowCount *= selectivity;
+        return this;
+    }
+
+    public StatsDeriveResult updateBySelectivity(double selectivity) {
+        double originRowCount = rowCount;
+        for (Entry<Slot, ColumnStat> entry : slotToColumnStats.entrySet()) {
+            entry.getValue().updateBySelectivity(selectivity, originRowCount);
+        }
+        rowCount *= selectivity;
         return this;
     }
 
     public StatsDeriveResult updateRowCountByLimit(long limit) {
+        double originRowCount = rowCount;
         if (limit > 0 && rowCount > 0 && rowCount > limit) {
             double selectivity = ((double) limit) / rowCount;
             rowCount = limit;
             for (Entry<Slot, ColumnStat> entry : slotToColumnStats.entrySet()) {
-                entry.getValue().updateBySelectivity(selectivity, rowCount);
+                entry.getValue().updateBySelectivity(selectivity, originRowCount);
             }
         }
         return this;
@@ -151,7 +169,7 @@ public class StatsDeriveResult {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append("(rows=").append(rowCount)
+        builder.append("(rows=").append((long) rowCount)
                 .append(", isReduced=").append(isReduced)
                 .append(", width=").append(width).append(")");
         return builder.toString();

@@ -96,4 +96,9 @@ public class PhysicalProperties {
         }
         return hashCode;
     }
+
+    @Override
+    public String toString() {
+        return distributionSpec.toString() + " " + orderSpec.toString();
+    }
 }

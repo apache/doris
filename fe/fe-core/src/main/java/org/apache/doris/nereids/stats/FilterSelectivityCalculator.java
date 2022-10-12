@@ -60,7 +60,8 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
         //only calculate comparison in form of `slot comp literal`,
         //otherwise, use DEFAULT_RANGE_SELECTIVITY
         if (expression instanceof ComparisonPredicate
-                && !(expression.child(0) instanceof SlotReference
+                && !(!expression.child(0).getInputSlots().isEmpty()
+                && expression.child(0).getInputSlots().toArray()[0] instanceof SlotReference
                 && expression.child(1) instanceof Literal)) {
             return DEFAULT_RANGE_SELECTIVITY;
         }
@@ -91,11 +92,16 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
     // TODO: If right value greater than the max value or less than min value in column stats, return 0.0 .
     @Override
     public Double visitEqualTo(EqualTo equalTo, Void context) {
-        SlotReference left = (SlotReference) equalTo.left();
+        SlotReference left = (SlotReference) equalTo.left().getInputSlots().toArray()[0];
+        Literal literal = (Literal) equalTo.right();
         ColumnStat columnStats = slotRefToStats.get(left);
         if (columnStats == null) {
-            return DEFAULT_EQUAL_SELECTIVITY;
+            throw new RuntimeException("FilterSelectivityCalculator - col stats not found: " + left);
         }
+        ColumnStat newStats = new ColumnStat(1, columnStats.getAvgSizeByte(), columnStats.getMaxSizeByte(), 0,
+                (double) literal.getValue(), (double) literal.getValue());
+        newStats.setSelectivity(1.0 / columnStats.getNdv());
+        slotRefToStats.put(left, newStats);
         double ndv = columnStats.getNdv();
         return ndv < 0 ? DEFAULT_EQUAL_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
     }
