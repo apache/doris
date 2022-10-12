@@ -191,8 +191,6 @@ CONF_mInt32(max_pushdown_conditions_per_column, "1024");
 CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
-// push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
