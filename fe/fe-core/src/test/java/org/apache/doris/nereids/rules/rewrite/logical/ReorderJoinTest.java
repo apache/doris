@@ -1,0 +1,72 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.rewrite.logical;
+
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
+
+import org.junit.jupiter.api.Test;
+
+class ReorderJoinTest {
+
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+
+    /**
+     * To test do not throw unexpected exception when join type is not inner or cross.
+     */
+    @Test
+    public void testNotException() {
+        Plan plan = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new GreaterThan(scan3.getOutput().get(0), Literal.of(1)))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyBottomUp(new ReorderJoin());
+    }
+
+    @Test
+    public void testWithOuterJoin() {
+        // Plan plan = new LogicalPlanBuilder(scan1)
+        //         .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+        //         .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+        //         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
+        //         .build();
+
+        Plan plan = new LogicalPlanBuilder(scan1)
+                .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyBottomUp(new ReorderJoin())
+                .printlnTree();
+    }
+}

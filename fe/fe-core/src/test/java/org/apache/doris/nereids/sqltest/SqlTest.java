@@ -72,9 +72,16 @@ public class SqlTest extends TestWithFeService implements PatternMatchSupported 
         // String sql = "SELECT *"
         //         + " FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id"
         //         + " WHERE T1.id = T2.id";
+        // String sql = "SELECT *"
+        //         + " FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1"
+        //         + " WHERE T1.id = T2.id";
+        // String sql = "SELECT *"
+        // + " FROM T2 LEFT SEMI JOIN T3 ON T2.id = T3.id, T1"
+        //          + " WHERE T1.id > T2.id";
+
         String sql = "SELECT *"
-                + " FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1"
-                + " WHERE T1.id = T2.id";
+                + " FROM T2 LEFT SEMI JOIN T3 ON T2.id = T3.id, T1"
+                + " WHERE T1.id > T2.id";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .applyTopDown(new ReorderJoin())
