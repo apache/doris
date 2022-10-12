@@ -46,10 +46,10 @@ CREATE TABLE IF NOT EXISTS `hive_bitmap_table`(
 
 -- Example：Create Hive Table
 CREATE TABLE IF NOT EXISTS `hive_table`(
-                                           `k1`   int       COMMENT '',
-                                           `k2`   String    COMMENT '',
-                                           `k3`   String    COMMENT '',
-                                           `uuid` int       COMMENT ''
+  `k1`   int       COMMENT '',
+  `k2`   String    COMMENT '',
+  `k3`   String    COMMENT '',
+  `uuid` int       COMMENT ''
 ) comment  'comment'
 ```
 
