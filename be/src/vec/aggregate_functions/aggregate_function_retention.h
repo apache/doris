@@ -125,10 +125,12 @@ public:
         if (to_nested_col.is_nullable()) {
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
             this->data(place).insert_result_into(col_null->get_nested_column(),
-                                                get_argument_types().size(), this->data(place).events);
+                                                 get_argument_types().size(),
+                                                 this->data(place).events);
             col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
         } else {
-            this->data(place).insert_result_into(to_nested_col,get_argument_types().size(), this->data(place).events );
+            this->data(place).insert_result_into(to_nested_col, get_argument_types().size(),
+                                                 this->data(place).events);
         }
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
