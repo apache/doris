@@ -61,6 +61,10 @@ protected:
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
+    // used to refill block with ColumnConst when contains rowid column,
+    // since some column missed
+    void _rebuild_block(Block* block);
+
     // Number of rows to skip.
     int64_t _offset;
 
@@ -76,6 +80,7 @@ private:
     Field old_top {Field::Types::Null};
 
     bool _reuse_mem;
+    bool _use_two_phase_read = false;
 
     std::unique_ptr<Sorter> _sorter;
 

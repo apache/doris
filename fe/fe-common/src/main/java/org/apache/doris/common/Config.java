@@ -1955,5 +1955,8 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static int hms_events_polling_interval_ms = 10000;
+
+    @ConfField(mutable = false)
+    public static int topn_two_phase_limit_threshold = 4096;
 }
 

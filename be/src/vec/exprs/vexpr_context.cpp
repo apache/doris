@@ -95,6 +95,7 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
     (*new_ctx)->_opened = true;
+    (*new_ctx)->_slot_mapping = _slot_mapping;
 
     return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }

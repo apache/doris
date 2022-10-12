@@ -22,10 +22,14 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "http/http_client.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/buffer_control_block.h"
@@ -39,6 +43,7 @@
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
+#include "util/defer_op.h"
 #include "util/md5.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
@@ -48,6 +53,8 @@
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
@@ -947,6 +954,150 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     StorageEngine::instance()->txn_manager()->finish_slave_tablet_pull_rowset(
             request->txn_id(), request->tablet_id(), request->node_id(), request->is_succeed());
     Status::OK().to_protobuf(response->mutable_status());
+}
+
+Status PInternalServiceImpl::_multi_get(const PMultiGetRequest* request,
+                                        PMultiGetResponse* response) {
+    TupleDescriptor desc(request->desc());
+    std::vector<SlotDescriptor> slots;
+    slots.reserve(request->slots().size());
+    for (const auto& pslot : request->slots()) {
+        slots.push_back(SlotDescriptor(pslot));
+        desc.add_slot(&slots.back());
+    }
+    assert(desc.slots().back()->col_name() == BeConsts::ROWID_COL);
+    vectorized::Block block(desc.slots(), request->rowids().size());
+    size_t total_row_cnt = request->rowids().size();
+    bool parallel = total_row_cnt >= 128;
+    auto point_get_fn = [&](std::pair<size_t, size_t> range,
+                            vectorized::Block* sub_block) -> Status {
+        for (size_t i = range.first; i < range.second; ++i) {
+            MonotonicStopWatch watch;
+            watch.start();
+            auto row_id = request->rowids()[i];
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                    row_id.tablet_id(), true /*include deleted*/);
+            RowsetId rowset_id;
+            rowset_id.init(row_id.rowset_id());
+            if (!tablet) {
+                continue;
+            }
+            BetaRowsetSharedPtr rowset =
+                    std::static_pointer_cast<BetaRowset>(tablet->get_rowset(rowset_id));
+            if (!rowset) {
+                LOG(INFO) << "no such rowset " << rowset_id;
+                continue;
+            }
+            const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
+            // const TabletSchemaSPtr tablet_schema = tablet->tablet_schema();
+            VLOG_DEBUG << "get tablet schema column_num:" << tablet_schema->num_columns()
+                       << ", version:" << tablet_schema->schema_version()
+                       << ", cost(us):" << watch.elapsed_time() / 1000;
+            SegmentCacheHandle segment_cache;
+            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            // find segment
+            auto it = std::find_if(segment_cache.get_segments().begin(),
+                                   segment_cache.get_segments().end(),
+                                   [&row_id](const segment_v2::SegmentSharedPtr& seg) {
+                                       return seg->id() == row_id.segment_id();
+                                   });
+            if (it == segment_cache.get_segments().end()) {
+                continue;
+            }
+            segment_v2::SegmentSharedPtr segment = *it;
+            for (int x = 0; x < desc.slots().size() - 1; ++x) {
+                int index = tablet_schema->field_index(desc.slots()[x]->col_unique_id());
+                vectorized::MutableColumnPtr column =
+                        sub_block->get_by_position(x).column->assume_mutable();
+                // TODO handle real default value
+                if (index < 0) {
+                    column->insert_default();
+                    continue;
+                }
+                segment_v2::ColumnIterator* column_iterator = nullptr;
+                RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(index),
+                                                             &column_iterator));
+                std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
+                segment_v2::ColumnIteratorOptions opt;
+                OlapReaderStatistics stats;
+                opt.file_reader = segment->file_reader().get();
+                opt.stats = &stats;
+                opt.use_page_cache = !config::disable_storage_page_cache;
+                column_iterator->init(opt);
+                std::vector<segment_v2::rowid_t> rowids {
+                        static_cast<segment_v2::rowid_t>(row_id.ordinal_id())};
+                RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column));
+            }
+            LOG_EVERY_N(INFO, 100)
+                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000;
+            GlobalRowLoacation row_location(row_id.tablet_id(), rowset->rowset_id(),
+                                            row_id.segment_id(), row_id.ordinal_id());
+            sub_block->get_columns().back()->assume_mutable()->insert_data(
+                    reinterpret_cast<const char*>(&row_location), sizeof(GlobalRowLoacation));
+        }
+        return Status::OK();
+    };
+    if (parallel) {
+        size_t parallel_n = total_row_cnt / config::multi_get_per_batch;
+        // seperate to multi subblock, and parallel get from engine
+        std::vector<vectorized::Block> sub_blocks(parallel_n);
+        std::generate_n(sub_blocks.begin(), parallel_n, [&]() -> vectorized::Block {
+            return vectorized::Block(desc.slots(), config::multi_get_per_batch * 2);
+        });
+        MonotonicStopWatch watch;
+        watch.start();
+        std::vector<std::future<Status>> status(parallel_n);
+        Status st;
+        for (size_t i = 0; i < parallel_n; ++i) {
+            std::pair<size_t, size_t> range;
+            range.first = i * config::multi_get_per_batch;
+            range.second = (i + 1) * config::multi_get_per_batch;
+            if (i == parallel_n - 1) {
+                // last one
+                range.second = total_row_cnt;
+            }
+            status[i] = std::async(std::launch::async, point_get_fn, range, &sub_blocks[i]);
+        }
+        for (size_t i = 0; i < parallel_n; ++i) {
+            Status s = status[i].get();
+            if (!s.ok()) {
+                st = s;
+            }
+        }
+        RETURN_IF_ERROR(st);
+        VLOG_DEBUG << "multiget_data get, cost(us):" << watch.elapsed_time() / 1000;
+        // merge blocks
+        vectorized::MutableBlock final_block(&block);
+        for (size_t i = 0; i < parallel_n; ++i) {
+            final_block.merge(sub_blocks[i]);
+        }
+        block.swap(final_block.to_block());
+        VLOG_DEBUG << "multiget_data merge, cost(us):" << watch.elapsed_time() / 1000;
+    } else {
+        RETURN_IF_ERROR(point_get_fn(std::pair {0, request->rowids_size()}, &block));
+    }
+    VLOG_DEBUG << "dump block:" << block.dump_data(0, 10);
+
+    [[unused]] size_t compressed_size = 0;
+    [[unused]] size_t uncompressed_size = 0;
+    int be_exec_version = request->has_be_exec_version() ? request->be_exec_version() : 0;
+    RETURN_IF_ERROR(block.serialize(be_exec_version, response->mutable_block(), &uncompressed_size,
+                                    &compressed_size, segment_v2::CompressionTypePB::LZ4));
+    return Status::OK();
+}
+
+void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* controller,
+                                         const PMultiGetRequest* request,
+                                         PMultiGetResponse* response,
+                                         google::protobuf::Closure* done) {
+    // multi get data by rowid
+    MonotonicStopWatch watch;
+    watch.start();
+    brpc::ClosureGuard closure_guard(done);
+    response->mutable_status()->set_status_code(0);
+    Status st = _multi_get(request, response);
+    st.to_protobuf(response->mutable_status());
+    LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
 }
 
 } // namespace doris

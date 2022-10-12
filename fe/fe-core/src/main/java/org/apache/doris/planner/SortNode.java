@@ -28,8 +28,10 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
@@ -140,6 +142,15 @@ public class SortNode extends PlanNode {
 
     public void setUseTopnOpt(boolean useTopnOpt) {
         this.useTopnOpt = useTopnOpt;
+    }
+
+    public List<Expr> getResolvedTupleExprs() {
+        return resolvedTupleExprs;
+    }
+
+    public boolean isUseTopNTwoPhaseOptimize() {
+        return useTopN && useTopnOpt && VectorizedUtil.isVectorized()
+                && hasLimit() && getLimit()  <= Config.topn_two_phase_limit_threshold;
     }
 
     @Override

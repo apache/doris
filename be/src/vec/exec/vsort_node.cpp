@@ -37,6 +37,8 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
+    _use_topn_opt = tnode.sort_node.use_topn_opt;
+    _use_two_phase_read = tnode.sort_node.sort_info.use_two_phase_read;
     const auto& row_desc = child(0)->row_desc();
     // If `limit` is smaller than HEAP_SORT_THRESHOLD, we consider using heap sort in priority.
     // To do heap sorting, each income block will be filtered by heap-top row. There will be some
@@ -82,7 +84,6 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     _sorter->init_profile(_runtime_profile.get());
-
     return Status::OK();
 }
 
@@ -110,6 +111,14 @@ Status VSortNode::alloc_resource(doris::RuntimeState* state) {
 
 Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     if (input_block->rows() > 0) {
+        // Indicating topn two phase read enabled, some columns maybe pruned in the scann nodes
+        // to ensure everything goes well, we mock some columns for later usage
+        // those columns will be read in the second phase when everything's ready
+        if (_use_two_phase_read) {
+            _rebuild_block(input_block);
+            // We must not reuse upstream_block,since it's rebuilded.
+            _reuse_mem = false;
+        }
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
@@ -127,7 +136,6 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                 old_top = std::move(new_top);
             }
         }
-
         if (!_reuse_mem) {
             input_block->clear();
         }
@@ -177,6 +185,24 @@ Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_blo
         _runtime_profile->add_info_string("Spilled", _sorter->is_spilled() ? "true" : "false");
     }
     return Status::OK();
+}
+
+// find by name
+void VSortNode::_rebuild_block(Block* block) {
+    Block new_block;
+    // The first tuple descriptor is alawys ScanNode tuple
+    for (auto slot : child(0)->row_desc().tuple_descriptors()[0]->slots()) {
+        auto type_column = block->try_get_by_name(slot->col_name());
+        if (!type_column) {
+            auto type = slot->get_data_type_ptr();
+            new_block.insert(ColumnWithTypeAndName {
+                    type->create_column_const(block->rows(), type->get_default()), type,
+                    slot->col_name()});
+            continue;
+        }
+        new_block.insert(std::move(*type_column));
+    }
+    block->swap(new_block);
 }
 
 Status VSortNode::get_next(RuntimeState* state, Block* block, bool* eos) {

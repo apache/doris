@@ -289,6 +289,7 @@ public class SlotRef extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
+        msg.slot_ref.setColUniqueId(desc.getUniqueId());
         msg.setOutputColumn(outputColumn);
     }
 
@@ -435,6 +436,10 @@ public class SlotRef extends Expr {
 
     public void setLabel(String label) {
         this.label = label;
+    }
+
+    public boolean hasCol() {
+        return this.col != null;
     }
 
     public String getColumnName() {

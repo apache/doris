@@ -32,8 +32,10 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -212,7 +214,8 @@ public class OriginalPlanner extends Planner {
         // Push sort node down to the bottom of olapscan.
         // Because the olapscan must be in the end. So get the last two nodes.
         if (VectorizedUtil.isVectorized()) {
-            pushSortToOlapScan();
+            pushSortToOlapScan(analyzer);
+            pushOrderByExprsToOlapScan();
         }
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
@@ -334,10 +337,28 @@ public class OriginalPlanner extends Planner {
         topPlanFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
     }
 
+
+    private SlotDescriptor injectRowIdColumnSlot(Analyzer analyzer, TupleDescriptor tupleDesc) {
+        SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(tupleDesc);
+        LOG.debug("inject slot {}", slotDesc);
+        String name = Column.ROWID_COL;
+        Column col = new Column(name, Type.STRING, false, null, false, "",
+                                        "rowid column");
+        slotDesc.setType(Type.STRING);
+        slotDesc.setColumn(col);
+        slotDesc.setIsNullable(false);
+        slotDesc.setIsMaterialized(true);
+        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+        slotDesc.setNullIndicatorBit(-1);
+        slotDesc.setNullIndicatorByte(0);
+        return slotDesc;
+    }
+
     /**
      * Push sort down to olap scan.
      */
-    private void pushSortToOlapScan() {
+    private void pushSortToOlapScan(Analyzer analyzer) {
+        boolean addedRowIdColumn = false;
         for (PlanFragment fragment : fragments) {
             PlanNode node = fragment.getPlanRoot();
             PlanNode parent = null;
@@ -354,6 +375,23 @@ public class OriginalPlanner extends Planner {
             }
             SortNode sortNode = (SortNode) parent;
             OlapScanNode scanNode = (OlapScanNode) node;
+
+            // We use two phase read to optimize sql like: select * from tbl [where xxx = ???] order by column1 limit n
+            // in the first phase, we add an extra column `RowId` to Block, and sort blocks in TopN nodes
+            // in the second phase, we have n rows, we do a fetch rpc to get all rowids date for the n rows
+            // and reconconstruct the final block
+            if (!addedRowIdColumn &&  sortNode.isUseTopNTwoPhaseOptimize()
+                        // need enable light schema change since prune column logic depends on column unique ids
+                        && scanNode.getOlapTable().getEnableLightSchemaChange()) {
+                // fragment.setParallelExecNum(1);
+                SlotDescriptor slot = injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
+                injectRowIdColumnSlot(analyzer, sortNode.getSortInfo().getSortTupleDescriptor());
+                addedRowIdColumn = true;
+                SlotRef extSlot = new SlotRef(slot);
+                sortNode.getResolvedTupleExprs().add(extSlot);
+                sortNode.getSortInfo().setUseTwoPhaseRead();
+            }
+
             if (!scanNode.checkPushSort(sortNode)) {
                 continue;
             }
@@ -365,6 +403,27 @@ public class OriginalPlanner extends Planner {
             }
             scanNode.setSortInfo(sortNode.getSortInfo());
             scanNode.getSortInfo().setSortTupleSlotExprs(sortNode.resolvedTupleExprs);
+        }
+    }
+
+    private void pushOrderByExprsToOlapScan() {
+        for (PlanFragment fragment : fragments) {
+            PlanNode node = fragment.getPlanRoot();
+            PlanNode parent = null;
+
+            // OlapScanNode is the last node.
+            // So, just get the last two node and check if they are SortNode and OlapScan.
+            while (node.getChildren().size() != 0) {
+                parent = node;
+                node = node.getChildren().get(0);
+            }
+
+            if (!(node instanceof OlapScanNode) || !(parent instanceof SortNode)) {
+                continue;
+            }
+            SortNode sortNode = (SortNode) parent;
+            OlapScanNode scanNode = (OlapScanNode) node;
+            scanNode.setOrderingExprs(sortNode.getSortInfo().getOrigOrderingExprs());
         }
     }
 

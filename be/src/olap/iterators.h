@@ -119,6 +119,8 @@ public:
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;
+    RowsetId rowset_id;
+    int32_t tablet_id = 0;
 };
 
 class RowwiseIterator {

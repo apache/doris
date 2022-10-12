@@ -39,11 +39,8 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
-        for (const auto slot_desc : _output_tuple_desc->slots()) {
-            block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                slot_desc->get_data_type_ptr(),
-                                                slot_desc->col_name()));
-        }
+        auto b = _parent->_allocate_block(_output_tuple_desc, state->batch_size());
+        block->swap(std::move(*b));
     }
 
     {
@@ -80,8 +77,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
 Status VScanner::_filter_output_block(Block* block) {
     auto old_rows = block->rows();
-    Status st =
-            VExprContext::filter_block(_vconjunct_ctx, block, _output_tuple_desc->slots().size());
+    Status st = VExprContext::filter_block(_vconjunct_ctx, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
     return st;
 }

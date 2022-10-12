@@ -255,6 +255,12 @@ public class SlotDescriptor {
         return sourceExprs;
     }
 
+    public int getUniqueId() {
+        if (column == null) {
+            return -1;
+        }
+        return column.getUniqueId();
+    }
 
     /**
      * Initializes a slot by setting its source expression information
@@ -305,6 +311,7 @@ public class SlotDescriptor {
         if (column != null) {
             LOG.debug("column name:{}, column unique id:{}", column.getName(), column.getUniqueId());
             tSlotDescriptor.setColUniqueId(column.getUniqueId());
+            tSlotDescriptor.setIsKey(column.isKey());
         }
         return tSlotDescriptor;
     }

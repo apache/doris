@@ -63,7 +63,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _slot_idx(tdesc.slotIdx),
           _slot_size(_type.get_slot_size()),
           _field_idx(-1),
-          _is_materialized(tdesc.isMaterialized) {}
+          _is_materialized(tdesc.isMaterialized),
+          _is_key(tdesc.is_key) {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -74,11 +75,12 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _null_indicator_offset(pdesc.null_indicator_byte(), pdesc.null_indicator_bit()),
           _col_name(pdesc.col_name()),
           _col_name_lower_case(to_lower(pdesc.col_name())),
-          _col_unique_id(-1),
+          _col_unique_id(pdesc.col_unique_id()),
           _slot_idx(pdesc.slot_idx()),
           _slot_size(_type.get_slot_size()),
           _field_idx(-1),
-          _is_materialized(pdesc.is_materialized()) {}
+          _is_materialized(pdesc.is_materialized()),
+          _is_key(pdesc.is_key()) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
@@ -92,6 +94,8 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_col_name(_col_name);
     pslot->set_slot_idx(_slot_idx);
     pslot->set_is_materialized(_is_materialized);
+    pslot->set_col_unique_id(_col_unique_id);
+    pslot->set_is_key(_is_key);
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {

@@ -18,6 +18,7 @@
 #pragma once
 #include <queue>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"

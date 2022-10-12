@@ -60,6 +60,10 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
+    if (context->has_slot_mapping()) {
+        *result_column_id = context->get_real_cid_for_slot(_slot_id);
+        return Status::OK();
+    }
     *result_column_id = _column_id;
     return Status::OK();
 }

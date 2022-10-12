@@ -178,6 +178,7 @@ CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
+CONF_mInt32(fetch_rpc_timeout_seconds, "20");
 // default thrift client retry interval (in milliseconds)
 CONF_mInt64(thrift_client_retry_interval_ms, "1000");
 // max row count number for single scan range, used in segmentv1

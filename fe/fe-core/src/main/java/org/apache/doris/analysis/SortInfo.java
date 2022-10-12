@@ -52,6 +52,7 @@ public class SortInfo {
 
     private List<Expr> orderingExprs;
     private final List<Boolean> isAscOrder;
+    private List<Expr> origOrderingExprs;
     // True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
     private final List<Boolean> nullsFirstParams;
     // Subset of ordering exprs that are materialized. Populated in
@@ -63,6 +64,7 @@ public class SortInfo {
     // Input expressions materialized into sortTupleDesc_. One expr per slot in
     // sortTupleDesc_.
     private List<Expr> sortTupleSlotExprs;
+    private boolean useTwoPhaseRead = false;
 
     public SortInfo(List<Expr> orderingExprs, List<Boolean> isAscOrder,
                     List<Boolean> nullsFirstParams) {
@@ -117,6 +119,10 @@ public class SortInfo {
         }
     }
 
+    public List<Expr> getOrigOrderingExprs() {
+        return origOrderingExprs;
+    }
+
     public List<Expr> getOrderingExprs() {
         return orderingExprs;
     }
@@ -143,6 +149,14 @@ public class SortInfo {
 
     public void setSortTupleDesc(TupleDescriptor tupleDesc) {
         sortTupleDesc = tupleDesc;
+    }
+
+    public void setUseTwoPhaseRead() {
+        useTwoPhaseRead = true;
+    }
+
+    public boolean useTwoPhaseRead() {
+        return useTwoPhaseRead;
     }
 
     public TupleDescriptor getSortTupleDescriptor() {
@@ -252,6 +266,9 @@ public class SortInfo {
             }
         }
 
+        // backup before substitute orderingExprs
+        origOrderingExprs = orderingExprs;
+
         // The ordering exprs are evaluated against the sort tuple, so they must reflect the
         // materialization decision above.
         substituteOrderingExprs(substOrderBy, analyzer);
@@ -282,9 +299,13 @@ public class SortInfo {
         List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
         ExprSubstitutionMap substOrderBy = new ExprSubstitutionMap();
         for (Expr origOrderingExpr : orderingExprs) {
+            SlotRef origSlotRef = origOrderingExpr.getSrcSlotRef();
             SlotDescriptor materializedDesc = analyzer.addSlotDescriptor(sortTupleDesc);
             materializedDesc.initFromExpr(origOrderingExpr);
             materializedDesc.setIsMaterialized(true);
+            if (origSlotRef != null) {
+                materializedDesc.setColumn(origSlotRef.getColumn());
+            }
             SlotRef materializedRef = new SlotRef(materializedDesc);
             substOrderBy.put(origOrderingExpr, materializedRef);
             materializedOrderingExprs.add(origOrderingExpr);
@@ -301,6 +322,9 @@ public class SortInfo {
                 Expr.treesToThrift(orderingExprs),
                 isAscOrder,
                 nullsFirstParams);
+        if (useTwoPhaseRead) {
+            sortInfo.setUseTwoPhaseRead(true);
+        }
         return sortInfo;
     }
 }

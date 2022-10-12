@@ -76,6 +76,15 @@ public:
         _stale = true;
     }
 
+    void set_slot_id_mapping(int32_t original, int32_t dest) { _slot_mapping[original] = dest; }
+
+    bool has_slot_mapping() const { return !_slot_mapping.empty(); }
+
+    int32_t get_real_cid_for_slot(int32_t sid) {
+        auto it = _slot_mapping.find(sid);
+        return it == _slot_mapping.end() ? -1 : it->second;
+    }
+
 private:
     friend class VExpr;
 
@@ -100,5 +109,8 @@ private:
     int _last_result_column_id;
 
     bool _stale;
+
+    // mapping slotid->column_id for slotref
+    std::unordered_map<int32_t, int32_t> _slot_mapping;
 };
 } // namespace doris::vectorized
