@@ -41,6 +41,12 @@ struct ArrayPositionAction {
     static constexpr void apply(ResultType& current, size_t j) noexcept { current = j + 1; }
 };
 
+struct ArrayCountEqual {
+    using ResultType = Int64;
+    static constexpr const bool resume_execution = true;
+    static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
+};
+
 template <typename ConcreteAction, typename Name>
 class FunctionArrayIndex : public IFunction {
 public:

@@ -166,6 +166,22 @@ visible_functions = [
     [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
 
+    [['countequal'], 'BIGINT', ['ARRAY_BOOLEAN', 'BOOLEAN'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_INT', 'INT'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_LARGEINT', 'LARGEINT'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_DATETIME', 'DATETIME'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_DATE', 'DATE'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_DATETIMEV2', 'DATETIMEV2'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_DATEV2', 'DATEV2'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_FLOAT', 'FLOAT'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_DOUBLE', 'DOUBLE'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
+    [['countequal'], 'BIGINT', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
+
     [['array_position'], 'BIGINT', ['ARRAY_BOOLEAN', 'BOOLEAN'], '', '', '', 'vec', ''],
     [['array_position'], 'BIGINT', ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
     [['array_position'], 'BIGINT', ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
@@ -466,7 +482,13 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions7to_daysEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
 
-     [['year'], 'INT', ['DATETIME'],
+    [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'],
+        '', '', '', 'vec', 'ALWAYS_NULLABLE'],  
+
+    [['date_trunc'], 'DATETIMEV2', ['DATETIMEV2', 'VARCHAR'],
+        '', '', '', 'vec', 'ALWAYS_NULLABLE'],       
+
+    [['year'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions4yearEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['month'], 'INT', ['DATETIME'],
