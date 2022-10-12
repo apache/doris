@@ -271,6 +271,7 @@ public class ColumnStat {
                             .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
                 case CHAR:
                 case VARCHAR:
+                    return convertStringToDouble(columnValue);
                 case HLL:
                 case BITMAP:
                 case ARRAY:
@@ -285,6 +286,16 @@ public class ColumnStat {
 
     }
 
+    private double convertStringToDouble(String s) {
+        long v = 0;
+        int pos = 0;
+        int len = Math.min(s.length(), 8);
+        while (pos < len) {
+            v += ((long) s.charAt(pos)) << ((7-pos)*8);
+            pos ++;
+        }
+        return (double) v;
+    }
     public ColumnStat copy() {
         return new ColumnStat(this);
     }
