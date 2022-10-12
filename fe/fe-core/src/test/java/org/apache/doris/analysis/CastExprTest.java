@@ -30,21 +30,12 @@ public class CastExprTest {
         ScalarType stringType = ScalarType.createType(PrimitiveType.STRING, 2, 0, 0);
 
         StringLiteral value = new StringLiteral("20210926");
-        if (charType.getLength() >= 0  && value.getStringValue() != null
-                && charType.getLength() < value.getStringValue().length()) {
-            String subStringValue = value.getStringValue().substring(0, charType.getLength());
-            Assert.assertEquals(subStringValue, "20");
-        }
-        if (varcharType.getLength() >= 0  && value.getStringValue() != null
-               && varcharType.getLength() < value.getStringValue().length()) {
-            String subStringValue = value.getStringValue().substring(0, varcharType.getLength());
-            Assert.assertEquals(subStringValue, "20");
-        }
-        if (stringType.getLength() >= 0  && value.getStringValue() != null
-               && stringType.getLength() < value.getStringValue().length()) {
-            String subStringValue = value.getStringValue().substring(0, stringType.getLength());
-            Assert.assertEquals(subStringValue, "20");
-        }
+        String subStringValue1 = value.getStringValue().substring(0, charType.getLength());
+        Assert.assertEquals(subStringValue1, "20");
+        String subStringValue2 = value.getStringValue().substring(0, varcharType.getLength());
+        Assert.assertEquals(subStringValue2, "20");
+        String subStringValue3 = value.getStringValue().substring(0, stringType.getLength());
+        Assert.assertEquals(subStringValue3, "20");
 
     }
 }
