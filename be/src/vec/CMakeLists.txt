@@ -173,6 +173,7 @@ set(VEC_FILES
   functions/function_utility.cpp
   functions/comparison_equal_for_null.cpp
   functions/function_json.cpp
+  functions/function_jsonb.cpp
   functions/function_datetime_floor_ceil.cpp
   functions/functions_geo.cpp
   functions/hll_cardinality.cpp
