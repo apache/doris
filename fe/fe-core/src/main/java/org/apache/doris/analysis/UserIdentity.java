@@ -27,12 +27,15 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -44,7 +47,8 @@ import java.io.IOException;
 // cmy@%
 // cmy@192.168.%
 // cmy@[domain.name]
-public class UserIdentity implements Writable {
+public class UserIdentity implements Writable, GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(UserIdentity.class);
 
     @SerializedName(value = "user")
     private String user;
@@ -258,6 +262,11 @@ public class UserIdentity implements Writable {
         user = Text.readString(in);
         host = Text.readString(in);
         isDomain = in.readBoolean();
+        isAnalyzed = true;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
         isAnalyzed = true;
     }
 }

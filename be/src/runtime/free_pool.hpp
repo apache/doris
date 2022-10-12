@@ -25,6 +25,7 @@
 
 #include <string>
 
+#include "common/compiler_util.h"
 #include "common/logging.h"
 #include "runtime/mem_pool.h"
 #include "util/bit_util.h"
@@ -128,9 +129,15 @@ public:
 #ifndef NDEBUG
         check_valid_allocation(list);
 #endif
-        // Add node to front of list.
-        node->next = list->next;
-        list->next = node;
+        if (UNLIKELY(nullptr == list)) {
+            // free memory directly if the pointer to free list is null
+            LOG(ERROR) << "The free list was released, and this may cause memory leak.";
+            free(ptr);
+        } else {
+            // Add node to front of list.
+            node->next = list->next;
+            list->next = node;
+        }
     }
 
     // Returns an allocation that is at least 'size'. If the current allocation

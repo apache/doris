@@ -42,6 +42,12 @@ public final class GlobalVariable {
     public static final String QUERY_CACHE_SIZE = "query_cache_size";
     public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
     public static final String PERFORMANCE_SCHEMA = "performance_schema";
+    public static final String DEFAULT_PASSWORD_LIFETIME = "default_password_lifetime";
+    public static final String PASSWORD_HISTORY = "password_history";
+    public static final String VALIDATE_PASSWORD_POLICY = "validate_password_policy";
+
+    public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
+    public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
@@ -80,6 +86,16 @@ public final class GlobalVariable {
     // add performance schema to support MYSQL JDBC 8.0.16 or later versions.
     @VariableMgr.VarAttr(name = PERFORMANCE_SCHEMA, flag = VariableMgr.READ_ONLY)
     public static String performanceSchema = "OFF";
+
+    @VariableMgr.VarAttr(name = DEFAULT_PASSWORD_LIFETIME, flag = VariableMgr.GLOBAL)
+    public static int defaultPasswordLifetime = 0;
+
+    @VariableMgr.VarAttr(name = PASSWORD_HISTORY, flag = VariableMgr.GLOBAL)
+    public static int passwordHistory = 0;
+    // 0: DISABLED
+    // 2: STRONG
+    @VariableMgr.VarAttr(name = VALIDATE_PASSWORD_POLICY, flag = VariableMgr.GLOBAL)
+    public static long validatePasswordPolicy = 0;
 
     // Don't allow create instance.
     private GlobalVariable() {

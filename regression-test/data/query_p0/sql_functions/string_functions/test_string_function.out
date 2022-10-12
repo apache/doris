@@ -201,6 +201,9 @@ aaa
 https://doris.apache.org
 
 -- !sql --
+https://doris.apache.org:9090
+
+-- !sql --
 olleh
 
 -- !sql --

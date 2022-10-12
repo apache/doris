@@ -130,6 +130,15 @@ public class RoleManager implements Writable {
         }
     }
 
+    public PaloRole findRoleForUser(UserIdentity userIdent) {
+        for (PaloRole role : roles.values()) {
+            if (role.containsUser(userIdent)) {
+                return role;
+            }
+        }
+        return null;
+    }
+
     public void getRoleInfo(List<List<String>> results) {
         for (PaloRole role : roles.values()) {
             List<String> info = Lists.newArrayList();

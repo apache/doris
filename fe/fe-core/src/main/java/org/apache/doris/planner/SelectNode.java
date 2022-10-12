@@ -73,7 +73,7 @@ public class SelectNode extends PlanNode {
             return;
         }
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Select: cardinality={}", this.cardinality);

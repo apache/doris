@@ -22,7 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStat;
 
 import com.google.common.collect.ImmutableList;
 
@@ -34,12 +34,12 @@ public class ShowColumnStatsStmt extends ShowStmt {
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("column_name")
-                    .add(ColumnStats.NDV.getValue())
-                    .add(ColumnStats.AVG_SIZE.getValue())
-                    .add(ColumnStats.MAX_SIZE.getValue())
-                    .add(ColumnStats.NUM_NULLS.getValue())
-                    .add(ColumnStats.MIN_VALUE.getValue())
-                    .add(ColumnStats.MAX_VALUE.getValue())
+                    .add(ColumnStat.NDV.getValue())
+                    .add(ColumnStat.AVG_SIZE.getValue())
+                    .add(ColumnStat.MAX_SIZE.getValue())
+                    .add(ColumnStat.NUM_NULLS.getValue())
+                    .add(ColumnStat.MIN_VALUE.getValue())
+                    .add(ColumnStat.MAX_VALUE.getValue())
                     .build();
 
     private final TableName tableName;

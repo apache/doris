@@ -20,12 +20,12 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetNamesVar;
 import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -79,9 +79,10 @@ public class SetExecutorTest {
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException, DdlException {
+    public void testNormal() throws UserException {
         List<SetVar> vars = Lists.newArrayList();
-        vars.add(new SetPassVar(new UserIdentity("testUser", "%"), "*88EEBA7D913688E7278E2AD071FDB5E76D76D34B"));
+        vars.add(new SetPassVar(new UserIdentity("testUser", "%"),
+                new PassVar("*88EEBA7D913688E7278E2AD071FDB5E76D76D34B", false)));
         vars.add(new SetNamesVar("utf8"));
         vars.add(new SetVar("query_timeout", new IntLiteral(10L)));
 

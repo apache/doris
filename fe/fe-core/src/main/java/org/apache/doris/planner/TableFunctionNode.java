@@ -149,7 +149,7 @@ public class TableFunctionNode extends PlanNode {
         super.computeStats(analyzer);
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override

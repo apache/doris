@@ -43,7 +43,7 @@ struct ScannerCounter {
 class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile);
+                 const TFileScanRange& scan_range, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
 

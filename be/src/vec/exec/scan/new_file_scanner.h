@@ -30,7 +30,7 @@ class NewFileScanNode;
 class NewFileScanner : public VScanner {
 public:
     NewFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                   const TFileScanRange& scan_range, MemTracker* tracker, RuntimeProfile* profile,
+                   const TFileScanRange& scan_range, RuntimeProfile* profile,
                    const std::vector<TExpr>& pre_filter_texprs);
 
     Status open(RuntimeState* state) override;

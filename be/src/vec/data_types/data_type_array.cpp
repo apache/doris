@@ -201,15 +201,28 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         if (*rb.position() == ']') {
             break;
         }
-        size_t nested_str_len = 1;
+        size_t nested_str_len = 0;
         char* temp_char = rb.position() + nested_str_len;
         while (*(temp_char) != ']' && *(temp_char) != ',' && temp_char != rb.end()) {
             ++nested_str_len;
             temp_char = rb.position() + nested_str_len;
         }
 
-        // dispose the case of ["123"] or ['123']
+        // dispose the case of [123,,,]
+        if (nested_str_len == 0) {
+            if (nested_column.is_nullable()) {
+                auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
+                nested_null_col.get_nested_column().insert_default();
+                nested_null_col.get_null_map_data().push_back(0);
+            } else {
+                nested_column.insert_default();
+            }
+            ++size;
+            continue;
+        }
+
         ReadBuffer read_buffer(rb.position(), nested_str_len);
+        // dispose the case of ["123"] or ['123']
         auto begin_char = *rb.position();
         auto end_char = *(rb.position() + nested_str_len - 1);
         if (begin_char == end_char && (begin_char == '"' || begin_char == '\'')) {

@@ -229,7 +229,12 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
 RowsetSharedPtr BetaRowsetWriter::build() {
     // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
     for (auto& file_writer : _file_writers) {
-        file_writer->close();
+        Status status = file_writer->close();
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to close file writer, path=" << file_writer->path()
+                         << " res=" << status;
+            return nullptr;
+        }
     }
     // When building a rowset, we must ensure that the current _segment_writer has been
     // flushed, that is, the current _segment_writer is nullptr
@@ -318,7 +323,7 @@ Status BetaRowsetWriter::_create_segment_writer(
         _file_writers.push_back(std::move(file_writer));
     }
 
-    auto s = (*writer)->init(config::push_write_mbytes_per_sec);
+    auto s = (*writer)->init();
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer->reset(nullptr);

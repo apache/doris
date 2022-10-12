@@ -37,9 +37,8 @@
 namespace doris::vectorized {
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                           const TFileScanRange& scan_range, MemTracker* tracker,
-                           RuntimeProfile* profile)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, tracker),
+                           const TFileScanRange& scan_range, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
           _next_range(0),
@@ -52,7 +51,6 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 Status VFileScanner::prepare(
         VExprContext** vconjunct_ctx_ptr,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     _colname_to_value_range = colname_to_value_range;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");

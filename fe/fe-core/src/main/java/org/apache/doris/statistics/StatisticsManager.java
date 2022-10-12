@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -91,7 +92,8 @@ public class StatisticsManager {
         List<String> partitionNames = stmt.getPartitionNames();
         Map<StatsType, String> statsTypeToValue = stmt.getStatsTypeToValue();
 
-        if ((partitionNames.isEmpty()) && table.isPartitioned()) {
+        if ((partitionNames.isEmpty()) && table instanceof OlapTable
+                && !((OlapTable) table).getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
             throw new AnalysisException("Partitioned table must specify partition name.");
         }
 
@@ -332,7 +334,7 @@ public class StatisticsManager {
 
     private List<List<String>> showColumnStats(long tableId) throws AnalysisException {
         List<List<String>> result = Lists.newArrayList();
-        Map<String, ColumnStats> columnStats = statistics.getColumnStats(tableId);
+        Map<String, ColumnStat> columnStats = statistics.getColumnStats(tableId);
         columnStats.forEach((key, stats) -> {
             List<String> row = Lists.newArrayList();
             row.add(key);
@@ -344,7 +346,7 @@ public class StatisticsManager {
 
     private List<List<String>> showColumnStats(long tableId, String partitionName) throws AnalysisException {
         List<List<String>> result = Lists.newArrayList();
-        Map<String, ColumnStats> columnStats = statistics.getColumnStats(tableId, partitionName);
+        Map<String, ColumnStat> columnStats = statistics.getColumnStats(tableId, partitionName);
         columnStats.forEach((key, stats) -> {
             List<String> row = Lists.newArrayList();
             row.add(key);

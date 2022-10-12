@@ -414,15 +414,11 @@ Some system configuration parameters can affect the use of routine import.
 
    BE configuration item, default is 3. This parameter indicates the maximum number of consumers that can be generated for data consumption in a subtask. For a Kafka data source, a consumer may consume one or more kafka partitions. If there are only 2 partitions, only 2 consumers are generated, each consuming 1 partition. 5. push_write_mby
 
-5. push_write_mbytes_per_sec
-
-   BE configuration item. The default is 10, i.e. 10MB/s. This parameter is generic for importing and is not limited to routine import jobs. This parameter limits the speed at which imported data can be written to disk. For high performance storage devices such as SSDs, this speed limit can be increased as appropriate. 6.
-
-6. max_tolerable_backend_down_num 
+5. max_tolerable_backend_down_num 
 
    FE configuration item, the default value is 0. Doris can PAUSED job rescheduling to RUNNING if certain conditions are met. 0 means rescheduling is allowed only if all BE nodes are ALIVE.
 
-7. period_of_auto_resume_min 
+6. period_of_auto_resume_min 
 
    FE configuration item, the default is 5 minutes, Doris rescheduling will only be attempted up to 3 times within the 5 minute period. If all 3 attempts fail, the current task is locked and no further scheduling is performed. However, manual recovery can be done through human intervention.
 

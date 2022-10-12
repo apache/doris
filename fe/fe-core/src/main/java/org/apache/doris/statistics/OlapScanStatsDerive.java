@@ -84,7 +84,7 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
         if (node.getTupleDesc() != null
                 && node.getTupleDesc().getTable() != null) {
             long tableId = node.getTupleDesc().getTable().getId();
-            inputRowCount = Env.getCurrentEnv().getStatisticsManager().getStatistics().getTableStats(tableId)
+            inputRowCount = (long) Env.getCurrentEnv().getStatisticsManager().getStatistics().getTableStats(tableId)
                     .getRowCount();
         }
         for (SlotDescriptor slot : node.getTupleDesc().getSlots()) {

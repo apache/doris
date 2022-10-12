@@ -35,9 +35,9 @@
 namespace doris::vectorized {
 
 NewFileScanner::NewFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                               const TFileScanRange& scan_range, MemTracker* tracker,
-                               RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, tracker),
+                               const TFileScanRange& scan_range, RuntimeProfile* profile,
+                               const std::vector<TExpr>& pre_filter_texprs)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
           _next_range(0),
@@ -53,8 +53,6 @@ Status NewFileScanner::open(RuntimeState* state) {
 }
 
 Status NewFileScanner::prepare(VExprContext** vconjunct_ctx_ptr) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
         RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
