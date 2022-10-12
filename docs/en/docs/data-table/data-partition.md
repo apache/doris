@@ -313,7 +313,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
 2. Bucket
 
     * If a Partition is used, the `DISTRIBUTED ...` statement describes the division rules for the data in each partition. If you do not use Partition, it describes the rules for dividing the data of the entire table.
-    * The bucket column can be multiple columns, but it must be a Key column. The bucket column can be the same or different from the Partition column.
+    * The bucket column can be multiple columns,Aggregate and Unique models must be key columns, and Duplicate models can be key columns and value columns. The bucket column can be the same or different from the Partition column.
     * The choice of bucket column is a trade-off between **query throughput** and **query concurrency**:
 
         1. If you select multiple bucket columns, the data is more evenly distributed. However, if the query condition does not include the equivalent condition for all bucket columns, a query will scan all buckets. The throughput of such queries will increase, and the latency of a single query will decrease. This method is suitable for large throughput and low concurrent query scenarios.
