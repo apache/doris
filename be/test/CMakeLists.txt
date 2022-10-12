@@ -355,6 +355,7 @@ set(VEC_TEST_FILES
     vec/function/function_like_test.cpp
     vec/function/function_arithmetic_test.cpp
     vec/function/function_json_test.cpp
+    vec/function/function_jsonb_test.cpp
     vec/function/function_geo_test.cpp
     vec/function/function_test_util.cpp
     vec/function/table_function_test.cpp
