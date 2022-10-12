@@ -963,7 +963,7 @@ TEST(function_string_test, function_extract_url_parameter) {
                         {{VARCHAR("https://doris.apache.org/"), VARCHAR("doorg")},{VARCHAR("")}},
                         {{VARCHAR("https://doris.apache.org/"), VARCHAR("s.")},{VARCHAR("s.")}},
                         {{VARCHAR("https://doris.apache.org/"), VARCHAR("doris")},{VARCHAR("doris")}},
-                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("://doris")},{VARCHAR("://doris.")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("://doris.")},{VARCHAR("://doris.")}},
                         {{VARCHAR("https://doris.apache.org/"), VARCHAR("doris.apache.org")},{VARCHAR("doris.apache.org")}},
                         {{VARCHAR("https://doris.apache.org/"), VARCHAR("")},{VARCHAR("https://doris.apache.org/")}},
                         {{VARCHAR("https://doris.apache.org/"), VARCHAR("https://doris.apache.org/")},{VARCHAR("")}};
