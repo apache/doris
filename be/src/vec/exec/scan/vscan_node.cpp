@@ -435,7 +435,6 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
                         },
                         *range);
             }
-            DCHECK(slot != nullptr);
             if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
                 return nullptr;
             } else {

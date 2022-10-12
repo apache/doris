@@ -1737,7 +1737,6 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
                         },
                         *range);
             }
-            DCHECK(slot != nullptr);
             if (push_down && is_key_column(slot->col_name())) {
                 return nullptr;
             } else {
