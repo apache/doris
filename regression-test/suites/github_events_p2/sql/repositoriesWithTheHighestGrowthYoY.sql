@@ -16,5 +16,5 @@ FROM
 ) t
 GROUP BY repo_name
 HAVING (min(created_at) <= '2019-01-01 00:00:00') AND (stars2019 >= 1000)
-ORDER BY yoy DESC
+ORDER BY repo_name, yoy DESC
 LIMIT 50
