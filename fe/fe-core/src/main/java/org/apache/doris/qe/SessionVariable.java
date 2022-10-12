@@ -555,7 +555,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFunctionPushdown;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
-    public boolean enableLocalExchange = false;
+    public boolean enableLocalExchange = true;
 
     /**
      * For debugg purpose, dont' merge unique key and agg key when reading data.
