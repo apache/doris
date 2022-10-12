@@ -122,16 +122,9 @@ protected:
         }
     }
 
-    inline size_t round_up_memory_size(size_t required_capacity) {
-        if (required_capacity > config::memory_linear_growth_threshold) {
-            return BitUtil::round_up_to_page_size(required_capacity);
-        } else {
-            return round_up_to_power_of_two_or_zero(required_capacity);
-        }
-    }
-
+    /// Not round up, keep the size just as the application pass in like std::vector
     void alloc_for_num_elements(size_t num_elements) {
-        alloc(round_up_memory_size(minimum_memory_for_elements(num_elements)));
+        alloc(minimum_memory_for_elements(num_elements));
     }
 
     template <typename... TAllocatorParams>
@@ -191,6 +184,7 @@ protected:
         return (stack_threshold > 0) && (allocated_bytes() <= stack_threshold);
     }
 
+    /// This method is called by push back or emplace back, this is the same behaviour with std::vector
     template <typename... TAllocatorParams>
     void reserve_for_next_size(TAllocatorParams&&... allocator_params) {
         if (size() == 0) {
@@ -240,50 +234,54 @@ public:
 
     template <typename... TAllocatorParams>
     void reserve(size_t n, TAllocatorParams&&... allocator_params) {
-        if (n > capacity()) {
-            realloc(round_up_memory_size(minimum_memory_for_elements(n)),
+        if (n > capacity())
+            realloc(minimum_memory_for_elements(n),
                     std::forward<TAllocatorParams>(allocator_params)...);
-        }
     }
+}
 
-    template <typename... TAllocatorParams>
-    void resize(size_t n, TAllocatorParams&&... allocator_params) {
-        reserve(n, std::forward<TAllocatorParams>(allocator_params)...);
-        resize_assume_reserved(n);
-    }
+template <typename... TAllocatorParams>
+void resize(size_t n, TAllocatorParams&&... allocator_params) {
+    reserve(n, std::forward<TAllocatorParams>(allocator_params)...);
+    resize_assume_reserved(n);
+}
 
-    void resize_assume_reserved(const size_t n) {
-        c_end = c_start + byte_size(n);
-        reset_peak();
-    }
+void resize_assume_reserved(const size_t n) {
+    c_end = c_start + byte_size(n);
+    reset_peak();
+}
 
-    const char* raw_data() const { return c_start; }
+const char* raw_data() const {
+    return c_start;
+}
 
-    template <typename... TAllocatorParams>
-    void push_back_raw(const char* ptr, TAllocatorParams&&... allocator_params) {
-        if (UNLIKELY(c_end == c_end_of_storage))
-            reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
+template <typename... TAllocatorParams>
+void push_back_raw(const char* ptr, TAllocatorParams&&... allocator_params) {
+    if (UNLIKELY(c_end == c_end_of_storage))
+        reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
 
-        memcpy(c_end, ptr, ELEMENT_SIZE);
-        c_end += byte_size(1);
-        reset_peak();
-    }
+    memcpy(c_end, ptr, ELEMENT_SIZE);
+    c_end += byte_size(1);
+    reset_peak();
+}
 
-    void protect() {
+void protect() {
 #ifndef NDEBUG
-        protect_impl(PROT_READ);
-        mprotected = true;
+    protect_impl(PROT_READ);
+    mprotected = true;
 #endif
-    }
+}
 
-    void unprotect() {
+void unprotect() {
 #ifndef NDEBUG
-        if (mprotected) protect_impl(PROT_WRITE);
-        mprotected = false;
+    if (mprotected) protect_impl(PROT_WRITE);
+    mprotected = false;
 #endif
-    }
+}
 
-    ~PODArrayBase() { dealloc(); }
+~PODArrayBase() {
+    dealloc();
+}
 };
 
 template <typename T, size_t initial_bytes, typename TAllocator, size_t pad_right_,
@@ -458,8 +456,9 @@ public:
     void insert_prepare(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
         size_t required_capacity = this->size() + (from_end - from_begin);
         if (required_capacity > this->capacity()) {
-            // Reserve function will try to allocate power of two memory size, so that not need expand it here
-            this->reserve(required_capacity, std::forward<TAllocatorParams>(allocator_params)...);
+            // std::vector's insert method will expand if required capactiy is larger than current
+            this->reserve(round_up_to_power_of_two_or_zero(required_capacity),
+                          std::forward<TAllocatorParams>(allocator_params)...);
         }
     }
 
@@ -637,7 +636,10 @@ public:
     template <typename It1, typename It2>
     void assign(It1 from_begin, It2 from_end) {
         size_t required_capacity = from_end - from_begin;
-        if (required_capacity > this->capacity()) this->reserve(required_capacity);
+        if (required_capacity > this->capacity()) {
+            // std::vector assign just expand the capacity to the required capacity
+            this->reserve(required_capacity);
+        }
 
         size_t bytes_to_copy = this->byte_size(required_capacity);
         memcpy(this->c_start, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
