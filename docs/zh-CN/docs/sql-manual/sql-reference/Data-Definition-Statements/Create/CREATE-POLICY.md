@@ -113,9 +113,9 @@ PROPERTIES ("key"="value", ...);
     );
     ```
     相关参数如下：
-    - storage_resource: 创建的storage resource名称
-    - cooldown_datetime：迁移数据的时间点
-    - cooldown_ttl：迁移数据距离当前时间的倒计时，单位s。与cooldown_datetime二选一即可
+    - `storage_resource`：创建的storage resource名称
+    - `cooldown_datetime`：迁移数据的时间点
+    - `cooldown_ttl`：迁移数据距离当前时间的倒计时，单位s。与cooldown_datetime二选一即可
 
 ### Keywords
 

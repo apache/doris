@@ -163,7 +163,8 @@
                 "advanced/using-hll",
                 "advanced/variables",
                 "advanced/time-zone",
-                "advanced/small-file-mgr"
+                "advanced/small-file-mgr",
+                "advanced/cold_hot_separation"
             ]
         },
         {
@@ -649,7 +650,8 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY"
                                     ]
                                 },
                                 {
@@ -835,7 +837,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-TABLE",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET"
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-POLICY"
                             ]
                         },
                         {
