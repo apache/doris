@@ -330,8 +330,6 @@ public:
                     size_t offset = offset_at(i);
                     hashes[i] = HashUtil::xxHash64WithSeed(
                             reinterpret_cast<const char*>(&chars[offset]), string_size, hashes[i]);
-                } else {
-                    hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
                 }
             }
         } else {

@@ -170,9 +170,6 @@ void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
                 hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
                                                        sizeof(T), hashes[i]);
             }
-            else {
-                hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
-            }
         }
     } else {
         for (int i = 0; i < s; i++) {
