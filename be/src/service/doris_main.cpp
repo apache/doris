@@ -514,7 +514,7 @@ int main(int argc, char** argv) {
         // canceled when the process exceeds the mem limit, resulting in too many duplicate logs.
         doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
         if (doris::config::memory_verbose_track) {
-            doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage("routine");
+            doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage("main routine");
             doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
         }
         sleep(1);

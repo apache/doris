@@ -109,7 +109,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
                     PrettyPrinter::print(it->second->peak_consumption(), TUnit::BYTES));
             expired_task_ids.emplace_back(it->first);
         } else if (config::memory_verbose_track) {
-            it->second->print_log_usage("routine");
+            it->second->print_log_usage("query routine");
             it->second->enable_print_log_usage();
         }
     }
