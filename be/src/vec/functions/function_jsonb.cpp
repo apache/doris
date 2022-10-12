@@ -123,7 +123,7 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
             if (context->is_col_constant(1)) {
                 const auto default_value_col = context->get_constant_col(1)->column_ptr;
