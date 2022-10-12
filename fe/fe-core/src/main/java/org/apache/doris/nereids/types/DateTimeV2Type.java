@@ -38,6 +38,14 @@ public class DateTimeV2Type extends PrimitiveType {
         this.scale = scale;
     }
 
+    public static DateTimeV2Type of(int scale) {
+        if (scale == INSTANCE.scale) {
+            return INSTANCE;
+        } else {
+            return new DateTimeV2Type(scale);
+        }
+    }
+
     @Override
     public Type toCatalogDataType() {
         return Type.DATETIME;

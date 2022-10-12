@@ -140,6 +140,11 @@ public class FunctionRegistryTest implements PatternMatchSupported {
         public ExtendFunction(Expression a1) {
             super("foo", a1);
         }
+
+        @Override
+        public boolean hasVarArguments() {
+            return false;
+        }
     }
 
     public static class AmbiguousFunction extends BoundFunction implements UnaryExpression, PropagateNullable {
@@ -149,6 +154,11 @@ public class FunctionRegistryTest implements PatternMatchSupported {
 
         public AmbiguousFunction(Literal a1) {
             super("abc", a1);
+        }
+
+        @Override
+        public boolean hasVarArguments() {
+            return false;
         }
     }
 }

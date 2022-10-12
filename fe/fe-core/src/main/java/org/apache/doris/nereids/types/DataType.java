@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -43,6 +44,10 @@ import java.util.regex.Pattern;
  * Abstract class for all data type in Nereids.
  */
 public abstract class DataType implements AbstractDataType {
+    public static final int DEFAULT_SCALE = 0;
+    public static final int DEFAULT_PRECISION = 9;
+    public static final int DATETIME_PRECISION = 18;
+
     private static final Pattern VARCHAR_PATTERN = Pattern.compile("varchar(\\(\\d+\\))?");
 
     // use class and supplier here to avoid class load deadlock.
@@ -207,8 +212,9 @@ public abstract class DataType implements AbstractDataType {
      * @param type legacy date type
      * @return nereids's data type
      */
-    public static DataType fromLegacyType(Type type) {
-        if (type == Type.BOOLEAN) {
+    @Developing // should support decimal_v3
+    public static DataType fromCatalogType(Type type) {
+        if (type.isBoolean()) {
             return BooleanType.INSTANCE;
         } else if (type == Type.TINYINT) {
             return TinyIntType.INSTANCE;
@@ -244,21 +250,33 @@ public abstract class DataType implements AbstractDataType {
             return HllType.INSTANCE;
         } else if (type == Type.BITMAP) {
             return BitmapType.INSTANCE;
-        } else if (type == Type.QUANTILE_STATE) {
+        } else if (type.isQuantileStateType()) {
             return QuantileStateType.INSTANCE;
         } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.CHAR) {
             return CharType.createCharType(type.getLength());
         } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
             return VarcharType.createVarcharType(type.getLength());
-        } else if (type == Type.DECIMALV2) {
-            return DecimalType.SYSTEM_DEFAULT;
+        } else if (type.isDecimalV2()) {
+            ScalarType scalarType = (ScalarType) type;
+            int precision = scalarType.getScalarPrecision();
+            int scale = scalarType.getScalarScale();
+            return DecimalV2Type.createDecimalV2Type(precision, scale);
+        } else if (type.isDecimalV3()) {
+            ScalarType scalarType = (ScalarType) type;
+            int precision = scalarType.getScalarPrecision();
+            return DecimalV3Type.createDecimalV3Type(precision);
+        } else if (type.isJsonbType()) {
+            return JsonType.INSTANCE;
+        } else if (type.isStructType()) {
+            return StructType.INSTANCE;
+        } else if (type.isMapType()) {
+            return MapType.INSTANCE;
         } else if (type.isArrayType()) {
-            return ArrayType.of(fromLegacyType(((org.apache.doris.catalog.ArrayType) type).getItemType()));
+            org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
+            return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
         }
         throw new AnalysisException("Nereids do not support type: " + type);
     }
-
-    public abstract Type toCatalogDataType();
 
     public abstract String toSql();
 
@@ -277,14 +295,14 @@ public abstract class DataType implements AbstractDataType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return sameType(other);
     }
 
     /**
      * this and other is same type.
      */
-    private boolean sameType(DataType other) {
+    private boolean sameType(AbstractDataType other) {
         return this.equals(other);
     }
 
@@ -413,7 +431,7 @@ public abstract class DataType implements AbstractDataType {
             if (itemType.equals(NullType.INSTANCE)) {
                 return ArrayType.SYSTEM_DEFAULT;
             }
-            return new ArrayType(itemType);
+            return ArrayType.of(itemType);
         } else if (type.isEmpty()) {
             return ArrayType.SYSTEM_DEFAULT;
         } else {

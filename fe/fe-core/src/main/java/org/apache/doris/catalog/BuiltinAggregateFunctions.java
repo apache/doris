@@ -22,27 +22,16 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.List;
-
 /**
- * Built-in functions.
+ * Builtin aggregate functions.
  *
  * Note: Please ensure that this class only has some lists and no procedural code.
  *       It helps to be clear and concise.
  */
-public class BuiltinFunctions implements FunctionHelper {
-    public final List<ScalarFunc> scalarFunctions = ImmutableList.of(
-            scalar(Substring.class, "substr", "substring"),
-            scalar(WeekOfYear.class),
-            scalar(Year.class)
-    );
-
+public class BuiltinAggregateFunctions implements FunctionHelper {
     public final ImmutableList<AggregateFunc> aggregateFunctions = ImmutableList.of(
             agg(Avg.class),
             agg(Count.class),
@@ -51,8 +40,8 @@ public class BuiltinFunctions implements FunctionHelper {
             agg(Sum.class)
     );
 
-    public static final BuiltinFunctions INSTANCE = new BuiltinFunctions();
+    public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinFunctions() {}
+    private BuiltinAggregateFunctions() {}
 }

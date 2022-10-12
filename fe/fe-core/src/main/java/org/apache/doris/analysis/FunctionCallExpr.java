@@ -65,28 +65,28 @@ import java.util.Set;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
-    private static final ImmutableSet<String> STDDEV_FUNCTION_SET =
+    public static final ImmutableSet<String> STDDEV_FUNCTION_SET =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop")
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
-    private static final ImmutableSet<String> DECIMAL_SAME_TYPE_SET =
+    public static final ImmutableSet<String> DECIMAL_SAME_TYPE_SET =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("min").add("max").add("lead").add("lag")
                     .add("first_value").add("last_value").add("abs")
                     .add("positive").add("negative").build();
-    private static final ImmutableSet<String> DECIMAL_WIDER_TYPE_SET =
+    public static final ImmutableSet<String> DECIMAL_WIDER_TYPE_SET =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("sum").add("avg").add("multi_distinct_sum").build();
-    private static final ImmutableSet<String> DECIMAL_FUNCTION_SET =
+    public static final ImmutableSet<String> DECIMAL_FUNCTION_SET =
             new ImmutableSortedSet.Builder<>(String.CASE_INSENSITIVE_ORDER)
                     .addAll(DECIMAL_SAME_TYPE_SET)
                     .addAll(DECIMAL_WIDER_TYPE_SET)
                     .addAll(STDDEV_FUNCTION_SET).build();
 
-    private static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION =
+    public static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("now").add("current_timestamp").add("localtime").add("localtimestamp").build();
-    private static final int STDDEV_DECIMAL_SCALE = 9;
+    public static final int STDDEV_DECIMAL_SCALE = 9;
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
@@ -115,6 +115,9 @@ public class FunctionCallExpr extends Expr {
     private Expr originStmtFnExpr;
 
     private boolean isRewrote = false;
+
+    // TODO: this field will be removed when we support analyze aggregate function in the nereids framework.
+    private boolean shouldFinalizeForNereids = true;
 
     public void setAggFnParams(FunctionParams aggFnParams) {
         this.aggFnParams = aggFnParams;
@@ -197,6 +200,17 @@ public class FunctionCallExpr extends Expr {
             children.addAll(params.exprs());
         }
         originChildSize = children.size();
+    }
+
+    // nereids constructor without finalize/analyze
+    public FunctionCallExpr(FunctionName functionName, Function function, FunctionParams functionParams) {
+        this.fnName = functionName;
+        this.fn = function;
+        this.type = function.getReturnType();
+        if (functionParams.exprs() != null) {
+            this.children.addAll(functionParams.exprs());
+        }
+        this.shouldFinalizeForNereids = false;
     }
 
     // Constructs the same agg function with new params.
@@ -1496,6 +1510,11 @@ public class FunctionCallExpr extends Expr {
     }
 
     public void finalizeImplForNereids() throws AnalysisException {
+        // return if nereids already analyzed out of the FunctionCallExpr.
+        if (!shouldFinalizeForNereids) {
+            return;
+        }
+
         // TODO: support other functions
         // TODO: Supports type conversion to match the type of the function's parameters
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
@@ -1520,6 +1539,13 @@ public class FunctionCallExpr extends Expr {
             Type childType = getChild(0).type;
             fn = getBuiltinFunction(fnName.getFunction(), new Type[] {childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            type = fn.getReturnType();
+        } else {
+            Type[] inputTypes = children.stream()
+                    .map(Expr::getType)
+                    .toArray(Type[]::new);
+            // nereids already compute the correct signature, so we can find the
+            fn = getBuiltinFunction(fnName.getFunction(), inputTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         }
     }

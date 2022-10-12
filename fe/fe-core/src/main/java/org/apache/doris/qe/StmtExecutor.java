@@ -430,7 +430,7 @@ public class StmtExecutor implements ProfileWriter {
                             throw e.getException();
                         }
                         // fall back to legacy planner
-                        LOG.info("fall back to legacy planner, because: {}", e.getMessage());
+                        LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
                         analyze(context.getSessionVariable().toThrift());
                     }
@@ -718,7 +718,7 @@ public class StmtExecutor implements ProfileWriter {
                 } catch (Exception e) {
                     e.printStackTrace();
                     if (parsedStmt instanceof LogicalPlanAdapter) {
-                        throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage()));
+                        throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
                     }
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());

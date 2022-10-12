@@ -58,21 +58,25 @@ public abstract class Literal extends Expression implements LeafExpression {
         if (value == null) {
             return new NullLiteral();
         } else if (value instanceof Byte) {
-            return new TinyIntLiteral((byte) value);
+            return new TinyIntLiteral((Byte) value);
         } else if (value instanceof Short) {
-            return new SmallIntLiteral((short) value);
+            return new SmallIntLiteral((Short) value);
         } else if (value instanceof Integer) {
-            return new IntegerLiteral((int) value);
+            return new IntegerLiteral((Integer) value);
         } else if (value instanceof Long) {
-            return new BigIntLiteral((long) value);
+            return new BigIntLiteral((Long) value);
         } else if (value instanceof BigInteger) {
             return new LargeIntLiteral((BigInteger) value);
         } else if (value instanceof Float) {
-            return new FloatLiteral((float) value);
+            return new FloatLiteral((Float) value);
         } else if (value instanceof Double) {
-            return new DoubleLiteral((double) value);
+            return new DoubleLiteral((Double) value);
         } else if (value instanceof Boolean) {
-            return BooleanLiteral.of((boolean) value);
+            return BooleanLiteral.of((Boolean) value);
+        } else if (value instanceof Float) {
+            return new FloatLiteral(((Float) value).floatValue());
+        } else if (value instanceof Double) {
+            return new DoubleLiteral(((Double) value).doubleValue());
         } else if (value instanceof String) {
             return new StringLiteral((String) value);
         } else {

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
@@ -32,21 +33,20 @@ import java.util.Objects;
  * Decimal type in Nereids.
  */
 public class DecimalV2Type extends FractionalType {
+    public static final int MAX_DECIMALV2_PRECISION = 27;
+    public static final int MAX_DECIMALV2_SCALE = 9;
 
-    public static int MAX_PRECISION = 38;
-    public static int MAX_SCALE = 38;
-    public static final DecimalV2Type SYSTEM_DEFAULT = new DecimalV2Type(9, 0);
+    public static final DecimalV2Type SYSTEM_DEFAULT = new DecimalV2Type(DEFAULT_PRECISION, 0);
+    public static final DecimalV2Type MAX = new DecimalV2Type(MAX_DECIMALV2_PRECISION, MAX_DECIMALV2_SCALE);
 
     private static final DecimalV2Type BOOLEAN_DECIMAL = new DecimalV2Type(1, 0);
     private static final DecimalV2Type TINYINT_DECIMAL = new DecimalV2Type(3, 0);
     private static final DecimalV2Type SMALLINT_DECIMAL = new DecimalV2Type(5, 0);
     private static final DecimalV2Type INTEGER_DECIMAL = new DecimalV2Type(10, 0);
     private static final DecimalV2Type BIGINT_DECIMAL = new DecimalV2Type(20, 0);
-    private static final DecimalV2Type LARGEINT_DECIMAL = new DecimalV2Type(38, 0);
+    private static final DecimalV2Type LARGEINT_DECIMAL = new DecimalV2Type(MAX_DECIMALV2_PRECISION, 0);
     private static final DecimalV2Type FLOAT_DECIMAL = new DecimalV2Type(14, 7);
-    private static final DecimalV2Type DOUBLE_DECIMAL = new DecimalV2Type(30, 15);
-
-    private static final int WIDTH = 16;
+    private static final DecimalV2Type DOUBLE_DECIMAL = MAX;
 
     private static final Map<DataType, DecimalV2Type> FOR_TYPE_MAP = ImmutableMap.<DataType, DecimalV2Type>builder()
             .put(TinyIntType.INSTANCE, TINYINT_DECIMAL)
@@ -58,25 +58,17 @@ public class DecimalV2Type extends FractionalType {
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
             .build();
 
+    private static final int WIDTH = 16;
+
     private final int precision;
     private final int scale;
 
-    public DecimalV2Type(int precision, int scale) {
+    private DecimalV2Type(int precision, int scale) {
         Preconditions.checkArgument(precision >= scale);
-        Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION);
-        Preconditions.checkArgument(scale >= 0 && scale <= MAX_SCALE);
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMALV2_PRECISION);
+        Preconditions.checkArgument(scale >= 0 && scale <= MAX_DECIMALV2_SCALE);
         this.precision = precision;
         this.scale = scale;
-    }
-
-    public static DecimalV2Type createDecimalType(int precision, int scale) {
-        return new DecimalV2Type(Math.min(precision, MAX_PRECISION), Math.min(scale, MAX_SCALE));
-    }
-
-    public static DecimalV2Type createDecimalType(BigDecimal bigDecimal) {
-        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
-        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
-        return createDecimalType(precision, scale);
     }
 
     public static DecimalV2Type forType(DataType dataType) {
@@ -86,15 +78,32 @@ public class DecimalV2Type extends FractionalType {
         throw new RuntimeException("Could not create decimal for type " + dataType);
     }
 
-    public static DecimalV2Type widerDecimalType(DecimalV2Type left, DecimalV2Type right) {
-        return widerDecimalType(left.getPrecision(), right.getPrecision(), left.getScale(), right.getScale());
+    /** createDecimalV2Type. */
+    public static DecimalV2Type createDecimalV2Type(int precision, int scale) {
+        if (precision == SYSTEM_DEFAULT.precision && scale == SYSTEM_DEFAULT.scale) {
+            return SYSTEM_DEFAULT;
+        }
+        if (precision == MAX.precision && scale == MAX.scale) {
+            return MAX;
+        }
+        return new DecimalV2Type(Math.min(precision, MAX_DECIMALV2_PRECISION), Math.min(scale, MAX_DECIMALV2_SCALE));
     }
 
-    private static DecimalV2Type widerDecimalType(int leftPrecision, int rightPrecision, int leftScale,
+    public static DecimalV2Type createDecimalV2Type(BigDecimal bigDecimal) {
+        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
+        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
+        return createDecimalV2Type(precision, scale);
+    }
+
+    public static DecimalV2Type widerDecimalV2Type(DecimalV2Type left, DecimalV2Type right) {
+        return widerDecimalV2Type(left.getPrecision(), right.getPrecision(), left.getScale(), right.getScale());
+    }
+
+    private static DecimalV2Type widerDecimalV2Type(int leftPrecision, int rightPrecision, int leftScale,
             int rightScale) {
         int scale = Math.max(leftScale, rightScale);
         int range = Math.max(leftPrecision - leftScale, rightPrecision - rightScale);
-        return DecimalV2Type.createDecimalType(range + scale, scale);
+        return DecimalV2Type.createDecimalV2Type(range + scale, scale);
     }
 
     @Override
@@ -130,7 +139,7 @@ public class DecimalV2Type extends FractionalType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof DecimalV2Type;
     }
 

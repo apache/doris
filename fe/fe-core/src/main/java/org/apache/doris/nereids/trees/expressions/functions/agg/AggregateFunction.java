@@ -78,4 +78,9 @@ public abstract class AggregateFunction extends BoundFunction {
     public void setIntermediate(DataType intermediate) {
         this.intermediate = intermediate;
     }
+
+    @Override
+    public boolean hasVarArguments() {
+        return false;
+    }
 }

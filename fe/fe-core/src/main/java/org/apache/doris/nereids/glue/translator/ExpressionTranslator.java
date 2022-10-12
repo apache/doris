@@ -28,9 +28,13 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -58,8 +62,10 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -261,6 +267,27 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             }
         }
         return new FunctionCallExpr(function.getName(), paramList);
+    }
+
+    @Override
+    public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
+        List<Expr> arguments = function.getArguments()
+                .stream().map(arg -> arg.accept(this, context))
+                .collect(Collectors.toList());
+        List<Type> argTypes = function.expectedInputTypes().stream()
+                .map(AbstractDataType::toCatalogDataType)
+                .collect(Collectors.toList());
+
+        NullableMode nullableMode = function.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+
+        Function catalogFunction = new Function(new FunctionName(function.getName()), argTypes,
+                function.getDataType().toCatalogDataType(), function.hasVarArguments(), true, nullableMode);
+
+        // create catalog FunctionCallExpr without analyze again
+        return new FunctionCallExpr(catalogFunction.getFunctionName(), catalogFunction,
+                new FunctionParams(false, arguments));
     }
 
     @Override

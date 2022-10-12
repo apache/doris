@@ -33,7 +33,8 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Optional;
@@ -157,36 +158,33 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
      * Do implicit cast for expression's children.
      */
     private Expression visitImplicitCastInputTypes(Expression expr, ExpressionRewriteContext ctx) {
-        ImplicitCastInputTypes implicitCastInputTypes = (ImplicitCastInputTypes) expr;
-        List<Expression> newChildren = Lists.newArrayListWithCapacity(expr.arity());
-        boolean changed = false;
-        for (int i = 0; i < implicitCastInputTypes.expectedInputTypes().size(); i++) {
-            AbstractDataType expectedType = implicitCastInputTypes.expectedInputTypes().get(i);
-            Optional<Expression> castResult = implicitCast(expr.child(i), expectedType, ctx);
-            if (castResult.isPresent()) {
-                changed = true;
-            }
-            newChildren.add(castResult.orElse(expr.child(i)));
-        }
-        return changed ? expr.withChildren(newChildren) : expr;
+        expr = expr.withChildren(child -> rewrite(child, ctx));
+        List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) expr).expectedInputTypes();
+        List<Optional<DataType>> inputImplicitCastTypes = getInputImplicitCastTypes(
+                expr.children(), expectedInputTypes);
+        return castInputs(expr, inputImplicitCastTypes);
     }
 
-    /**
-     * Return Optional.empty() if we cannot do or do not need to do implicit cast.
-     */
-    @Developing
-    private Optional<Expression> implicitCast(Expression input, AbstractDataType expected,
-            ExpressionRewriteContext ctx) {
-        Expression rewrittenInput = rewrite(input, ctx);
-        Optional<DataType> castDataType = TypeCoercionUtils.implicitCast(rewrittenInput.getDataType(), expected);
-        if (castDataType.isPresent() && !castDataType.get().equals(rewrittenInput.getDataType())) {
-            return Optional.of(new Cast(rewrittenInput, castDataType.get()));
-        } else {
-            if (rewrittenInput == input) {
-                return Optional.empty();
-            } else {
-                return Optional.of(rewrittenInput);
-            }
+    private List<Optional<DataType>> getInputImplicitCastTypes(
+            List<Expression> inputs, List<AbstractDataType> expectedTypes) {
+        Builder<Optional<DataType>> implicitCastTypes = ImmutableList.builder();
+        for (int i = 0; i < inputs.size(); i++) {
+            DataType argType = inputs.get(i).getDataType();
+            AbstractDataType expectedType = expectedTypes.get(i);
+            implicitCastTypes.add(TypeCoercionUtils.implicitCast(argType, expectedType));
         }
+        return implicitCastTypes.build();
+    }
+
+    private Expression castInputs(Expression expr, List<Optional<DataType>> castTypes) {
+        return expr.withChildren((child, childIndex) -> {
+            DataType argType = child.getDataType();
+            Optional<DataType> castType = castTypes.get(childIndex);
+            if (castType.isPresent() && !castType.get().equals(argType)) {
+                return new Cast(child, castType.get());
+            } else {
+                return child;
+            }
+        });
     }
 }
