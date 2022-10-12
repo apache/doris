@@ -37,6 +37,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -51,7 +52,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     public BindRelation(CTEContext cteContext) {
-        this.cteContext = cteContext;
+        this.cteContext = Objects.requireNonNull(cteContext, "cteContext cannot be null");
     }
 
     @Override

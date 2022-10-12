@@ -61,11 +61,10 @@ public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
     private CascadesContext cascadesContext;
+    private CTEContext cteContext;
     private final StatementContext statementContext;
     private List<ScanNode> scanNodeList = null;
     private DescriptorTable descTable;
-
-    private CTEContext cteContext;
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;

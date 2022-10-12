@@ -182,4 +182,23 @@ suite("cte") {
         )
     """
 
+    // using CTE in having clause
+    order_qt_cte_10 """
+        WITH cte1 (skey, sname) AS (
+            SELECT *
+            FROM supplier
+        ), cte2 (region) AS (
+            SELECT s_region
+            FROM supplier
+            WHERE s_region in ("ASIA", "AMERICA")
+        )
+        SELECT s_region, count(*) cnt
+        FROM cte1
+        GROUP BY s_region
+        HAVING s_region in (
+            SELECT region
+            FROM cte2
+        )
+    """
+
 }

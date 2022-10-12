@@ -33,11 +33,6 @@ public class PlanPreprocessors {
     private final StatementContext statementContext;
     private final CTEContext cteContext;
 
-    public PlanPreprocessors(StatementContext statementContext) {
-        this.statementContext = Objects.requireNonNull(statementContext, "statementContext can not be null");
-        this.cteContext = new CTEContext();
-    }
-
     public PlanPreprocessors(StatementContext statementContext, CTEContext cteContext) {
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext can not be null");
         this.cteContext = Objects.requireNonNull(cteContext, "cteContext can not be null");

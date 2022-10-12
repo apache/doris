@@ -83,6 +83,23 @@ public class RegisterCTETest extends TestWithFeService {
     }
 
     @Test
+    public void cte_test_4() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("  WITH cte1 AS (\n"
+                    + "  \tSELECT *\n"
+                    + "  \tFROM supplier\n"
+                    + "), cte2 AS (\n"
+                    + "  \tSELECT *\n"
+                    + "  \tFROM supplier\n"
+                    + "  \tWHERE s_region in (\"ASIA\", \"AFRICA\")\n"
+                    + ")\n"
+                    + "  SELECT s_region, count(*)\n"
+                    + "  FROM cte1\n"
+                    + "  GROUP BY s_region\n"
+                    + "  HAVING s_region in (SELECT s_region FROM cte2)");
+    }
+
+    @Test
     public void cte_exception_test_1() {
         try {
             PlanChecker.from(connectContext)

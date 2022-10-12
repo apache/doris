@@ -68,22 +68,13 @@ import java.util.stream.Stream;
  * BindSlotReference.
  */
 public class BindSlotReference implements AnalysisRuleFactory {
-    private final Optional<Scope> outerScope;
+
     private final CTEContext cteContext;
-
-    public BindSlotReference() {
-        this(Optional.empty());
-    }
-
-    public BindSlotReference(Optional<Scope> outerScope) {
-        this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
-        this.cteContext = new CTEContext();
-    }
+    private final Optional<Scope> outerScope;
 
     public BindSlotReference(CTEContext cteContext, Optional<Scope> outerScope) {
         this.cteContext = Objects.requireNonNull(cteContext, "cteContext cannot be null");
         this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
-
     }
 
     private Scope toScope(List<Slot> slots) {
@@ -159,7 +150,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             .flatMap(plan -> plan.getOutput().stream())
                             .collect(Collectors.toSet());
                     Expression boundPredicates = new SlotBinder(
-                            toScope(new ArrayList<>(boundSlots)), having, ctx.cascadesContext
+                            toScope(new ArrayList<>(boundSlots)), having, ctx.cascadesContext, cteContext
                     ).bind(having.getPredicates());
                     return new LogicalHaving<>(boundPredicates, having.child());
                 })
@@ -214,8 +205,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private final Plan plan;
 
         public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext) {
-            super(scope, cascadesContext);
-            this.plan = plan;
+            this(scope, plan, cascadesContext, new CTEContext());
         }
 
         public SlotBinder(Scope scope, Plan plan, CascadesContext cascadesContext, CTEContext cteContext) {
@@ -391,12 +381,6 @@ public class BindSlotReference implements AnalysisRuleFactory {
         private final Scope scope;
         private final CascadesContext cascadesContext;
         private final CTEContext cteContext;
-
-        public SubExprAnalyzer(Scope scope, CascadesContext cascadesContext) {
-            this.scope = scope;
-            this.cascadesContext = cascadesContext;
-            this.cteContext = new CTEContext();
-        }
 
         public SubExprAnalyzer(Scope scope, CascadesContext cascadesContext, CTEContext cteContext) {
             this.scope = scope;

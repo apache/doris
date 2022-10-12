@@ -58,3 +58,7 @@
 -- !cte_9 --
 15      Supplier#000000015      DF35PepL5saAK   INDIA    0      INDIA   ASIA    18-687-542-7601
 9       Supplier#000000009      ,gJ6K2MKveYxQT  IRAN     6      IRAN    MIDDLE EAST     20-338-906-3675
+
+-- !cte_10 --
+AMERICA	1
+ASIA	1

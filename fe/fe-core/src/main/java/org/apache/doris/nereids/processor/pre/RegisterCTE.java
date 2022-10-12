@@ -42,6 +42,7 @@ import java.util.stream.IntStream;
 /**
  * Register CTE, includes checking columnAliases, checking CTE name, analyzing each CTE and store the
  * analyzed logicalPlan of CTE's query in CTEContext;
+ * A LogicalProject node will be added to the root of the origin logicalPlan if there exist columnAliases.
  * Node LogicalCTE will be eliminated after registering.
  */
 public class RegisterCTE extends PlanPreprocessor {
@@ -58,25 +59,25 @@ public class RegisterCTE extends PlanPreprocessor {
             StatementContext statementContext) {
         List<WithClause> withClauses = logicalCTE.getWithClauses();
         withClauses.stream().forEach(withClause -> {
-            registerWithQuery(withClause, cteContext, statementContext);
+            registerWithQuery(withClause, statementContext);
         });
         // eliminate LogicalCTE node
-        return (LogicalPlan) logicalCTE.child(0);
+        return (LogicalPlan) logicalCTE.child();
     }
 
-    private void registerWithQuery(WithClause withClause, CTEContext cteContext, StatementContext statementContext) {
+    private void registerWithQuery(WithClause withClause, StatementContext statementContext) {
         String name = withClause.getName();
-
         LogicalPlan originPlan = withClause.getQuery();
+
         if (cteContext.containsCTE(name)) {
             throw new AnalysisException("CTE name [" + name + "] cannot be used more than once.");
         }
 
         CascadesContext cascadesContext = new Memo(withClause.getQuery()).newCascadesContext(statementContext);
         cascadesContext.newAnalyzer(cteContext).analyze();
-        LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
 
         if (withClause.getColumnAliases().isPresent()) {
+            LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
             originPlan = withColumnAliases(analyzedPlan, withClause);
         }
 
@@ -86,15 +87,15 @@ public class RegisterCTE extends PlanPreprocessor {
     private LogicalPlan withColumnAliases(LogicalPlan analyzedPlan, WithClause withClause) {
         List<Slot> outputSlots = analyzedPlan.getOutput();
         List<String> columnAliases = withClause.getColumnAliases().get();
-        LogicalPlan originPlan = withClause.getQuery();
 
         checkColumnAlias(withClause, outputSlots);
+
         List<NamedExpression> projects = IntStream.range(0, outputSlots.size())
                 .mapToObj(i -> i >= columnAliases.size()
-                    // ? outputSlots.get(i)
                     ? new UnboundSlot(outputSlots.get(i).getName())
                     : new Alias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
                 .collect(Collectors.toList());
+        LogicalPlan originPlan = withClause.getQuery();
         return new LogicalProject<>(projects, originPlan);
     }
 
