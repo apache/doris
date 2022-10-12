@@ -245,21 +245,25 @@ struct NameToUpper {
     static constexpr auto name = "upper";
 };
 
-using char_transter_op = int (*)(int);
-template <char_transter_op op>
+template <typename OpName>
 struct TransferImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t offset_size = offsets.size();
-        res_offsets.resize(offsets.size());
-        for (size_t i = 0; i < offset_size; ++i) {
-            res_offsets[i] = offsets[i];
+        if (UNLIKELY(!offset_size)) {
+            return Status::OK();
         }
+
+        res_offsets.resize(offset_size);
+        memcpy(res_offsets.data(), offsets.data(),
+               offset_size * sizeof(ColumnString::Offsets::value_type));
 
         size_t data_length = data.size();
         res_data.resize(data_length);
-        for (size_t i = 0; i < data_length; ++i) {
-            res_data[i] = op(data[i]);
+        if constexpr (std::is_same_v<OpName, NameToUpper>) {
+            simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
+        } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+            simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
         }
         return Status::OK();
     }
@@ -275,7 +279,8 @@ struct InitcapImpl {
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t offset_size = offsets.size();
         res_offsets.resize(offsets.size());
-        memcpy(res_offsets.data(), offsets.data(), offset_size * sizeof(offsets.data()));
+        memcpy(res_offsets.data(), offsets.data(),
+               offset_size * sizeof(ColumnString::Offsets::value_type));
 
         size_t data_length = data.size();
         res_data.resize(data_length);
@@ -620,9 +625,9 @@ using FunctionStringFindInSet =
 
 using FunctionUnHex = FunctionStringOperateToNullType<UnHexImpl>;
 
-using FunctionToLower = FunctionStringToString<TransferImpl<::tolower>, NameToLower>;
+using FunctionToLower = FunctionStringToString<TransferImpl<NameToLower>, NameToLower>;
 
-using FunctionToUpper = FunctionStringToString<TransferImpl<::toupper>, NameToUpper>;
+using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameToUpper>;
 
 using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
