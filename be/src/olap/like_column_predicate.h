@@ -101,15 +101,15 @@ private:
                         StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                         if constexpr (is_and) {
                             unsigned char flag = 0;
-                            (_state->function)(
+                            (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                             flags[i] &= _opposite ^ flag;
                         } else {
                             unsigned char flag = 0;
-                            (_state->function)(
+                            (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                             flags[i] = _opposite ^ flag;
                         }
                     }
@@ -119,7 +119,7 @@ private:
             } else {
                 if (column.is_column_dictionary()) {
                     if (_state->function_vec_dict) {
-                        if (LIKELY(_like_state.search_string_sv.len > 0)) {
+                        if (LIKELY(_like_state.search_string_sv.size > 0)) {
                             auto* nested_col_ptr = vectorized::check_and_get_column<
                                     vectorized::ColumnDictionary<vectorized::Int32>>(column);
                             auto& data_array = nested_col_ptr->get_data();
@@ -156,15 +156,15 @@ private:
                                     nested_col_ptr->get_shrink_value(data_array[i]);
                             if constexpr (is_and) {
                                 unsigned char flag = 0;
-                                (_state->function)(
+                                (_state->scalar_function)(
                                         const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                        cell_value, pattern, &flag);
+                                        StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                                 flags[i] &= _opposite ^ flag;
                             } else {
                                 unsigned char flag = 0;
-                                (_state->function)(
+                                (_state->scalar_function)(
                                         const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                        cell_value, pattern, &flag);
+                                        StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                                 flags[i] = _opposite ^ flag;
                             }
                         }
