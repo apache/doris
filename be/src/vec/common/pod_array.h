@@ -238,50 +238,45 @@ public:
             realloc(minimum_memory_for_elements(n),
                     std::forward<TAllocatorParams>(allocator_params)...);
     }
-}
 
-template <typename... TAllocatorParams>
-void resize(size_t n, TAllocatorParams&&... allocator_params) {
-    reserve(n, std::forward<TAllocatorParams>(allocator_params)...);
-    resize_assume_reserved(n);
-}
+    template <typename... TAllocatorParams>
+    void resize(size_t n, TAllocatorParams&&... allocator_params) {
+        reserve(n, std::forward<TAllocatorParams>(allocator_params)...);
+        resize_assume_reserved(n);
+    }
 
-void resize_assume_reserved(const size_t n) {
-    c_end = c_start + byte_size(n);
-    reset_peak();
-}
+    void resize_assume_reserved(const size_t n) {
+        c_end = c_start + byte_size(n);
+        reset_peak();
+    }
 
-const char* raw_data() const {
-    return c_start;
-}
+    const char* raw_data() const { return c_start; }
 
-template <typename... TAllocatorParams>
-void push_back_raw(const char* ptr, TAllocatorParams&&... allocator_params) {
-    if (UNLIKELY(c_end == c_end_of_storage))
-        reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
+    template <typename... TAllocatorParams>
+    void push_back_raw(const char* ptr, TAllocatorParams&&... allocator_params) {
+        if (UNLIKELY(c_end == c_end_of_storage))
+            reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
 
-    memcpy(c_end, ptr, ELEMENT_SIZE);
-    c_end += byte_size(1);
-    reset_peak();
-}
+        memcpy(c_end, ptr, ELEMENT_SIZE);
+        c_end += byte_size(1);
+        reset_peak();
+    }
 
-void protect() {
+    void protect() {
 #ifndef NDEBUG
-    protect_impl(PROT_READ);
-    mprotected = true;
+        protect_impl(PROT_READ);
+        mprotected = true;
 #endif
-}
+    }
 
-void unprotect() {
+    void unprotect() {
 #ifndef NDEBUG
-    if (mprotected) protect_impl(PROT_WRITE);
-    mprotected = false;
+        if (mprotected) protect_impl(PROT_WRITE);
+        mprotected = false;
 #endif
-}
+    }
 
-~PODArrayBase() {
-    dealloc();
-}
+    ~PODArrayBase() { dealloc(); }
 };
 
 template <typename T, size_t initial_bytes, typename TAllocator, size_t pad_right_,
