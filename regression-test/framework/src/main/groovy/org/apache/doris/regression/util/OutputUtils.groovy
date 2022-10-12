@@ -24,9 +24,29 @@ import org.apache.commons.csv.CSVPrinter
 import org.apache.commons.csv.CSVRecord
 import org.apache.commons.io.LineIterator
 
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.util.function.Function
+import java.sql.ResultSetMetaData
+
 @CompileStatic
 class OutputUtils {
-    static toCsvString(List<Object> row) {
+    private static List<String> castList(Object obj) {
+        List<String> result = new ArrayList<String>();
+        for (Object o: (List<Object>) obj) {
+            result.add(toCsvString(o));
+        }
+        return result;
+    }
+
+    static String toCsvString(Object cell) {
+        StringWriter writer = new StringWriter()
+        def printer = new CSVPrinter(new PrintWriter(writer), CSVFormat.MYSQL)
+        printer.print(cell)
+        return writer.toString()
+    }
+
+    static String toCsvString(List<Object> row) {
         StringWriter writer = new StringWriter()
         def printer = new CSVPrinter(new PrintWriter(writer), CSVFormat.MYSQL)
         for (int i = 0; i < row.size(); ++i) {
@@ -35,34 +55,104 @@ class OutputUtils {
         return writer.toString()
     }
 
-    static assertEquals(Iterator<List<String>> expect, Iterator<List<Object>> real, String info) {
+    static String checkCell(String info, int line, String expectCell, String realCell, String dataType) {
+        if (dataType == "FLOAT" || dataType == "DOUBLE" || dataType == "DECIMAL") {
+            Boolean expectNull = expectCell.equals("\\\\N")
+            Boolean actualNull = realCell.equals("\\\\N")
+
+            if (expectNull != actualNull) {
+                return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
+            } else if (!expectNull) {
+                // both are not null
+                double expectDouble = Double.parseDouble(expectCell)
+                double realDouble = Double.parseDouble(realCell)
+
+                double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
+                double expectRelativeError = 1e-10
+
+                if(expectRelativeError < realRelativeError) {
+                    // Keep the scale of low precision data to solve TPCH cases like:
+                    // "Expect cell is: 0.0395, But real is: 0.039535109"
+                    int expectDecimalPlaces = expectCell.contains(".") ? expectCell.length() - expectCell.lastIndexOf(".") - 1 : 0
+                    int realDecimalPlaces = realCell.contains(".") ? realCell.length() - realCell.lastIndexOf(".") - 1 : 0
+                    if (expectDecimalPlaces != realDecimalPlaces) {
+                        int lowDecimalPlaces = Math.min(expectDecimalPlaces, realDecimalPlaces)
+                        double lowNumber = expectDecimalPlaces < realDecimalPlaces ? expectDouble : realDouble
+                        double highNumber = expectDecimalPlaces < realDecimalPlaces ? realDouble : expectDouble
+                        if (new BigDecimal(highNumber).setScale(lowDecimalPlaces, RoundingMode.HALF_UP).doubleValue() == lowNumber) {
+                            return null
+                        }
+                    }
+                    return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}\nrelative error is: ${realRelativeError}, bigger than ${expectRelativeError}"
+                }
+            }
+        } else if(dataType == "DATE" || dataType =="DATETIME") {
+            expectCell = expectCell.replace("T", " ")
+            realCell = realCell.replace("T", " ")
+
+            if(!expectCell.equals(realCell)) {
+                return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}"
+            }
+        } else {
+            if(!expectCell.equals(realCell)) {
+                return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}"
+            }
+        }
+
+        return null
+    }
+
+    static <T1, T2> String checkOutput(Iterator<T1> expect, Iterator<T2> real,
+                                       Function<T1, String> transform1, Function<T2, String> transform2,
+                                       String info, ResultSetMetaData meta) {
+        int line = 1
         while (true) {
             if (expect.hasNext() && !real.hasNext()) {
-                def res = "${info}, line not match, real line is empty, but expect is ${expect.next()}"
-                return res
-                // throw new IllegalStateException("${info}, line not match, real line is empty, but expect is ${expect.next()}")
+                return "${info}, line ${line} mismatch, real line is empty, but expect is ${transform1(expect.next())}"
             }
             if (!expect.hasNext() && real.hasNext()) {
-                def res = "${info}, line not match, expect line is empty, but real is ${toCsvString(real.next())}"
-                return res
-                // throw new IllegalStateException("${info}, line not match, expect line is empty, but real is ${toCsvString(real.next())}")
+                return "${info}, line ${line} mismatch, expect line is empty, but real is ${transform2(real.next())}"
             }
             if (!expect.hasNext() && !real.hasNext()) {
                 break
             }
 
-            def expectCsvString = toCsvString(expect.next() as List<Object>)
-            def realCsvString = toCsvString(real.next())
-            if (!expectCsvString.equals(realCsvString)) {
-                def res = "${info}, line not match.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}"
-                return res
-                // throw new IllegalStateException("${info}, line not match.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}")
+            def expectRaw = expect.next()
+            def realRaw = real.next()
+
+            if (expectRaw instanceof List && meta != null) {
+                List<String> expectList = castList(expectRaw)
+                List<String> realList = castList(realRaw)
+
+                def columnCount = meta.columnCount
+                for (int i = 1; i <= columnCount; i++) {
+                    String expectCell = toCsvString(expectList[i - 1])
+                    String realCell = toCsvString(realList[i - 1])
+                    String dataType = meta.getColumnTypeName(i)
+
+                    def res = checkCell(info, line, expectCell, realCell, dataType)
+                    if(res != null) {
+                        return res
+                    }
+                }
+            } else {
+                def expectCsvString = transform1.apply(expectRaw)
+                def realCsvString = transform2.apply(realRaw)
+                if (!expectCsvString.equals(realCsvString)) {
+                    return "${info}, line ${line} mismatch.\nExpect line is: ${expectCsvString}\nBut real is: ${realCsvString}"
+                }
             }
+
+            line++
         }
     }
 
-    static CloseableIterator<Iterator<List<String>>> iterator(File file) {
-        def it = new ReusableIterator<String>(new LineIteratorAdaptor(new LineIterator(new FileReader(file))))
+    static OutputBlocksIterator iterator(File file) {
+        return iterator(new LineIterator(new FileReader(file)));
+    }
+
+    static OutputBlocksIterator iterator(LineIterator closeableIterator) {
+        def it = new ReusableIterator<String>(new LineIteratorAdaptor(closeableIterator))
         return new OutputBlocksIterator(it)
     }
 
@@ -103,7 +193,7 @@ class OutputUtils {
             }
         }
 
-        void write(Iterator<List<String>> real, String comment) {
+        synchronized void write(Iterator<List<String>> real, String comment) {
             if (writer != null) {
                 writer.println("-- !${comment} --")
                 while (real.hasNext()) {
@@ -113,16 +203,40 @@ class OutputUtils {
             }
         }
 
-        void close() {
+        synchronized void close() {
             if (writer != null) {
                 writer.close()
             }
         }
     }
 
-    static class OutputBlocksIterator implements CloseableIterator<Iterator<List<String>>> {
+    static class TagBlockIterator implements Iterator<List<String>> {
+        private final String tag
+        private Iterator<List<String>> it
+
+        TagBlockIterator(String tag, Iterator<List<String>> it) {
+            this.tag = tag
+            this.it = it
+        }
+
+        String getTag() {
+            return tag
+        }
+
+        @Override
+        boolean hasNext() {
+            return it.hasNext()
+        }
+
+        @Override
+        List<String> next() {
+            return it.next()
+        }
+    }
+
+    static class OutputBlocksIterator implements CloseableIterator<TagBlockIterator> {
         private ReusableIterator<String> lineIt
-        private CsvParserIterator cache
+        private TagBlockIterator cache
         private boolean cached
 
         OutputBlocksIterator(ReusableIterator<String> lineIt) {
@@ -146,17 +260,21 @@ class OutputUtils {
                     return false
                 }
 
+                String tag = null
                 // find next comment block
                 while (true) {
                     String blockComment = lineIt.next() // skip block comment, e.g. -- !qt_sql_1 --
                     if (blockComment.startsWith("-- !") && blockComment.endsWith(" --")) {
+                        if (blockComment.startsWith("-- !")) {
+                            tag = blockComment.substring("-- !".length(), blockComment.length() - " --".length()).trim()
+                        }
                         break
                     }
                     if (!lineIt.hasNext()) {
                         return false
                     }
                 }
-                cache = new CsvParserIterator(new SkipLastEmptyLineIterator(new OutputBlockIterator(lineIt)))
+                cache = new TagBlockIterator(tag, new CsvParserIterator(new SkipLastEmptyLineIterator(new OutputBlockIterator(lineIt))))
                 cached = true
                 return true
             } else {
@@ -164,8 +282,23 @@ class OutputUtils {
             }
         }
 
+        boolean hasNextTagBlock(String tag) {
+            while (hasNext()) {
+                if (Objects.equals(tag, cache.tag)) {
+                    return true
+                }
+
+                // drain out
+                def it = next()
+                while (it.hasNext()) {
+                    it.next()
+                }
+            }
+            return false
+        }
+
         @Override
-        Iterator<List<String>> next() {
+        TagBlockIterator next() {
             if (hasNext()) {
                 cached = false
                 return cache

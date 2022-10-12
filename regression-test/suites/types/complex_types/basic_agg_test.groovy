@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-def tables=["bitmap_basic_agg","hll_basic_agg"]
+suite("basic_agg_test", "types") {
+    def tables=["bitmap_basic_agg","hll_basic_agg"]
 
-for (String table in tables) {
-    sql """drop table if exists ${table};"""
-    sql new File("""regression-test/common/table/${table}.sql""").text
-    sql new File("""regression-test/common/load/${table}.sql""").text
-}
+    for (String table in tables) {
+        sql """drop table if exists ${table};"""
+        sql new File("""regression-test/common/table/${table}.sql""").text
+        sql new File("""regression-test/common/load/${table}.sql""").text
+    }
 
-qt_sql_bitmap """select * from bitmap_basic_agg;"""
+    qt_sql_bitmap """select * from bitmap_basic_agg;"""
 
-qt_sql_hll """select * from hll_basic_agg;"""
+    qt_sql_hll """select * from hll_basic_agg;"""
 
-qt_sql_hll_cardinality """select k1, hll_cardinality(hll_union(k2)) from hll_basic_agg group by k1 order by k1;"""
+    qt_sql_hll_cardinality """select k1, hll_cardinality(hll_union(k2)) from hll_basic_agg group by k1 order by k1;"""
 }

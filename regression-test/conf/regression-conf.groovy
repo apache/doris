@@ -32,11 +32,36 @@ feHttpPassword = ""
 // e.g. java -DDORIS_HOME=./
 suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
+pluginPath = "${DORIS_HOME}/regression-test/plugins"
+realDataPath = "${DORIS_HOME}/regression-test/realdata"
+// sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
+sf1DataPath = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
 testGroups = ""
 // empty suite will test all suite
 testSuites = ""
+// empty directories will test all directories
+testDirectories = ""
+
+// this groups will not be executed
+excludeGroups = ""
+// this suites will not be executed
+excludeSuites = ""
+// this directories will not be executed
+excludeDirectories = ""
 
 customConf1 = "test_custom_conf_value"
+
+// for test csv with header
+enableHdfs=false // set to true if hdfs is ready
+hdfsFs = "hdfs://127.0.0.1:9000"
+hdfsUser = "doris-test"
+hdfsPasswd = ""
+brokerName = "broker_name"
+
+// broker load test config
+enableBrokerLoad=true
+ak=""
+sk=""

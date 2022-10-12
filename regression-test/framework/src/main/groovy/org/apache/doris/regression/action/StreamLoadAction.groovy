@@ -18,12 +18,16 @@
 package org.apache.doris.regression.action
 
 import com.google.common.collect.Iterators
+import groovy.transform.stc.ClosureParams
+import groovy.transform.stc.FromString
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.BytesInputStream
 import org.apache.doris.regression.util.OutputUtils
 import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 import org.apache.http.HttpEntity
+import org.apache.http.HttpStatus
+import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.client.methods.RequestBuilder
 import org.apache.http.entity.FileEntity
 import org.apache.http.entity.InputStreamEntity
@@ -53,7 +57,10 @@ class StreamLoadAction implements SuiteAction {
         this.address = context.config.feHttpInetSocketAddress
         this.user = context.config.feHttpUser
         this.password = context.config.feHttpPassword
-        this.db = context.config.defaultDb
+
+        def groupList = context.group.split(',')
+        this.db = context.config.getDbNameByFile(context.file)
+
         this.context = context
         this.headers = new LinkedHashMap<>()
         this.headers.put('label', UUID.randomUUID().toString())
@@ -115,7 +122,7 @@ class StreamLoadAction implements SuiteAction {
         this.time = time.call()
     }
 
-    void check(Closure check) {
+    void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
 
@@ -151,7 +158,14 @@ class StreamLoadAction implements SuiteAction {
     }
 
     private InputStream httpGetStream(CloseableHttpClient client, String url) {
-        return client.execute(RequestBuilder.get(url).build()).getEntity().getContent()
+        CloseableHttpResponse resp = client.execute(RequestBuilder.get(url).build())
+        int code = resp.getStatusLine().getStatusCode()
+        if (code != HttpStatus.SC_OK) {
+            String streamBody = EntityUtils.toString(resp.getEntity())
+            throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
+        }
+
+        return resp.getEntity().getContent()
     }
 
     private RequestBuilder prepareRequestHeader(RequestBuilder requestBuilder) {
@@ -164,6 +178,32 @@ class StreamLoadAction implements SuiteAction {
         }
         requestBuilder.setHeader("Expect", "100-Continue")
         return requestBuilder
+    }
+
+    private String cacheHttpFile(CloseableHttpClient client, String url) {
+        def relativePath = url.substring(url.indexOf('/', 9))
+        def file = new File("${context.config.cacheDataPath}/${relativePath}")
+        if (file.exists()) {
+            log.info("Found ${url} in ${file.getAbsolutePath()}");
+            return file.getAbsolutePath()
+        }
+        log.info("Start to cache data from ${url} to ${file.getAbsolutePath()}");
+        CloseableHttpResponse resp = client.execute(RequestBuilder.get(url).build())
+        int code = resp.getStatusLine().getStatusCode()
+        if (code != HttpStatus.SC_OK) {
+            String streamBody = EntityUtils.toString(resp.getEntity())
+            throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
+        }
+
+        file.getParentFile().mkdirs();
+        new File("${context.config.cacheDataPath}/tmp/").mkdir()
+        InputStream httpFileStream = resp.getEntity().getContent()
+        File tmpFile = File.createTempFile("cache", null, new File("${context.config.cacheDataPath}/tmp/"))
+
+        java.nio.file.Files.copy(httpFileStream, tmpFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        java.nio.file.Files.move(tmpFile.toPath(), file.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        log.info("Cached data from ${url} to ${file.getAbsolutePath()}");
+        return file.getAbsolutePath()
     }
 
     private HttpEntity prepareHttpEntity(CloseableHttpClient client) {
@@ -180,18 +220,26 @@ class StreamLoadAction implements SuiteAction {
             String fileName = this.file
             if (fileName.startsWith("http://") || fileName.startsWith("https://")) {
                 log.info("Set stream load input: ${fileName}".toString())
-                entity = new InputStreamEntity(httpGetStream(client, fileName))
-            } else { // local file
-                if (!new File(fileName).isAbsolute()) {
-                    fileName = new File(context.dataPath, fileName).getAbsolutePath()
+                def file = new File(context.config.cacheDataPath)
+                file.mkdirs();
+
+                if (file.exists() && file.isDirectory()) {
+                    fileName = cacheHttpFile(client, fileName)
+                } else {
+                    entity = new InputStreamEntity(httpGetStream(client, fileName))
+                    return entity;
                 }
-                def file = new File(fileName)
-                if (!file.exists()) {
-                    log.warn("Stream load input file not exists: ${file}".toString())
-                }
-                log.info("Set stream load input: ${file.canonicalPath}".toString())
-                entity = new FileEntity(file)
             }
+            if (!new File(fileName).isAbsolute()) {
+                fileName = new File(context.dataPath, fileName).getAbsolutePath()
+            }
+            def file = new File(fileName)
+            if (!file.exists()) {
+                log.warn("Stream load input file not exists: ${file}".toString())
+                throw new IllegalStateException("Stream load input file not exists: ${file}");
+            }
+            log.info("Set stream load input: ${file.canonicalPath}".toString())
+            entity = new FileEntity(file)
         }
         return entity
     }
@@ -205,9 +253,6 @@ class StreamLoadAction implements SuiteAction {
                 def respCode = resp.getStatusLine().getStatusCode()
                 // should redirect to backend
                 if (respCode != 307) {
-                    List resList = [context.file.getName(), 'streamLoad', '', "Expect frontend stream load response code is 307, " +
-                            "but meet ${respCode}\nbody: ${body}"]
-                    context.recorder.reportDiffResult(resList)
                     throw new IllegalStateException("Expect frontend stream load response code is 307, " +
                             "but meet ${respCode}\nbody: ${body}")
                 }
@@ -228,10 +273,6 @@ class StreamLoadAction implements SuiteAction {
                     String body = EntityUtils.toString(resp.getEntity())
                     def respCode = resp.getStatusLine().getStatusCode()
                     if (respCode != 200) {
-                        List resList = [context.file.getName(), 'streamLoad', '', "Expect backend stream load response code is 200, " +
-                                "but meet ${respCode}\nbody: ${body}"]
-                        context.recorder.reportDiffResult(resList)
-
                         throw new IllegalStateException("Expect backend stream load response code is 200, " +
                                 "but meet ${respCode}\nbody: ${body}")
                     }
@@ -240,8 +281,6 @@ class StreamLoadAction implements SuiteAction {
             }
         } catch (Throwable t) {
             log.info("StreamLoadAction Exception: ", t)
-            List resList = [context.file.getName(), 'streamLoad', '', t]
-            context.recorder.reportDiffResult(resList)
         }
         return responseText
     }
@@ -251,8 +290,6 @@ class StreamLoadAction implements SuiteAction {
             check.call(responseText, ex, startTime, endTime)
         } else {
             if (ex != null) {
-                List resList = [context.file.getName(), 'streamLoad', '', ex]
-                context.recorder.reportDiffResult(resList)
                 throw ex
             }
 
@@ -265,19 +302,13 @@ class StreamLoadAction implements SuiteAction {
                     String errorDetails = HttpClients.createDefault().withCloseable { client ->
                         httpGetString(client, errorUrl)
                     }
-                    List resList = [context.file.getName(), 'streamLoad', '', "Stream load failed:\n${responseText}\n${errorDetails}"]
-                    context.recorder.reportDiffResult(resList)
                     throw new IllegalStateException("Stream load failed:\n${responseText}\n${errorDetails}")
                 }
-                List resList = [context.file.getName(), 'streamLoad', '', "Stream load failed:\n${responseText}"]
-                context.recorder.reportDiffResult(resList)
                 throw new IllegalStateException("Stream load failed:\n${responseText}")
             }
             long numberTotalRows = result.NumberTotalRows.toLong()
             long numberLoadedRows = result.NumberLoadedRows.toLong()
             if (numberTotalRows != numberLoadedRows) {
-                List resList = [context.file.getName(), 'streamLoad', '', "Stream load rows mismatch:\n${responseText}"]
-                context.recorder.reportDiffResult(resList)
                 throw new IllegalStateException("Stream load rows mismatch:\n${responseText}")
 
             }
@@ -287,8 +318,6 @@ class StreamLoadAction implements SuiteAction {
                 try{
                     Assert.assertTrue("Expect elapsed <= ${time}, but meet ${elapsed}", elapsed <= time)
                 } catch (Throwable t) {
-                    List resList = [context.file.getName(), 'streamLoad', '', "Expect elapsed <= ${time}, but meet ${elapsed}"]
-                    context.recorder.reportDiffResult(resList)
                     throw new IllegalStateException("Expect elapsed <= ${time}, but meet ${elapsed}")
                 }
             }
