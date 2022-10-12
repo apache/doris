@@ -654,8 +654,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                 bool invalid = str_val.size == 0;
                 if (invalid) {
                     error_msg.clear();
-                    fmt::format_to(error_msg, "{}",
-                                        "the length of jsonb is 0 is invalid");
+                    fmt::format_to(error_msg, "{}", "jsonb with size 0 is invalid");
                     RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
                 }
             }
