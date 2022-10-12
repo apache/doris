@@ -32,7 +32,7 @@ namespace doris::vectorized {
 
 // TODO: Best prefetch step is decided by machine. We should also provide a
 //  SQL hint to allow users to tune by hand.
-static constexpr int PREFETCH_STEP = 32;
+static constexpr int PREFETCH_STEP = 64;
 
 using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext>
