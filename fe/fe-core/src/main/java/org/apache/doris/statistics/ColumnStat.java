@@ -34,6 +34,7 @@ import org.apache.doris.common.util.Util;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -259,13 +260,11 @@ public class ColumnStat {
                     return Double.parseDouble(columnValue);
                 case DATE:
                 case DATEV2:
-                    DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-                    return LocalDateTime
-                            .parse(columnValue, timeFormatter)
+                    return LocalDate.parse(columnValue).atStartOfDay()
                             .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
                 case DATETIMEV2:
                 case DATETIME:
-                    timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                    DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
                     return LocalDateTime
                             .parse(columnValue, timeFormatter)
                             .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
