@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 
@@ -39,6 +40,11 @@ public class Multiply extends BinaryArithmetic {
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new Multiply(children.get(0), children.get(1));
+    }
+
+    @Override
+    public DataType getDataType() {
+        return left().getDataType().promotion();
     }
 
     @Override

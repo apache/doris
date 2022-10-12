@@ -36,6 +36,7 @@
 #include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
 #include "vec/exec/format/parquet/vparquet_column_reader.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
+#include "vec/exec/format/parquet/vparquet_group_reader.h"
 
 namespace doris {
 namespace vectorized {
@@ -410,7 +411,8 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
     bool batch_eof = false;
-    auto stb = row_group_reader->next_batch(&block, 1024, &batch_eof);
+    size_t read_rows = 0;
+    auto stb = row_group_reader->next_batch(&block, 1024, &read_rows, &batch_eof);
     EXPECT_TRUE(stb.ok());
 
     LocalFileReader result("./be/test/exec/test_data/parquet_scanner/group-reader.txt", 0);

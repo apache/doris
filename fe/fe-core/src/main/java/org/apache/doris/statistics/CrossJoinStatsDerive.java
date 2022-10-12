@@ -40,13 +40,13 @@ public class CrossJoinStatsDerive extends BaseStatsDerive {
         if (childrenStatsResult.get(0).getRowCount() == -1 || childrenStatsResult.get(1).getRowCount() == -1) {
             rowCount = -1;
         } else {
-            rowCount = CheckedMath.checkedMultiply(childrenStatsResult.get(0).getRowCount(),
-                    childrenStatsResult.get(1).getRowCount());
+            rowCount = CheckedMath.checkedMultiply((long) childrenStatsResult.get(0).getRowCount(),
+                    (long) childrenStatsResult.get(1).getRowCount());
             applyConjunctsSelectivity();
             capRowCountAtLimit();
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("stats CrossJoin: rowCount={}", Long.toString(rowCount));
+            LOG.debug("stats CrossJoin: rowCount={}", Double.toString(rowCount));
         }
         return rowCount;
     }

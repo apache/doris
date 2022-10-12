@@ -33,6 +33,9 @@ under the License.
     DATE类型
         日期类型，目前的取值范围是['0000-01-01', '9999-12-31'], 默认的打印形式是'YYYY-MM-DD'
 
+### note
+    如果您使用1.2及以上版本，强烈推荐您使用DATEV2类型替代DATE类型。相比DATE类型，DATEV2更加高效。
+
 ### example
     mysql> SELECT DATE('2003-12-31 01:02:03');
         -> '2003-12-31'

@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -30,7 +31,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.StatsType;
 
 import com.google.common.collect.ImmutableSet;
@@ -54,12 +55,12 @@ import java.util.Set;
 public class AlterColumnStatsStmt extends DdlStmt {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
-            .add(ColumnStats.NDV)
-            .add(ColumnStats.AVG_SIZE)
-            .add(ColumnStats.MAX_SIZE)
-            .add(ColumnStats.NUM_NULLS)
-            .add(ColumnStats.MIN_VALUE)
-            .add(ColumnStats.MAX_VALUE)
+            .add(ColumnStat.NDV)
+            .add(ColumnStat.AVG_SIZE)
+            .add(ColumnStat.MAX_SIZE)
+            .add(ColumnStat.NUM_NULLS)
+            .add(ColumnStat.MIN_VALUE)
+            .add(ColumnStat.MAX_VALUE)
             .build();
 
     private final TableName tableName;
@@ -148,7 +149,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
         }
 
         if (optPartitionNames != null) {
-            if (!olapTable.isPartitioned()) {
+            if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
                 throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
             }
 
@@ -162,7 +163,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
             }
             partitionNames.addAll(optPartitionNames.getPartitionNames());
         } else {
-            if (olapTable.isPartitioned()) {
+            if (!olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
                 throw new AnalysisException("For partitioned tables, partitions should be specified");
             }
         }

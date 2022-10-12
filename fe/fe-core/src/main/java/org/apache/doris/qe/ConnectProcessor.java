@@ -266,8 +266,8 @@ public class ConnectProcessor {
                 } catch (Exception e) {
                     nereidsParseException = e;
                     // TODO: We should catch all exception here until we support all query syntax.
-                    LOG.warn(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt, e);
+                    LOG.info(" Fallback to stale planner."
+                            + " Nereids cannot process this statement: \"{}\".", originStmt.toString());
                 }
             }
             // stmts == null when Nereids cannot planner this query or Nereids is disabled.
@@ -357,6 +357,8 @@ public class ConnectProcessor {
             } else {
                 throw new AnalysisException(errorMessage, e);
             }
+        } catch (ArrayStoreException e) {
+            throw new AnalysisException("Sql parser can't convert the result to array, please check your sql.", e);
         } catch (Exception e) {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.

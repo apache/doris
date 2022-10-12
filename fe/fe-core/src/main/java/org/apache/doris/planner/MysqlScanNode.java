@@ -171,6 +171,6 @@ public class MysqlScanNode extends ScanNode {
         numNodes = numNodes <= 0 ? 1 : numNodes;
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 }

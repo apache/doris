@@ -17,23 +17,23 @@
 
 suite("test_outer_join_with_cross_join") {
     sql """
-        drop table if exists outerjoin_A;
+        drop table if exists test_outer_join_with_cross_join_outerjoin_A;
     """
 
     sql """
-        drop table if exists outerjoin_B;
+        drop table if exists test_outer_join_with_cross_join_outerjoin_B;
     """
 
     sql """
-        drop table if exists outerjoin_C;
+        drop table if exists test_outer_join_with_cross_join_outerjoin_C;
     """
 
     sql """
-        drop table if exists outerjoin_D;
+        drop table if exists test_outer_join_with_cross_join_outerjoin_D;
     """
     
     sql """
-        create table outerjoin_A ( a int not null )
+        create table test_outer_join_with_cross_join_outerjoin_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -44,7 +44,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table outerjoin_B ( a int not null )
+        create table test_outer_join_with_cross_join_outerjoin_B ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -55,7 +55,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table outerjoin_C ( a int not null )
+        create table test_outer_join_with_cross_join_outerjoin_C ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -66,7 +66,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table outerjoin_D ( a int not null )
+        create table test_outer_join_with_cross_join_outerjoin_D ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -77,39 +77,39 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        insert into outerjoin_A values( 1 );
+        insert into test_outer_join_with_cross_join_outerjoin_A values( 1 );
     """
 
     sql """
-        insert into outerjoin_B values( 1 );
+        insert into test_outer_join_with_cross_join_outerjoin_B values( 1 );
     """
 
     sql """
-        insert into outerjoin_C values( 1 );
+        insert into test_outer_join_with_cross_join_outerjoin_C values( 1 );
     """
 
     sql """
-        insert into outerjoin_D values( 1 );
+        insert into test_outer_join_with_cross_join_outerjoin_D values( 1 );
     """
 
     qt_select """
-        select outerjoin_B.a from outerjoin_A left join outerjoin_B on outerjoin_A.a = outerjoin_B.a 
-        inner join outerjoin_C on true left join outerjoin_D on outerjoin_B.a = outerjoin_D.a;
+        select test_outer_join_with_cross_join_outerjoin_B.a from test_outer_join_with_cross_join_outerjoin_A left join test_outer_join_with_cross_join_outerjoin_B on test_outer_join_with_cross_join_outerjoin_A.a = test_outer_join_with_cross_join_outerjoin_B.a 
+        inner join test_outer_join_with_cross_join_outerjoin_C on true left join test_outer_join_with_cross_join_outerjoin_D on test_outer_join_with_cross_join_outerjoin_B.a = test_outer_join_with_cross_join_outerjoin_D.a;
     """
 
     sql """
-        drop table if exists outerjoin_A;
+        drop table if exists test_outer_join_with_cross_join_outerjoin_A;
     """
 
     sql """
-        drop table if exists outerjoin_B;
+        drop table if exists test_outer_join_with_cross_join_outerjoin_B;
     """
 
     sql """
-        drop table if exists outerjoin_C;
+        drop table if exists test_outer_join_with_cross_join_outerjoin_C;
     """
 
     sql """
-        drop table if exists outerjoin_D;
+        drop table if exists test_outer_join_with_cross_join_outerjoin_D;
     """
 }

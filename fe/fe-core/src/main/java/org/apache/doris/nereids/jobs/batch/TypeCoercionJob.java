@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 
 import com.google.common.collect.ImmutableList;
@@ -35,7 +36,7 @@ public class TypeCoercionJob extends BatchRulesJob {
         rulesJob.addAll(ImmutableList.of(
                 topDownBatch(ImmutableList.of(
                         new ExpressionNormalization(cascadesContext.getConnectContext(),
-                                ImmutableList.of(TypeCoercion.INSTANCE)))
+                                ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE)))
                 )));
     }
 }

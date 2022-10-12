@@ -38,7 +38,7 @@ Doris's new privilege management system refers to Mysql's privilege management m
 
 2. Privilege
 
-	The objects of permissions are nodes, databases or tables. Different permissions represent different operating permissions.
+	The objects of permissions are nodes, catalogs, databases or tables. Different permissions represent different operating permissions.
 
 3. Role
 
@@ -206,11 +206,15 @@ ADMIN_PRIV and GRANT_PRIV have the authority of **"grant authority"** at the sam
 
 9. `current_user()` and `user()`
 
-    Users can view `current_user` and `user` respectively by `SELECT current_user();` and `SELECT user();`. Where `current_user` indicates which identity the current user is passing through the authentication system, and `user` is the user's current actual `user_identity`.
+	Users can view `current_user` and `user` respectively by `SELECT current_user();` and `SELECT user();`. Where `current_user` indicates which identity the current user is passing through the authentication system, and `user` is the user's current actual `user_identity`.
 
-    For example, suppose the user `user1@'192.%'` is created, and then a user user1 from 192.168.10.1 is logged into the system. At this time, `current_user` is `user1@'192.%'`, and `user` is `user1@'192.168.10.1'`.
+	For example, suppose the user `user1@'192.%'` is created, and then a user user1 from 192.168.10.1 is logged into the system. At this time, `current_user` is `user1@'192.%'`, and `user` is `user1@'192.168.10.1'`.
 
-    All privileges are given to a `current_user`, and the real user has all the privileges of the corresponding `current_user`.
+	All privileges are given to a `current_user`, and the real user has all the privileges of the corresponding `current_user`.
+
+10. Password Validation
+
+	In version 1.2, the verification function of user password strength has been added. This feature is controlled by the global variable `validate_password_policy`. Defaults to `NONE/0`, i.e. password strength is not checked. If set to `STRONG/2`, the password must contain 3 items of "uppercase letters", "lowercase letters", "numbers" and "special characters", and the length must be greater than or equal to 8.
 
 ## Best Practices
 

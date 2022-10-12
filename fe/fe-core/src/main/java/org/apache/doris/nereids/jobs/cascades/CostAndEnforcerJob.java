@@ -190,7 +190,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     return;
                 }
                 StatsCalculator.estimate(groupExpression);
-
                 curTotalCost -= curNodeCost;
                 curNodeCost = CostCalculator.calculateCost(groupExpression);
                 curTotalCost += curNodeCost;
@@ -212,10 +211,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
     private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {
         PhysicalProperties requiredProperties = context.getRequiredProperties();
-
-        EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
-                = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
         if (!outputProperty.satisfy(requiredProperties)) {
+            EnforceMissingPropertiesHelper enforceMissingPropertiesHelper
+                    = new EnforceMissingPropertiesHelper(context, groupExpression, curTotalCost);
             PhysicalProperties addEnforcedProperty = enforceMissingPropertiesHelper
                     .enforceProperty(outputProperty, requiredProperties);
             curTotalCost = enforceMissingPropertiesHelper.getCurTotalCost();

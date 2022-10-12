@@ -84,7 +84,7 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
                     if (null_map_data[idx]) {
-                        new_size += !_opposite;
+                        new_size += _opposite;
                         continue;
                     }
 
@@ -96,14 +96,14 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                 }
             } else {
                 auto* data_array = vectorized::check_and_get_column<
-                                           vectorized::PredicateColumnType<TYPE_STRING>>(column)
+                                           vectorized::PredicateColumnType<TYPE_STRING>>(nested_col)
                                            ->get_data()
                                            .data();
                 for (uint16_t i = 0; i != size; i++) {
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
                     if (null_map_data[idx]) {
-                        new_size += !_opposite;
+                        new_size += _opposite;
                         continue;
                     }
 
@@ -148,7 +148,7 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                     for (uint16_t i = 0; i != size; i++) {
                         uint16_t idx = sel[i];
                         sel[new_size] = idx;
-                        StringValue cell_value = nested_col_ptr->get_value(data_array[idx]);
+                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
                         unsigned char flag = 0;
                         (_state->function)(const_cast<vectorized::LikeSearchState*>(&_like_state),
                                            cell_value, pattern, &flag);

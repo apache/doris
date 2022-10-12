@@ -18,15 +18,14 @@
 #include "vec/sink/vresult_file_sink.h"
 
 #include "common/config.h"
-#include "exprs/expr.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/file_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
-#include "runtime/result_file_sink.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/runtime/vfile_result_writer.h"
 
 namespace doris::vectorized {

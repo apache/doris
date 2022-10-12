@@ -41,6 +41,5 @@ private:
 
 private:
     std::vector<TScanRangeParams> _scan_ranges;
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
 };
 } // namespace doris::vectorized

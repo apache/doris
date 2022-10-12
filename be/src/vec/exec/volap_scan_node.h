@@ -76,8 +76,7 @@ private:
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     static Status change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
                                      const ChangeFixedValueRangeFunc& func,
-                                     const std::string& fn_name, bool cast_date_to_datetime = true,
-                                     int slot_ref_child = -1);
+                                     const std::string& fn_name, int slot_ref_child = -1);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);
@@ -169,7 +168,7 @@ private:
     // push down bloom filters to storage engine.
     // 1. std::pair.first :: column name
     // 2. std::pair.second :: shared_ptr of BloomFilterFuncBase
-    std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
+    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
     // push down functions to storage engine
@@ -222,8 +221,6 @@ private:
     TResourceInfo* _resource_info;
 
     int64_t _buffered_bytes;
-    // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     // the max num of scan keys of this scan request.

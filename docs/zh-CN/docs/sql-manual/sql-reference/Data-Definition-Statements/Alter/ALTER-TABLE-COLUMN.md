@@ -215,6 +215,14 @@ ADD COLUMN v2 INT MAX DEFAULT "0" AFTER k2 TO example_rollup_index,
 ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
 ```
 
+11. 修改Duplicate key 表 Key 列的某个字段的长度
+
+```sql
+alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
+```
+
+
+
 ### Keywords
 
 ```text

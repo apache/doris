@@ -91,7 +91,6 @@ TEST_F(ParquetReaderTest, normal) {
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     LocalFileReader* reader =
             new LocalFileReader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
-    reader->open();
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
@@ -106,14 +105,14 @@ TEST_F(ParquetReaderTest, normal) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader =
-            new ParquetReader(nullptr, reader, scan_params, scan_range, column_names, 992, &ctz);
+    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, column_names, 992, &ctz);
+    p_reader->set_file_reader(reader);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
     runtime_state.init_instance_mem_tracker();
 
-    std::vector<ExprContext*> conjunct_ctxs = std::vector<ExprContext*>();
-    p_reader->init_reader(conjunct_ctxs);
+    std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
+    p_reader->init_reader(&colname_to_value_range);
     Block* block = new Block();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type =
@@ -123,7 +122,8 @@ TEST_F(ParquetReaderTest, normal) {
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
     bool eof = false;
-    p_reader->get_next_block(block, &eof);
+    size_t read_row = 0;
+    p_reader->get_next_block(block, &read_row, &eof);
     for (auto& col : block->get_columns_with_type_and_name()) {
         ASSERT_EQ(col.column->size(), 10);
     }

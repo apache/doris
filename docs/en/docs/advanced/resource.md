@@ -74,7 +74,7 @@ The following shows how the two resources are used.
 
 `spark.hadoop.fs.defaultFS`: required when master is yarn.
 
-Other parameters are optional, refer to: http://spark.apache.org/docs/latest/configuration.html.
+Other parameters are optional, refer to: http://spark.apache.org/docs/latest/configuration.html
 
 ##### If spark is used for ETL, also need to specify the following parameters:
 

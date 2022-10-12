@@ -24,26 +24,26 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-// Convert DataX data to json
-public class DorisJsonCodec extends DorisCodec {
-    private Map<String, Object> rowMap;
+public class DorisJsonCodec extends DorisBaseCodec implements DorisCodec {
 
-    public DorisJsonCodec(final List<String> fieldNames, final String timeZone) {
-        super(fieldNames, timeZone);
-        this.rowMap = new HashMap<>(this.fieldNames.size());
+    private static final long serialVersionUID = 1L;
+
+    private final List<String> fieldNames;
+
+    public DorisJsonCodec ( List<String> fieldNames) {
+        this.fieldNames = fieldNames;
     }
 
     @Override
-    public String serialize(final Record row) {
-        if (null == this.fieldNames) {
+    public String codec( Record row) {
+        if (null == fieldNames) {
             return "";
         }
-
-        rowMap.clear();
+        Map<String, Object> rowMap = new HashMap<> (fieldNames.size());
         int idx = 0;
-        for (final String fieldName : this.fieldNames) {
-            rowMap.put(fieldName, this.convertColumn(row.getColumn(idx)));
-            ++idx;
+        for (String fieldName : fieldNames) {
+            rowMap.put(fieldName, convertionField(row.getColumn(idx)));
+            idx++;
         }
         return JSON.toJSONString(rowMap);
     }

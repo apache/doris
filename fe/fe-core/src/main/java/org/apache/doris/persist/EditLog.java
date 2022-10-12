@@ -879,6 +879,11 @@ public class EditLog {
                     env.getLoadManager().replayCleanLabel(log);
                     break;
                 }
+                case OperationType.OP_ALTER_USER: {
+                    final AlterUserOperationLog log = (AlterUserOperationLog) journal.getData();
+                    env.getAuth().replayAlterUser(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1516,5 +1521,9 @@ public class EditLog {
 
     public void logCleanLabel(CleanLabelOperationLog log) {
         logEdit(OperationType.OP_CLEAN_LABEL, log);
+    }
+
+    public void logAlterUser(AlterUserOperationLog log) {
+        logEdit(OperationType.OP_ALTER_USER, log);
     }
 }

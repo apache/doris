@@ -777,6 +777,14 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
+    // unique key table with merge-on-write also cann't do cumulative compaction under alter
+    // process. It may cause the delete bitmap calculation error, such as two
+    // rowsets have same key.
+    if (tablet_state() != TABLET_RUNNING && keys_type() == UNIQUE_KEYS &&
+        enable_unique_key_merge_on_write()) {
+        return false;
+    }
+
     if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
         return false;
     }
@@ -2115,7 +2123,14 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
 
     std::lock_guard<std::mutex> rwlock(_rowset_update_lock);
     std::shared_lock meta_rlock(_meta_lock);
-    cur_rowset_ids = all_rs_id();
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (tablet_state() == TABLET_NOTREADY &&
+        SchemaChangeHandler::tablet_in_converting(tablet_id())) {
+        LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
+                  << tablet_id();
+        return Status::OK();
+    }
+    cur_rowset_ids = all_rs_id(cur_version - 1);
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
     if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
         LOG(INFO) << "rowset_ids_to_add: " << rowset_ids_to_add.size()
@@ -2124,10 +2139,9 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     for (const auto& to_del : rowset_ids_to_del) {
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
-    int64_t end_version = max_version_unlocked().second;
     if (!rowset_ids_to_add.empty()) {
         RETURN_IF_ERROR(calc_delete_bitmap(rowset->rowset_id(), segments, &rowset_ids_to_add,
-                                           delete_bitmap, end_version, true));
+                                           delete_bitmap, cur_version - 1, true));
     }
 
     // update version without write lock, compaction and publish_txn
@@ -2143,10 +2157,12 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     return Status::OK();
 }
 
-RowsetIdUnorderedSet Tablet::all_rs_id() const {
+RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
     RowsetIdUnorderedSet rowset_ids;
     for (const auto& rs_it : _rs_version_map) {
-        rowset_ids.insert(rs_it.second->rowset_id());
+        if (rs_it.first.second <= max_version) {
+            rowset_ids.insert(rs_it.second->rowset_id());
+        }
     }
     return rowset_ids;
 }
