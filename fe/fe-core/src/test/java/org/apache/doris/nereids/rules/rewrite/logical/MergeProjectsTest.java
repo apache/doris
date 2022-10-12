@@ -40,7 +40,7 @@ import java.util.List;
 /**
  * MergeConsecutiveProjects ut
  */
-public class MergeConsecutiveProjectsTest {
+public class MergeProjectsTest {
     @Test
     public void testMergeConsecutiveProjects() {
         UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
@@ -52,7 +52,7 @@ public class MergeConsecutiveProjectsTest {
         LogicalProject project3 = new LogicalProject<>(Lists.newArrayList(colA), project2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project3);
-        List<Rule> rules = Lists.newArrayList(new MergeConsecutiveProjects().build());
+        List<Rule> rules = Lists.newArrayList(new MergeProjects().build());
         cascadesContext.bottomUpRewrite(rules);
         Plan plan = cascadesContext.getMemo().copyOut();
         System.out.println(plan.treeString());
@@ -95,7 +95,7 @@ public class MergeConsecutiveProjectsTest {
                 project1);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(project2);
-        List<Rule> rules = Lists.newArrayList(new MergeConsecutiveProjects().build());
+        List<Rule> rules = Lists.newArrayList(new MergeProjects().build());
         cascadesContext.bottomUpRewrite(rules);
         Plan plan = cascadesContext.getMemo().copyOut();
         System.out.println(plan.treeString());

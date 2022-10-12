@@ -40,7 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
  * </pre>
  * Note that the top limit should not have valid offset info.
  */
-public class MergeConsecutiveLimits extends OneRewriteRuleFactory {
+public class MergeLimits extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalLimit(logicalLimit()).whenNot(Limit::hasValidOffset).then(upperLimit -> {
@@ -50,6 +50,6 @@ public class MergeConsecutiveLimits extends OneRewriteRuleFactory {
                     bottomLimit.getOffset(),
                     bottomLimit.child()
             );
-        }).toRule(RuleType.MERGE_CONSECUTIVE_LIMITS);
+        }).toRule(RuleType.MERGE_LIMITS);
     }
 }
