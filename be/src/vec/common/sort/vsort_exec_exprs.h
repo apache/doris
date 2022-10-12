@@ -63,8 +63,8 @@ public:
 
     bool need_materialize_tuple() const { return _materialize_tuple; }
 
-    const std::vector<bool>& get_convert_nullable_flags() const {
-        return _need_convert_to_nullable_flags;
+    const std::vector<bool>& get_convert_nullable_flags() const { 
+        return _need_convert_to_nullable_flags; 
     }
 
 private:
