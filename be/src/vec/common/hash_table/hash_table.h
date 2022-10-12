@@ -908,6 +908,15 @@ public:
         __builtin_prefetch(&buf[place_value]);
     }
 
+    template <bool READ>
+    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
+    }
+
     template <bool READ, typename KeyHolder>
     void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
         // Two optional arguments:
@@ -965,6 +974,12 @@ public:
         const auto& key = key_holder_get_key(key_holder);
         if (!emplace_if_zero(key, it, inserted, hash_value))
             emplace_non_zero(key_holder, it, inserted, hash_value);
+    }
+
+    template <typename KeyHolder>
+    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                               bool& inserted) {
+        emplace(key_holder, it, inserted, hash_value);
     }
 
     template <typename KeyHolder, typename Func>
