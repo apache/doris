@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "util/file_cache.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -46,6 +47,13 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 class BitmapIndexReader;
 class ColumnIterator;
+
+struct ColumnPredicateInfo {
+    ColumnPredicateInfo() {};
+    std::string column_name;
+    std::string query_value;
+    std::string query_op;
+};
 
 class SegmentIterator : public RowwiseIterator {
 public:
@@ -114,9 +122,14 @@ private:
     Status _get_row_ranges_by_column_conditions();
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     Status _apply_bitmap_index();
-    Status _apply_index_in_compound(
-            const std::vector<ColumnPredicate*>& predicates, roaring::Roaring* output_bitmap);
-    Status _execute_all_or_compound_predicates();
+
+    Status _apply_index_in_compound();
+    Status _apply_bitmap_index_in_compound(ColumnPredicate* pred, roaring::Roaring* output_result);
+
+    bool _is_index_for_compound_predicate();
+    Status _execute_all_compound_predicates(vectorized::VExpr* expr);
+    Status _execute_compound_fn(const std::string& function_name);
+    bool _is_literal_node(const TExprNodeType::type& node_type);
 
     void _init_lazy_materialization();
     void _vec_init_lazy_materialization();
@@ -169,7 +182,10 @@ private:
 
     void _update_max_row(const vectorized::Block* block);
 
+    bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
+
     std::string _gen_predicate_sign(ColumnPredicate* predicate);
+    std::string _gen_predicate_sign(ColumnPredicateInfo* predicate_info);
 
     void _build_index_return_column(vectorized::Block* block, const std::string& index_result_column_sign,
                                     const roaring::Roaring& index_result);
@@ -236,7 +252,9 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _all_compound_col_predicates;
-    std::vector<std::pair<bool, std::vector<ColumnPredicate*>>> _in_or_compound_col_predicates;
+    doris::vectorized::VExpr* _remaining_vconjunct_root;
+    std::vector<roaring::Roaring> _compound_predicate_execute_result;
+    std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`

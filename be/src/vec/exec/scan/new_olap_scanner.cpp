@@ -128,7 +128,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
 }
 
 void NewOlapScanner::set_compound_filters(
-        const std::vector<std::pair<bool, std::vector<TCondition>>>& compound_filters) {
+        const std::vector<std::vector<TCondition>>& compound_filters) {
     _compound_filters = compound_filters;
 }
 
@@ -173,6 +173,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
+    _tablet_reader_params.remaining_vconjunct_root = (_vconjunct_ctx == nullptr) ? nullptr : _vconjunct_ctx->root();
 
     // Condition
     for (auto& filter : filters) {

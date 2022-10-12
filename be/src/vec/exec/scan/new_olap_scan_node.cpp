@@ -229,14 +229,13 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
             std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
             for (const auto& filter : filters) {
-                _olap_filters.push_back(filter);
+                _olap_filters.push_back(std::move(filter));
             }
         }
 
         for (auto i = 0; i < _compound_value_ranges.size(); ++i) {
-            bool not_compound = _compound_value_ranges[i].first;
             std::vector<TCondition> conditions;
-            for (auto& iter : _compound_value_ranges[i].second) {
+            for (auto& iter : _compound_value_ranges[i]) {
                 std::vector<TCondition> filters;
                 std::visit([&](auto&& range) { 
                     if (range.is_boundary_value_range()) {
@@ -253,7 +252,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
             }
 
             if (!conditions.empty()) {
-                _compound_filters.emplace_back(std::make_pair(not_compound, conditions));
+                _compound_filters.emplace_back(conditions);
             }
         }
         

@@ -204,7 +204,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
     _reader_context.all_compound_predicates = &_all_compound_col_predicates;
-    _reader_context.in_or_compound_predicates = &_in_or_compound_col_predicates;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
     _reader_context.is_lower_keys_included = &_is_lower_keys_included;
@@ -221,6 +220,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
+    _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
 
     *valid_rs_readers = *rs_readers;
 
@@ -474,31 +474,8 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     }
 }
 
-bool TabletReader::_all_conditions_in_or_compound(
-                const std::vector<std::pair<bool, std::vector<TCondition>>>& compound_column_conditions) {
-    if (compound_column_conditions.empty()) {
-        return false;
-    }
-
-    for (auto& condition : compound_column_conditions) {
-        std::vector<TCondition> t_conditions = condition.second;
-        for (auto child_condition : t_conditions) {
-            if (child_condition.compound_type != TCompoundType::OR) {
-                return false;
-            }
-        }
-    }
-
-    return true;
-}
-
 void TabletReader::_init_compound_conditions_param(const ReaderParams& read_params) {
-    bool all_conditions_in_or_compound = _all_conditions_in_or_compound(read_params.compound_conditions);
-
-    for (const auto& iter : read_params.compound_conditions) {
-        bool not_compound = iter.first;
-        auto conditions_per_conjunct = iter.second;
-        std::vector<ColumnPredicate*> predicate_per_conjunct;
+    for (const auto& conditions_per_conjunct : read_params.compound_conditions) {
         for (const auto& condition : conditions_per_conjunct) {
             TCondition tmp_cond = condition;
             auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
@@ -508,13 +485,7 @@ void TabletReader::_init_compound_conditions_param(const ReaderParams& read_para
                 auto predicate_params = predicate->predicate_params();
                 predicate_params->value = condition.condition_values[0];
                 _all_compound_col_predicates.push_back(predicate);
-                if (all_conditions_in_or_compound) {
-                    predicate_per_conjunct.push_back(predicate);
-                }
             }
-        }
-        if (!predicate_per_conjunct.empty()) {
-            _in_or_compound_col_predicates.push_back(std::make_pair(not_compound, predicate_per_conjunct));
         }
     }
 }

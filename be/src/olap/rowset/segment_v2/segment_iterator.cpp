@@ -33,6 +33,7 @@
 #include "util/key_util.h"
 #include "util/simd/bits.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vliteral.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -172,9 +173,9 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (!opts.all_compound_column_predicates.empty()) {
         _all_compound_col_predicates = opts.all_compound_column_predicates;
     }
-    if (!opts.in_or_compound_column_predicates.empty()) {
-        _in_or_compound_col_predicates = opts.in_or_compound_column_predicates;
-    }
+    _remaining_vconjunct_root = opts.remaining_vconjunct_root;
+
+    _column_predicate_info.reset(new ColumnPredicateInfo());
     return Status::OK();
 }
 
@@ -290,6 +291,17 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
     }
+
+    if (config::enable_index_apply_compound_predicates) {
+        RETURN_IF_ERROR(_apply_index_in_compound());
+        if (_is_index_for_compound_predicate()) {
+            auto res = _execute_all_compound_predicates(_remaining_vconjunct_root);
+            if (res.ok() && _compound_predicate_execute_result.size() == 1) {
+                _row_bitmap &= _compound_predicate_execute_result[0];
+            }
+        }
+    }
+
     RETURN_IF_ERROR(_apply_bitmap_index());
 
     if (!_row_bitmap.isEmpty() &&
@@ -357,13 +369,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 Status SegmentIterator::_apply_bitmap_index() {
     SCOPED_RAW_TIMER(&_opts.stats->bitmap_index_filter_timer);
     size_t input_rows = _row_bitmap.cardinality();
-    if (config::enable_index_apply_compound_predicates) {
-        if (!_in_or_compound_col_predicates.empty()) {
-            RETURN_IF_ERROR(_execute_all_or_compound_predicates());
-        } else {
-            RETURN_IF_ERROR(_apply_index_in_compound(_all_compound_col_predicates, nullptr));
-        }
-    }
 
     std::vector<ColumnPredicate*> remaining_predicates;
 
@@ -386,60 +391,152 @@ Status SegmentIterator::_apply_bitmap_index() {
     return Status::OK();
 }
 
-Status SegmentIterator::_execute_all_or_compound_predicates() {
-    for (auto iter : _in_or_compound_col_predicates) {
-        bool not_compound = iter.first;
-        auto predicates_per_conjunct = iter.second;
-        roaring::Roaring union_bitmap;
-        RETURN_IF_ERROR(_apply_index_in_compound(predicates_per_conjunct, &union_bitmap));
-        if (not_compound) {
-            roaring::Roaring tmp = _row_bitmap;
-            tmp -= union_bitmap;
-            union_bitmap = tmp;
+bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
+    switch (node_type) {
+    case TExprNodeType::BOOL_LITERAL:
+    case TExprNodeType::INT_LITERAL:
+    case TExprNodeType::LARGE_INT_LITERAL:
+    case TExprNodeType::FLOAT_LITERAL:
+    case TExprNodeType::DECIMAL_LITERAL:
+    case TExprNodeType::STRING_LITERAL:
+    case TExprNodeType::DATE_LITERAL:
+        return true;
+    default:
+        return false;
+    }
+}
+
+Status SegmentIterator::_execute_all_compound_predicates(vectorized::VExpr* expr) {
+    if (expr == nullptr) {
+        return Status::OK();
+    }
+
+    auto children = expr->children();
+    for (int i = 0; i < children.size(); ++i) {
+        RETURN_IF_ERROR(_execute_all_compound_predicates(children[i]));
+    }
+
+    auto node_type = expr->node_type();
+    if (node_type == TExprNodeType::SLOT_REF) {
+        _column_predicate_info->column_name = expr->expr_name();
+    } else if (_is_literal_node(node_type)) {
+        auto v_literal_expr =  dynamic_cast<doris::vectorized::VLiteral*>(expr);
+        _column_predicate_info->query_value = v_literal_expr->value();
+    } else if (node_type == TExprNodeType::BINARY_PRED) {
+        _column_predicate_info->query_op = expr->fn().name.function_name;
+        // get child condition result in compound condtions
+        auto column_sign = _gen_predicate_sign(_column_predicate_info.get());
+        _column_predicate_info.reset(new ColumnPredicateInfo());
+        if (_rowid_result_for_index.count(column_sign) > 0 
+                && _rowid_result_for_index[column_sign].first) {
+            auto apply_reuslt = _rowid_result_for_index[column_sign].second;
+            _compound_predicate_execute_result.push_back(apply_reuslt);
         }
-        
-        if (!union_bitmap.isEmpty()) {
-            _row_bitmap &= union_bitmap;
+    } else if (node_type == TExprNodeType::COMPOUND_PRED) {
+        auto function_name = expr->fn().name.function_name;
+        // execute logic function
+        RETURN_IF_ERROR(_execute_compound_fn(function_name));
+    }
+
+    return Status::OK();
+}
+
+Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
+    auto and_execute_result = [&]() {
+        auto size = _compound_predicate_execute_result.size();
+        if (size < 2) {
+            return Status::InternalError("execute and logic compute error.");
         }
+        _compound_predicate_execute_result.at(size - 2) &= _compound_predicate_execute_result.at(size - 1);
+        _compound_predicate_execute_result.pop_back();
+    };
+
+    auto or_execute_result = [&]() {
+        auto size = _compound_predicate_execute_result.size();
+        if (size < 2) {
+            return Status::InternalError("execute or logic compute error.");
+        }
+        _compound_predicate_execute_result.at(size - 2) |= _compound_predicate_execute_result.at(size - 1);
+        _compound_predicate_execute_result.pop_back();
+    };
+
+    auto not_execute_result = [&]() {
+        auto size = _compound_predicate_execute_result.size();
+        if (size < 1) {
+            return Status::InternalError("execute not logic compute error.");
+        }
+        roaring::Roaring tmp = _row_bitmap;
+        tmp -= _compound_predicate_execute_result.at(size - 1);
+        _compound_predicate_execute_result.at(size - 1) = tmp;
+    };
+
+    if (function_name == "and") {
+        and_execute_result();
+    } else if (function_name == "or") {
+        or_execute_result();
+    } else if (function_name == "not") {
+        not_execute_result();
     }
     return Status::OK();
 }
 
-Status SegmentIterator::_apply_index_in_compound(
-            const std::vector<ColumnPredicate*>& predicates, roaring::Roaring* output_bitmap) {
-    int apply_pred_by_index_count = 0;
-    roaring::Roaring union_bitmap;
-    for (auto pred : predicates) {
-        int32_t unique_id = _schema.unique_id(pred->column_id());
-        if (_bitmap_index_iterators.count(unique_id) < 1 ||
-            _bitmap_index_iterators[unique_id] == nullptr) {
-            // no bitmap index for this column
+bool SegmentIterator::_is_index_for_compound_predicate() {
+    for (auto pred : _all_compound_col_predicates) {
+        if (!_check_apply_by_bitmap_index(pred)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
+    int32_t unique_id = _schema.unique_id(pred->column_id());
+    if (_bitmap_index_iterators.count(unique_id) < 1 ||
+        _bitmap_index_iterators[unique_id] == nullptr) {
+        // no bitmap index for this column
+        return false;
+    }
+    return true;
+}
+
+Status SegmentIterator::_apply_bitmap_index_in_compound(ColumnPredicate* pred, roaring::Roaring* output_result) {
+    int32_t unique_id = _schema.unique_id(pred->column_id());
+    RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
+                                       output_result));
+    return Status::OK();
+}
+
+Status SegmentIterator::_apply_index_in_compound() {
+    for (auto pred : _all_compound_col_predicates) {
+        auto pred_type = pred->type();
+        bool is_support_in_compound = 
+                pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
+                pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
+                pred_type == PredicateType::GT || pred_type == PredicateType::GE ||
+                pred_type == PredicateType::MATCH;
+        if (!is_support_in_compound) {
             continue;
-        } 
-        
+        }
+
+        bool can_apply_by_bitmap_index = _check_apply_by_bitmap_index(pred);
         roaring::Roaring bitmap = _row_bitmap;
-        RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
-                                       &bitmap));
-        ++apply_pred_by_index_count;
-        if (output_bitmap) {
-            union_bitmap |= bitmap;
+        Status res = Status::OK();
+        if (can_apply_by_bitmap_index) {
+            res = _apply_bitmap_index_in_compound(pred, &bitmap);
+        } else {
+            continue;
+        }
+
+        if (!res.ok()) {
+            LOG(WARNING) << "failed to evaluate index"
+                         << ", column predicate type: " << pred->pred_type_string(pred->type())
+                         << ", error msg: " << res.get_error_msg();
+            return res;
         }
 
         std::string pred_sign = _gen_predicate_sign(pred);
-        auto pred_type = pred->type();
-        bool is_suppor_in_compound = 
-                pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
-                pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
-                pred_type == PredicateType::GT || pred_type == PredicateType::GE;
-        if (!is_suppor_in_compound) {
-            continue;
-        }
         _rowid_result_for_index.emplace(
                 std::make_pair(pred_sign, std::make_pair(true, bitmap)));
-    }
-
-    if (output_bitmap && (apply_pred_by_index_count == predicates.size())) {
-        *output_bitmap = union_bitmap;
     }
 
     return Status::OK();
@@ -454,6 +551,13 @@ std::string SegmentIterator::_gen_predicate_sign(ColumnPredicate* predicate) {
     pred_sign = column_desc->name() + "_" + predicate->pred_type_string(pred_type) + "_" +
                 predicate_params->value;
 
+    return pred_sign;
+}
+
+std::string SegmentIterator::_gen_predicate_sign(ColumnPredicateInfo* predicate_info) {
+    std::string pred_sign;
+    pred_sign = predicate_info->column_name + "_" + predicate_info->query_op + "_" +
+                predicate_info->query_value;
     return pred_sign;
 }
 

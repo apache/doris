@@ -25,6 +25,7 @@
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -82,7 +83,6 @@ public:
     // used to fiter rows in row block
     std::vector<ColumnPredicate*> column_predicates;
     std::vector<ColumnPredicate*> all_compound_column_predicates;
-    std::vector<std::pair<bool, std::vector<ColumnPredicate*>>> in_or_compound_column_predicates;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
     std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> col_id_to_del_predicates;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -98,8 +98,8 @@ public:
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
-
     IOContext io_ctx;
+    vectorized::VExpr* remaining_vconjunct_root = nullptr;
 };
 
 class RowwiseIterator {

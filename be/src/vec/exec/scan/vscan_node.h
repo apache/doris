@@ -216,9 +216,8 @@ protected:
             _slot_id_to_value_range;
     // column -> ColumnValueRange
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
-    // We use _colname_to_value_range to store a column and its corresponding value ranges.
-
-    std::vector<std::pair<bool, std::vector<ColumnValueRangeType>>> _compound_value_ranges;
+    std::vector<std::vector<ColumnValueRangeType>> _compound_value_ranges;
+    // We use _colname_to_value_range to store a column and its conresponding value ranges.
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".

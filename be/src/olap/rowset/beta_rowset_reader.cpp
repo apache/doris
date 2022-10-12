@@ -57,6 +57,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
+    _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
@@ -110,13 +111,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 read_options.all_compound_column_predicates.end(),
                 read_context->all_compound_predicates->begin(),
                 read_context->all_compound_predicates->end());
-    }
-    
-    if (read_context->in_or_compound_predicates != nullptr) {
-        read_options.in_or_compound_column_predicates.insert(
-                read_options.in_or_compound_column_predicates.end(),
-                read_context->in_or_compound_predicates->begin(),
-                read_context->in_or_compound_predicates->end());
     }
 
     // Take a delete-bitmap for each segment, the bitmap contains all deletes

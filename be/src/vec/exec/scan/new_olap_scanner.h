@@ -49,7 +49,7 @@ public:
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
 
-    void set_compound_filters(const std::vector<std::pair<bool, std::vector<TCondition>>>& compound_filters);
+    void set_compound_filters(const std::vector<std::vector<TCondition>>& compound_filters);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -77,7 +77,7 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
-    std::vector<std::pair<bool, std::vector<TCondition>>> _compound_filters;
+    std::vector<std::vector<TCondition>> _compound_filters;
 
     // ========= profiles ==========
     int64_t _compressed_bytes_read = 0;

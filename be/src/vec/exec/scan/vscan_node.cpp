@@ -507,16 +507,11 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             }
 
             if (pdt == PushDownType::UNACCEPTABLE && is_compound_predicate) {
-                auto fn_name = cur_expr->fn().name.function_name;
-                bool not_compound = false;
-                if (fn_name == "not") {
-                    not_compound = true;
-                }
                 std::vector<ColumnValueRangeType> column_value_rangs;
                 _normalize_compound_predicate(cur_expr, *(_vconjunct_ctx_ptr.get()), 
                                 &pdt, &column_value_rangs,
                                 in_predicate_checker, eq_predicate_checker);
-                _compound_value_ranges.push_back(std::make_pair(not_compound, column_value_rangs));
+                _compound_value_ranges.push_back(column_value_rangs);
             }
 
             if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {

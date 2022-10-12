@@ -66,7 +66,7 @@ private:
     OlapScanKeys _scan_keys;
     std::vector<TCondition> _olap_filters;
     // compound filters in every conjunct, like: "(a or b) and (c or d)", (a or b) in conjuct[0], (c or d) in conjuct[1]
-    std::vector<std::pair<bool, std::vector<TCondition>>> _compound_filters;
+    std::vector<std::vector<TCondition>> _compound_filters;
 
 private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
