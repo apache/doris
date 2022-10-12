@@ -291,11 +291,12 @@ public class ColumnStat {
         int pos = 0;
         int len = Math.min(s.length(), 8);
         while (pos < len) {
-            v += ((long) s.charAt(pos)) << ((7-pos)*8);
-            pos ++;
+            v += ((long) s.charAt(pos)) << ((7 - pos) * 8);
+            pos++;
         }
         return (double) v;
     }
+
     public ColumnStat copy() {
         return new ColumnStat(this);
     }
