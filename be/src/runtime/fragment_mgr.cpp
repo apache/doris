@@ -681,8 +681,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             }
             for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
                 int filter_id = filterid_to_desc.first;
-                const auto& target_iter =
-                        runtime_filter_params.rid_to_target_param.find(filter_id);
+                const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
                 if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
                     continue;
                 }
