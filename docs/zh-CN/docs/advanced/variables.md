@@ -268,14 +268,6 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
   显示 Doris 的 License。无其他作用。
 
-- `load_mem_limit`
-
-  用于指定所有导入的内存限制。默认是2GB。
-
-  对于 Broker Load， Stream Load 和 Routine Load，默认使用`load_mem_limit`; 如果用户创建任务时指定任务`exec_mem_limit`参数，则使用指定的值。
-
-  这个变量也用于 INSERT 操作。 INSERT 操作设计查询和导入两个部分， INSERT 的查询部分内存限制为 `exec_mem_limit`，而导入部分限制为 `load_mem_limit`。
-
 - `lower_case_table_names`
 
   用于控制用户表表名大小写是否敏感。
