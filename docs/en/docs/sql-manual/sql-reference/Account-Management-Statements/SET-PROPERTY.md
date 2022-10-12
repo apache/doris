@@ -60,7 +60,7 @@ Super user privileges:
 
  resource_tags: Specifies the user's resource tag permissions.
 
-    Note: If the three attributes `cpu_resource_limit`, `exec_mem_limit` are not set, the value in the session variable will be used by default.
+    Note: If the attributes `cpu_resource_limit`, `exec_mem_limit` are not set, the value in the session variable will be used by default.
 
 Ordinary user rights:
 
