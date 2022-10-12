@@ -121,8 +121,9 @@ Status ParquetReader::init_reader(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     if (_file_reader == nullptr) {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
-                                                        _file_reader, 0));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range.path,
+                                                        _scan_range.start_offset,
+                                                        _scan_range.file_size, 0, _file_reader));
     }
     RETURN_IF_ERROR(_file_reader->open());
     if (_file_reader->size() == 0) {

@@ -127,11 +127,17 @@ Status JsonScanner::open_file_reader() {
         _read_json_by_line = range.read_json_by_line;
     }
 
-    RETURN_IF_ERROR(FileFactory::create_file_reader(range.file_type, _state->exec_env(), _profile,
-                                                    _broker_addresses, _params.properties, range,
-                                                    start_offset, _cur_file_reader));
+    if (range.file_type == TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(range.load_id, _cur_file_reader_s));
+        _real_reader = _cur_file_reader_s.get();
+    } else {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                range.file_type, _state->exec_env(), _profile, _broker_addresses,
+                _params.properties, range, start_offset, _cur_file_reader));
+        _real_reader = _cur_file_reader.get();
+    }
     _cur_reader_eof = false;
-    return _cur_file_reader->open();
+    return _real_reader->open();
 }
 
 Status JsonScanner::open_line_reader() {
