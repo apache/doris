@@ -1033,13 +1033,6 @@ Default: 3
 
 Import the number of threads for processing NORMAL priority tasks
 
-### `push_write_mbytes_per_sec`
-
-+ Type: int32
-+ Description: Load data speed control, the default is 10MB per second. Applicable to all load methods.
-+ Unit: MB
-+ Default value: 10
-
 ### `query_scratch_dirs`
 
 + Type: string

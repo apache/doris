@@ -130,7 +130,7 @@ protected:
         DataDir data_dir(kSegmentDir);
         data_dir.init();
         SegmentWriter writer(file_writer.get(), 0, build_schema, &data_dir, INT32_MAX, opts);
-        st = writer.init(10);
+        st = writer.init();
         EXPECT_TRUE(st.ok());
 
         RowCursor row;
@@ -579,7 +579,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     DataDir data_dir(kSegmentDir);
     data_dir.init();
     SegmentWriter writer(file_writer.get(), 0, tablet_schema, &data_dir, INT32_MAX, opts);
-    st = writer.init(10);
+    st = writer.init();
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     RowCursor row;
@@ -744,7 +744,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     DataDir data_dir(kSegmentDir);
     data_dir.init();
     SegmentWriter writer(file_writer.get(), 0, tablet_schema, &data_dir, INT32_MAX, opts);
-    st = writer.init(10);
+    st = writer.init();
     EXPECT_TRUE(st.ok());
 
     RowCursor row;
