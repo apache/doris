@@ -171,6 +171,11 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 
+    public void setUnInitialized() {
+        this.initialized = false;
+        this.fullSchema = null;
+    }
+
     /**
      * Get the related remote hive metastore table.
      */

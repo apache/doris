@@ -41,8 +41,8 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDatabase.class);
 
     // Cache of table name to table id.
-    private final Map<String, Long> tableNameToId = Maps.newConcurrentMap();
-    private final Map<Long, HMSExternalTable> idToTbl = Maps.newHashMap();
+    private Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    private Map<Long, HMSExternalTable> idToTbl = Maps.newHashMap();
     private boolean initialized = false;
 
     /**
@@ -66,12 +66,30 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     private void init() {
         List<String> tableNames = extCatalog.listTableNames(null, name);
         if (tableNames != null) {
+            Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
+            Map<Long, HMSExternalTable> tmpIdToTbl = Maps.newHashMap();
             for (String tableName : tableNames) {
-                long tblId = Env.getCurrentEnv().getNextId();
-                tableNameToId.put(tableName, tblId);
-                idToTbl.put(tblId, new HMSExternalTable(tblId, tableName, name, (HMSExternalCatalog) extCatalog));
+                long tblId;
+                if (tableNameToId != null && tableNameToId.containsKey(tableName)) {
+                    tblId = tableNameToId.get(tableName);
+                    tmpTableNameToId.put(tableName, tblId);
+                    HMSExternalTable table = idToTbl.get(tblId);
+                    table.setUnInitialized();
+                    tmpIdToTbl.put(tblId, table);
+                } else {
+                    tblId = Env.getCurrentEnv().getNextId();
+                    tmpTableNameToId.put(tableName, tblId);
+                    tmpIdToTbl.put(tblId,
+                        new HMSExternalTable(tblId, tableName, name, (HMSExternalCatalog) extCatalog));
+                }
             }
+            tableNameToId = tmpTableNameToId;
+            idToTbl = tmpIdToTbl;
         }
+    }
+
+    public void setUnInitialized() {
+        this.initialized = false;
     }
 
     @Override
