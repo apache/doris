@@ -287,7 +287,21 @@ Status ExecEnv::_init_mem_tracker() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
-    SegmentLoader::create_global_instance(config::segment_cache_capacity);
+    uint64_t fd_number = config::min_file_descriptor_number;
+    struct rlimit l;
+    int ret = getrlimit(RLIMIT_NOFILE, &l);
+    if (ret != 0) {
+        LOG(WARNING) << "call getrlimit() failed. errno=" << strerror(errno)
+                     << ", use default configuration instead.";
+    } else {
+        fd_number = static_cast<uint64_t>(l.rlim_cur);
+    }
+    // SegmentLoader caches segments in rowset granularity. So the size of
+    // opened files will greater than segment_cache_capacity.
+    uint64_t segment_cache_capacity = fd_number / 3 * 2;
+    LOG(INFO) << "segment_cache_capacity = fd_number / 3 * 2, fd_number: " << fd_number
+              << " segment_cache_capacity: " << segment_cache_capacity;
+    SegmentLoader::create_global_instance(segment_cache_capacity);
 
     // 4. init other managers
     RETURN_IF_ERROR(_disk_io_mgr->init(global_memory_limit_bytes));
