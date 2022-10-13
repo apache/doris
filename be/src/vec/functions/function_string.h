@@ -161,9 +161,10 @@ private:
 
         std::array<std::byte, 128 * 1024> buf;
         std::pmr::monotonic_buffer_resource pool {buf.data(), buf.size()};
-        std::pmr::vector<size_t> index;
+        std::pmr::vector<size_t> index{&pool};
 
-        std::pmr::vector<std::pair<const unsigned char*, int>> strs(size);
+        std::pmr::vector<std::pair<const unsigned char*, int>> strs(&pool);
+        strs.resize(size);
         auto* __restrict data_ptr = chars.data();
         auto* __restrict offset_ptr = offsets.data();
         for (int i = 0; i < size; ++i) {
