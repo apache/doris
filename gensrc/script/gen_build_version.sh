@@ -38,7 +38,6 @@ build_version="${build_version_prefix}-${build_version_major}.${build_version_mi
 unset LANG
 unset LC_CTYPE
 
-user="$(whoami)"
 date="$(date +"%a, %d %b %Y %H:%M:%S %Z")"
 hostname="$(hostname)"
 
