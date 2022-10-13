@@ -191,11 +191,11 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      *      left                  left│
      * A  B  C  D  F   ──►   A  B  C  │ D  F   ──►  MJ(LOJ A,B,C,MJ(DF)
      * <p>
-     * A JOIN B JOIN C RIGHT JOIN D JOIN F
+     * A JOIN B RIGHT JOIN C JOIN D JOIN F
      *     right                  │right
      * A  B  C  D  F   ──►   A  B │  C  D  F   ──►  MJ(A,B,MJ(ROJ C,D,F)
      * <p>
-     * A JOIN B JOIN C FULL JOIN D JOIN F
+     * (A JOIN B JOIN C) FULL JOIN (D JOIN F)
      *       full                    │
      * A  B  C  D  F   ──►   A  B  C │ D  F    ──►  MJ(FOJ MJ(A,B,C) MJ(D,F))
      * </p>
