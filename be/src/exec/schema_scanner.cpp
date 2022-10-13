@@ -32,6 +32,8 @@
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/string_value.h"
 
 namespace doris {
 
@@ -67,12 +69,20 @@ Status SchemaScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     return Status::OK();
 }
 
-Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
+Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool,
+                           TSchemaTableType::type type) {
     if (_is_init) {
         return Status::OK();
     }
+    if (nullptr == param || nullptr == pool) {
+        return Status::InternalError("invalid parameter");
+    }
 
-    if (nullptr == param || nullptr == pool || nullptr == _columns) {
+    if (type == TSchemaTableType::SCH_BACKENDS) {
+        RETURN_IF_ERROR(create_columns(param->table_structure, pool));
+    }
+
+    if (nullptr == _columns) {
         return Status::InternalError("invalid parameter");
     }
 
@@ -122,9 +132,21 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
     }
 }
 
+Status SchemaScanner::create_columns(const std::vector<TSchemaTableStructure>* table_structure,
+                                     ObjectPool* pool) {
+    _column_num = table_structure->size();
+    _columns = pool->add(new ColumnDesc[_column_num]);
+    for (size_t idx = 0; idx < table_structure->size(); ++idx) {
+        _columns[idx].name = table_structure->at(idx).column_name.c_str();
+        _columns[idx].type = thrift_to_type(table_structure->at(idx).type);
+        _columns[idx].size = table_structure->at(idx).len;
+        _columns[idx].is_null = table_structure->at(idx).is_null;
+    }
+    return Status::OK();
+}
+
 Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     int null_column = 0;
-
     for (int i = 0; i < _column_num; ++i) {
         if (_columns[i].is_null) {
             null_column++;

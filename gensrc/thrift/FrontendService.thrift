@@ -689,13 +689,18 @@ struct TInitExternalCtlMetaResult {
     2: optional string status;
 }
 
-struct TFetchBackendsInfoRequest {
-  1: required string cluster_name;
+enum TSchemaTableName{
+  BACKENDS = 0,
 }
 
-struct TFetchBackendsInfoResult {
+struct TFetchSchemaTableDataRequest {
+  1: optional string cluster_name
+  2: optional TSchemaTableName schema_table_name
+}
+
+struct TFetchSchemaTableDataResult {
   1: required Status.TStatus status
-  2: optional list<list<string>> backend_info;
+  2: optional list<Data.TRow> data_batch;
 }
 
 service FrontendService {
@@ -735,5 +740,5 @@ service FrontendService {
     AgentService.TGetStoragePolicyResult refreshStoragePolicy()
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
-    TFetchBackendsInfoResult fetchBackendInfo(1: TFetchBackendsInfoRequest request)
+    TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
 }

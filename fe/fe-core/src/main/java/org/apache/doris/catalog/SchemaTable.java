@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.thrift.TSchemaTable;
+import org.apache.doris.thrift.TSchemaTableStructure;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -414,19 +415,50 @@ public class SchemaTable extends Table {
                             .column("SystemDecommissioned", ScalarType.createVarchar(8))
                             .column("ClusterDecommissioned", ScalarType.createVarchar(8))
                             .column("TabletNum", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("DataUsedCapacity", ScalarType.createVarchar(32))
-                            .column("AvailCapacity", ScalarType.createVarchar(32))
-                            .column("TotalCapacity", ScalarType.createVarchar(32))
-                            .column("UsedPct", ScalarType.createVarchar(32))
-                            .column("MaxDiskUsedPct", ScalarType.createVarchar(32))
-                            .column("RemoteUsedCapacity", ScalarType.createVarchar(32))
+                            .column("DataUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("AvailCapacity", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TotalCapacity", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("UsedPct", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("MaxDiskUsedPct", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("RemoteUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("Tag", ScalarType.createVarchar(128))
                             .column("ErrMsg", ScalarType.createVarchar(2048))
                             .column("Version", ScalarType.createVarchar(64))
                             .column("Status", ScalarType.createVarchar(1024))
                             .build()))
             .build();
-    private SchemaTableType schemaTableType;
+
+    public static Map<String, List<String>> COLUMNS_NAME_MAP = ImmutableMap.<String, List<String>>builder()
+            .put("backends", Lists.newArrayList(
+                    "BackendId", "Cluster", "IP", "HeartbeatPort", "BePort", "HttpPort", "BrpcPort",
+                    "LastStartTime", "LastHeartbeat", "Alive", "SystemDecommissioned", "ClusterDecommissioned",
+                    "TabletNum", "DataUsedCapacity", "AvailCapacity", "TotalCapacity", "UsedPct", "MaxDiskUsedPct",
+                    "RemoteUsedCapacity", "Tag", "ErrMsg", "Version", "Status"
+                    ))
+            .build();
+
+    public static List<TSchemaTableStructure> getTableStructure(String tableName) {
+        Table schemaTable = TABLE_MAP.get(tableName);
+        List<TSchemaTableStructure> tSchemaTableStructureList = Lists.newArrayList();
+        switch (tableName) {
+            case "backends": {
+                List<String> columnNames = COLUMNS_NAME_MAP.get(tableName);
+                for (String columnName : columnNames) {
+                    Column column = schemaTable.getColumn(columnName);
+                    TSchemaTableStructure tSchemaTableStructure = new TSchemaTableStructure();
+                    tSchemaTableStructure.setColumnName(column.getName());
+                    tSchemaTableStructure.setType(column.getDataType().toThrift());
+                    tSchemaTableStructure.setLen(column.getDataType().getSlotSize());
+                    tSchemaTableStructure.setIsNull(column.isAllowNull());
+                    tSchemaTableStructureList.add(tSchemaTableStructure);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        return tSchemaTableStructureList;
+    }
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
         super(id, name, type, baseSchema);

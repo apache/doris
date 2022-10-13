@@ -43,6 +43,7 @@ struct SchemaScannerParam {
     const std::string* ip;                   // frontend ip
     int32_t port;                            // frontend thrift port
     int64_t thread_id;
+    const std::vector<TSchemaTableStructure>* table_structure;
 
     SchemaScannerParam()
             : db(nullptr),
@@ -71,7 +72,7 @@ public:
     virtual ~SchemaScanner();
 
     // init object need information, schema etc.
-    virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
+    virtual Status init(SchemaScannerParam* param, ObjectPool* pool, TSchemaTableType::type type);
     // Start to work
     virtual Status start(RuntimeState* state);
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
@@ -84,6 +85,8 @@ public:
 
 protected:
     Status create_tuple_desc(ObjectPool* pool);
+    Status create_columns(const std::vector<TSchemaTableStructure>* table_structure,
+                          ObjectPool* pool);
 
     bool _is_init;
     // this is used for sub class

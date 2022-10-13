@@ -82,6 +82,11 @@ Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.schema_scan_node.__isset.thread_id) {
         _scanner_param.thread_id = tnode.schema_scan_node.thread_id;
     }
+
+    if (tnode.schema_scan_node.__isset.table_structure) {
+        _scanner_param.table_structure = _pool->add(
+                new std::vector<TSchemaTableStructure>(tnode.schema_scan_node.table_structure));
+    }
     return Status::OK();
 }
 
@@ -127,7 +132,8 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    RETURN_IF_ERROR(_schema_scanner->init(&_scanner_param, _pool));
+    RETURN_IF_ERROR(
+            _schema_scanner->init(&_scanner_param, _pool, schema_table->schema_table_type()));
     // get column info from scanner
     _src_tuple_desc = _schema_scanner->tuple_desc();
 

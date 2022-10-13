@@ -31,11 +31,14 @@ public:
 private:
     Status _fill_one_row(Tuple* tuple, MemPool* pool);
     Status _fetch_backends_info();
+    Status _fill_one_col(Tuple* tuple, MemPool* pool, size_t idx);
+    Status _set_col_name_to_type();
 
 private:
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    // column_name -> type, set by _set_col_name_to_type()
+    std::unordered_map<std::string, PrimitiveType> _col_name_to_type;
 
-    std::vector<std::vector<std::string>> _backends_info;
+    std::vector<TRow> _batch_data;
     size_t _row_idx;
 };
 } // namespace doris
