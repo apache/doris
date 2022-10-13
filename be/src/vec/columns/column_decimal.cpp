@@ -347,8 +347,8 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size,
-                                 IColumn& column) const {
+void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                                 size_t begin) const {
     size_t size = data.size();
     if (0 == size) return;
 
@@ -356,7 +356,8 @@ void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size,
     typename Self::Container& res_data = res.get_data();
     res_data.reserve(target_size);
 
-    for (size_t i = 0; i < size; ++i) {
+    size_t end = size + begin;
+    for (size_t i = begin; i < end; ++i) {
         res_data.add_num_element_without_reserve(data[i], counts[i]);
     }
 }

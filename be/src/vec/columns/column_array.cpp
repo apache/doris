@@ -528,7 +528,8 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     return replicate_generic(replicate_offsets);
 }
 
-void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                            size_t begin) const {
     size_t col_size = size();
     if (col_size == 0) {
         return;
@@ -536,7 +537,8 @@ void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn&
 
     IColumn::Offsets replicate_offsets(col_size);
     size_t cur_offset = 0;
-    for (size_t i = 0; i < col_size; ++i) {
+    size_t end = begin + col_size;
+    for (size_t i = begin; i < end; ++i) {
         cur_offset += counts[i];
         replicate_offsets[i] = cur_offset;
     }

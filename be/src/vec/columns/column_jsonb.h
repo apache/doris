@@ -252,7 +252,8 @@ public:
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                   size_t begin = 0) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnJsonb>(num_columns, selector);
@@ -270,21 +271,33 @@ public:
 
     void get_extremes(Field& min, Field& max) const override;
 
-    bool can_be_inside_nullable() const override { return true; }
+    bool can_be_inside_nullable() const override {
+        return true;
+    }
 
-    bool is_column_string() const override { return true; }
+    bool is_column_string() const override {
+        return true;
+    }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnJsonb);
     }
 
-    Chars& get_chars() { return chars; }
+    Chars& get_chars() {
+        return chars;
+    }
 
-    const Chars& get_chars() const { return chars; }
+    const Chars& get_chars() const {
+        return chars;
+    }
 
-    Offsets& get_offsets() { return offsets; }
+    Offsets& get_offsets() {
+        return offsets;
+    }
 
-    const Offsets& get_offsets() const { return offsets; }
+    const Offsets& get_offsets() const {
+        return offsets;
+    }
 
     void clear() override {
         chars.clear();
