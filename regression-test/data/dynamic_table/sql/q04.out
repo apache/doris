@@ -32,3 +32,75 @@
 [2009-06-16 07:45:58, 2009-06-16 07:59:15, 2009-06-16 08:07:41, 2009-06-16 08:08:14, 2014-03-04 19:32:41]
 [2009-06-16 07:49:19, 2009-06-16 07:49:57, 2009-06-16 08:02:48, 2009-06-16 08:10:20, 2009-06-16 08:20:10, 2009-06-16 08:30:09, 2009-06-16 08:30:33, 2009-06-16 08:40:07, 2009-06-16 08:50:31, 2009-06-16 09:39:52]
 
+-- !q04_6 --
+1000262	[2009-06-16 08:55:20, 2009-06-16 09:04:41]	Steven (91612)
+10000065	[2012-04-04 11:23:51, 2013-06-12 05:37:24, 2015-12-10 18:50:07]	po5i (1303826)
+10000070	[2012-04-03 19:35:38, 2012-04-03 19:54:31, 2012-04-03 20:00:10]	6502 (320726)
+10000150	[2012-04-03 19:42:17, 2012-04-03 19:44:00, 2012-04-03 19:51:16, 2012-04-03 20:02:21, 2012-04-04 18:05:13, 2012-08-18 12:43:08]	Martin Prakash (1311203)
+10000297	[2012-04-03 19:55:43, 2012-04-03 20:11:34]	bachurim09 (438728)
+10000500	[]	Ricardo Garza V. (1217187)
+10000527	[2012-04-03 23:06:24]	Smudger (940173)
+10000529	[2012-04-03 20:06:10]	qwertymk (465546)
+10000776	[2012-04-03 20:32:45, 2012-04-03 20:36:09]	Perex19 (684608)
+10000889	[2012-04-03 20:29:28, 2012-04-03 20:49:49]	HaniAA (1311352)
+
+-- !q04_7 --
+1000261	[2009-06-16 08:55:20, 2009-06-16 09:04:41]	How to avoid javascript retrieving values from non-existing elements	['Artem Barger (104014)', 'Dan F (11569)']	['javascript', 'wordpress', 'cookies']	Steven (91612)	2009-06-16T08:48:45.317
+10000064	[2012-04-04 11:23:51, 2013-06-12 05:37:24, 2015-12-10 18:50:07]	Is there a java library to bind XML (LOM) to XML+RDF?	['William Greenly (611714)', 'po5i (1303826)', 'Enayat (2500344)']	['java', 'xml', 'xslt', 'rdf']	po5i (1303826)	2012-04-03T19:30:55.117
+10000069	[2012-04-03 19:35:38, 2012-04-03 19:54:31, 2012-04-03 20:00:10]	Extending javascript function scope	['Kevin Bowersox (714969)', 'Adam Shiemke (302132)', 'Juan Mendes (227299)']	['javascript', 'dynamic', 'scope']	6502 (320726)	2012-04-03T19:31:17.377
+10000149	[2012-04-03 19:42:17, 2012-04-03 19:44:00, 2012-04-03 19:51:16, 2012-04-03 20:02:21, 2012-04-04 18:05:13, 2012-08-18 12:43:08]	Example of MVC in java/jdk	['hvgotcodes (305644)', 'tenorsax (1048330)', 'Ulises Layera (1056488)', 'user282172 (282172)', 'Alonso Dominguez (748883)', 'padman (1032875)']	['java', 'model-view-controller']	Martin Prakash (1311203)	2012-04-03T19:38:03.103
+10000296	[2012-04-03 19:55:43, 2012-04-03 20:11:34]	WriteInt-RandomAccessFile - java	['ControlAltDel (1291492)', 'Eugene Retunsky (871953)']	['java', 'random-access']	bachurim09 (438728)	2012-04-03T19:49:51.127
+10000499	[]	process hanging on java process builder start	[]	['java']	Ricardo Garza V. (1217187)	2012-04-03T20:03:29.027
+10000526	[2012-04-03 23:06:24]	javascript - fetch additional fields from mysql and display in table	['cha55son (595130)']	['php', 'javascript', 'mysql', 'forms']	Smudger (940173)	2012-04-03T20:04:39.547
+10000528	[2012-04-03 20:06:10]	Do I need to escape text/plain or text/javascript?	['Matthew Flaschen (47773)']	['php', 'javascript', 'security', 'xss']	qwertymk (465546)	2012-04-03T20:04:45.597
+10000775	[2012-04-03 20:32:45, 2012-04-03 20:36:09]	javascript mouse event compatibility issue between browsers	['Jack M (815612)', 'Simon Forsberg (1310566)']	['javascript', 'html5', 'mouseevent', 'cross-browser']	Perex19 (684608)	2012-04-03T20:20:54.890
+10000888	[2012-04-03 20:29:28, 2012-04-03 20:49:49]	Check if char exists in java	['biziclop (574479)', 'Cratylus (384706)']	['java']	HaniAA (1311352)	2012-04-03T20:28:20.233
+
+-- !q04_8 --
+2009-06-16T08:48:45.317	How to avoid javascript retrieving values from non-existing elements	['javascript', 'wordpress', 'cookies']
+2012-04-03T19:30:55.117	Is there a java library to bind XML (LOM) to XML+RDF?	['java', 'xml', 'xslt', 'rdf']
+2012-04-03T19:31:17.377	Extending javascript function scope	['javascript', 'dynamic', 'scope']
+2012-04-03T19:38:03.103	Example of MVC in java/jdk	['java', 'model-view-controller']
+2012-04-03T19:49:51.127	WriteInt-RandomAccessFile - java	['java', 'random-access']
+2012-04-03T20:03:29.027	process hanging on java process builder start	['java']
+2012-04-03T20:04:39.547	javascript - fetch additional fields from mysql and display in table	['php', 'javascript', 'mysql', 'forms']
+2012-04-03T20:04:45.597	Do I need to escape text/plain or text/javascript?	['php', 'javascript', 'security', 'xss']
+2012-04-03T20:20:54.890	javascript mouse event compatibility issue between browsers	['javascript', 'html5', 'mouseevent', 'cross-browser']
+2012-04-03T20:28:20.233	Check if char exists in java	['java']
+
+-- !q04_9 --
+['Misplaced (13710)', 'Justin Bozonier (9401)', 'Petr Macek (15045)', 'n1x0nad', 'Mladen Mihajlovic (11421)', 'Saem (68131)']	2008-09-19T06:10:16.207	['web-frameworks']	100001
+['Jerub (14648)', 'Matthias Kestenholz (317346)', 'Antti Rasinen (8570)', 'Thomas Wouters (17624)', 'Craig (1489354)', 'Aaron Hall (541136)', 'Ethan Furman (208880)', 'kindall (416467)', 'e-satis (9951)', 'espeed (161085)']	2008-09-19T06:10:46.830	['python', 'oop', 'metaclass', 'python-datamodel']	100003
+['Tom Carr (14954)', 'lotsoffreetime (18248)']	2008-09-19T06:12:37.777	['c#', 'logging', 'enterprise-library', 'application-blocks']	100007
+['Michał Niklas (22595)', 'Jack Njiri (77153)']	2009-06-16T07:28:42.770	['vb6', 'progress-bar']	1000000
+['laalto (101361)', 'anon', 'frankster (147813)']	2009-06-16T07:28:52.333	['c++', 'symbian']	1000001
+['Dmitriy Matveev (53481)']	2009-06-16T07:30:22.533	['java', '.net', 'serialization', 'ikvm']	1000004
+['Sev (83819)', 'AlexDrenea (39624)', 'blowdart (2525)']	2009-06-16T07:36:09.467	['c#', 'windows', 'winforms', 'windows-services']	1000023
+['Canavar (55351)', 'Thevs (8559)', 'Alsciende (119195)']	2009-06-16T07:38:33.703	['javascript', 'internet-explorer']	1000028
+['paxdiablo (14860)', 'Dutow (73657)', 'DShook (370)', 'Roddy (1737)', 'bill (121958)', 'henrikpp (1442)', 'Martin Schuhfuß (123219)', 'finnw (12048)', 'Christoffer (15514)', 'Skizz (1898)']	2009-06-16T07:40:16.557	['c', 'algorithm', 'sorting', 'word']	1000036
+['Dutow (73657)', 'PaulJWilliams (71399)', 'friendlyautomaton (1570376)']	2009-06-16T07:40:56.073	['big-o']	1000038
+
+-- !q04_10 --
+['Misplaced (13710)', 'Justin Bozonier (9401)', 'Petr Macek (15045)', 'n1x0nad', 'Mladen Mihajlovic (11421)', 'Saem (68131)']	2008-09-19T06:10:16.207	['web-frameworks']	100001	MVC or event-driven component-oriented web frameworks?
+['Jerub (14648)', 'Matthias Kestenholz (317346)', 'Antti Rasinen (8570)', 'Thomas Wouters (17624)', 'Craig (1489354)', 'Aaron Hall (541136)', 'Ethan Furman (208880)', 'kindall (416467)', 'e-satis (9951)', 'espeed (161085)']	2008-09-19T06:10:46.830	['python', 'oop', 'metaclass', 'python-datamodel']	100003	What is a metaclass in Python?
+['Tom Carr (14954)', 'lotsoffreetime (18248)']	2008-09-19T06:12:37.777	['c#', 'logging', 'enterprise-library', 'application-blocks']	100007	Logging Application Block - Logging the caller
+['Michał Niklas (22595)', 'Jack Njiri (77153)']	2009-06-16T07:28:42.770	['vb6', 'progress-bar']	1000000	Display Progress Bar at the Time of Processing
+['laalto (101361)', 'anon', 'frankster (147813)']	2009-06-16T07:28:52.333	['c++', 'symbian']	1000001	Descriptor conversion problem
+['Dmitriy Matveev (53481)']	2009-06-16T07:30:22.533	['java', '.net', 'serialization', 'ikvm']	1000004	Problems with class loading during deserialization of type from another assembly
+['Sev (83819)', 'AlexDrenea (39624)', 'blowdart (2525)']	2009-06-16T07:36:09.467	['c#', 'windows', 'winforms', 'windows-services']	1000023	Windows Service vs Windows Application - Best Practice
+['Canavar (55351)', 'Thevs (8559)', 'Alsciende (119195)']	2009-06-16T07:38:33.703	['javascript', 'internet-explorer']	1000028	How to focus radio control using Javascript in IE?
+['paxdiablo (14860)', 'Dutow (73657)', 'DShook (370)', 'Roddy (1737)', 'bill (121958)', 'henrikpp (1442)', 'Martin Schuhfuß (123219)', 'finnw (12048)', 'Christoffer (15514)', 'Skizz (1898)']	2009-06-16T07:40:16.557	['c', 'algorithm', 'sorting', 'word']	1000036	What sorting technique will you use?
+['Dutow (73657)', 'PaulJWilliams (71399)', 'friendlyautomaton (1570376)']	2009-06-16T07:40:56.073	['big-o']	1000038	Whats the least upper bound of the growth rate using big-Oh notation of these two functions
+
+-- !q04_11 --
+['javascript', 'wordpress', 'cookies']	How to avoid javascript retrieving values from non-existing elements	1010483
+['java', 'xml', 'xslt', 'rdf']	Is there a java library to bind XML (LOM) to XML+RDF?	10010286
+['javascript', 'dynamic', 'scope']	Extending javascript function scope	10010291
+['java', 'model-view-controller']	Example of MVC in java/jdk	10010371
+['java', 'random-access']	WriteInt-RandomAccessFile - java	10010518
+['java']	process hanging on java process builder start	10010721
+['php', 'javascript', 'mysql', 'forms']	javascript - fetch additional fields from mysql and display in table	10010748
+['php', 'javascript', 'security', 'xss']	Do I need to escape text/plain or text/javascript?	10010750
+['javascript', 'html5', 'mouseevent', 'cross-browser']	javascript mouse event compatibility issue between browsers	10010997
+['java']	Check if char exists in java	10011110
+
