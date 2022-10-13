@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -41,14 +42,14 @@ import java.util.stream.Collectors;
  * <p>
  * One {@link MultiJoin} just contains one {@link JoinType} of SEMI/ANTI/OUTER Join.
  * <p>
- * onlyJoinType is Full OUTER JOIN, children.size() == 2.
- * leftChild [Full OUTER JOIN] rightChild.
+ * joinType is FULL OUTER JOIN, children.size() == 2.
+ * leftChild [FULL OUTER JOIN] rightChild.
  * <p>
- * onlyJoinType is LEFT (OUTER/SEMI/ANTI) JOIN,
+ * joinType is LEFT (OUTER/SEMI/ANTI) JOIN,
  * children[0, last) [LEFT (OUTER/SEMI/ANTI) JOIN] lastChild.
  * eg: MJ([LOJ] A, B, C, D) is {A B C} [LOJ] {D}.
  * <p>
- * onlyJoinType is RIGHT (OUTER/SEMI/ANTI) JOIN,
+ * joinType is RIGHT (OUTER/SEMI/ANTI) JOIN,
  * firstChild [RIGHT (OUTER/SEMI/ANTI) JOIN] children[1, last].
  * eg: MJ([ROJ] A, B, C, D) is {A} [ROJ] {B C D}.
  */
@@ -66,22 +67,20 @@ public class MultiJoin extends AbstractLogicalPlan {
     // Because these predicate should be pushdown.
     private final List<Expression> joinFilter;
     // MultiJoin just contains one OUTER/SEMI/ANTI.
-    private final Optional<JoinType> onlyJoinType;
+    private final JoinType joinType;
     // When contains one OUTER/SEMI/ANTI join, keep separately its condition.
     private final List<Expression> notInnerJoinConditions;
 
-    // private final List<@Nullable List<NamedExpression>> projFields;
-
-    public MultiJoin(List<Plan> inputs, List<Expression> joinFilter, Optional<JoinType> onlyJoinType,
+    public MultiJoin(List<Plan> inputs, List<Expression> joinFilter, JoinType joinType,
             List<Expression> notInnerJoinConditions) {
         super(PlanType.LOGICAL_MULTI_JOIN, inputs.toArray(new Plan[0]));
-        this.joinFilter = joinFilter;
-        this.onlyJoinType = onlyJoinType;
-        this.notInnerJoinConditions = notInnerJoinConditions;
+        this.joinFilter = Objects.requireNonNull(joinFilter);
+        this.joinType = joinType;
+        this.notInnerJoinConditions = Objects.requireNonNull(notInnerJoinConditions);
     }
 
-    public Optional<JoinType> getOnlyJoinType() {
-        return onlyJoinType;
+    public JoinType getJoinType() {
+        return joinType;
     }
 
     public List<Expression> getJoinFilter() {
@@ -94,14 +93,14 @@ public class MultiJoin extends AbstractLogicalPlan {
 
     @Override
     public MultiJoin withChildren(List<Plan> children) {
-        return new MultiJoin(children, joinFilter, onlyJoinType, notInnerJoinConditions);
+        return new MultiJoin(children, joinFilter, joinType, notInnerJoinConditions);
     }
 
     @Override
     public List<Slot> computeOutput() {
         Builder<Slot> builder = ImmutableList.builder();
 
-        if (!onlyJoinType.isPresent()) {
+        if (joinType.isInnerOrCrossJoin()) {
             // INNER/CROSS
             for (Plan child : children) {
                 builder.addAll(child.getOutput());
@@ -110,7 +109,7 @@ public class MultiJoin extends AbstractLogicalPlan {
         }
 
         // FULL OUTER JOIN
-        if (onlyJoinType.get().isFullOuterJoin()) {
+        if (joinType.isFullOuterJoin()) {
             for (Plan child : children) {
                 builder.addAll(child.getOutput().stream()
                         .map(o -> o.withNullable(true))
@@ -120,9 +119,9 @@ public class MultiJoin extends AbstractLogicalPlan {
         }
 
         // RIGHT OUTER | RIGHT_SEMI/ANTI
-        if (onlyJoinType.get().isRightJoin()) {
+        if (joinType.isRightJoin()) {
             // RIGHT OUTER
-            if (onlyJoinType.get().isRightOuterJoin()) {
+            if (joinType.isRightOuterJoin()) {
                 builder.addAll(children.get(0).getOutput().stream()
                         .map(o -> o.withNullable(true))
                         .collect(Collectors.toList()));
@@ -135,12 +134,12 @@ public class MultiJoin extends AbstractLogicalPlan {
         }
 
         // LEFT OUTER | LEFT_SEMI/ANTI
-        if (onlyJoinType.get().isLeftJoin()) {
+        if (joinType.isLeftJoin()) {
             for (int i = 0; i < children.size() - 1; i++) {
                 builder.addAll(children.get(i).getOutput());
             }
             // LEFT OUTER
-            if (onlyJoinType.get().isLeftOuterJoin()) {
+            if (joinType.isLeftOuterJoin()) {
                 builder.addAll(children.get(arity() - 1).getOutput().stream()
                         .map(o -> o.withNullable(true))
                         .collect(Collectors.toList()));
@@ -178,7 +177,7 @@ public class MultiJoin extends AbstractLogicalPlan {
     @Override
     public String toString() {
         return Utils.toSqlString("MultiJoin",
-                "onlyJoinType", onlyJoinType,
+                "joinType", joinType,
                 "joinFilter", joinFilter,
                 "notInnerJoinConditions", notInnerJoinConditions
         );
