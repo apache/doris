@@ -88,20 +88,16 @@ public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSuppo
                 .printlnTree();
 
         for (String expectJoinCondition : expectJoinConditions) {
-            planChecker
-                    .matches(
-                            innerLogicalJoin().when(
-                                    join -> join.getHashJoinConjuncts().get(0).toSql().equals(expectJoinCondition))
-                    )
-            ;
+            planChecker.matches(
+                    innerLogicalJoin().when(
+                            join -> join.getHashJoinConjuncts().get(0).toSql().equals(expectJoinCondition))
+            );
         }
 
         for (String expectFilterPredicate : expectFilterPredicates) {
-            planChecker
-                    .matches(
-                            logicalFilter().when(filter -> filter.getPredicates().toSql().equals(expectFilterPredicate))
-                    )
-            ;
+            planChecker.matches(
+                    logicalFilter().when(filter -> filter.getPredicates().toSql().equals(expectFilterPredicate))
+            );
         }
     }
 }
