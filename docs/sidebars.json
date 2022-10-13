@@ -426,7 +426,6 @@
                                 "sql-manual/sql-functions/aggregate-functions/collect_list",
                                 "sql-manual/sql-functions/aggregate-functions/min_by",
                                 "sql-manual/sql-functions/aggregate-functions/max",
-                                "sql-manual/sql-functions/aggregate-functions/any_value",
                                 "sql-manual/sql-functions/aggregate-functions/var_samp",
                                 "sql-manual/sql-functions/aggregate-functions/approx_count_distinct",
                                 "sql-manual/sql-functions/aggregate-functions/variance"

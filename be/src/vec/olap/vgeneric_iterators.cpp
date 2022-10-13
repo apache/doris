@@ -361,6 +361,7 @@ private:
 Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     _block_row_max = opts.block_row_max;
     _record_rowids = opts.record_rowids;
+    RETURN_IF_ERROR(_iter->init(opts));
     RETURN_IF_ERROR(_load_next_block());
     if (valid()) {
         RETURN_IF_ERROR(advance());
