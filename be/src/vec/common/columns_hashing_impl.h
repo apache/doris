@@ -186,6 +186,11 @@ public:
         data.template prefetch<READ>(key_holder);
     }
 
+    template <bool READ, typename Data>
+    ALWAYS_INLINE void prefetch_by_hash(Data& data, size_t hash_value) {
+        data.template prefetch_by_hash<READ>(hash_value);
+    }
+
 protected:
     Cache cache;
 
