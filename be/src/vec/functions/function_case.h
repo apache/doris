@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "vec/columns/column_complex.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -136,13 +137,60 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     template <typename ColumnType, bool when_null, bool then_null>
+    Status execute_short_circuit(const DataTypePtr& data_type, Block& block, size_t result,
+                                 CaseWhenColumnHolder column_holder) {
+        auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
+        int rows_count = column_holder.rows_count;
+
+        // `then` data index corresponding to each row of results, 0 represents `else`.
+        int then_idx[rows_count];
+        int* __restrict then_idx_ptr = then_idx;
+        memset(then_idx_ptr, 0, sizeof(then_idx));
+
+        for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
+            for (int i = 1; i < column_holder.pair_count; i++) {
+                auto when_column_ptr = column_holder.when_ptrs[i].value();
+                if constexpr (has_case) {
+                    if (!case_column_ptr->is_null_at(row_idx) &&
+                        case_column_ptr->compare_at(row_idx, row_idx, *when_column_ptr, -1) == 0) {
+                        then_idx_ptr[row_idx] = i;
+                        break;
+                    }
+                } else {
+                    if constexpr (when_null) {
+                        if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
+                            then_idx_ptr[row_idx] = i;
+                            break;
+                        }
+                    } else {
+                        if (!then_idx_ptr[row_idx]) {
+                            then_idx_ptr[row_idx] = i;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        auto result_column_ptr = data_type->create_column();
+        update_result_normal(result_column_ptr, then_idx, column_holder);
+        block.replace_by_position(result, std::move(result_column_ptr));
+        return Status::OK();
+    }
+
+    template <typename ColumnType, bool when_null, bool then_null>
     Status execute_impl(const DataTypePtr& data_type, Block& block, size_t result,
                         CaseWhenColumnHolder column_holder) {
+        if (column_holder.pair_count > UINT8_MAX) {
+            return execute_short_circuit<ColumnType, when_null, then_null>(data_type, block, result,
+                                                                           column_holder);
+        }
+
         int rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
         uint8_t then_idx[rows_count];
-        uint8_t* __restrict then_idx_ptr = &then_idx[0];
+        uint8_t* __restrict then_idx_ptr = then_idx;
         memset(then_idx_ptr, 0, sizeof(then_idx));
 
         auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
@@ -207,7 +255,8 @@ public:
         return Status::OK();
     }
 
-    void update_result_normal(MutableColumnPtr& result_column_ptr, uint8* then_idx,
+    template <typename IndexType>
+    void update_result_normal(MutableColumnPtr& result_column_ptr, IndexType* then_idx,
                               CaseWhenColumnHolder& column_holder) {
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             if constexpr (!has_else) {
