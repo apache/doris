@@ -7,3 +7,4 @@ total_extendedprice,
 discount,
 round(avg(discount) over (partition by suppkey order by orderkey rows between 3 following and unbounded following), 5)  avg_discount
 from tpch_tiny_lineitem where partkey = 272
+order by orderkey, suppkey
