@@ -17,7 +17,7 @@ INSERT into retention_test (uid, date) values (0, '2022-10-12'),
                                         (1, '2022-10-13'),
                                         (2, '2022-10-12'); 
 
-SELECT * from retention_test;
+SELECT * from retention_test ORDER BY uid;
 
 SELECT 
     uid,     
