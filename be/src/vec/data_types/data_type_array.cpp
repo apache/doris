@@ -221,12 +221,27 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
             continue;
         }
 
-        ReadBuffer read_buffer(rb.position(), nested_str_len);
+        // Note: here we will trim elements, such as
+        // ["2020-09-01", "2021-09-01"  , "2022-09-01" ] ==> ["2020-09-01","2021-09-01","2022-09-01"]
+        size_t begin_pos = 0;
+        size_t end_pos = nested_str_len - 1;
+        while (begin_pos < end_pos) {
+            if (isspace(*(rb.position() + begin_pos))) {
+                ++begin_pos;
+            } else if (isspace(*(rb.position() + end_pos))) {
+                --end_pos;
+            } else {
+                break;
+            }
+        }
+
         // dispose the case of ["123"] or ['123']
-        auto begin_char = *rb.position();
-        auto end_char = *(rb.position() + nested_str_len - 1);
+        ReadBuffer read_buffer(rb.position(), nested_str_len);
+        auto begin_char = *(rb.position() + begin_pos);
+        auto end_char = *(rb.position() + end_pos);
         if (begin_char == end_char && (begin_char == '"' || begin_char == '\'')) {
-            read_buffer = ReadBuffer(rb.position() + 1, nested_str_len - 2);
+            int64_t length = end_pos - begin_pos - 1;
+            read_buffer = ReadBuffer(rb.position() + begin_pos + 1, (length > 0 ? length : 0));
         }
 
         auto st = nested->from_string(read_buffer, &nested_column);
