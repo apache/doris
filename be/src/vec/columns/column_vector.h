@@ -125,10 +125,10 @@ private:
     void insert_res_column(const uint16_t* sel, size_t sel_size,
                            vectorized::ColumnVector<T>* res_ptr) {
         auto& res_data = res_ptr->data;
-        DCHECK(res_data.empty());
-        res_data.resize(sel_size);
+        auto* res_data_ptr = reinterpret_cast<T*>(res_data.get_end_ptr());
+        res_data.resize(sel_size + res_data.size());
         for (size_t i = 0; i < sel_size; i++) {
-            res_data[i] = T(data[sel[i]]);
+            res_data_ptr[i] = T(data[sel[i]]);
         }
     }
 

@@ -206,6 +206,16 @@ public:
     /** List of names, types and lengths of columns. Designed for debugging. */
     std::string dump_structure() const;
 
+    void sub_block(Block& dst, const size_t offset, const size_t num_rows) const;
+
+    void truncate(const size_t length) {
+        CHECK(length <= rows());
+        for (auto& columnWithTypeAndName : data) {
+            auto col = columnWithTypeAndName.column->assume_mutable();
+            col->resize(length);
+        }
+    }
+
     /** Get the same block, but empty. */
     Block clone_empty() const;
 

@@ -113,8 +113,7 @@ private:
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _output_non_pred_columns(vectorized::Block* block);
-    Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
-                                   std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
+    Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids, rowid_t* selected_rowids,
                                    size_t select_size);
 
     template <class Container>
@@ -212,7 +211,11 @@ private:
     uint32_t _current_batch_rows_read = 0;
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
-    vector<uint16_t> _sel_rowid_idx;
+    vector<rowid_t> _selected_rowids;
+    vector<rowid_t> _cached_selected_rowids;
+    uint16_t _cached_selected_size;
+    size_t _size_of_should_reserve;
+    std::unique_ptr<vectorized::Block> _cached_block;
 };
 
 } // namespace segment_v2

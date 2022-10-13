@@ -917,7 +917,7 @@ void SegmentIterator::_init_current_block(
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DECIMAL) {
                 current_columns[cid]->set_decimalv2_type();
             }
-            current_columns[cid]->reserve(_opts.block_row_max);
+            current_columns[cid]->reserve(_size_of_should_reserve);
         }
     }
 }
@@ -1050,16 +1050,12 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
 }
 
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
-                                                std::vector<rowid_t>& rowid_vector,
-                                                uint16_t* sel_rowid_idx, size_t select_size) {
+                                                rowid_t* selected_rowids, size_t select_size) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
-    std::vector<rowid_t> rowids(select_size);
-    for (size_t i = 0; i < select_size; ++i) {
-        rowids[i] = rowid_vector[sel_rowid_idx[i]];
-    }
+
     for (auto cid : read_column_ids) {
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->read_by_rowids(
-                rowids.data(), select_size, _current_return_columns[cid]));
+                selected_rowids, select_size, _current_return_columns[cid]));
     }
 
     return Status::OK();
@@ -1068,14 +1064,16 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 Status SegmentIterator::next_batch(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
-
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_inited)) {
         RETURN_IF_ERROR(_init(true));
         _inited = true;
-        if (_lazy_materialization_read || _opts.record_rowids) {
-            _block_rowids.resize(_opts.block_row_max);
-        }
+        _cached_selected_size = 0;
+
+        _size_of_should_reserve = (_is_need_vec_eval || _is_need_short_eval)
+                                          ? _opts.block_row_max * 2
+                                          : _opts.block_row_max;
+
         _current_return_columns.resize(_schema.columns().size());
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
@@ -1083,7 +1081,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             if (_is_pred_column[cid]) {
                 _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
                         column_desc->type(), column_desc->is_nullable());
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+                _current_return_columns[cid]->reserve(_size_of_should_reserve);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
                 // a delete condition column. but the column is not effective in the segment. so we just
@@ -1094,9 +1092,14 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                 // TODO: skip read the not effective delete column to speed up segment read.
                 _current_return_columns[cid] =
                         Schema::get_data_type_ptr(*column_desc)->create_column();
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+                _current_return_columns[cid]->reserve(_size_of_should_reserve);
             }
         }
+    }
+
+    const bool need_set_rowids = _lazy_materialization_read || _opts.record_rowids;
+    if (need_set_rowids) {
+        _block_rowids.resize(_opts.block_row_max);
     }
 
     _init_current_block(block, _current_return_columns);
@@ -1107,82 +1110,161 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // read 100 rows to estimate average row size
         nrows_read_limit = 100;
     }
-    _read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
-                           _lazy_materialization_read || _opts.record_rowids);
 
-    _opts.stats->blocks_load += 1;
-    _opts.stats->raw_rows_read += _current_batch_rows_read;
+    if (_is_need_vec_eval || _is_need_short_eval) {
+        // Here make target rows be 80% to avoid read one more block for just a few rows.
+        uint32_t nrows_to_read = nrows_read_limit * 0.8;
 
-    if (_current_batch_rows_read == 0) {
-        for (int i = 0; i < block->columns(); i++) {
-            auto cid = _schema.column_id(i);
-            // todo(wb) abstract make column where
-            if (!_is_pred_column[cid]) { // non-predicate
-                block->replace_by_position(i, std::move(_current_return_columns[cid]));
+        auto cached_rows = _cached_block ? _cached_block->rows() : 0;
+        if (cached_rows > 0) {
+            for (int i = 0; i < block->columns(); i++) {
+                auto cid = _schema.column_id(i);
+                const auto& source_column = *(_cached_block->get_by_position(i).column);
+                if (_is_pred_column[cid]) {
+                    auto ptr = block->get_by_position(i).column->assume_mutable();
+                    DCHECK(ptr->size() == 0);
+                    ptr->insert_range_from(source_column, 0, cached_rows);
+                } else {
+                    DCHECK(_current_return_columns[cid]->size() == 0);
+                    _current_return_columns[cid]->insert_range_from(source_column, 0, cached_rows);
+                }
+            }
+            _cached_block->clear_column_data();
+
+            if (cached_rows >= nrows_to_read) {
+                nrows_to_read = 0;
+            } else {
+                nrows_to_read -= cached_rows;
             }
         }
-        block->clear_column_data();
-        return Status::EndOfFile("no more data in segment");
-    }
 
-    if (!_is_need_vec_eval && !_is_need_short_eval) {
-        _output_non_pred_columns(block);
-    } else {
-        _convert_dict_code_for_predicate_if_necessary();
-        uint16_t selected_size = _current_batch_rows_read;
-        uint16_t sel_rowid_idx[selected_size];
+        uint16_t sel_rowid_idx[_opts.block_row_max * 2];
+        rowid_t selected_rowids[_opts.block_row_max * 2];
+        uint16_t total_selected_size = 0;
+        while (total_selected_size < nrows_to_read) {
+            uint32_t this_read_rows = 0;
 
-        // step 1: evaluate vectorization predicate
-        selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
+            for (auto id : _first_read_column_ids) {
+                _current_return_columns[id]->clear();
+            }
 
-        // step 2: evaluate short ciruit predicate
-        // todo(wb) research whether need to read short predicate after vectorization evaluation
-        //          to reduce cost of read short circuit columns.
-        //          In SSB test, it make no difference; So need more scenarios to test
-        selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
+            _read_columns_by_index(_opts.block_row_max, this_read_rows, need_set_rowids);
+
+            if (this_read_rows == 0) {
+                break;
+            }
+
+            _opts.stats->blocks_load += 1;
+            _opts.stats->raw_rows_read += this_read_rows;
+            _current_batch_rows_read += this_read_rows;
+
+            _convert_dict_code_for_predicate_if_necessary();
+            uint16_t selected_size = this_read_rows;
+
+            // step 1: evaluate vectorization predicate
+            selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
+
+            // step 2: evaluate short ciruit predicate
+            // todo(wb) research whether need to read short predicate after vectorization evaluation
+            //          to reduce cost of read short circuit columns.
+            //          In SSB test, it make no difference; So need more scenarios to test
+            selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
+
+            if (selected_size == 0) {
+                continue;
+            }
+
+            RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
+                                                      selected_size));
+
+            if (need_set_rowids) {
+                for (uint16_t i = 0; i != selected_size; ++i) {
+                    selected_rowids[i + total_selected_size] = _block_rowids[sel_rowid_idx[i]];
+                    DCHECK(i == 0 || selected_rowids[i] > selected_rowids[i - 1]);
+                }
+            }
+
+            total_selected_size += selected_size;
+        }
+
+        if (_current_batch_rows_read == 0 && cached_rows == 0) {
+            for (int i = 0; i < block->columns(); i++) {
+                auto cid = _schema.column_id(i);
+                // todo(wb) abstract make column where
+                if (!_is_pred_column[cid]) { // non-predicate
+                    block->replace_by_position(i, std::move(_current_return_columns[cid]));
+                }
+            }
+            block->clear_column_data();
+            return Status::EndOfFile("no more data in segment");
+        }
 
         if (UNLIKELY(_opts.record_rowids)) {
-            _sel_rowid_idx.reserve(selected_size);
-            _selected_size = selected_size;
-            for (auto i = 0; i < _selected_size; i++) {
-                _sel_rowid_idx[i] = sel_rowid_idx[i];
+            _selected_rowids.resize(total_selected_size + _cached_selected_size);
+            for (uint16_t i = 0; i != _cached_selected_size; ++i) {
+                _selected_rowids[i] = _cached_selected_rowids[i];
             }
+            _selected_size = _cached_selected_size;
+            for (uint16_t i = 0; i < total_selected_size; i++) {
+                _selected_rowids[i + _selected_size] = selected_rowids[i];
+            }
+            _selected_size += total_selected_size;
         }
 
-        if (!_lazy_materialization_read) {
-            Status ret = Status::OK();
-            if (selected_size > 0) {
-                ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                selected_size);
-            }
-            if (!ret.ok()) {
-                return ret;
-            }
-            // shrink char_type suffix zero data
-            block->shrink_char_type_column_suffix_zero(_char_type_idx);
-
-            if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
-                _update_max_row(block);
-            }
-            return ret;
+        if (total_selected_size > 0 && _lazy_materialization_read) {
+            // step3: read non_predicate column
+            RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, selected_rowids,
+                                                    total_selected_size));
+            _opts.stats->block_lazy_read_seek_num += 1;
         }
-
-        // step3: read non_predicate column
-        RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
-                                                sel_rowid_idx, selected_size));
 
         // step4: output columns
         // 4.1 output non-predicate column
         _output_non_pred_columns(block);
+        DCHECK(block->rows() == total_selected_size + cached_rows);
 
-        // 4.3 output short circuit and predicate column
-        // when lazy materialization enables, _first_read_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
-        // see _vec_init_lazy_materialization
-        // todo(wb) need to tell input columnids from output columnids
-        if (selected_size > 0) {
-            RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                      selected_size));
+        _cached_selected_size = 0;
+
+        // need to cache some rows for next read
+        if (block->rows() > nrows_read_limit) {
+            _selected_size = nrows_read_limit;
+            _cached_selected_size = block->rows() - nrows_read_limit;
+            if (!_cached_block) {
+                auto* b = new vectorized::Block();
+                *b = block->clone_empty();
+                _cached_block.reset(b);
+            }
+            block->sub_block(*_cached_block, nrows_read_limit, _cached_selected_size);
+            block->truncate(nrows_read_limit);
+            DCHECK(nrows_read_limit == block->rows());
+
+            if (UNLIKELY(_opts.record_rowids)) {
+                if (_cached_selected_rowids.size() < _cached_selected_size) {
+                    _cached_selected_rowids.resize(_cached_selected_size);
+                }
+                for (uint16_t i = 0; i < _cached_selected_size; ++i) {
+                    _cached_selected_rowids[i] =
+                            selected_rowids[total_selected_size - _cached_selected_size + i];
+                }
+            }
         }
+    } else {
+        _read_columns_by_index(nrows_read_limit, _current_batch_rows_read, _opts.record_rowids);
+        _opts.stats->blocks_load += 1;
+        _opts.stats->raw_rows_read += _current_batch_rows_read;
+        if (_current_batch_rows_read == 0) {
+            for (int i = 0; i < block->columns(); i++) {
+                auto cid = _schema.column_id(i);
+                // todo(wb) abstract make column where
+                if (!_is_pred_column[cid]) { // non-predicate
+                    block->replace_by_position(i, std::move(_current_return_columns[cid]));
+                }
+            }
+            block->clear_column_data();
+            return Status::EndOfFile("no more data in segment");
+        }
+
+        _output_non_pred_columns(block);
     }
 
     // shrink char_type suffix zero data
@@ -1256,7 +1338,7 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
     } else {
         block_row_locations->resize(_selected_size);
         for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[_sel_rowid_idx[i]]);
+            (*block_row_locations)[i] = RowLocation(sid, _selected_rowids[i]);
         }
     }
     return Status::OK();

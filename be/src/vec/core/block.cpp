@@ -640,6 +640,16 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
     return columns_with_type_and_name;
 }
 
+void Block::sub_block(Block& dst, const size_t offset, const size_t num_rows) const {
+    CHECK(dst.data.size() == data.size());
+    auto mutable_columns = dst.mutate_columns();
+    for (size_t i = 0; i != data.size(); ++i) {
+        mutable_columns[i]->reserve(num_rows);
+        mutable_columns[i]->insert_range_from(*data[i].column, offset, num_rows);
+    }
+    dst.set_columns(std::move(mutable_columns));
+}
+
 void Block::append_block_by_selector(MutableColumns& columns,
                                      const IColumn::Selector& selector) const {
     DCHECK(data.size() == columns.size());

@@ -115,8 +115,7 @@ private:
                                          vectorized::ColumnVector<Y>* res_ptr) {
         static_assert(std::is_same_v<T, Y>);
         auto& res_data = res_ptr->get_data();
-        DCHECK(res_data.empty());
-        res_data.reserve(sel_size);
+        res_data.reserve(sel_size + res_data.size());
         Y* y = (Y*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
             y[i] = T(data[sel[i]]);

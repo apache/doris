@@ -98,6 +98,7 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
     }
+    DCHECK(chars.size() == offsets.back());
 }
 
 void ColumnString::insert_indices_from(const IColumn& src, const int* indices_begin,
@@ -444,6 +445,7 @@ void ColumnString::resize(size_t n) {
     auto origin_size = size();
     if (origin_size > n) {
         offsets.resize(n);
+        chars.resize(offsets.back());
     } else if (origin_size < n) {
         insert_many_defaults(n - origin_size);
     }
