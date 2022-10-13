@@ -135,8 +135,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
                                          std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
     if (rs_readers->empty()) {
-        LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name();
-        return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+        return Status::InternalError("fail to acquire data sources. tablet={}",
+                                     _tablet->full_name());
     }
 
     bool eof = false;

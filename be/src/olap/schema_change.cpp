@@ -1811,10 +1811,10 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 
             // should check the max_version >= request.alter_version, if not the convert is useless
             if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
-                LOG(WARNING) << "base tablet's max version="
-                             << (max_rowset == nullptr ? 0 : max_rowset->end_version())
-                             << " is less than request version=" << request.alter_version;
-                res = Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+                res = Status::InternalError(
+                        "base tablet's max version={} is less than request version={}",
+                        (max_rowset == nullptr ? 0 : max_rowset->end_version()),
+                        request.alter_version);
                 break;
             }
             // before calculating version_to_be_changed,
@@ -2363,7 +2363,8 @@ Status SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second;
     if (max_continuous_version.second < request.alter_version) {
-        return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+        return Status::InternalError("result version={} is less than request version={}",
+                                     max_continuous_version.second, request.alter_version);
     }
 
     std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
