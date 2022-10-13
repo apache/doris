@@ -108,9 +108,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_JOIN_SLOT.build(
                 logicalJoin().when(Plan::canBind).thenApply(ctx -> {
                     LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
-                    Optional<Expression> cond = join.getOtherJoinCondition()
-                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext));
-
+                    List<Expression> cond = join.getOtherJoinConjuncts().stream()
+                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
+                            .collect(Collectors.toList());
                     List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
                             .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
                             .collect(Collectors.toList());

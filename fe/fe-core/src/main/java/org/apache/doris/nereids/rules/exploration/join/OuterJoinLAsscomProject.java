@@ -39,7 +39,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -65,8 +64,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 // TODO: handle otherJoinCondition
-                .whenNot(topJoin -> topJoin.getOtherJoinCondition().isPresent())
-                .whenNot(topJoin -> topJoin.left().child().getOtherJoinCondition().isPresent())
+                .when(topJoin -> topJoin.getOtherJoinConjuncts().isEmpty())
+                .when(topJoin -> topJoin.left().child().getOtherJoinConjuncts().isEmpty())
                 .then(topJoin -> {
 
                     /* ********** init ********** */
@@ -145,8 +144,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
 
                     /* ********** new Plan ********** */
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            newBottomHashJoinConjuncts, Optional.empty(),
-                            a, c, bottomJoin.getJoinReorderContext());
+                            newBottomHashJoinConjuncts, a, c, bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
@@ -162,8 +160,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                            newTopHashJoinConjuncts, Optional.empty(),
-                            left, right, topJoin.getJoinReorderContext());
+                            newTopHashJoinConjuncts, left, right, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     if (topJoin.getLogicalProperties().equals(newTopJoin.getLogicalProperties())) {
