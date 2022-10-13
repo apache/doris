@@ -275,7 +275,7 @@ public class SortNode extends PlanNode {
         if (resolvedTupleExprs != null) {
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
             // FIXME this is a bottom line solution for wrong nullability of resolvedTupleExprs
-            // remove the following line after nerids online
+            // remove the following line after nereids online
             sortInfo.setSlotExprsNullabilityChangedFlags(nullabilityChangedFlags);
         }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);

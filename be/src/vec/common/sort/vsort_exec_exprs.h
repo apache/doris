@@ -37,7 +37,6 @@ public:
     // Initialize the expressions from a TSortInfo using the specified pool.
     Status init(const TSortInfo& sort_info, ObjectPool* pool);
 
-
     // prepare all expressions used for sorting and tuple materialization.
     Status prepare(RuntimeState* state, const RowDescriptor& child_row_desc,
                    const RowDescriptor& output_row_desc);
@@ -64,8 +63,8 @@ public:
 
     bool need_materialize_tuple() const { return _materialize_tuple; }
 
-    const std::vector<bool>& get_convert_nullable_flags() const { 
-        return _need_convert_to_nullable_flags; 
+    const std::vector<bool>& get_convert_nullable_flags() const {
+        return _need_convert_to_nullable_flags;
     }
 
 private:
