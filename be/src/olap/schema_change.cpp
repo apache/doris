@@ -843,19 +843,19 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
         if (ref_col_nullable != new_col_nullable) {
             // not nullable to nullable
             if (new_col_nullable) {
-                auto* new_nullable_col =
-                        assert_cast<vectorized::ColumnNullable*>(std::move(*new_col.column).mutate().get());
+                auto* new_nullable_col = assert_cast<vectorized::ColumnNullable*>(
+                        std::move(*new_col.column).mutate().get());
 
                 new_nullable_col->swap_nested_column(ref_col.column);
                 new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
             } else {
                 // nullable to not nullable:
-                // suppose column `c_phone` is originally varchar(16) NOT NULL, 
+                // suppose column `c_phone` is originally varchar(16) NOT NULL,
                 // then do schema change `alter table test modify column c_phone int not null`,
                 // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
                 // so need to handle nullable to not nullable here
-                auto* ref_nullable_col =
-                        assert_cast<vectorized::ColumnNullable*>(std::move(*ref_col.column).mutate().get());
+                auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
+                        std::move(*ref_col.column).mutate().get());
                 ref_nullable_col->swap_nested_column(new_col.column);
             }
         } else {
