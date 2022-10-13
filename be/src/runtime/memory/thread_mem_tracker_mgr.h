@@ -59,7 +59,7 @@ public:
     // After thread initialization, calling `init` again must call `clear_untracked_mems` first
     // to avoid memory tracking loss.
     void init();
-    void init_impl();
+    void clear();
 
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
     void attach_limiter_tracker(const std::string& task_id, const TUniqueId& fragment_instance_id,
@@ -88,11 +88,11 @@ public:
     bool is_attach_query() { return _fragment_instance_id_stack.back() != TUniqueId(); }
 
     std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
-        if (_limiter_tracker_raw == nullptr) init_impl();
+        if (_init == false) init();
         return _limiter_tracker_stack.back();
     }
     MemTrackerLimiter* limiter_mem_tracker_raw() {
-        if (_limiter_tracker_raw == nullptr) init_impl();
+        if (_init == false) init();
         return _limiter_tracker_raw;
     }
 
@@ -119,6 +119,8 @@ private:
     void exceeded(const std::string& failed_msg);
 
 private:
+    // is false: ExecEnv::GetInstance()->initialized() = false when thread local is initialized
+    bool _init = false;
     // Cache untracked mem, only update to _untracked_mems when switching mem tracker.
     // Frequent calls to unordered_map _untracked_mems[] in consume will degrade performance.
     int64_t _untracked_mem = 0;
@@ -141,23 +143,22 @@ private:
 };
 
 inline void ThreadMemTrackerMgr::init() {
-    DCHECK(_consumer_tracker_stack.empty());
-    // _limiter_tracker_stack[0] = orphan_mem_tracker
-    DCHECK(_limiter_tracker_stack.size() <= 1)
-            << "limiter_tracker_stack.size(): " << _limiter_tracker_stack.size();
-    if (_limiter_tracker_raw == nullptr && ExecEnv::GetInstance()->initialized()) {
-        init_impl();
-    }
-}
-
-inline void ThreadMemTrackerMgr::init_impl() {
     DCHECK(_limiter_tracker_stack.size() == 0);
-    DCHECK(_limiter_tracker_raw == nullptr);
+    DCHECK(_consumer_tracker_stack.empty());
     _limiter_tracker_stack.push_back(ExecEnv::GetInstance()->orphan_mem_tracker());
     _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
     _task_id_stack.push_back("");
     _fragment_instance_id_stack.push_back(TUniqueId());
     _check_limit = true;
+    _init = true;
+}
+
+inline void ThreadMemTrackerMgr::clear() {
+    std::vector<std::shared_ptr<MemTrackerLimiter>>().swap(_limiter_tracker_stack);
+    std::vector<MemTracker*>().swap(_consumer_tracker_stack);
+    std::vector<std::string>().swap(_task_id_stack);
+    std::vector<TUniqueId>().swap(_fragment_instance_id_stack);
+    flush_untracked_mem<false>();
 }
 
 inline void ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
@@ -196,7 +197,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the TCMalloc Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;
-    if (_limiter_tracker_raw == nullptr) init_impl();
+    if (_init == false) init();
     DCHECK(_limiter_tracker_raw);
     old_untracked_mem = _untracked_mem;
     if (CheckLimit) {
