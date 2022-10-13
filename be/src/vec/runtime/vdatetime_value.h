@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_VDATETIME_VALUE_H
-#define DORIS_BE_RUNTIME_VDATETIME_VALUE_H
+#pragma once
 
 #include <re2/re2.h>
 #include <stdint.h>
@@ -25,9 +24,7 @@
 #include <cstddef>
 #include <iostream>
 
-#include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
-#include "common/config.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -621,6 +618,8 @@ public:
                _day > 0;
     }
 
+    bool is_valid_year() const { return _year < MAX_YEAR && _year > MIN_YEAR; }
+
     void convert_vec_dt_to_dt(doris::DateTimeValue* dt);
     void convert_dt_to_vec_dt(doris::DateTimeValue* dt);
     int64_t to_datetime_int64() const;
@@ -1040,6 +1039,8 @@ public:
         }
     }
 
+    bool is_valid_year() const { return year() < MAX_YEAR && year() > MIN_YEAR; }
+
     template <typename RHS>
     int64_t second_diff(const DateV2Value<RHS>& rhs) const {
         int day_diff = daynr() - rhs.daynr();
@@ -1457,6 +1458,31 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const DateV2Value<T>& t
     return 0;
 }
 
+class DataTypeDateTime;
+class DataTypeDateV2;
+class DataTypeDateTimeV2;
+
+template <typename T>
+struct DateTraits {};
+
+template <>
+struct DateTraits<int64_t> {
+    using T = VecDateTimeValue;
+    using DateType = DataTypeDateTime;
+};
+
+template <>
+struct DateTraits<uint32_t> {
+    using T = DateV2Value<DateV2ValueType>;
+    using DateType = DataTypeDateV2;
+};
+
+template <>
+struct DateTraits<uint64_t> {
+    using T = DateV2Value<DateTimeV2ValueType>;
+    using DateType = DataTypeDateTimeV2;
+};
+
 } // namespace vectorized
 } // namespace doris
 
@@ -1484,5 +1510,3 @@ struct hash<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueTyp
     }
 };
 } // namespace std
-
-#endif
