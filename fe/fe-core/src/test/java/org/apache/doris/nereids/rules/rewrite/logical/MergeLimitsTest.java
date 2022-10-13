@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class MergeConsecutiveLimitsTest {
+public class MergeLimitsTest {
     @Test
     public void testMergeConsecutiveLimits() {
         LogicalLimit limit3 = new LogicalLimit<>(3, 5, new UnboundRelation(Lists.newArrayList("db", "t")));
@@ -37,7 +37,7 @@ public class MergeConsecutiveLimitsTest {
         LogicalLimit limit1 = new LogicalLimit<>(10, 0, limit2);
 
         CascadesContext context = MemoTestUtils.createCascadesContext(limit1);
-        List<Rule> rules = Lists.newArrayList(new MergeConsecutiveLimits().build());
+        List<Rule> rules = Lists.newArrayList(new MergeLimits().build());
         context.topDownRewrite(rules);
         LogicalLimit limit = (LogicalLimit) context.getMemo().copyOut();
 
