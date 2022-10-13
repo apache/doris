@@ -405,9 +405,11 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
             _eval_const_conjuncts(cur_expr, *_vconjunct_ctx_ptr, &pdt);
-            if (pdt == PushDownType::UNACCEPTABLE &&
-                (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
-                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range))) {
+            if (pdt == PushDownType::ACCEPTABLE) {
+                return nullptr;
+            }
+            if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
+                _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
                 std::visit(
                         [&](auto& value_range) {
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
@@ -433,8 +435,7 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
                         },
                         *range);
             }
-            if (pdt == PushDownType::ACCEPTABLE && slot != nullptr &&
-                _is_key_column(slot->col_name())) {
+            if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
                 return nullptr;
             } else {
                 // for PARTIAL_ACCEPTABLE and UNACCEPTABLE, do not remove expr from the tree
