@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -155,5 +156,14 @@ public class MultiJoin extends AbstractLogicalPlan {
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         throw new RuntimeException("multiJoin can't invoke withLogicalProperties");
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("MultiJoin",
+                "onlyJoinType", onlyJoinType,
+                "joinFilter", joinFilter,
+                "notInnerJoinConditions", notInnerJoinConditions
+        );
     }
 }

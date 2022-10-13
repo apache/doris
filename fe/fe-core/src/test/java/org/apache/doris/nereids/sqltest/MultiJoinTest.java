@@ -23,9 +23,12 @@ import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-public class SqlTest extends TestWithFeService implements PatternMatchSupported {
+import java.util.List;
+
+public class MultiJoinTest extends TestWithFeService implements PatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -68,24 +71,44 @@ public class SqlTest extends TestWithFeService implements PatternMatchSupported 
     }
 
     @Test
-    void testSql() {
-        // String sql = "SELECT *"
-        //         + " FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id"
-        //         + " WHERE T1.id = T2.id";
-        // String sql = "SELECT *"
-        //         + " FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1"
-        //         + " WHERE T1.id = T2.id";
-        // String sql = "SELECT *"
-        // + " FROM T2 LEFT SEMI JOIN T3 ON T2.id = T3.id, T1"
-        //          + " WHERE T1.id > T2.id";
+    void testMultiJoinEliminateCross() {
+        List<String> sqls = ImmutableList.<String>builder()
+                .add("SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id")
+                .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id")
+                .build();
 
-        String sql = "SELECT *"
-                + " FROM T2 LEFT SEMI JOIN T3 ON T2.id = T3.id, T1"
-                + " WHERE T1.id > T2.id";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .applyTopDown(new ReorderJoin())
-                .implement()
-                .printlnTree();
+        for (String sql : sqls) {
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .applyBottomUp(new ReorderJoin())
+                    .matches(
+                            logicalJoin(
+                                    logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
+                                    leafPlan()
+                            ).whenNot(join -> join.getJoinType().isCrossJoin())
+                    )
+                    .printlnTree();
+        }
+    }
+
+    @Test
+    void testMultiJoinExistCross() {
+        List<String> sqls = ImmutableList.<String>builder()
+                .add("SELECT * FROM T2 LEFT SEMI JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id > T2.id")
+                .build();
+
+        for (String sql : sqls) {
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .applyBottomUp(new ReorderJoin())
+                    .matches(
+                            logicalJoin(
+                                    logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
+                                    leafPlan()
+                            ).when(join -> join.getJoinType().isCrossJoin())
+                                    .whenNot(join -> join.getOtherJoinConjuncts().isEmpty())
+                    )
+                    .printlnTree();
+        }
     }
 }

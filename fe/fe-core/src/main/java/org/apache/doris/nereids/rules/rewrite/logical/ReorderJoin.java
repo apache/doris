@@ -78,6 +78,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      * --> {@link MultiJoin}
      */
     public Plan joinToMultiJoin(Plan plan) {
+        // subtree can't specify the end of Pattern. so end can be GroupPlan or Filter
         if (plan instanceof GroupPlan
                 || (plan instanceof LogicalFilter && plan.child(0) instanceof GroupPlan)) {
             return plan;
@@ -105,7 +106,6 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
 
         // recursively convert children.
-        // subtree can't specify the end of Pattern. so end can be GroupPlan or Filter
         Plan left = joinToMultiJoin(join.left());
         Plan right = joinToMultiJoin(join.right());
 
@@ -170,25 +170,20 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             List<Expression> leftFilter = Lists.newArrayList();
             List<Expression> rightFilter = Lists.newArrayList();
             List<Expression> remainingFilter = Lists.newArrayList();
-            Plan left;
-            Plan right;
+            Plan left = multiJoinToJoin(new MultiJoin(
+                    multiJoinHandleChildren.children().subList(0, multiJoinHandleChildren.arity() - 1),
+                    leftFilter,
+                    Optional.empty(),
+                    ExpressionUtils.EMPTY_CONDITION));
+            Plan right = multiJoinToJoin(new MultiJoin(
+                    multiJoinHandleChildren.children().subList(1, multiJoinHandleChildren.arity()),
+                    rightFilter,
+                    Optional.empty(),
+                    ExpressionUtils.EMPTY_CONDITION));
             if (multiJoinHandleChildren.getOnlyJoinType().get().isLeftJoin()) {
-                left = multiJoinToJoin(new MultiJoin(
-                        multiJoinHandleChildren.children().subList(0, multiJoinHandleChildren.arity() - 1),
-                        leftFilter,
-                        Optional.empty(),
-                        LogicalJoin.EMPTY_LIST));
                 right = multiJoinHandleChildren.child(multiJoinHandleChildren.arity() - 1);
             } else if (multiJoinHandleChildren.getOnlyJoinType().get().isRightJoin()) {
                 left = multiJoinHandleChildren.child(0);
-                right = multiJoinToJoin(new MultiJoin(
-                        multiJoinHandleChildren.children().subList(1, multiJoinHandleChildren.arity()),
-                        rightFilter,
-                        Optional.empty(),
-                        LogicalJoin.EMPTY_LIST));
-            } else {
-                left = multiJoinToJoin((MultiJoin) multiJoinHandleChildren.child(0));
-                right = multiJoinToJoin((MultiJoin) multiJoinHandleChildren.child(1));
             }
 
             // split filter
@@ -209,7 +204,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
 
             return PlanUtils.filterOrSelf(remainingFilter, new LogicalJoin<>(
                     multiJoinHandleChildren.getOnlyJoinType().get(),
-                    LogicalJoin.EMPTY_LIST,
+                    ExpressionUtils.EMPTY_CONDITION,
                     multiJoinHandleChildren.getNotInnerJoinConditions(),
                     PlanUtils.filterOrSelf(leftFilter, left), PlanUtils.filterOrSelf(rightFilter, right)));
         }
@@ -231,7 +226,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 newInputs,
                 joinFilter,
                 Optional.empty(),
-                LogicalJoin.EMPTY_LIST));
+                ExpressionUtils.EMPTY_CONDITION));
     }
 
     /**
