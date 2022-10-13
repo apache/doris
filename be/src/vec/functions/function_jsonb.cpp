@@ -289,7 +289,6 @@ using FunctionJsonbParseNotnullErrorValue =
 using FunctionJsonbParseNotnullErrorInvalid =
         FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::RETURN_INVALID>;
 
-
 // func(json,string) -> nullable(type)
 template <typename Impl>
 class FunctionJsonbExtract : public IFunction {
@@ -357,18 +356,16 @@ struct JsonbExtractStringImpl {
     static const bool only_check_exists = ValueType::only_check_exists;
 
     // for jsonb_extract_string
-    static void vector_vector(FunctionContext* context,
-                              const ColumnString::Chars& ldata,
+    static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets,
-                              ColumnString::Chars& res_data,
+                              const ColumnString::Offsets& roffsets, ColumnString::Chars& res_data,
                               ColumnString::Offsets& res_offsets, NullMap& null_map) {
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
 
         std::unique_ptr<JsonbWriter> writer;
-        if constexpr(std::is_same_v<DataTypeJsonb, ReturnType>) {
+        if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
             writer.reset(new JsonbWriter());
         }
 
@@ -399,13 +396,13 @@ struct JsonbExtractStringImpl {
                 continue;
             }
 
-            if constexpr(ValueType::only_get_type) {
-                StringOP::push_value_string(std::string_view(value->typeName()),
-                                            i, res_data, res_offsets);
+            if constexpr (ValueType::only_get_type) {
+                StringOP::push_value_string(std::string_view(value->typeName()), i, res_data,
+                                            res_offsets);
                 continue;
             }
 
-            if constexpr(std::is_same_v<DataTypeJsonb, ReturnType>) {
+            if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
                 writer->reset();
                 writer->writeValue(value);
                 // StringOP::push_value_string(
@@ -418,8 +415,9 @@ struct JsonbExtractStringImpl {
             } else {
                 if (LIKELY(value->isString())) {
                     auto str_value = (JsonbStringVal*)value;
-                    StringOP::push_value_string(std::string_view(str_value->getBlob(), str_value->length()),
-                                                i, res_data, res_offsets);
+                    StringOP::push_value_string(
+                            std::string_view(str_value->getBlob(), str_value->length()), i,
+                            res_data, res_offsets);
                 } else {
                     StringOP::push_null_string(i, res_data, res_offsets, null_map);
                     continue;
@@ -437,12 +435,10 @@ struct JsonbExtractImpl {
     static const bool only_check_exists = ValueType::only_check_exists;
 
     // for jsonb_extract_int/int64/double
-    static void vector_vector(FunctionContext* context,
-                              const ColumnString::Chars& ldata,
+    static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets,
-                              Container& res,
+                              const ColumnString::Offsets& roffsets, Container& res,
                               NullMap& null_map) {
         size_t size = loffsets.size();
         res.resize(size);
@@ -517,7 +513,8 @@ struct JsonbExtractImpl {
             } else if constexpr (std::is_same_v<double, typename ValueType::T>) {
                 if (value->isDouble()) {
                     res[i] = ((const JsonbDoubleVal*)value)->val();
-                } else if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
+                } else if (value->isInt8() || value->isInt16() || value->isInt32() ||
+                           value->isInt64()) {
                     res[i] = ((const JsonbIntVal*)value)->val();
                 } else {
                     null_map[i] = 1;
@@ -527,7 +524,6 @@ struct JsonbExtractImpl {
                 LOG(FATAL) << "unexpected type ";
             }
         }
-
     }
 };
 
@@ -632,7 +628,6 @@ struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
 struct JsonbType : public JsonbExtractStringImpl<JsonbTypeType> {
     static constexpr auto name = "jsonb_type";
 };
-
 
 using FunctionJsonbExists = FunctionJsonbExtract<JsonbExists>;
 using FunctionJsonbType = FunctionJsonbExtract<JsonbType>;
