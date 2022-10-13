@@ -265,6 +265,14 @@ public class TableRef implements ParseNode, Writable {
         return name;
     }
 
+    public List<Long> getSampleTabletIds() {
+        return sampleTabletIds;
+    }
+
+    public TableSample getTableSample() {
+        return tableSample;
+    }
+
     /**
      * This method should only be called after the TableRef has been analyzed.
      */

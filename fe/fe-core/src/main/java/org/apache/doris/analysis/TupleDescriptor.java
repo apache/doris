@@ -43,8 +43,6 @@ public class TupleDescriptor {
     private final TupleId id;
     private final String debugName; // debug only
     private final ArrayList<SlotDescriptor> slots;
-    private List<Long> sampleTabletIds;
-    private TableSample tableSample;
 
     // underlying table, if there is one
     private TableIf table;
@@ -159,22 +157,6 @@ public class TupleDescriptor {
 
     public void setTable(TableIf tbl) {
         table = tbl;
-    }
-
-    public List<Long> getSampleTabletIds() {
-        return sampleTabletIds;
-    }
-
-    public void setSampleTabletIds(List<Long> tids) {
-        sampleTabletIds = tids;
-    }
-
-    public TableSample getTableSample() {
-        return tableSample;
-    }
-
-    public void setTableSample(TableSample tSample) {
-        tableSample = tSample;
     }
 
     public int getByteSize() {

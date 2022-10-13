@@ -1895,6 +1895,8 @@ public class SingleNodePlanner {
                 OlapScanNode olapNode = new OlapScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
                         "OlapScanNode");
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
+                olapNode.setSampleTabletIds(tblRef.getSampleTabletIds());
+                olapNode.setTableSample(tblRef.getTableSample());
                 scanNode = olapNode;
                 break;
             case ODBC:
