@@ -139,6 +139,7 @@ struct HashMethodSerialized
                     serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
         }
     }
+
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 };
