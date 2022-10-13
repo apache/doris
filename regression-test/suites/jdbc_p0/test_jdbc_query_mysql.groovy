@@ -30,7 +30,7 @@ suite("test_jdbc_query_mysql", "p0") {
                 "type"="jdbc",
                 "user"="root",
                 "password"="123456",
-                "jdbc_url"="jdbc:mysql://127.0.0.1:3316/doris_test",
+                "jdbc_url"="jdbc:mysql://127.0.0.1:$mysql_57_port/doris_test",
                 "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
                 "driver_class"="com.mysql.cj.jdbc.Driver"
             );

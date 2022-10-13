@@ -30,7 +30,7 @@ suite("test_jdbc_query_pg", "p0") {
                 "type"="jdbc",
                 "user"="postgres",
                 "password"="123456",
-                "jdbc_url"="jdbc:postgresql://127.0.0.1:5442/postgres?currentSchema=doris_test",
+                "jdbc_url"="jdbc:postgresql://127.0.0.1:$pg_14_port/postgres?currentSchema=doris_test",
                 "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
                 "driver_class"="org.postgresql.Driver"
             );
