@@ -96,6 +96,7 @@ public:
         return _limiter_tracker_raw;
     }
 
+    bool check_limit() { return _check_limit; }
     void set_check_limit(bool check_limit) { _check_limit = check_limit; }
     void set_check_attach(bool check_attach) { _check_attach = check_attach; }
 

@@ -241,12 +241,16 @@ private:
 class StopCheckThreadMemTrackerLimit {
 public:
     explicit StopCheckThreadMemTrackerLimit() {
+        _pre = thread_context()->_thread_mem_tracker_mgr->check_limit();
         thread_context()->_thread_mem_tracker_mgr->set_check_limit(false);
     }
 
     ~StopCheckThreadMemTrackerLimit() {
-        thread_context()->_thread_mem_tracker_mgr->set_check_limit(true);
+        thread_context()->_thread_mem_tracker_mgr->set_check_limit(_pre);
     }
+
+private:
+    bool _pre;
 };
 
 // The following macros are used to fix the tracking accuracy of caches etc.
