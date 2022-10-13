@@ -40,7 +40,6 @@ enum TExprNodeType {
   NULL_LITERAL,
   SLOT_REF,
   STRING_LITERAL,
-  JSON_LITERAL,
   TUPLE_IS_NULL_PRED,
   INFO_FUNC,
   FUNCTION_CALL,
@@ -52,6 +51,9 @@ enum TExprNodeType {
 
   // only used in runtime filter
   BLOOM_PRED,
+
+  // for josn
+  JSON_LITERAL,
 }
 
 //enum TAggregationOp {
