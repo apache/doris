@@ -117,6 +117,7 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WithClause;
+import org.apache.doris.nereids.trees.expressions.WithSubquery;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -232,21 +233,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     public LogicalPlan withCte(CteContext ctx, LogicalPlan plan) {
         // withClause list
-        List<WithClause> list = ctx.withClause().stream()
-                .map(withClauseCtx -> (WithClause) visitWithClause(withClauseCtx))
-                .collect(ImmutableList.toImmutableList());
+        List<WithClause> list = visit(ctx.withClause(), WithClause.class);
         return new LogicalCTE<>(list, plan);
     }
 
     @Override
-    public Expression visitWithClause(WithClauseContext ctx) {
-        LogicalPlan withQueryPlan = plan(ctx.query());
-        List<String> columnNames = null;
-        if (ctx.columnAliases() != null) {
-            columnNames = ctx.columnAliases().identifier().stream()
+    public WithClause visitWithClause(WithClauseContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            WithSubquery withSubquery = new WithSubquery(plan(ctx.query()));
+            List<String> columnNames = null;
+            if (ctx.columnAliases() != null) {
+                columnNames = ctx.columnAliases().identifier().stream()
                     .map(id -> id.getText()).collect(Collectors.toList());
-        }
-        return new WithClause(ctx.identifier().getText(), withQueryPlan, Optional.ofNullable(columnNames));
+            }
+            return new WithClause(ctx.identifier().getText(), withSubquery, Optional.ofNullable(columnNames));
+        });
     }
 
     @Override

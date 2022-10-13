@@ -15,37 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.Objects;
 
 /**
- * Context used for CTE analysis and register
+ *  represents subquery in CTE
  */
-public class CTEContext {
+public class WithSubquery extends SubqueryExpr implements LeafExpression {
 
-    // store CTE name and non-analyzed LogicalPlan of with query, which means the CTE query plan will be inline
-    // everywhere it is referenced and analyzed more than once.
-    private Map<String, LogicalPlan> withQueries;
-
-    public CTEContext() {
-        this.withQueries = new HashMap<>();
-    }
-
-    public boolean containsCTE(String cteName) {
-        return withQueries.containsKey(cteName);
-    }
-
-    public void addCTE(String cteName, LogicalPlan ctePlan) {
-        withQueries.put(cteName, ctePlan);
-    }
-
-    public Optional<LogicalPlan> findCTE(String name) {
-        return Optional.ofNullable(withQueries.get(name));
+    public WithSubquery(LogicalPlan subquery) {
+        super(Objects.requireNonNull(subquery, "subquery cannot be null"));
     }
 
 }

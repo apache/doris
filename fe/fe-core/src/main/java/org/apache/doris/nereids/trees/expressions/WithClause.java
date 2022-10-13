@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -32,11 +34,10 @@ import java.util.stream.Collectors;
 public class WithClause extends Expression {
 
     private final String name;
-    private final LogicalPlan query;
-
+    private final WithSubquery query;
     private final Optional<List<String>> columnAliases;
 
-    public WithClause(String name, LogicalPlan query, Optional<List<String>> columnAliases) {
+    public WithClause(String name, WithSubquery query, Optional<List<String>> columnAliases) {
         this.name = name;
         this.query = query;
         this.columnAliases = columnAliases;
@@ -46,8 +47,12 @@ public class WithClause extends Expression {
         return name;
     }
 
-    public LogicalPlan getQuery() {
+    public WithSubquery getQuery() {
         return query;
+    }
+
+    public LogicalPlan extractQueryPlan() {
+        return query.getQueryPlan();
     }
 
     public Optional<List<String>> getColumnAliases() {
@@ -55,8 +60,26 @@ public class WithClause extends Expression {
     }
 
     @Override
+    public DataType getDataType() throws UnboundException {
+        throw new UnboundException("not support");
+    }
+
+    @Override
     public boolean nullable() throws UnboundException {
         return true;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        WithClause other = (WithClause) o;
+        return name.equals(other.name) && Objects.equals(query, other.query)
+                && Objects.equals(columnAliases, other.columnAliases);
     }
 
     @Override

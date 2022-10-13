@@ -54,11 +54,8 @@ public class RegisterCTE extends PlanPreprocessor {
     }
 
     @Override
-    public LogicalPlan visitLogicalCTE(
-            LogicalCTE<? extends Plan> logicalCTE,
-            StatementContext statementContext) {
-        List<WithClause> withClauses = logicalCTE.getWithClauses();
-        withClauses.stream().forEach(withClause -> {
+    public LogicalPlan visitLogicalCTE(LogicalCTE<? extends Plan> logicalCTE, StatementContext statementContext) {
+        logicalCTE.getWithClauses().stream().forEach(withClause -> {
             registerWithQuery(withClause, statementContext);
         });
         // eliminate LogicalCTE node
@@ -67,13 +64,13 @@ public class RegisterCTE extends PlanPreprocessor {
 
     private void registerWithQuery(WithClause withClause, StatementContext statementContext) {
         String name = withClause.getName();
-        LogicalPlan originPlan = withClause.getQuery();
+        LogicalPlan originPlan = withClause.extractQueryPlan();
 
         if (cteContext.containsCTE(name)) {
             throw new AnalysisException("CTE name [" + name + "] cannot be used more than once.");
         }
 
-        CascadesContext cascadesContext = new Memo(withClause.getQuery()).newCascadesContext(statementContext);
+        CascadesContext cascadesContext = new Memo(originPlan).newCascadesContext(statementContext);
         cascadesContext.newAnalyzer(cteContext).analyze();
 
         if (withClause.getColumnAliases().isPresent()) {
@@ -95,7 +92,7 @@ public class RegisterCTE extends PlanPreprocessor {
                     ? new UnboundSlot(outputSlots.get(i).getName())
                     : new Alias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
                 .collect(Collectors.toList());
-        LogicalPlan originPlan = withClause.getQuery();
+        LogicalPlan originPlan = withClause.extractQueryPlan();
         return new LogicalProject<>(projects, originPlan);
     }
 
