@@ -265,6 +265,42 @@ struct TransferImpl {
     }
 };
 
+// Capitalize first letter
+struct NameToInitcap {
+    static constexpr auto name = "initcap";
+};
+
+struct InitcapImpl {
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        size_t offset_size = offsets.size();
+        res_offsets.resize(offsets.size());
+        memcpy(res_offsets.data(), offsets.data(), offset_size * sizeof(offsets.data()));
+
+        size_t data_length = data.size();
+        res_data.resize(data_length);
+        simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+
+        bool need_capitalize = true;
+        for (size_t offset_index = 0, start_index = 0; offset_index < offset_size; ++offset_index) {
+            auto end_index = res_offsets[offset_index];
+            need_capitalize = true;
+
+            for (size_t i = start_index; i < end_index; ++i) {
+                if (!::isalnum(res_data[i])) {
+                    need_capitalize = true;
+                } else if (need_capitalize) {
+                    res_data[i] = ::toupper(res_data[i]);
+                    need_capitalize = false;
+                }
+            }
+
+            start_index = end_index;
+        }
+        return Status::OK();
+    }
+};
+
 struct NameTrim {
     static constexpr auto name = "trim";
 };
@@ -588,6 +624,8 @@ using FunctionToLower = FunctionStringToString<TransferImpl<::tolower>, NameToLo
 
 using FunctionToUpper = FunctionStringToString<TransferImpl<::toupper>, NameToUpper>;
 
+using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
+
 using FunctionLTrim = FunctionStringToString<TrimImpl<true, false>, NameLTrim>;
 
 using FunctionRTrim = FunctionStringToString<TrimImpl<false, true>, NameRTrim>;
@@ -619,6 +657,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
     factory.register_function<FunctionToUpper>();
+    factory.register_function<FunctionToInitcap>();
     factory.register_function<FunctionLTrim>();
     factory.register_function<FunctionRTrim>();
     factory.register_function<FunctionTrim>();
