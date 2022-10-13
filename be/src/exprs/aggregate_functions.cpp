@@ -638,6 +638,23 @@ void AggregateFunctions::max(FunctionContext*, const T& src, T* dst) {
     }
 }
 
+template <typename T>
+void AggregateFunctions::any_init(FunctionContext* ctx, T* dst) {
+    T val {};
+    // set to null when intermediate slot is nullable
+    val.is_null = true;
+    *dst = val;
+}
+
+template <typename T>
+void AggregateFunctions::any(FunctionContext*, const T& src, T* dst) {
+    if (LIKELY(!dst->is_null || src.is_null)) {
+        return;
+    }
+
+    *dst = src;
+}
+
 template <>
 void AggregateFunctions::min(FunctionContext*, const DecimalV2Val& src, DecimalV2Val* dst) {
     if (src.is_null) {
@@ -710,6 +727,17 @@ void AggregateFunctions::max(FunctionContext* ctx, const StringVal& src, StringV
         memcpy(copy, src.ptr, src.len);
         *dst = StringVal(copy, src.len);
     }
+}
+
+template <>
+void AggregateFunctions::any(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (LIKELY(src.is_null || !dst->is_null)) {
+        return;
+    }
+
+    uint8_t* copy = ctx->allocate(src.len);
+    memcpy(copy, src.ptr, src.len);
+    *dst = StringVal(copy, src.len);
 }
 
 template <>
@@ -2703,6 +2731,40 @@ template void AggregateFunctions::max<LargeIntVal>(FunctionContext*, const Large
 template void AggregateFunctions::max<FloatVal>(FunctionContext*, const FloatVal& src,
                                                 FloatVal* dst);
 template void AggregateFunctions::max<DoubleVal>(FunctionContext*, const DoubleVal& src,
+                                                 DoubleVal* dst);
+
+template void AggregateFunctions::any_init<BooleanVal>(doris_udf::FunctionContext*,
+                                                       BooleanVal* dst);
+template void AggregateFunctions::any_init<TinyIntVal>(doris_udf::FunctionContext*,
+                                                       TinyIntVal* dst);
+template void AggregateFunctions::any_init<SmallIntVal>(doris_udf::FunctionContext*,
+                                                        SmallIntVal* dst);
+template void AggregateFunctions::any_init<IntVal>(doris_udf::FunctionContext*, IntVal* dst);
+template void AggregateFunctions::any_init<BigIntVal>(doris_udf::FunctionContext*, BigIntVal* dst);
+template void AggregateFunctions::any_init<LargeIntVal>(doris_udf::FunctionContext*,
+                                                        LargeIntVal* dst);
+template void AggregateFunctions::any_init<FloatVal>(doris_udf::FunctionContext*, FloatVal* dst);
+template void AggregateFunctions::any_init<DoubleVal>(doris_udf::FunctionContext*, DoubleVal* dst);
+template void AggregateFunctions::any_init<DateTimeVal>(doris_udf::FunctionContext*,
+                                                        DateTimeVal* dst);
+template void AggregateFunctions::any_init<DecimalV2Val>(doris_udf::FunctionContext*,
+                                                         DecimalV2Val* dst);
+template void AggregateFunctions::any_init<StringVal>(doris_udf::FunctionContext*, StringVal* dst);
+
+template void AggregateFunctions::any<BooleanVal>(FunctionContext*, const BooleanVal& src,
+                                                  BooleanVal* dst);
+template void AggregateFunctions::any<TinyIntVal>(FunctionContext*, const TinyIntVal& src,
+                                                  TinyIntVal* dst);
+template void AggregateFunctions::any<SmallIntVal>(FunctionContext*, const SmallIntVal& src,
+                                                   SmallIntVal* dst);
+template void AggregateFunctions::any<IntVal>(FunctionContext*, const IntVal& src, IntVal* dst);
+template void AggregateFunctions::any<BigIntVal>(FunctionContext*, const BigIntVal& src,
+                                                 BigIntVal* dst);
+template void AggregateFunctions::any<LargeIntVal>(FunctionContext*, const LargeIntVal& src,
+                                                   LargeIntVal* dst);
+template void AggregateFunctions::any<FloatVal>(FunctionContext*, const FloatVal& src,
+                                                FloatVal* dst);
+template void AggregateFunctions::any<DoubleVal>(FunctionContext*, const DoubleVal& src,
                                                  DoubleVal* dst);
 
 template void AggregateFunctions::pc_update(FunctionContext*, const BooleanVal&, StringVal*);

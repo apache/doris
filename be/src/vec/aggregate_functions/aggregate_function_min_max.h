@@ -123,6 +123,24 @@ public:
         }
     }
 
+    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (!has()) {
+            change(column, row_num, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool change_first_time(const Self& to, Arena* arena) {
+        if (!has() && to.has()) {
+            change(to, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     bool is_equal_to(const Self& to) const { return has() && to.value == value; }
 
     bool is_equal_to(const IColumn& column, size_t row_num) const {
@@ -216,6 +234,24 @@ public:
 
     bool change_if_greater(const Self& to, Arena* arena) {
         if (to.has() && (!has() || to.value > value)) {
+            change(to, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (!has()) {
+            change(column, row_num, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool change_first_time(const Self& to, Arena* arena) {
+        if (!has() && to.has()) {
             change(to, arena);
             return true;
         } else {
@@ -381,6 +417,24 @@ public:
         }
     }
 
+    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (!has()) {
+            change(column, row_num, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool change_first_time(const Self& to, Arena* arena) {
+        if (!has() && to.has()) {
+            change(to, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     bool is_equal_to(const Self& to) const {
         return has() && to.get_string_ref() == get_string_ref();
     }
@@ -414,6 +468,21 @@ struct AggregateFunctionMinData : Data {
     bool change_if_better(const Self& to, Arena* arena) { return this->change_if_less(to, arena); }
 
     static const char* name() { return "min"; }
+};
+
+template <typename Data>
+struct AggregateFunctionAnyData : Data {
+    using Self = AggregateFunctionAnyData;
+    using Data::IsFixedLength;
+
+    bool change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        return this->change_first_time(column, row_num, arena);
+    }
+    bool change_if_better(const Self& to, Arena* arena) {
+        return this->change_first_time(to, arena);
+    }
+
+    static const char* name() { return "any"; }
 };
 
 template <typename Data, bool AllocatesMemoryInArena>
@@ -563,6 +632,11 @@ AggregateFunctionPtr create_aggregate_function_max(const std::string& name,
                                                    const bool result_is_nullable);
 
 AggregateFunctionPtr create_aggregate_function_min(const std::string& name,
+                                                   const DataTypes& argument_types,
+                                                   const Array& parameters,
+                                                   const bool result_is_nullable);
+
+AggregateFunctionPtr create_aggregate_function_any(const std::string& name,
                                                    const DataTypes& argument_types,
                                                    const Array& parameters,
                                                    const bool result_is_nullable);
