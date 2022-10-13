@@ -1271,18 +1271,19 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto col_url =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto col_target =
-            block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto col_parameter =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
-        ColumnString::MutablePtr col_res = ColumnString::create();        
+        ColumnString::MutablePtr col_res = ColumnString::create();
 
         for(int i = 0; i < input_rows_count; ++i) {
-            StringRef target_str =
-                assert_cast<const ColumnString*>(col_target.get())->get_data_at(i);
-            StringRef url_str =
-                assert_cast<const ColumnString*>(col_url.get())->get_data_at(i);
-            std::string result = extract_url(url_str, target_str);
-            
+            auto source = col_url->get_data_at(i);
+            auto param = col_parameter->get_data_at(i);
+            StringValue url_str(const_cast<char*>(source.data), source.size);
+            StringValue parameter_str(const_cast<char*>(param.data), param.size);
+
+            std::string result = extract_url(url_str, parameter_str);
+
             col_res->insert_data(result.data(), result.length());
         }
 
@@ -1291,21 +1292,12 @@ public:
     }
 
 private:
-    std::string extract_url(StringRef url_str, StringRef target_str) {
-        std::string str = url_str.to_string();
-        std::string_view target = target_str.to_string_view();
-
-        if(target.empty()) {
-            return str;
-        }
-        std::string::size_type idx = str.find(target);
-        if(idx != string::npos) {
-            return target_str.to_string();
-        } else {
+    std::string extract_url(StringValue url, StringValue parameter) {
+        if(url.len == 0 || parameter.len == 0) {
             return "";
         }
+        return UrlParser::extract_url(url, parameter);
     }
-
 };
 
 class FunctionStringParseUrl : public IFunction {

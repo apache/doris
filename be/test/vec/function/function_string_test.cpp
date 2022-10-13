@@ -959,14 +959,17 @@ TEST(function_string_test, function_extract_url_parameter) {
             TypeIndex::String,
             TypeIndex::String
     };
-    DataSet data_set = {{{{VARCHAR(""), VARCHAR("doris"))}, {VARCHAR("")}},
-                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("doorg")},{VARCHAR("")}},
-                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("s.")},{VARCHAR("s.")}},
-                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("doris")},{VARCHAR("doris")}},
-                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("://doris.")},{VARCHAR("://doris.")}},
-                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("doris.apache.org")},{VARCHAR("doris.apache.org")}},
-                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("")},{VARCHAR("https://doris.apache.org/")}},
-                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("https://doris.apache.org/")},{VARCHAR("")}};
+    DataSet data_set = {{{{VARCHAR(""), VARCHAR("k1"))}, {VARCHAR("")}},
+                        {{VARCHAR("http://doris.apache.org?k1=aa"), VARCHAR("")},{VARCHAR("")}},
+                        {{VARCHAR("https://doris.apache.org/"), VARCHAR("k1")},{VARCHAR("")}},
+                        {VARCHAR("http://doris.apache.org?"), VARCHAR("k1")},{VARCHAR("")}},
+                        {{VARCHAR("http://doris.apache.org?k1=aa"), VARCHAR("k1")},{VARCHAR("aa")}},
+                        {{VARCHAR("http://doris.apache.org?k1=aa#999"), VARCHAR("k1")},{VARCHAR("aa")}},
+                        {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("k1")},{VARCHAR("aa")}},
+                        {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("k2")},{VARCHAR("bb")}},
+                        {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("999")},{VARCHAR("")}},
+                        {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("k3")},{VARCHAR("")}},
+                        {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("test")},{VARCHAR("dd")}};
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
