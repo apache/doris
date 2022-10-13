@@ -21,4 +21,19 @@ package org.apache.doris.common;
  * temporary exception, use for fallback to legacy planner. remove it when Nereids is GA.
  */
 public class NereidsException extends RuntimeException {
+
+    private final Exception exception;
+
+    public NereidsException(Exception cause) {
+        this.exception = cause;
+    }
+
+    public Exception getException() {
+        return exception;
+    }
+
+    @Override
+    public String getMessage() {
+        return exception.getMessage();
+    }
 }

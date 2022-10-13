@@ -415,8 +415,13 @@ public class StmtExecutor implements ProfileWriter {
                     // analyze this query
                     try {
                         analyze(context.getSessionVariable().toThrift());
-                    } catch (NereidsException ignored) {
+                    } catch (NereidsException e) {
+                        if (!context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                            LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                            throw e.getException();
+                        }
                         // fall back to legacy planner
+                        LOG.info("fall back to legacy planner, because: {}", e.getMessage());
                         parsedStmt = null;
                         analyze(context.getSessionVariable().toThrift());
                     }
@@ -702,10 +707,10 @@ public class StmtExecutor implements ProfileWriter {
                 } catch (UserException e) {
                     throw e;
                 } catch (Exception e) {
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     if (parsedStmt instanceof LogicalPlanAdapter) {
-                        throw new NereidsException();
+                        throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage()));
                     }
+                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());
                 } finally {
                     MetaLockUtils.readUnlockTables(tables);
