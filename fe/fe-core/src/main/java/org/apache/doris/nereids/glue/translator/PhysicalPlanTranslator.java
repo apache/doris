@@ -33,7 +33,6 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -314,21 +313,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
 
-        // TODO: Unify the logic here for all the table types once aggregate/unique key types are fully supported.
         switch (olapScan.getTable().getKeysType()) {
             case AGG_KEYS:
             case UNIQUE_KEYS:
-                // TODO: Improve complete info for aggregate and unique key types table.
+            case DUP_KEYS:
                 PreAggStatus preAgg = olapScan.getPreAggStatus();
                 olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(), preAgg.getOffReason());
-                break;
-            case DUP_KEYS:
-                try {
-                    olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), true, "");
-                    olapScanNode.setIsPreAggregation(true, "");
-                } catch (Exception e) {
-                    throw new AnalysisException(e.getMessage());
-                }
                 break;
             default:
                 throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());

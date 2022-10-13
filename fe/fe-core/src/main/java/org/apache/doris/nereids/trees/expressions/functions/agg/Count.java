@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -30,7 +31,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /** count agg function. */
-public class Count extends AggregateFunction implements AlwaysNotNullable {
+public class Count extends AggregateFunction implements UnaryExpression, AlwaysNotNullable {
 
     private final boolean isStar;
 
