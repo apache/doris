@@ -58,25 +58,25 @@ TEST_F(ExportTaskMgrTest, NormalCase) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::RUNNING, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::RUNNING, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // make it finishing
     ExportTaskResult task_result;
     task_result.files.push_back("path/file1");
-    ASSERT_TRUE(mgr.finish_task(id, Status::OK(), task_result).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::FINISHED, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
-    ASSERT_EQ(1, res.files.size());
+    EXPECT_TRUE(mgr.finish_task(id, Status::OK(), task_result).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::FINISHED, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_EQ(1, res.files.size());
 
     // erase it
-    ASSERT_TRUE(mgr.erase_task(id).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::CANCELLED, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.erase_task(id).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::CANCELLED, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 TEST_F(ExportTaskMgrTest, DuplicateCase) {
@@ -90,16 +90,16 @@ TEST_F(ExportTaskMgrTest, DuplicateCase) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::RUNNING, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::RUNNING, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // Put it twice
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::RUNNING, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::RUNNING, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 TEST_F(ExportTaskMgrTest, RunAfterSuccess) {
@@ -113,28 +113,28 @@ TEST_F(ExportTaskMgrTest, RunAfterSuccess) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::RUNNING, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::RUNNING, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // make it finishing
     ExportTaskResult task_result;
     task_result.files.push_back("path/file1");
-    ASSERT_TRUE(mgr.finish_task(id, Status::OK(), task_result).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::FINISHED, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
-    ASSERT_EQ(1, res.files.size());
-    ASSERT_EQ("path/file1", res.files[0]);
+    EXPECT_TRUE(mgr.finish_task(id, Status::OK(), task_result).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::FINISHED, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_EQ(1, res.files.size());
+    EXPECT_EQ("path/file1", res.files[0]);
 
     // Put it twice
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::FINISHED, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
-    ASSERT_EQ(1, res.files.size());
-    ASSERT_EQ("path/file1", res.files[0]);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::FINISHED, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_EQ(1, res.files.size());
+    EXPECT_EQ("path/file1", res.files[0]);
 }
 
 TEST_F(ExportTaskMgrTest, RunAfterFail) {
@@ -148,23 +148,23 @@ TEST_F(ExportTaskMgrTest, RunAfterFail) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::RUNNING, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::RUNNING, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // make it finishing
     ExportTaskResult task_result;
-    ASSERT_TRUE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::CANCELLED, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::CANCELLED, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // Put it twice
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::RUNNING, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::RUNNING, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 TEST_F(ExportTaskMgrTest, CancelJob) {
@@ -178,23 +178,23 @@ TEST_F(ExportTaskMgrTest, CancelJob) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::RUNNING, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::RUNNING, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // make it finishing
     ExportTaskResult task_result;
-    ASSERT_TRUE(mgr.cancel_task(id).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::CANCELLED, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.cancel_task(id).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::CANCELLED, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // Put it twice
-    ASSERT_TRUE(mgr.start_task(req).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::RUNNING, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_task(req).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::RUNNING, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 TEST_F(ExportTaskMgrTest, FinishUnknownJob) {
@@ -207,27 +207,10 @@ TEST_F(ExportTaskMgrTest, FinishUnknownJob) {
 
     // make it finishing
     ExportTaskResult task_result;
-    ASSERT_FALSE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
-    ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
-    ASSERT_EQ(TExportState::CANCELLED, res.state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_FALSE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
+    EXPECT_TRUE(mgr.get_task_state(id, &res).ok());
+    EXPECT_EQ(TExportState::CANCELLED, res.state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-
-    doris::config::read_size = 8388608;
-    doris::config::min_buffer_size = 1024;
-    doris::CpuInfo::init();
-    doris::DiskInfo::init();
-    doris::config::pull_load_task_dir = "/tmp";
-
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

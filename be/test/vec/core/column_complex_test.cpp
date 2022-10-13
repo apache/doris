@@ -27,7 +27,7 @@ namespace doris::vectorized {
 TEST(ColumnComplexTest, BasicTest) {
     using ColumnSTLString = ColumnComplexType<std::string>;
     auto column = ColumnSTLString::create();
-    ASSERT_EQ(column->size(), 0);
+    EXPECT_EQ(column->size(), 0);
     std::string val0 = "";
     std::string val1 = "str-1";
 
@@ -35,9 +35,9 @@ TEST(ColumnComplexTest, BasicTest) {
     column->insert_data(reinterpret_cast<const char*>(&val1), sizeof(val1));
 
     StringRef ref = column->get_data_at(0);
-    ASSERT_EQ((*reinterpret_cast<const std::string*>(ref.data)), "");
+    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), "");
     ref = column->get_data_at(1);
-    ASSERT_EQ((*reinterpret_cast<const std::string*>(ref.data)), val1);
+    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), val1);
 }
 
 // Test the compile failed
@@ -45,8 +45,3 @@ TEST(ColumnComplexType, DataTypeBitmapTest) {
     std::make_shared<DataTypeBitMap>();
 }
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

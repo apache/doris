@@ -57,7 +57,7 @@ TEST(AggTest, basic_test) {
     for (int i = 0; i < agg_test_batch_size; i++) {
         ans += i;
     }
-    ASSERT_EQ(ans, *reinterpret_cast<int32_t*>(place));
+    EXPECT_EQ(ans, *reinterpret_cast<int32_t*>(place));
     agg_function->destroy(place);
 }
 
@@ -93,12 +93,7 @@ TEST(AggTest, topn_test) {
     std::string expect_result =
             "{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":"
             "46,\"10\":37}";
-    ASSERT_EQ(result, expect_result);
+    EXPECT_EQ(result, expect_result);
     agg_function->destroy(place);
 }
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

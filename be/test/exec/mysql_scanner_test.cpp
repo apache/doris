@@ -45,18 +45,18 @@ protected:
 TEST_F(MysqlScannerTest, normal_use) {
     MysqlScanner scanner(_param);
     Status status = scanner.open();
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::vector<std::string> fields;
     fields.push_back("*");
     std::vector<std::string> filters;
     filters.push_back("id = 1");
     status = scanner.query("dim_lbs_device", fields, filters);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     bool eos = false;
     char** buf;
     unsigned long* length;
     status = scanner.get_next_row(nullptr, &length, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 
     while (!eos) {
         status = scanner.get_next_row(&buf, &length, &eos);
@@ -65,7 +65,7 @@ TEST_F(MysqlScannerTest, normal_use) {
             break;
         }
 
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         for (int i = 0; i < scanner.field_num(); ++i) {
             if (buf[i]) {
@@ -84,44 +84,33 @@ TEST_F(MysqlScannerTest, no_init) {
     std::vector<std::string> filters;
     filters.push_back("id = 1");
     Status status = scanner.query("dim_lbs_device", fields, filters);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     status = scanner.query("select 1");
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     bool eos = false;
     char** buf;
     unsigned long* length;
     status = scanner.get_next_row(&buf, &length, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 TEST_F(MysqlScannerTest, query_failed) {
     MysqlScanner scanner(_param);
     Status status = scanner.open();
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::vector<std::string> fields;
     fields.push_back("*");
     std::vector<std::string> filters;
     filters.push_back("id = 1");
     status = scanner.query("no_such_table", fields, filters);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 TEST_F(MysqlScannerTest, open_failed) {
     MysqlScannerParam invalid_param;
     MysqlScanner scanner(invalid_param);
     Status status = scanner.open();
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

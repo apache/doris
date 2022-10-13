@@ -38,7 +38,7 @@ TEST_F(JsonUtilTest, success) {
             "{\n"
             "    \"status\": \"Success\",\n"
             "    \"msg\": \"OK\"\n}";
-    ASSERT_STREQ(result, str.c_str());
+    EXPECT_STREQ(result, str.c_str());
 }
 
 TEST_F(JsonUtilTest, normal_fail) {
@@ -50,7 +50,7 @@ TEST_F(JsonUtilTest, normal_fail) {
             "{\n"
             "    \"status\": \"Fail\",\n"
             "    \"msg\": \"so bad\"\n}";
-    ASSERT_STREQ(result, str.c_str());
+    EXPECT_STREQ(result, str.c_str());
 }
 
 TEST_F(JsonUtilTest, normal_fail_str) {
@@ -64,12 +64,7 @@ TEST_F(JsonUtilTest, normal_fail_str) {
             "    \"status\": \"Fail\",\n"
             "    \"msg\": \"\\\"so bad\\\"\"\n}";
     LOG(INFO) << "str: " << str;
-    ASSERT_STREQ(result, str.c_str());
+    EXPECT_STREQ(result, str.c_str());
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

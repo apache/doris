@@ -17,8 +17,9 @@
 
 #include "util/histogram.h"
 
-#include <cmath>
 #include <gtest/gtest.h>
+
+#include <cmath>
 
 namespace doris {
 
@@ -29,12 +30,11 @@ public:
 };
 
 namespace {
-    const HistogramBucketMapper bucket_mapper;
-    const double delta = 0.1;
-}
+const HistogramBucketMapper bucket_mapper;
+const double delta = 0.1;
+} // namespace
 
-void populate_histogram(HistogramStat& hist, uint64_t low,
-                        uint64_t high, uint64_t loop = 1) {
+void populate_histogram(HistogramStat& hist, uint64_t low, uint64_t high, uint64_t loop = 1) {
     for (; loop > 0; loop--) {
         for (uint64_t i = low; i <= high; i++) {
             hist.add(i);
@@ -44,15 +44,15 @@ void populate_histogram(HistogramStat& hist, uint64_t low,
 
 TEST_F(HistogramTest, Normal) {
     HistogramStat hist;
-    ASSERT_TRUE(hist.is_empty());
+    EXPECT_TRUE(hist.is_empty());
     populate_histogram(hist, 1, 110, 10);
-    ASSERT_EQ(hist.num(), 1100);
+    EXPECT_EQ(hist.num(), 1100);
 
-    ASSERT_LE(fabs(hist.percentile(100.0) - 110.0), delta);
-    ASSERT_LE(fabs(hist.percentile(99.0) - 108.9), delta);
-    ASSERT_LE(fabs(hist.percentile(95.0) - 104.5), delta);
-    ASSERT_LE(fabs(hist.median() - 55.0), delta);
-    ASSERT_EQ(hist.average(), 55.5);
+    EXPECT_LE(fabs(hist.percentile(100.0) - 110.0), delta);
+    EXPECT_LE(fabs(hist.percentile(99.0) - 108.9), delta);
+    EXPECT_LE(fabs(hist.percentile(95.0) - 104.5), delta);
+    EXPECT_LE(fabs(hist.median() - 55.0), delta);
+    EXPECT_EQ(hist.average(), 55.5);
 }
 
 TEST_F(HistogramTest, Merge) {
@@ -63,22 +63,22 @@ TEST_F(HistogramTest, Merge) {
     populate_histogram(other, 101, 250);
     hist.merge(other);
 
-    ASSERT_LE(fabs(hist.percentile(100.0) - 250.0), delta);
-    ASSERT_LE(fabs(hist.percentile(99.0) - 247.5), delta);
-    ASSERT_LE(fabs(hist.percentile(95.0) - 237.5), delta);
-    ASSERT_LE(fabs(hist.median() - 125.0), delta);
-    ASSERT_EQ(hist.average(), 125.5);
+    EXPECT_LE(fabs(hist.percentile(100.0) - 250.0), delta);
+    EXPECT_LE(fabs(hist.percentile(99.0) - 247.5), delta);
+    EXPECT_LE(fabs(hist.percentile(95.0) - 237.5), delta);
+    EXPECT_LE(fabs(hist.median() - 125.0), delta);
+    EXPECT_EQ(hist.average(), 125.5);
 }
 
 TEST_F(HistogramTest, Empty) {
     HistogramStat hist;
-    ASSERT_EQ(hist.min(), bucket_mapper.last_value());
-    ASSERT_EQ(hist.max(), 0);
-    ASSERT_EQ(hist.num(), 0);
-    ASSERT_EQ(hist.median(), 0.0);
-    ASSERT_EQ(hist.percentile(85.0), 0.0);
-    ASSERT_EQ(hist.average(), 0.0);
-    ASSERT_EQ(hist.standard_deviation(), 0.0);
+    EXPECT_EQ(hist.min(), bucket_mapper.last_value());
+    EXPECT_EQ(hist.max(), 0);
+    EXPECT_EQ(hist.num(), 0);
+    EXPECT_EQ(hist.median(), 0.0);
+    EXPECT_EQ(hist.percentile(85.0), 0.0);
+    EXPECT_EQ(hist.average(), 0.0);
+    EXPECT_EQ(hist.standard_deviation(), 0.0);
 }
 
 TEST_F(HistogramTest, Clear) {
@@ -86,15 +86,10 @@ TEST_F(HistogramTest, Clear) {
     populate_histogram(hist, 1, 100);
 
     hist.clear();
-    ASSERT_TRUE(hist.is_empty());
-    ASSERT_EQ(hist.median(), 0);
-    ASSERT_EQ(hist.percentile(85.0), 0.0);
-    ASSERT_EQ(hist.average(), 0.0);
+    EXPECT_TRUE(hist.is_empty());
+    EXPECT_EQ(hist.median(), 0);
+    EXPECT_EQ(hist.percentile(85.0), 0.0);
+    EXPECT_EQ(hist.average(), 0.0);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

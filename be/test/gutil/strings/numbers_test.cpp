@@ -132,8 +132,3 @@ TEST_F(NumbersTest, test_double_to_buffer) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

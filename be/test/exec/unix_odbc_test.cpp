@@ -16,13 +16,3 @@
 // under the License.
 
 #include <sql.h>
-
-int main(int argc, char* argv[]) {
-    SQLRETURN ret;
-    SQLHENV env;
-
-    /* Allocate an environment handle */
-    ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &env);
-
-    return ret;
-}

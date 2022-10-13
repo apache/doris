@@ -42,9 +42,9 @@ class CgroupsMgrTest : public testing::Test {
 public:
     // create a mock cgroup folder
     static void SetUpTestCase() {
-        ASSERT_TRUE(std::filesystem::remove_all(_s_cgroup_path));
+        EXPECT_TRUE(std::filesystem::remove_all(_s_cgroup_path));
         // create a mock cgroup path
-        ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path));
+        EXPECT_TRUE(std::filesystem::create_directory(_s_cgroup_path));
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -52,11 +52,11 @@ public:
         doris::EngineOptions options;
         options.store_paths = paths;
         Status s = doris::StorageEngine::open(options, &k_engine);
-        ASSERT_TRUE(s.ok()) << s.to_string();
+        EXPECT_TRUE(s.ok()) << s.to_string();
     }
 
     // delete the mock cgroup folder
-    static void TearDownTestCase() { ASSERT_TRUE(std::filesystem::remove_all(_s_cgroup_path)); }
+    static void TearDownTestCase() { EXPECT_TRUE(std::filesystem::remove_all(_s_cgroup_path)); }
 
     // test if a file contains specific number
     static bool does_contain_number(const std::string& file_path, int32_t number) {
@@ -80,28 +80,28 @@ CgroupsMgr CgroupsMgrTest::_s_cgroups_mgr(nullptr, CgroupsMgrTest::_s_cgroup_pat
 TEST_F(CgroupsMgrTest, TestIsDirectory) {
     // test folder exist
     bool exist = _s_cgroups_mgr.is_directory(CgroupsMgrTest::_s_cgroup_path.c_str());
-    ASSERT_TRUE(exist);
+    EXPECT_TRUE(exist);
     // test folder not exist
     bool not_exist = _s_cgroups_mgr.is_directory("./abc");
-    ASSERT_FALSE(not_exist);
+    EXPECT_FALSE(not_exist);
     // test file exist, but not folder
     bool not_folder = _s_cgroups_mgr.is_directory("/etc/profile");
-    ASSERT_FALSE(not_folder);
+    EXPECT_FALSE(not_folder);
 }
 
 TEST_F(CgroupsMgrTest, TestIsFileExist) {
     // test file exist
     bool exist = _s_cgroups_mgr.is_file_exist(CgroupsMgrTest::_s_cgroup_path.c_str());
-    ASSERT_TRUE(exist);
+    EXPECT_TRUE(exist);
     // test file not exist
     bool not_exist = _s_cgroups_mgr.is_file_exist("./abc");
-    ASSERT_FALSE(not_exist);
+    EXPECT_FALSE(not_exist);
 }
 
 TEST_F(CgroupsMgrTest, TestInitCgroups) {
     // test for task file not exist
     Status op_status = _s_cgroups_mgr.init_cgroups();
-    ASSERT_EQ(Status::DORIS_ERROR, op_status);
+    EXPECT_EQ(Status::DORIS_ERROR, op_status);
 
     // create task file, then init should success
     std::string task_file_path = _s_cgroup_path + "/tasks";
@@ -110,51 +110,51 @@ TEST_F(CgroupsMgrTest, TestInitCgroups) {
     outfile.close();
 
     // create a mock user under cgroup path
-    ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei"));
+    EXPECT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei"));
     std::ofstream user_out_file(_s_cgroup_path + "/yiguolei/tasks");
     user_out_file << 123 << std::endl;
     user_out_file.close();
 
     // create a mock user group under cgroup path
-    ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei/low"));
+    EXPECT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei/low"));
     std::ofstream group_out_file(CgroupsMgrTest::_s_cgroup_path + "/yiguolei/low/tasks");
     group_out_file << 456 << std::endl;
     group_out_file.close();
 
     op_status = _s_cgroups_mgr.init_cgroups();
     // init should be successful
-    ASSERT_EQ(Status::OK(), op_status);
+    EXPECT_EQ(Status::OK(), op_status);
     // all tasks should be migrated to root cgroup path
-    ASSERT_TRUE(does_contain_number(task_file_path, 1111111));
-    ASSERT_TRUE(does_contain_number(task_file_path, 123));
-    ASSERT_TRUE(does_contain_number(task_file_path, 456));
+    EXPECT_TRUE(does_contain_number(task_file_path, 1111111));
+    EXPECT_TRUE(does_contain_number(task_file_path, 123));
+    EXPECT_TRUE(does_contain_number(task_file_path, 456));
 }
 
 TEST_F(CgroupsMgrTest, TestAssignThreadToCgroups) {
     // default cgroup not exist, so that assign to an unknown user will fail
     Status op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "abc", "low");
-    ASSERT_EQ(Status::DORIS_ERROR, op_status);
+    EXPECT_EQ(Status::DORIS_ERROR, op_status);
     // user cgroup exist
     // create a mock user under cgroup path
-    ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei2"));
+    EXPECT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei2"));
     std::ofstream user_out_file(_s_cgroup_path + "/yiguolei2/tasks");
     user_out_file << 123 << std::endl;
     user_out_file.close();
 
     op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "yiguolei2", "aaaa");
-    ASSERT_EQ(Status::OK(), op_status);
-    ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei2/tasks", 111));
+    EXPECT_EQ(Status::OK(), op_status);
+    EXPECT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei2/tasks", 111));
 
     // user,level cgroup exist
     // create a mock user group under cgroup path
-    ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei2/low"));
+    EXPECT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei2/low"));
     std::ofstream group_out_file(_s_cgroup_path + "/yiguolei2/low/tasks");
     group_out_file << 456 << std::endl;
     group_out_file.close();
 
     op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "yiguolei2", "low");
-    ASSERT_EQ(Status::OK(), op_status);
-    ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei2/low/tasks", 111));
+    EXPECT_EQ(Status::OK(), op_status);
+    EXPECT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei2/low/tasks", 111));
 }
 
 TEST_F(CgroupsMgrTest, TestModifyUserCgroups) {
@@ -165,10 +165,10 @@ TEST_F(CgroupsMgrTest, TestModifyUserCgroups) {
     std::string user_name = "user_modify";
     Status op_status = _s_cgroups_mgr.modify_user_cgroups(user_name, user_share, level_share);
 
-    ASSERT_EQ(Status::OK(), op_status);
+    EXPECT_EQ(Status::OK(), op_status);
 
-    ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/user_modify/cpu.shares", 100));
-    ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/user_modify/low/cpu.shares", 100));
+    EXPECT_TRUE(does_contain_number(_s_cgroup_path + "/user_modify/cpu.shares", 100));
+    EXPECT_TRUE(does_contain_number(_s_cgroup_path + "/user_modify/low/cpu.shares", 100));
 }
 
 TEST_F(CgroupsMgrTest, TestUpdateLocalCgroups) {
@@ -186,23 +186,17 @@ TEST_F(CgroupsMgrTest, TestUpdateLocalCgroups) {
     user_resource_result.resourceByUser["yiguolei3"] = user_resource;
 
     Status op_status = _s_cgroups_mgr.update_local_cgroups(user_resource_result);
-    ASSERT_EQ(Status::OK(), op_status);
-    ASSERT_EQ(2, _s_cgroups_mgr._cur_version);
-    ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/cpu.shares", 100));
-    ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/low/cpu.shares", 123));
-    ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/normal/cpu.shares", 234));
+    EXPECT_EQ(Status::OK(), op_status);
+    EXPECT_EQ(2, _s_cgroups_mgr._cur_version);
+    EXPECT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/cpu.shares", 100));
+    EXPECT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/low/cpu.shares", 123));
+    EXPECT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/normal/cpu.shares", 234));
 }
 
 TEST_F(CgroupsMgrTest, TestRelocateTasks) {
     // create a source cgroup, add some taskid into it
     Status op_status = _s_cgroups_mgr.relocate_tasks("/a/b/c/d", _s_cgroup_path);
-    ASSERT_EQ(Status::DORIS_ERROR, op_status);
+    EXPECT_EQ(Status::DORIS_ERROR, op_status);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

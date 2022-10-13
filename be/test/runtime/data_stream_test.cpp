@@ -680,27 +680,3 @@ TEST_F(DataStreamTest, BasicTest) {
 // - receivers getting created concurrently
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. conffile path= %s\n", conffile.c_str());
-    //     return -1;
-    // }
-    doris::config::query_scratch_dirs = "/tmp";
-    doris::config::max_free_io_buffers = 128;
-    doris::config::disable_mem_pools = false;
-    doris::config::min_buffer_size = 1024;
-    doris::config::read_size = 8388608;
-    doris::config::port = 2001;
-    doris::config::thrift_connect_timeout_seconds = 20;
-
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-
-    doris::CpuInfo::init();
-    doris::DiskInfo::init();
-    doris::MemInfo::init();
-
-    return RUN_ALL_TESTS();
-}

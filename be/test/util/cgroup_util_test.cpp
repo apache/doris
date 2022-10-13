@@ -38,21 +38,16 @@ TEST_F(CGroupUtilTest, memlimit) {
     if (cgroup_util.enable()) {
         std::ifstream file("/proc/self/cgroup");
         if (file.peek() == std::ifstream::traits_type::eof()) {
-            ASSERT_FALSE(status1.ok());
-            ASSERT_FALSE(status2.ok());
+            EXPECT_FALSE(status1.ok());
+            EXPECT_FALSE(status2.ok());
         } else {
-            ASSERT_TRUE(status1.ok());
-            ASSERT_TRUE(status2.ok());
+            EXPECT_TRUE(status1.ok());
+            EXPECT_TRUE(status2.ok());
         }
     } else {
-        ASSERT_FALSE(status1.ok());
-        ASSERT_FALSE(status2.ok());
+        EXPECT_FALSE(status1.ok());
+        EXPECT_FALSE(status2.ok());
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

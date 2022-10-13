@@ -425,38 +425,32 @@ TEST_F(PushHandlerTest, PushBrokerReaderNormal) {
 
     // line 1
     reader.next(&row);
-    ASSERT_FALSE(reader.eof());
-    ASSERT_EQ(0, *(int32_t*)row.cell(0).cell_ptr());
-    ASSERT_EQ(0, *(int16_t*)row.cell(1).cell_ptr());
-    ASSERT_EQ("a0", ((Slice*)row.cell(2).cell_ptr())->to_string());
-    ASSERT_EQ(0, *(int64_t*)row.cell(3).cell_ptr());
+    EXPECT_FALSE(reader.eof());
+    EXPECT_EQ(0, *(int32_t*)row.cell(0).cell_ptr());
+    EXPECT_EQ(0, *(int16_t*)row.cell(1).cell_ptr());
+    EXPECT_EQ("a0", ((Slice*)row.cell(2).cell_ptr())->to_string());
+    EXPECT_EQ(0, *(int64_t*)row.cell(3).cell_ptr());
 
     // line 2
     reader.next(&row);
-    ASSERT_FALSE(reader.eof());
-    ASSERT_EQ(0, *(int32_t*)row.cell(0).cell_ptr());
-    ASSERT_EQ(2, *(int16_t*)row.cell(1).cell_ptr());
-    ASSERT_EQ("a1", ((Slice*)row.cell(2).cell_ptr())->to_string());
-    ASSERT_EQ(3, *(int64_t*)row.cell(3).cell_ptr());
+    EXPECT_FALSE(reader.eof());
+    EXPECT_EQ(0, *(int32_t*)row.cell(0).cell_ptr());
+    EXPECT_EQ(2, *(int16_t*)row.cell(1).cell_ptr());
+    EXPECT_EQ("a1", ((Slice*)row.cell(2).cell_ptr())->to_string());
+    EXPECT_EQ(3, *(int64_t*)row.cell(3).cell_ptr());
 
     // line 3
     reader.next(&row);
-    ASSERT_FALSE(reader.eof());
-    ASSERT_EQ(1, *(int32_t*)row.cell(0).cell_ptr());
-    ASSERT_EQ(4, *(int16_t*)row.cell(1).cell_ptr());
-    ASSERT_EQ("a2", ((Slice*)row.cell(2).cell_ptr())->to_string());
-    ASSERT_EQ(6, *(int64_t*)row.cell(3).cell_ptr());
+    EXPECT_FALSE(reader.eof());
+    EXPECT_EQ(1, *(int32_t*)row.cell(0).cell_ptr());
+    EXPECT_EQ(4, *(int16_t*)row.cell(1).cell_ptr());
+    EXPECT_EQ("a2", ((Slice*)row.cell(2).cell_ptr())->to_string());
+    EXPECT_EQ(6, *(int64_t*)row.cell(3).cell_ptr());
 
     // eof
     reader.next(&row);
-    ASSERT_TRUE(reader.eof());
+    EXPECT_TRUE(reader.eof());
 
     reader.close();
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

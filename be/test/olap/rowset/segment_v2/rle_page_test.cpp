@@ -48,7 +48,7 @@ public:
 
         size_t n = 1;
         decoder->next_batch(&n, &column_block_view);
-        ASSERT_EQ(1, n);
+        EXPECT_EQ(1, n);
         *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
     }
 
@@ -60,22 +60,22 @@ public:
         PageBuilderType rle_page_builder(builder_options);
         rle_page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
         OwnedSlice s = rle_page_builder.finish();
-        ASSERT_EQ(size, rle_page_builder.count());
+        EXPECT_EQ(size, rle_page_builder.count());
 
         //check first value and last value
         CppType first_value;
         rle_page_builder.get_first_value(&first_value);
-        ASSERT_EQ(src[0], first_value);
+        EXPECT_EQ(src[0], first_value);
         CppType last_value;
         rle_page_builder.get_last_value(&last_value);
-        ASSERT_EQ(src[size - 1], last_value);
+        EXPECT_EQ(src[size - 1], last_value);
 
         PageDecoderOptions decodeder_options;
         PageDecoderType rle_page_decoder(s.slice(), decodeder_options);
         Status status = rle_page_decoder.init();
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(0, rle_page_decoder.current_index());
-        ASSERT_EQ(size, rle_page_decoder.count());
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(0, rle_page_decoder.current_index());
+        EXPECT_EQ(size, rle_page_decoder.count());
 
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
@@ -85,8 +85,8 @@ public:
         ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = size;
         status = rle_page_decoder.next_batch(&size_to_fetch, &column_block_view);
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(size, size_to_fetch);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(size, size_to_fetch);
 
         CppType* values = reinterpret_cast<CppType*>(block.data());
         for (uint i = 0; i < size; i++) {
@@ -165,7 +165,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 4 bytes values
-    ASSERT_EQ(10, s.slice().size);
+    EXPECT_EQ(10, s.slice().size);
 }
 
 TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
@@ -201,12 +201,7 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 1 bytes values
-    ASSERT_EQ(7, s.slice().size);
+    EXPECT_EQ(7, s.slice().size);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

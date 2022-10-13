@@ -20,8 +20,8 @@
 
 #include "gtest/gtest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_min_max_by.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
@@ -86,11 +86,11 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
         agg_function->insert_result_into(place, ans);
         if (i == 0) {
             // Key type is int32.
-            ASSERT_EQ(min_max_by_type == "max_by" ? 0 : agg_test_batch_size - 1,
+            EXPECT_EQ(min_max_by_type == "max_by" ? 0 : agg_test_batch_size - 1,
                       ans.get_element(0));
         } else {
             // Key type is string.
-            ASSERT_EQ(min_max_by_type == "max_by" ? max_pair.second : min_pair.second,
+            EXPECT_EQ(min_max_by_type == "max_by" ? max_pair.second : min_pair.second,
                       ans.get_element(0));
         }
         agg_function->destroy(place);

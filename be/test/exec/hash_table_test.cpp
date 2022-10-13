@@ -37,7 +37,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/test_env.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/cpu_info.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
@@ -225,7 +225,7 @@ TEST_F(HashTableTest, BasicTest) {
         hash_table.insert(build_rows[i]);
     }
 
-    EXPECT_EQ(hash_table.size(), 5);
+    EXPECT_EQ(5, hash_table.size());
 
     // Do a full table scan and validate returned pointers
     full_scan(&hash_table, 0, 5, true, scan_rows, build_rows);
@@ -384,21 +384,9 @@ TEST_F(HashTableTest, GrowTableTest2) {
     size_t counter = 0;
     auto func = [&](TupleRow* row) { counter++; };
     hash_table.for_each_row(func);
-    ASSERT_EQ(counter, hash_table.size());
+    EXPECT_EQ(counter, hash_table.size());
 
     hash_table.close();
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::CpuInfo::init();
-    doris::MemInfo::init();
-    return RUN_ALL_TESTS();
-}

@@ -67,28 +67,28 @@ TEST_F(InPredicateTest, push_100_const) {
     InPredicate in_pre(_in_node);
     in_pre._children.push_back(_obj_pool.add(new SlotRef(TYPE_INT, 0)));
     Status status = in_pre.prepare(&_runtime_stat, _row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     for (int i = 0; i < 100; ++i) {
         in_pre.insert(&i);
     }
 
-    ASSERT_EQ(100, in_pre._hybird_set->size());
-    ASSERT_EQ(1, in_pre._children.size());
+    EXPECT_EQ(100, in_pre._hybird_set->size());
+    EXPECT_EQ(1, in_pre._children.size());
 
     for (int i = 0; i < 100; ++i) {
         _data[0] = i;
-        ASSERT_TRUE(*(bool*)in_pre.get_value(&_tuple_row));
+        EXPECT_TRUE(*(bool*)in_pre.get_value(&_tuple_row));
     }
 
     _data[0] = 101;
-    ASSERT_FALSE(*(bool*)in_pre.get_value(&_tuple_row));
+    EXPECT_FALSE(*(bool*)in_pre.get_value(&_tuple_row));
 }
 
 TEST_F(InPredicateTest, no_child) {
     InPredicate in_pre(_in_node);
     Status status = in_pre.prepare(&_runtime_stat, _row_desc);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 TEST_F(InPredicateTest, diff_type) {
     InPredicate in_pre(_in_node);
@@ -100,42 +100,30 @@ TEST_F(InPredicateTest, diff_type) {
     }
 
     Status status = in_pre.prepare(&_runtime_stat, _row_desc);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 TEST_F(InPredicateTest, 100_const) {
     InPredicate in_pre(_in_node);
     init_in_pre(&in_pre);
     Status status = in_pre.prepare(&_runtime_stat, _row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = in_pre.prepare(&_runtime_stat, _row_desc);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(100, in_pre._hybird_set->size());
-    ASSERT_EQ(2, in_pre._children.size());
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(100, in_pre._hybird_set->size());
+    EXPECT_EQ(2, in_pre._children.size());
 
     for (int i = 0; i < 100; ++i) {
         _data[0] = i;
-        ASSERT_TRUE(*(bool*)in_pre.get_value(&_tuple_row));
+        EXPECT_TRUE(*(bool*)in_pre.get_value(&_tuple_row));
     }
 
     _data[0] = 101;
-    ASSERT_FALSE(*(bool*)in_pre.get_value(&_tuple_row));
+    EXPECT_FALSE(*(bool*)in_pre.get_value(&_tuple_row));
     _data[1] = 101;
-    ASSERT_TRUE(*(bool*)in_pre.get_value(&_tuple_row));
+    EXPECT_TRUE(*(bool*)in_pre.get_value(&_tuple_row));
 }
 
 } // namespace doris
 
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}
-
-/* vim: set ts=4 sw=4 sts=4 tw=100 noet: */
+\n

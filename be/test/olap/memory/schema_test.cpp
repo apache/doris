@@ -34,16 +34,16 @@ TEST(ColumnSchema, create) {
 
 TEST(Schema, desc_create) {
     scoped_refptr<Schema> sc;
-    ASSERT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
-    ASSERT_EQ(sc->num_columns(), 4);
-    ASSERT_EQ(sc->num_key_columns(), 1);
-    ASSERT_EQ(sc->get(0)->cid(), 1);
-    ASSERT_EQ(sc->get(1)->cid(), 2);
-    ASSERT_EQ(sc->get(2)->cid(), 3);
-    ASSERT_EQ(sc->get(3)->cid(), 4);
-    ASSERT_EQ(sc->get_by_name("city")->is_nullable(), true);
-    ASSERT_EQ(sc->get_by_name("pv")->is_nullable(), false);
-    ASSERT_EQ(sc->get_by_name("uv")->type(), ColumnType::OLAP_FIELD_TYPE_INT);
+    EXPECT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
+    EXPECT_EQ(sc->num_columns(), 4);
+    EXPECT_EQ(sc->num_key_columns(), 1);
+    EXPECT_EQ(sc->get(0)->cid(), 1);
+    EXPECT_EQ(sc->get(1)->cid(), 2);
+    EXPECT_EQ(sc->get(2)->cid(), 3);
+    EXPECT_EQ(sc->get(3)->cid(), 4);
+    EXPECT_EQ(sc->get_by_name("city")->is_nullable(), true);
+    EXPECT_EQ(sc->get_by_name("pv")->is_nullable(), false);
+    EXPECT_EQ(sc->get_by_name("uv")->type(), ColumnType::OLAP_FIELD_TYPE_INT);
 }
 
 TEST(Schema, create) {
@@ -74,8 +74,3 @@ TEST(Schema, create) {
 
 } // namespace memory
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

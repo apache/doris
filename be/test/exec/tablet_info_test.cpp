@@ -74,7 +74,7 @@ TEST_F(OlapTablePartitionParamTest, normal) {
     auto t_schema = get_schema(&t_desc_tbl);
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     auto st = schema->init(t_schema);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     LOG(INFO) << schema->debug_string();
 
     // (-oo, 10] | [10.50) | [60, +oo)
@@ -135,13 +135,13 @@ TEST_F(OlapTablePartitionParamTest, normal) {
 
     OlapTablePartitionParam part(schema, t_partition_param);
     st = part.init();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     LOG(INFO) << part.debug_string();
 
     ObjectPool pool;
     DescriptorTbl* desc_tbl = nullptr;
     st = DescriptorTbl::create(&pool, t_desc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     auto tracker = std::make_shared<MemTracker>();
@@ -161,8 +161,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         // 9:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(10, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(10, partition->id);
     }
     // 13, 25, "abcd"
     {
@@ -179,8 +179,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         // 25:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(11, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(11, partition->id);
     }
     // 14, 50, "abcde"
     {
@@ -197,7 +197,7 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         // 50:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_FALSE(found);
+        EXPECT_FALSE(found);
     }
 
     // 15, 60, "abcdef"
@@ -215,8 +215,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         // 60:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(12, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(12, partition->id);
     }
 }
 
@@ -234,7 +234,7 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
     auto t_schema = get_schema(&t_desc_tbl);
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     auto st = schema->init(t_schema);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     LOG(INFO) << schema->debug_string();
 
     // 1 | 2 | 3 | 4 | 5 | 6
@@ -328,13 +328,13 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
 
     OlapTablePartitionParam part(schema, t_partition_param);
     st = part.init();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     LOG(INFO) << part.debug_string();
 
     ObjectPool pool;
     DescriptorTbl* desc_tbl = nullptr;
     st = DescriptorTbl::create(&pool, t_desc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     auto tracker = std::make_shared<MemTracker>();
@@ -354,8 +354,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         // 1:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(10, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(10, partition->id);
     }
     // 13, 3, "abcd"
     {
@@ -372,8 +372,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         // 3:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(11, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(11, partition->id);
     }
     // 14, 50, "abcde"
     {
@@ -390,7 +390,7 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         // 50:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_FALSE(found);
+        EXPECT_FALSE(found);
     }
 
     // 15, 6, "abcdef"
@@ -408,8 +408,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         // 6:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(12, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(12, partition->id);
     }
 }
 
@@ -429,7 +429,7 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
     auto t_schema = get_schema(&t_desc_tbl);
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     auto st = schema->init(t_schema);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     LOG(INFO) << schema->debug_string();
 
     // 1
@@ -446,14 +446,14 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
     node_2.num_children = 0;
     node_2.__isset.int_literal = true;
     node_2.int_literal.value = 2;
-    // beijing 
+    // beijing
     TExprNode node_b;
     node_b.node_type = TExprNodeType::STRING_LITERAL;
     node_b.type = t_desc_tbl.slotDescriptors[2].slotType;
     node_b.num_children = 0;
     node_b.__isset.string_literal = true;
     node_b.string_literal.value = "beijing";
-    // shanghai 
+    // shanghai
     TExprNode node_s;
     node_s.node_type = TExprNodeType::STRING_LITERAL;
     node_s.type = t_desc_tbl.slotDescriptors[2].slotType;
@@ -540,13 +540,13 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
     OlapTablePartitionParam part(schema, t_partition_param);
     st = part.init();
     LOG(INFO) << st.get_error_msg();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     LOG(INFO) << part.debug_string();
 
     ObjectPool pool;
     DescriptorTbl* desc_tbl = nullptr;
     st = DescriptorTbl::create(&pool, t_desc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     auto tracker = std::make_shared<MemTracker>();
@@ -566,8 +566,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         // 1, beijing
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(10, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(10, partition->id);
     }
     // 13, 2, "shanghai"
     {
@@ -584,8 +584,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         // 2, shanghai
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(12, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(12, partition->id);
     }
     // 14, 50, "beijing"
     {
@@ -602,7 +602,7 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         // 50, beijing
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_FALSE(found);
+        EXPECT_FALSE(found);
     }
 
     // 15, 1, "tianjin"
@@ -620,8 +620,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         // 1, tianjin
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(11, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(11, partition->id);
     }
 }
 
@@ -630,15 +630,15 @@ TEST_F(OlapTablePartitionParamTest, to_protobuf) {
     auto t_schema = get_schema(&t_desc_tbl);
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     auto st = schema->init(t_schema);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     POlapTableSchemaParam pschema;
     schema->to_protobuf(&pschema);
     {
         std::shared_ptr<OlapTableSchemaParam> schema2(new OlapTableSchemaParam());
         auto st = schema2->init(pschema);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
 
-        ASSERT_STREQ(schema->debug_string().c_str(), schema2->debug_string().c_str());
+        EXPECT_STREQ(schema->debug_string().c_str(), schema2->debug_string().c_str());
     }
 }
 
@@ -648,7 +648,7 @@ TEST_F(OlapTablePartitionParamTest, unknown_index_column) {
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     tschema.indexes[0].columns.push_back("unknown_col");
     auto st = schema->init(tschema);
-    ASSERT_FALSE(st.ok());
+    EXPECT_FALSE(st.ok());
 }
 
 TEST_F(OlapTablePartitionParamTest, unpartitioned) {
@@ -656,7 +656,7 @@ TEST_F(OlapTablePartitionParamTest, unpartitioned) {
     auto t_schema = get_schema(&t_desc_tbl);
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     auto st = schema->init(t_schema);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // (-oo, 10] | [10.50) | [60, +oo)
     TOlapTablePartitionParam t_partition_param;
@@ -674,12 +674,12 @@ TEST_F(OlapTablePartitionParamTest, unpartitioned) {
 
     OlapTablePartitionParam part(schema, t_partition_param);
     st = part.init();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     ObjectPool pool;
     DescriptorTbl* desc_tbl = nullptr;
     st = DescriptorTbl::create(&pool, t_desc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     auto tracker = std::make_shared<MemTracker>();
@@ -699,8 +699,8 @@ TEST_F(OlapTablePartitionParamTest, unpartitioned) {
         // 9:
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_partition(tuple, &partition);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(10, partition->id);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(10, partition->id);
     }
 }
 
@@ -709,7 +709,7 @@ TEST_F(OlapTablePartitionParamTest, unknown_partition_column) {
     auto t_schema = get_schema(&t_desc_tbl);
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     auto st = schema->init(t_schema);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // (-oo, 10] | [10.50) | [60, +oo)
     TOlapTablePartitionParam t_partition_param;
@@ -728,7 +728,7 @@ TEST_F(OlapTablePartitionParamTest, unknown_partition_column) {
 
     OlapTablePartitionParam part(schema, t_partition_param);
     st = part.init();
-    ASSERT_FALSE(st.ok());
+    EXPECT_FALSE(st.ok());
 }
 
 TEST_F(OlapTablePartitionParamTest, unknown_distributed_col) {
@@ -736,7 +736,7 @@ TEST_F(OlapTablePartitionParamTest, unknown_distributed_col) {
     auto t_schema = get_schema(&t_desc_tbl);
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     auto st = schema->init(t_schema);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // (-oo, 10] | [10.50) | [60, +oo)
     TOlapTablePartitionParam t_partition_param;
@@ -754,7 +754,7 @@ TEST_F(OlapTablePartitionParamTest, unknown_distributed_col) {
 
     OlapTablePartitionParam part(schema, t_partition_param);
     st = part.init();
-    ASSERT_FALSE(st.ok());
+    EXPECT_FALSE(st.ok());
 }
 
 TEST_F(OlapTablePartitionParamTest, bad_index) {
@@ -762,7 +762,7 @@ TEST_F(OlapTablePartitionParamTest, bad_index) {
     auto t_schema = get_schema(&t_desc_tbl);
     std::shared_ptr<OlapTableSchemaParam> schema(new OlapTableSchemaParam());
     auto st = schema->init(t_schema);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     {
         // (-oo, 10] | [10.50) | [60, +oo)
@@ -780,7 +780,7 @@ TEST_F(OlapTablePartitionParamTest, bad_index) {
 
         OlapTablePartitionParam part(schema, t_partition_param);
         st = part.init();
-        ASSERT_FALSE(st.ok());
+        EXPECT_FALSE(st.ok());
     }
     {
         // (-oo, 10] | [10.50) | [60, +oo)
@@ -800,7 +800,7 @@ TEST_F(OlapTablePartitionParamTest, bad_index) {
 
         OlapTablePartitionParam part(schema, t_partition_param);
         st = part.init();
-        ASSERT_FALSE(st.ok());
+        EXPECT_FALSE(st.ok());
     }
 }
 
@@ -811,11 +811,11 @@ TEST_F(OlapTablePartitionParamTest, tableLoacation) {
     OlapTableLocationParam location(tparam);
     {
         auto loc = location.find_tablet(1);
-        ASSERT_TRUE(loc != nullptr);
+        EXPECT_TRUE(loc != nullptr);
     }
     {
         auto loc = location.find_tablet(2);
-        ASSERT_TRUE(loc == nullptr);
+        EXPECT_TRUE(loc == nullptr);
     }
 }
 
@@ -826,17 +826,12 @@ TEST_F(OlapTablePartitionParamTest, NodesInfo) {
     DorisNodesInfo nodes(tinfo);
     {
         auto node = nodes.find_node(1);
-        ASSERT_TRUE(node != nullptr);
+        EXPECT_TRUE(node != nullptr);
     }
     {
         auto node = nodes.find_node(2);
-        ASSERT_TRUE(node == nullptr);
+        EXPECT_TRUE(node == nullptr);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

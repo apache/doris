@@ -38,12 +38,12 @@ TEST_F(LruCacheTest, NormalTest) {
     for (int i = 0; i < 10; ++i) {
         cache.put(i, std::shared_ptr<Foo>(new Foo(i * 10)));
     }
-    ASSERT_EQ(10, cache.size());
+    EXPECT_EQ(10, cache.size());
 
     std::shared_ptr<Foo> ptr;
     for (int i = 0; i < 10; ++i) {
-        ASSERT_TRUE(cache.get(i, &ptr));
-        ASSERT_EQ(i * 10, ptr->num);
+        EXPECT_TRUE(cache.get(i, &ptr));
+        EXPECT_EQ(i * 10, ptr->num);
     }
 }
 
@@ -57,7 +57,7 @@ TEST_F(LruCacheTest, IteratorTest) {
         values += i * 10;
         cache.put(i, std::shared_ptr<Foo>(new Foo(i * 10)));
     }
-    ASSERT_EQ(10, cache.size());
+    EXPECT_EQ(10, cache.size());
 
     int key_sum = 0;
     int value_sum = 0;
@@ -65,13 +65,13 @@ TEST_F(LruCacheTest, IteratorTest) {
         key_sum += it.first;
         value_sum += it.second->num;
     }
-    ASSERT_EQ(keys, key_sum);
-    ASSERT_EQ(values, value_sum);
+    EXPECT_EQ(keys, key_sum);
+    EXPECT_EQ(values, value_sum);
 
     std::shared_ptr<Foo> ptr;
     for (int i = 0; i < 10; ++i) {
-        ASSERT_TRUE(cache.get(i, &ptr));
-        ASSERT_EQ(i * 10, ptr->num);
+        EXPECT_TRUE(cache.get(i, &ptr));
+        EXPECT_EQ(i * 10, ptr->num);
     }
 }
 
@@ -81,24 +81,13 @@ TEST_F(LruCacheTest, OverSize) {
     for (int i = 0; i < 110; ++i) {
         cache.put(i, std::shared_ptr<Foo>(new Foo(i * 10)));
     }
-    ASSERT_EQ(10, cache.size());
+    EXPECT_EQ(10, cache.size());
 
     std::shared_ptr<Foo> ptr;
     for (int i = 100; i < 110; ++i) {
-        ASSERT_TRUE(cache.get(i, &ptr));
-        ASSERT_EQ(i * 10, ptr->num);
+        EXPECT_TRUE(cache.get(i, &ptr));
+        EXPECT_EQ(i * 10, ptr->num);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

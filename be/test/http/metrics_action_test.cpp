@@ -30,7 +30,7 @@ namespace doris {
 const char* s_expect_response = nullptr;
 
 void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std::string& content) {
-    ASSERT_STREQ(s_expect_response, content.c_str());
+    EXPECT_STREQ(s_expect_response, content.c_str());
 }
 
 class MetricsActionTest : public testing::Test {
@@ -95,8 +95,3 @@ TEST_F(MetricsActionTest, prometheus_no_prefix) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

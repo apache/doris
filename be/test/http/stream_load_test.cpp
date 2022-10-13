@@ -114,39 +114,8 @@ TEST_F(StreamLoadActionTest, no_auth) {
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Fail", doc["Status"].GetString());
+    EXPECT_STREQ("Fail", doc["Status"].GetString());
 }
-
-#if 0
-TEST_F(StreamLoadActionTest, no_content_length) {
-    StreamLoadAction action(&__env);
-
-    HttpRequest request(_evhttp_req);
-    request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Fail", doc["Status"].GetString());
-}
-
-TEST_F(StreamLoadActionTest, unknown_encoding) {
-    StreamLoadAction action(&_env);
-
-    HttpRequest request(_evhttp_req);
-    request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    request._headers.emplace(HttpHeaders::TRANSFER_ENCODING, "chunked111");
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Fail", doc["Status"].GetString());
-}
-#endif
 
 TEST_F(StreamLoadActionTest, normal) {
     StreamLoadAction action(&_env);
@@ -165,7 +134,7 @@ TEST_F(StreamLoadActionTest, normal) {
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Success", doc["Status"].GetString());
+    EXPECT_STREQ("Success", doc["Status"].GetString());
 }
 
 TEST_F(StreamLoadActionTest, put_fail) {
@@ -187,7 +156,7 @@ TEST_F(StreamLoadActionTest, put_fail) {
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Fail", doc["Status"].GetString());
+    EXPECT_STREQ("Fail", doc["Status"].GetString());
 }
 
 TEST_F(StreamLoadActionTest, commit_fail) {
@@ -207,7 +176,7 @@ TEST_F(StreamLoadActionTest, commit_fail) {
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Fail", doc["Status"].GetString());
+    EXPECT_STREQ("Fail", doc["Status"].GetString());
 }
 
 TEST_F(StreamLoadActionTest, begin_fail) {
@@ -227,7 +196,7 @@ TEST_F(StreamLoadActionTest, begin_fail) {
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Fail", doc["Status"].GetString());
+    EXPECT_STREQ("Fail", doc["Status"].GetString());
 }
 
 #if 0
@@ -243,7 +212,7 @@ TEST_F(StreamLoadActionTest, receive_failed) {
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Fail", doc["Status"].GetString());
+    EXPECT_STREQ("Fail", doc["Status"].GetString());
 }
 #endif
 
@@ -263,13 +232,7 @@ TEST_F(StreamLoadActionTest, plan_fail) {
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
-    ASSERT_STREQ("Fail", doc["Status"].GetString());
+    EXPECT_STREQ("Fail", doc["Status"].GetString());
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

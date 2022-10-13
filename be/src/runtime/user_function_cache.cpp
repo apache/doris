@@ -112,7 +112,10 @@ UserFunctionCache* UserFunctionCache::instance() {
 }
 
 Status UserFunctionCache::init(const std::string& lib_dir) {
-    DCHECK(_lib_dir.empty());
+#ifndef BE_TEST
+    // _lib_dir may reuesd bettween unit tests
+    DCHECK(_lib_dir.empty()) << _lib_dir;
+#endif
     _lib_dir = lib_dir;
     // 1. dynamic open current process
     RETURN_IF_ERROR(dynamic_open(nullptr, &_current_process_handle));

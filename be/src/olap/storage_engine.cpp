@@ -128,9 +128,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
-    if (_s_instance == nullptr) {
-        _s_instance = this;
-    }
+    _s_instance = this;
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         MutexLock lock(&_gc_mutex);
         return _unused_rowsets.size();

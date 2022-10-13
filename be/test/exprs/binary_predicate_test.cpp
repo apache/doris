@@ -60,8 +60,8 @@ public:
         ttbl.slotDescriptors.push_back(slot_desc);
 
         DescriptorTbl* desc_tbl = nullptr;
-        ASSERT_TRUE(DescriptorTbl::create(_object_pool, ttbl, &desc_tbl).ok());
-        ASSERT_TRUE(desc_tbl != nullptr);
+        EXPECT_TRUE(DescriptorTbl::create(_object_pool, ttbl, &desc_tbl).ok());
+        EXPECT_TRUE(desc_tbl != nullptr);
         _runtime_state->set_desc_tbl(desc_tbl);
 
         std::vector<TTupleId> row_tuples;
@@ -151,14 +151,14 @@ private:
 
 TEST_F(BinaryOpTest, PrepareTest) {
     Expr* expr = create_expr();
-    ASSERT_TRUE(expr != nullptr);
-    ASSERT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
+    EXPECT_TRUE(expr != nullptr);
+    EXPECT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
 }
 
 TEST_F(BinaryOpTest, NormalTest) {
     Expr* expr = create_expr();
-    ASSERT_TRUE(expr != nullptr);
-    ASSERT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
+    EXPECT_TRUE(expr != nullptr);
+    EXPECT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
     int capacity = 256;
     VectorizedRowBatch* vec_row_batch =
             object_pool()->add(new VectorizedRowBatch(_schema, capacity));
@@ -172,23 +172,23 @@ TEST_F(BinaryOpTest, NormalTest) {
 
     vec_row_batch->set_size(capacity);
     expr->evaluate(vec_row_batch);
-    ASSERT_EQ(vec_row_batch->size(), 10);
+    EXPECT_EQ(vec_row_batch->size(), 10);
 
     Tuple tuple;
     int vv = 0;
 
     while (vec_row_batch->get_next_tuple(&tuple,
                                          *runtime_state()->desc_tbl().get_tuple_descriptor(0))) {
-        ASSERT_EQ(vv++, *reinterpret_cast<int32_t*>(tuple.get_slot(4)));
+        EXPECT_EQ(vv++, *reinterpret_cast<int32_t*>(tuple.get_slot(4)));
     }
 }
 
 TEST_F(BinaryOpTest, SimplePerformanceTest) {
-    ASSERT_EQ(1, _row_desc->tuple_descriptors().size());
+    EXPECT_EQ(1, _row_desc->tuple_descriptors().size());
     for (int capacity = 128; capacity <= 1024 * 128; capacity *= 2) {
         Expr* expr = create_expr();
-        ASSERT_TRUE(expr != nullptr);
-        ASSERT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
+        EXPECT_TRUE(expr != nullptr);
+        EXPECT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
         int size = 1024 * 1024 / capacity;
         VectorizedRowBatch* vec_row_batches[size];
         srand(time(nullptr));

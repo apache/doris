@@ -28,7 +28,7 @@ namespace memory {
 
 TEST(PartialRowbatch, write) {
     scoped_refptr<Schema> sc;
-    ASSERT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
+    EXPECT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
     PartialRowWriter writer(sc);
     srand(1);
     const int N = 1000;
@@ -104,8 +104,3 @@ TEST(PartialRowbatch, write) {
 
 } // namespace memory
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

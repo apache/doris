@@ -17,13 +17,14 @@
 // under the License.
 
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/sip_hash.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
+
+#include "vec/columns/column_vector.h"
+#include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
 
@@ -34,24 +35,19 @@ TEST(ColumnNullableTest, HashTest) {
     tmp_column->insert_data((const char*)(&val1), 0);
     tmp_column->insert_data((const char*)(&val2), 0);
     ColumnPtr column = std::move(tmp_column);
-    ASSERT_EQ(column->size(), 2);
+    EXPECT_EQ(column->size(), 2);
 
     auto nullable_column = ColumnNullable::create(column, ColumnUInt8::create(column->size(), 0));
     SipHash hashes[2];
     column->update_hash_with_value(0, hashes[0]);
     nullable_column->update_hash_with_value(0, hashes[1]);
-    ASSERT_EQ(hashes[0].get64(), hashes[1].get64());
+    EXPECT_EQ(hashes[0].get64(), hashes[1].get64());
 
     auto& null_map = ((ColumnNullable)(*nullable_column)).get_null_map_data();
     null_map[1] = true;
     column->update_hash_with_value(1, hashes[0]);
     nullable_column->update_hash_with_value(1, hashes[1]);
-    ASSERT_NE(hashes[0].get64(), hashes[1].get64());
+    EXPECT_NE(hashes[0].get64(), hashes[1].get64());
 }
 
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

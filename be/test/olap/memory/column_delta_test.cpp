@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "olap/memory/column.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 
 namespace doris {
 namespace memory {
@@ -39,7 +39,7 @@ TEST(ColumnDelta, Index) {
         updates[idx] = rand();
     }
     size_t nblock = num_block(BaseSize, Column::BLOCK_SIZE);
-    ASSERT_TRUE(delta->alloc(nblock, updates.size(), sizeof(uint32_t), false).ok());
+    EXPECT_TRUE(delta->alloc(nblock, updates.size(), sizeof(uint32_t), false).ok());
     DeltaIndex* index = delta->index();
     std::vector<uint32_t>& block_ends = index->block_ends();
     Buffer& idxdata = index->_data;
@@ -75,8 +75,3 @@ TEST(ColumnDelta, Index) {
 
 } // namespace memory
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

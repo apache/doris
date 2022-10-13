@@ -15,15 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/metrics.h"
+
 #include <gtest/gtest.h>
 
 #include <iostream>
 #include <thread>
 
 #include "common/config.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/logging.h"
-#include "util/metrics.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -37,35 +38,35 @@ public:
 TEST_F(MetricsTest, Counter) {
     {
         IntCounter counter;
-        ASSERT_EQ(0, counter.value());
+        EXPECT_EQ(0, counter.value());
         counter.increment(100);
-        ASSERT_EQ(100, counter.value());
+        EXPECT_EQ(100, counter.value());
 
-        ASSERT_STREQ("100", counter.to_string().c_str());
+        EXPECT_STREQ("100", counter.to_string().c_str());
     }
     {
         IntAtomicCounter counter;
-        ASSERT_EQ(0, counter.value());
+        EXPECT_EQ(0, counter.value());
         counter.increment(100);
-        ASSERT_EQ(100, counter.value());
+        EXPECT_EQ(100, counter.value());
 
-        ASSERT_STREQ("100", counter.to_string().c_str());
+        EXPECT_STREQ("100", counter.to_string().c_str());
     }
     {
         UIntCounter counter;
-        ASSERT_EQ(0, counter.value());
+        EXPECT_EQ(0, counter.value());
         counter.increment(100);
-        ASSERT_EQ(100, counter.value());
+        EXPECT_EQ(100, counter.value());
 
-        ASSERT_STREQ("100", counter.to_string().c_str());
+        EXPECT_STREQ("100", counter.to_string().c_str());
     }
     {
         DoubleCounter counter;
-        ASSERT_EQ(0, counter.value());
+        EXPECT_EQ(0, counter.value());
         counter.increment(1.23);
-        ASSERT_EQ(1.23, counter.value());
+        EXPECT_EQ(1.23, counter.value());
 
-        ASSERT_STREQ("1.230000", counter.to_string().c_str());
+        EXPECT_STREQ("1.230000", counter.to_string().c_str());
     }
 }
 
@@ -93,7 +94,7 @@ TEST_F(MetricsTest, CounterPerf) {
             sum += 1;
         }
         uint64_t elapsed = watch.elapsed_time();
-        ASSERT_EQ(kLoopCount, sum);
+        EXPECT_EQ(kLoopCount, sum);
         LOG(INFO) << "int64_t: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
     // IntAtomicCounter
@@ -105,7 +106,7 @@ TEST_F(MetricsTest, CounterPerf) {
             counter.increment(1);
         }
         uint64_t elapsed = watch.elapsed_time();
-        ASSERT_EQ(kLoopCount, counter.value());
+        EXPECT_EQ(kLoopCount, counter.value());
         LOG(INFO) << "IntAtomicCounter: elapsed: " << elapsed
                   << "ns, ns/iter:" << elapsed / kLoopCount;
     }
@@ -118,7 +119,7 @@ TEST_F(MetricsTest, CounterPerf) {
             counter.increment(1);
         }
         uint64_t elapsed = watch.elapsed_time();
-        ASSERT_EQ(kLoopCount, counter.value());
+        EXPECT_EQ(kLoopCount, counter.value());
         LOG(INFO) << "IntCounter: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
 
@@ -136,7 +137,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         LOG(INFO) << "IntCounter multi-thread elapsed: " << used_time.load()
                   << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
-        ASSERT_EQ(8 * kThreadLoopCount, mt_counter.value());
+        EXPECT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
     // multi-thread for IntAtomicCounter
     {
@@ -152,7 +153,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         LOG(INFO) << "IntAtomicCounter multi-thread elapsed: " << used_time.load()
                   << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
-        ASSERT_EQ(8 * kThreadLoopCount, mt_counter.value());
+        EXPECT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
 }
 
@@ -160,29 +161,29 @@ TEST_F(MetricsTest, Gauge) {
     // IntGauge
     {
         IntGauge gauge;
-        ASSERT_EQ(0, gauge.value());
+        EXPECT_EQ(0, gauge.value());
         gauge.set_value(100);
-        ASSERT_EQ(100, gauge.value());
+        EXPECT_EQ(100, gauge.value());
 
-        ASSERT_STREQ("100", gauge.to_string().c_str());
+        EXPECT_STREQ("100", gauge.to_string().c_str());
     }
     // UIntGauge
     {
         UIntGauge gauge;
-        ASSERT_EQ(0, gauge.value());
+        EXPECT_EQ(0, gauge.value());
         gauge.set_value(100);
-        ASSERT_EQ(100, gauge.value());
+        EXPECT_EQ(100, gauge.value());
 
-        ASSERT_STREQ("100", gauge.to_string().c_str());
+        EXPECT_STREQ("100", gauge.to_string().c_str());
     }
     // DoubleGauge
     {
         DoubleGauge gauge;
-        ASSERT_EQ(0.0, gauge.value());
+        EXPECT_EQ(0.0, gauge.value());
         gauge.set_value(1.23);
-        ASSERT_EQ(1.23, gauge.value());
+        EXPECT_EQ(1.23, gauge.value());
 
-        ASSERT_STREQ("1.230000", gauge.to_string().c_str());
+        EXPECT_STREQ("1.230000", gauge.to_string().c_str());
     }
 }
 
@@ -192,17 +193,17 @@ TEST_F(MetricsTest, MetricPrototype) {
                                       "fragment_requests_total",
                                       "Total fragment requests received.");
 
-        ASSERT_EQ("fragment_requests_total", cpu_idle_type.simple_name());
-        ASSERT_EQ("fragment_requests_total", cpu_idle_type.combine_name(""));
-        ASSERT_EQ("doris_be_fragment_requests_total", cpu_idle_type.combine_name("doris_be"));
+        EXPECT_EQ("fragment_requests_total", cpu_idle_type.simple_name());
+        EXPECT_EQ("fragment_requests_total", cpu_idle_type.combine_name(""));
+        EXPECT_EQ("doris_be_fragment_requests_total", cpu_idle_type.combine_name("doris_be"));
     }
     {
         MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "cpu_idle",
                                       "CPU's idle time percent", "cpu");
 
-        ASSERT_EQ("cpu", cpu_idle_type.simple_name());
-        ASSERT_EQ("cpu", cpu_idle_type.combine_name(""));
-        ASSERT_EQ("doris_be_cpu", cpu_idle_type.combine_name("doris_be"));
+        EXPECT_EQ("cpu", cpu_idle_type.simple_name());
+        EXPECT_EQ("cpu", cpu_idle_type.combine_name(""));
+        EXPECT_EQ("doris_be_cpu", cpu_idle_type.combine_name("doris_be"));
     }
 }
 
@@ -213,25 +214,25 @@ TEST_F(MetricsTest, MetricEntityWithMetric) {
 
     // Before register
     Metric* metric = entity.get_metric("cpu_idle");
-    ASSERT_EQ(nullptr, metric);
+    EXPECT_EQ(nullptr, metric);
 
     // Register
     IntCounter* cpu_idle = (IntCounter*)entity.register_metric<IntCounter>(&cpu_idle_type);
     cpu_idle->increment(12);
 
     metric = entity.get_metric("cpu_idle");
-    ASSERT_NE(nullptr, metric);
-    ASSERT_EQ("12", metric->to_string());
+    EXPECT_NE(nullptr, metric);
+    EXPECT_EQ("12", metric->to_string());
 
     cpu_idle->increment(8);
-    ASSERT_EQ("20", metric->to_string());
+    EXPECT_EQ("20", metric->to_string());
 
     // Deregister
     entity.deregister_metric(&cpu_idle_type);
 
     // After deregister
     metric = entity.get_metric("cpu_idle");
-    ASSERT_EQ(nullptr, metric);
+    EXPECT_EQ(nullptr, metric);
 }
 
 TEST_F(MetricsTest, MetricEntityWithHook) {
@@ -245,55 +246,55 @@ TEST_F(MetricsTest, MetricEntityWithHook) {
 
     // Before hook
     Metric* metric = entity.get_metric("cpu_idle");
-    ASSERT_NE(nullptr, metric);
-    ASSERT_EQ("0", metric->to_string());
+    EXPECT_NE(nullptr, metric);
+    EXPECT_EQ("0", metric->to_string());
 
     // Hook
     entity.trigger_hook_unlocked(true);
-    ASSERT_EQ("6", metric->to_string());
+    EXPECT_EQ("6", metric->to_string());
 
     entity.trigger_hook_unlocked(true);
-    ASSERT_EQ("12", metric->to_string());
+    EXPECT_EQ("12", metric->to_string());
 
     // Deregister hook
     entity.deregister_hook("test_hook");
     // Hook but no effect
     entity.trigger_hook_unlocked(true);
-    ASSERT_EQ("12", metric->to_string());
+    EXPECT_EQ("12", metric->to_string());
 }
 
 TEST_F(MetricsTest, MetricRegistryRegister) {
     MetricRegistry registry("test_registry");
 
     // No entity
-    ASSERT_EQ("", registry.to_prometheus());
-    ASSERT_EQ("[]", registry.to_json());
-    ASSERT_EQ("", registry.to_core_string());
+    EXPECT_EQ("", registry.to_prometheus());
+    EXPECT_EQ("[]", registry.to_json());
+    EXPECT_EQ("", registry.to_core_string());
 
     // Register
     auto entity1 = registry.register_entity("test_entity");
-    ASSERT_NE(nullptr, entity1);
+    EXPECT_NE(nullptr, entity1);
 
     // Register again
     auto entity2 = registry.register_entity("test_entity");
-    ASSERT_NE(nullptr, entity2);
-    ASSERT_EQ(entity1.get(), entity2.get());
+    EXPECT_NE(nullptr, entity2);
+    EXPECT_EQ(entity1.get(), entity2.get());
 
     // Deregister entity once
     registry.deregister_entity(entity1);
 
     // Still exist and equal to entity1
     entity2 = registry.get_entity("test_entity");
-    ASSERT_NE(nullptr, entity2);
-    ASSERT_EQ(entity1.get(), entity2.get());
+    EXPECT_NE(nullptr, entity2);
+    EXPECT_EQ(entity1.get(), entity2.get());
 
     // Deregister entity twice
     registry.deregister_entity(entity2);
 
     // Not exist and registry is empty
     entity2 = registry.get_entity("test_entity");
-    ASSERT_EQ(nullptr, entity2);
-    ASSERT_EQ("", registry.to_prometheus());
+    EXPECT_EQ(nullptr, entity2);
+    EXPECT_EQ("", registry.to_prometheus());
 }
 
 TEST_F(MetricsTest, MetricRegistryOutput) {
@@ -301,9 +302,9 @@ TEST_F(MetricsTest, MetricRegistryOutput) {
 
     {
         // No entity
-        ASSERT_EQ("", registry.to_prometheus());
-        ASSERT_EQ("[]", registry.to_json());
-        ASSERT_EQ("", registry.to_core_string());
+        EXPECT_EQ("", registry.to_prometheus());
+        EXPECT_EQ("[]", registry.to_json());
+        EXPECT_EQ("", registry.to_core_string());
     }
 
     {
@@ -315,13 +316,13 @@ TEST_F(MetricsTest, MetricRegistryOutput) {
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(8);
 
-        ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
+        EXPECT_EQ(R"(# TYPE test_registry_cpu_idle gauge
 test_registry_cpu_idle 8
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle"},"unit":"percent","value":8}])",
+        EXPECT_EQ(R"([{"tags":{"metric":"cpu_idle"},"unit":"percent","value":8}])",
                   registry.to_json());
-        ASSERT_EQ("test_registry_cpu_idle LONG 8\n", registry.to_core_string());
+        EXPECT_EQ("test_registry_cpu_idle LONG 8\n", registry.to_core_string());
         registry.deregister_entity(entity);
     }
 
@@ -334,13 +335,13 @@ test_registry_cpu_idle 8
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(18);
 
-        ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
+        EXPECT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{mode="idle"} 18
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":18}])",
+        EXPECT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":18}])",
                   registry.to_json());
-        ASSERT_EQ("", registry.to_core_string());
+        EXPECT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
 
@@ -352,14 +353,14 @@ test_registry_cpu{mode="idle"} 18
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(28);
 
-        ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
+        EXPECT_EQ(R"(# TYPE test_registry_cpu_idle gauge
 test_registry_cpu_idle{name="label_test"} 28
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(
+        EXPECT_EQ(
                 R"([{"tags":{"metric":"cpu_idle","name":"label_test"},"unit":"percent","value":28}])",
                 registry.to_json());
-        ASSERT_EQ("", registry.to_core_string());
+        EXPECT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
 
@@ -372,14 +373,14 @@ test_registry_cpu_idle{name="label_test"} 28
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(38);
 
-        ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
+        EXPECT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{name="label_test",mode="idle"} 38
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(
+        EXPECT_EQ(
                 R"([{"tags":{"metric":"cpu","mode":"idle","name":"label_test"},"unit":"percent","value":38}])",
                 registry.to_json());
-        ASSERT_EQ("", registry.to_core_string());
+        EXPECT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
 
@@ -397,15 +398,15 @@ test_registry_cpu{name="label_test",mode="idle"} 38
         IntGauge* cpu_guest = (IntGauge*)entity->register_metric<IntGauge>(&cpu_guest_type);
         cpu_guest->increment(58);
 
-        ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
+        EXPECT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{mode="idle"} 48
 test_registry_cpu{mode="guest"} 58
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(
+        EXPECT_EQ(
                 R"([{"tags":{"metric":"cpu","mode":"guest"},"unit":"percent","value":58},{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":48}])",
                 registry.to_json());
-        ASSERT_EQ("", registry.to_core_string());
+        EXPECT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
 }
@@ -424,7 +425,7 @@ TEST_F(MetricsTest, HistogramRegistryOutput) {
         for (int j = 1; j <= 100; j++) {
             task_duration->add(j);
         }
-        ASSERT_EQ(R"(# TYPE test_registry_task_duration histogram
+        EXPECT_EQ(R"(# TYPE test_registry_task_duration histogram
 test_registry_task_duration{quantile="0.50"} 50
 test_registry_task_duration{quantile="0.75"} 75
 test_registry_task_duration{quantile="0.90"} 95.8333
@@ -439,7 +440,7 @@ test_registry_task_duration_median 50
 test_registry_task_duration_standard_deviation 28.8661
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(
+        EXPECT_EQ(
                 R"*([{"tags":{"metric":"task_duration"},"unit":"milliseconds",)*"
                 R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
                 R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333334,"percentile_95":100.0,"percentile_99":100.0,)*"
@@ -460,7 +461,7 @@ test_registry_task_duration_standard_deviation 28.8661
             task_duration->add(j);
         }
 
-        ASSERT_EQ(R"(# TYPE test_registry_task_duration histogram
+        EXPECT_EQ(R"(# TYPE test_registry_task_duration histogram
 test_registry_task_duration{instance="test",type="create_tablet",quantile="0.50"} 50
 test_registry_task_duration{instance="test",type="create_tablet",quantile="0.75"} 75
 test_registry_task_duration{instance="test",type="create_tablet",quantile="0.90"} 95.8333
@@ -475,7 +476,7 @@ test_registry_task_duration_median{instance="test",type="create_tablet"} 50
 test_registry_task_duration_standard_deviation{instance="test",type="create_tablet"} 28.8661
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(
+        EXPECT_EQ(
                 R"*([{"tags":{"metric":"task_duration","type":"create_tablet","instance":"test"},"unit":"milliseconds",)*"
                 R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
                 R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333334,"percentile_95":100.0,"percentile_99":100.0,)*"
@@ -485,8 +486,3 @@ test_registry_task_duration_standard_deviation{instance="test",type="create_tabl
     }
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
