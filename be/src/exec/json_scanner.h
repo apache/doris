@@ -182,10 +182,11 @@ protected:
     char _parse_buffer[512 * 1024];
 
     typedef rapidjson::GenericDocument<rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>,
-                                       rapidjson::MemoryPoolAllocator<> > Document;
+                                       rapidjson::MemoryPoolAllocator<>>
+            Document;
     rapidjson::MemoryPoolAllocator<> _value_allocator;
     rapidjson::MemoryPoolAllocator<> _parse_allocator;
-    Document _origin_json_doc; // origin json document object from parsed json string
+    Document _origin_json_doc;   // origin json document object from parsed json string
     rapidjson::Value* _json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
     std::unordered_map<std::string, int> _name_map;
 

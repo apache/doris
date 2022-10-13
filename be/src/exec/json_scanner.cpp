@@ -346,7 +346,7 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
         return Status::OK();
     }
 
-    // clear memory here. 
+    // clear memory here.
     _origin_json_doc.GetAllocator().Clear();
     bool has_parse_error = false;
     // parse jsondata to JsonDoc
