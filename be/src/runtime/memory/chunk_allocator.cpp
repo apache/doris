@@ -154,12 +154,11 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
 Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
     CHECK((size > 0 && (size & (size - 1)) == 0));
 
+    int core_id = CpuInfo::get_current_core();
+    chunk->core_id = core_id;
+    chunk->size = size;
     if (!config::disable_chunk_allocator) {
         // fast path: allocate from current core arena
-        int core_id = CpuInfo::get_current_core();
-        chunk->size = size;
-        chunk->core_id = core_id;
-
         if (_arenas[core_id]->pop_free_chunk(size, &chunk->data)) {
             DCHECK_GE(_reserved_bytes, 0);
             _reserved_bytes.fetch_sub(size);
