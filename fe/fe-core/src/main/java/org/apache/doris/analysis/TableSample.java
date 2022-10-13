@@ -23,8 +23,8 @@ import org.apache.doris.common.AnalysisException;
  * To represent following stmt:
  *      TABLESAMPLE (10 PERCENT)
  *      TABLESAMPLE (100 ROWS)
- *      TABLESAMPLE (10 PERCENT) REPEATABLE (123)
- *      TABLESAMPLE (100 ROWS) REPEATABLE (123)R
+ *      TABLESAMPLE (10 PERCENT) REPEATABLE 2
+ *      TABLESAMPLE (100 ROWS) REPEATABLE 2
  *
  * references:
  *      https://simplebiinsights.com/sql-server-tablesample-retrieving-random-data-from-sql-server/

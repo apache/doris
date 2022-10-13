@@ -290,7 +290,7 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
 
     ```sql
     --在t1中伪随机的抽样1000行。注意实际是根据表的统计信息选择若干Tablet，被选择的Tablet总行数可能大于1000，所以若想明确返回1000行需要加上Limit。
-    SELECT * FROM t1 TABLET(10001) TABLESAMPLE(1000 ROWS) REPEATABLE (2) limit 1000;
+    SELECT * FROM t1 TABLET(10001) TABLESAMPLE(1000 ROWS) REPEATABLE 2 limit 1000;
     ```
 
 ### keywords
