@@ -274,15 +274,6 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getExecMemLimit();
     }
 
-    public long getLoadMemLimit(String qualifiedUser) {
-        UserProperty existProperty = propertyMap.get(qualifiedUser);
-        existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
-        if (existProperty == null) {
-            return -1;
-        }
-        return existProperty.getLoadMemLimit();
-    }
-
     private UserProperty getLdapPropertyIfNull(String qualifiedUser, UserProperty existProperty) {
         if (existProperty == null && Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser)) {
             return LDAP_PROPERTY;
