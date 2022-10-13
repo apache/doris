@@ -69,6 +69,9 @@ public:
 
     Status init();
 
+    // for vertical compaction
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
+
     template <typename RowType>
     Status append_row(const RowType& row);
 
@@ -78,13 +81,18 @@ public:
 
     uint64_t estimate_segment_size();
 
-    uint32_t num_rows_written() const { return _row_count; }
+    uint32_t num_rows_written() const { return _num_rows_written; }
+    uint32_t row_count() const { return _row_count; }
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
-    static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                 const TabletColumn& column, TabletSchemaSPtr tablet_schema);
     uint32_t get_segment_id() { return _segment_id; }
+
+    Status finalize_columns(uint64_t* index_size);
+    Status finalize_footer(uint64_t* segment_file_size);
+
+    static void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                                 TabletSchemaSPtr tablet_schema);
     Slice min_encoded_key();
     Slice max_encoded_key();
 
@@ -101,6 +109,8 @@ private:
     Status _write_raw_data(const std::vector<Slice>& slices);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos, bool null_first = true);
+
+    void _reset_column_writers();
 
 private:
     uint32_t _segment_id;
@@ -120,11 +130,16 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     uint32_t _row_count = 0;
 
-    vectorized::OlapBlockDataConvertor _olap_data_convertor;
+    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     std::vector<const KeyCoder*> _key_coders;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
+
+    std::vector<uint32_t> _column_ids;
+    bool _has_key = true;
+    // written when add particial columns
+    uint32_t _num_rows_written = 0;
 };
 
 } // namespace segment_v2
