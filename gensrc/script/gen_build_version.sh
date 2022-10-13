@@ -58,21 +58,15 @@ if [[ -z "${DORIS_TEST_BINARY_DIR}" ]]; then
 fi
 
 cd "${DORIS_HOME}"
-if [[ -d '.svn' ]]; then
-    revision=$(svn info | sed -n -e 's/Last Changed Rev: \(.*\)/\1/p')
-    short_revision="${revision}"
-    url=$(svn info | sed -n -e 's/^URL: \(.*\)/\1/p')
-    if echo "${url}" | grep '\/tags\/' >/dev/null; then
-        build_version="$(echo "${url}" | sed 's/.*_\([0-9-]\+\)_PD_BL.*/\1/g' | sed 's/-/\./g')"
-    fi
-elif [[ -d '.git' ]]; then
+
+if [[ -d '.git' ]]; then
     revision="$(git log -1 --pretty=format:"%H")"
     short_revision="$(git log -1 --pretty=format:"%h")"
-    url="git://${hostname}${DORIS_HOME}"
+    url="git://${hostname}"
 else
     revision="Unknown"
     short_revision="${revision}"
-    url="file://${DORIS_HOME}"
+    url="file://${hostname}"
 fi
 
 cd "${cwd}"
@@ -80,7 +74,7 @@ cd "${cwd}"
 build_hash="${url}@${revision}"
 build_short_hash="${short_revision}"
 build_time="${date}"
-build_info="${user}@${hostname}"
+build_info="${hostname}"
 
 if [[ -z "${JAVA_HOME}" ]]; then
     java_cmd="$(which java)"
