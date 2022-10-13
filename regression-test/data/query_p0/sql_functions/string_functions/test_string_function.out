@@ -135,6 +135,9 @@ abc123
 abc123
 
 -- !sql --
+Abc123abc Abc.Abc,?|Abc
+
+-- !sql --
 Hello
 
 -- !sql --
