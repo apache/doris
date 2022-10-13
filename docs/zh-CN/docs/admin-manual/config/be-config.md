@@ -1034,13 +1034,6 @@ pprof profile保存目录
 
 导入线程数，用于处理NORMAL优先级任务
 
-### `push_write_mbytes_per_sec`
-
-+ 类型：int32
-+ 描述：导入数据速度控制，默认最快每秒10MB。适用于所有的导入方式。
-+ 单位：MB
-+ 默认值：10
-
 ### `query_scratch_dirs`
 
 * 类型：string

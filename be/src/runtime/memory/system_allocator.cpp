@@ -43,8 +43,10 @@ uint8_t* SystemAllocator::allocate_via_malloc(size_t length) {
     int res = posix_memalign(&ptr, PAGE_SIZE, length);
     if (res != 0) {
         char buf[64];
-        LOG(ERROR) << "fail to allocate mem via posix_memalign, res=" << res
-                   << ", errmsg=" << strerror_r(res, buf, 64);
+        auto err = fmt::format("fail to allocate mem via posix_memalign, res={}, errmsg={}.", res,
+                               strerror_r(res, buf, 64));
+        ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+        LOG(ERROR) << err;
         return nullptr;
     }
     return (uint8_t*)ptr;

@@ -133,16 +133,19 @@ public:
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);
+        _has_null = true;
     }
 
     void insert_many_defaults(size_t length) override {
         get_nested_column().insert_many_defaults(length);
         get_null_map_data().resize_fill(get_null_map_data().size() + length, 1);
+        _has_null = true;
     }
 
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
         get_null_map_column().fill(1, num);
+        _has_null = true;
     }
 
     void pop_back(size_t n) override;
@@ -232,9 +235,14 @@ public:
     void clear() override {
         null_map->clear();
         nested_column->clear();
+        _has_null = false;
     }
 
-    NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
+    NullMap& get_null_map_data() {
+        _need_update_has_null = true;
+        return get_null_map_column().get_data();
+    }
+
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
     /// Apply the null byte map of a specified nullable column onto the
@@ -249,39 +257,14 @@ public:
     /// Check that size of null map equals to size of nested column.
     void check_consistency() const;
 
-    bool has_null() const override { return has_null(get_null_map_data().size()); }
-
-    bool has_null(size_t size) const override {
-        const UInt8* null_pos = get_null_map_data().data();
-        const UInt8* null_pos_end = get_null_map_data().data() + size;
-#if defined(__SSE2__) || defined(__aarch64__)
-        /** A slightly more optimized version.
-        * Based on the assumption that often pieces of consecutive values
-        *  completely pass or do not pass the filter.
-        * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
-        */
-        static constexpr size_t SIMD_BYTES = 16;
-        const __m128i zero16 = _mm_setzero_si128();
-        const UInt8* null_end_sse = null_pos + size / SIMD_BYTES * SIMD_BYTES;
-
-        while (null_pos < null_end_sse) {
-            int mask = _mm_movemask_epi8(_mm_cmpgt_epi8(
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_pos)), zero16));
-
-            if (0 != mask) {
-                return true;
-            }
-            null_pos += SIMD_BYTES;
+    bool has_null() const override {
+        if (UNLIKELY(_need_update_has_null)) {
+            const_cast<ColumnNullable*>(this)->_update_has_null();
         }
-#endif
-        while (null_pos < null_pos_end) {
-            if (*null_pos != 0) {
-                return true;
-            }
-            null_pos++;
-        }
-        return false;
+        return _has_null;
     }
+
+    bool has_null(size_t size) const override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
@@ -319,6 +302,10 @@ private:
     WrappedPtr nested_column;
     WrappedPtr null_map;
 
+    bool _need_update_has_null = false;
+    bool _has_null;
+
+    void _update_has_null();
     template <bool negative>
     void apply_null_map_impl(const ColumnUInt8& map);
 };

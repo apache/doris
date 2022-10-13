@@ -14,5 +14,5 @@ FROM
 ) t
 GROUP BY repo_name
 HAVING (stars > 100) AND (forks > 100)
-ORDER BY ratio DESC
+ORDER BY ratio DESC, repo_name
 LIMIT 50

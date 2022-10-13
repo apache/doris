@@ -141,20 +141,36 @@ doris::Status doris::FileFactory::_new_file_reader(doris::ExecEnv* env, RuntimeP
         return Status::InternalError("UnSupport UniquePtr For FileStream type");
     }
 
+    int64_t start_offset = range.start_offset;
+    switch (params.format_type) {
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+        if (start_offset != 0) {
+            start_offset -= 1;
+        }
+        break;
+    default:
+        break;
+    }
+
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        file_reader_ptr = new LocalFileReader(range.path, range.start_offset);
+        file_reader_ptr = new LocalFileReader(range.path, start_offset);
         break;
     }
     case TFileType::FILE_S3: {
         file_reader_ptr = new BufferedReader(
-                profile, new S3Reader(params.properties, range.path, range.start_offset));
+                profile, new S3Reader(params.properties, range.path, start_offset));
         break;
     }
     case TFileType::FILE_HDFS: {
         FileReader* hdfs_reader = nullptr;
         RETURN_IF_ERROR(HdfsReaderWriter::create_reader(params.hdfs_params, range.path,
-                                                        range.start_offset, &hdfs_reader));
+                                                        start_offset, &hdfs_reader));
         file_reader_ptr = new BufferedReader(profile, hdfs_reader);
         break;
     }

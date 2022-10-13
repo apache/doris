@@ -140,7 +140,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                                             .when(filter -> filter.getPredicates().equals(leftSide)),
                                     logicalFilter(logicalOlapScan())
                                             .when(filter -> filter.getPredicates().equals(rightSide))
-                            ).when(join -> join.getOtherJoinCondition().get().equals(bothSideEqualTo))
+                            ).when(join -> join.getOtherJoinConjuncts().get(0).equals(bothSideEqualTo))
                     );
         }
         if (joinType.isCrossJoin()) {

@@ -29,11 +29,9 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -115,23 +113,6 @@ public class JoinUtils {
             return leftExprIds.containsAll(equalLeftExprIds) && rightExprIds.containsAll(equalRightExprIds)
                     || leftExprIds.containsAll(equalRightExprIds) && rightExprIds.containsAll(equalLeftExprIds);
         }
-    }
-
-    /**
-     * collect expressions from on clause, which could be used to build hash table
-     * @param join join node
-     * @return pair of expressions, for hash table or not.
-     */
-    public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(
-            LogicalJoin<GroupPlan, GroupPlan> join) {
-        if (join.getOtherJoinCondition().isPresent()) {
-            List<Expression> onExprs = ExpressionUtils.extractConjunction(
-                    join.getOtherJoinCondition().get());
-            List<Slot> leftSlots = join.left().getOutput();
-            List<Slot> rightSlots = join.right().getOutput();
-            return extractExpressionForHashTable(leftSlots, rightSlots, onExprs);
-        }
-        return Pair.of(Lists.newArrayList(), Lists.newArrayList());
     }
 
     /**

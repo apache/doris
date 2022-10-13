@@ -46,30 +46,43 @@ ParquetReader::~ParquetReader() {
 
 void ParquetReader::_init_profile() {
     if (_profile != nullptr) {
+        static const char* const parquetProfile = "ParquetReader";
+        ADD_TIMER(_profile, parquetProfile);
+
         _parquet_profile.filtered_row_groups =
-                ADD_COUNTER(_profile, "ParquetFilteredGroups", TUnit::UNIT);
+                ADD_CHILD_COUNTER(_profile, "FilteredGroups", TUnit::UNIT, parquetProfile);
         _parquet_profile.to_read_row_groups =
-                ADD_COUNTER(_profile, "ParquetReadGroups", TUnit::UNIT);
+                ADD_CHILD_COUNTER(_profile, "ReadGroups", TUnit::UNIT, parquetProfile);
         _parquet_profile.filtered_group_rows =
-                ADD_COUNTER(_profile, "ParquetFilteredRowsByGroup", TUnit::UNIT);
+                ADD_CHILD_COUNTER(_profile, "FilteredRowsByGroup", TUnit::UNIT, parquetProfile);
         _parquet_profile.filtered_page_rows =
-                ADD_COUNTER(_profile, "ParquetFilteredRowsByPage", TUnit::UNIT);
+                ADD_CHILD_COUNTER(_profile, "FilteredRowsByPage", TUnit::UNIT, parquetProfile);
         _parquet_profile.filtered_bytes =
-                ADD_COUNTER(_profile, "ParquetFilteredBytes", TUnit::BYTES);
-        _parquet_profile.to_read_bytes = ADD_COUNTER(_profile, "ParquetReadBytes", TUnit::BYTES);
-        _parquet_profile.column_read_time = ADD_TIMER(_profile, "ParquetColumnReadTime");
-        _parquet_profile.parse_meta_time = ADD_TIMER(_profile, "ParquetParseMetaTime");
+                ADD_CHILD_COUNTER(_profile, "FilteredBytes", TUnit::BYTES, parquetProfile);
+        _parquet_profile.to_read_bytes =
+                ADD_CHILD_COUNTER(_profile, "ReadBytes", TUnit::BYTES, parquetProfile);
+        _parquet_profile.column_read_time =
+                ADD_CHILD_TIMER(_profile, "ColumnReadTime", parquetProfile);
+        _parquet_profile.parse_meta_time =
+                ADD_CHILD_TIMER(_profile, "ParseMetaTime", parquetProfile);
 
         _parquet_profile.file_read_time = ADD_TIMER(_profile, "FileReadTime");
         _parquet_profile.file_read_calls = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
         _parquet_profile.file_read_bytes = ADD_COUNTER(_profile, "FileReadBytes", TUnit::BYTES);
-        _parquet_profile.decompress_time = ADD_TIMER(_profile, "ParquetDecompressTime");
+        _parquet_profile.decompress_time =
+                ADD_CHILD_TIMER(_profile, "DecompressTime", parquetProfile);
         _parquet_profile.decompress_cnt =
-                ADD_COUNTER(_profile, "ParquetDecompressCount", TUnit::UNIT);
-        _parquet_profile.decode_header_time = ADD_TIMER(_profile, "ParquetDecodeHeaderTime");
-        _parquet_profile.decode_value_time = ADD_TIMER(_profile, "ParquetDecodeValueTime");
-        _parquet_profile.decode_dict_time = ADD_TIMER(_profile, "ParquetDecodeDictTime");
-        _parquet_profile.decode_level_time = ADD_TIMER(_profile, "ParquetDecodeLevelTime");
+                ADD_CHILD_COUNTER(_profile, "DecompressCount", TUnit::UNIT, parquetProfile);
+        _parquet_profile.decode_header_time =
+                ADD_CHILD_TIMER(_profile, "DecodeHeaderTime", parquetProfile);
+        _parquet_profile.decode_value_time =
+                ADD_CHILD_TIMER(_profile, "DecodeValueTime", parquetProfile);
+        _parquet_profile.decode_dict_time =
+                ADD_CHILD_TIMER(_profile, "DecodeDictTime", parquetProfile);
+        _parquet_profile.decode_level_time =
+                ADD_CHILD_TIMER(_profile, "DecodeLevelTime", parquetProfile);
+        _parquet_profile.decode_null_map_time =
+                ADD_CHILD_TIMER(_profile, "DecodeNullMapTime", parquetProfile);
     }
 }
 
@@ -97,6 +110,8 @@ void ParquetReader::close() {
             COUNTER_UPDATE(_parquet_profile.decode_dict_time, _column_statistics.decode_dict_time);
             COUNTER_UPDATE(_parquet_profile.decode_level_time,
                            _column_statistics.decode_level_time);
+            COUNTER_UPDATE(_parquet_profile.decode_null_map_time,
+                           _column_statistics.decode_null_map_time);
         }
         _closed = true;
     }
@@ -297,6 +312,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     RETURN_IF_ERROR(
             _file_reader->readat(page_index._column_index_start, buffer_size, &bytes_read, buff));
 
+    auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
@@ -305,6 +321,9 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
         auto& chunk = row_group.columns[read_col._parquet_col_id];
         tparquet::ColumnIndex column_index;
+        if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
+            return Status::OK();
+        }
         RETURN_IF_ERROR(page_index.parse_column_index(chunk, buff, &column_index));
         const int num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {
@@ -312,7 +331,9 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
         auto& conjuncts = conjunct_iter->second;
         std::vector<int> skipped_page_range;
-        page_index.collect_skipped_page_range(&column_index, conjuncts, skipped_page_range);
+        const FieldSchema* col_schema = schema_desc.get_column(read_col._file_slot_name);
+        page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
+                                              skipped_page_range);
         if (skipped_page_range.empty()) {
             return Status::OK();
         }
@@ -372,6 +393,7 @@ Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_gr
 
 Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& columns,
                                                   bool* filter_group) {
+    auto& schema_desc = _file_metadata->schema();
     for (auto& col_name : _column_names) {
         auto col_iter = _map_column.find(col_name);
         if (col_iter == _map_column.end()) {
@@ -386,8 +408,10 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         if (!statistic.__isset.max || !statistic.__isset.min) {
             continue;
         }
+        const FieldSchema* col_schema = schema_desc.get_column(col_name);
         // Min-max of statistic is plain-encoded value
-        *filter_group = determine_filter_min_max(slot_iter->second, statistic.min, statistic.max);
+        *filter_group = determine_filter_min_max(slot_iter->second, col_schema, statistic.min,
+                                                 statistic.max);
         if (*filter_group) {
             break;
         }

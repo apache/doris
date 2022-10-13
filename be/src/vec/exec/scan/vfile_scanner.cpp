@@ -30,6 +30,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "vec/exec/format/csv/vcsv_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/functions/simple_function_factory.h"
@@ -493,6 +494,17 @@ Status VFileScanner::_get_next_reader() {
             init_status =
                     ((ORCReaderWrap*)(_cur_reader.get()))
                             ->init_reader(_real_tuple_desc, _conjunct_ctxs, _state->timezone());
+            break;
+        }
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE: {
+            _cur_reader.reset(new CsvReader(_state, _profile, &_counter, _params, range,
+                                            _file_slot_descs, file_reader.release()));
+            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         default:
