@@ -38,12 +38,12 @@ If there are many parameters with this name, the first occurrence is returned.
 This function works assuming that the parameter name is encoded in the URL exactly as it was in the passed parameter.
 
 ```
-mysql> SELECT extract_url_parameter ('https://doris.apache.org/', 'apache');
-+--------------------------------------------------------------+
-| extract_url_parameter('https://doris.apache.org/', 'apache') |
-+--------------------------------------------------------------+
-| apache                                                       |
-+--------------------------------------------------------------+
+mysql> SELECT extract_url_parameter ("http://doris.apache.org?k1=aa&k2=bb&test=cc#999", "k2");
++--------------------------------------------------------------------------------+
+| extract_url_parameter('http://doris.apache.org?k1=aa&k2=bb&test=cc#999', 'k2') |
++--------------------------------------------------------------------------------+
+| bb                                                                             |
++--------------------------------------------------------------------------------+
 ```
 
 ### keywords
