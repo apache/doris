@@ -289,8 +289,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         if (stmt.getExecMemLimit() != -1) {
             this.execMemLimit = stmt.getExecMemLimit();
-        } else if (ConnectContext.get() != null) {
-            this.execMemLimit = ConnectContext.get().getSessionVariable().getLoadMemLimit();
         }
         if (stmt.getSendBatchParallelism() > 0) {
             this.sendBatchParallelism = stmt.getSendBatchParallelism();

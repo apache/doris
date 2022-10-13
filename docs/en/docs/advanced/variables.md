@@ -272,14 +272,6 @@ Note that the comment must start with /*+ and can only follow the SELECT.
   
     Show Doris's license. No other effect.
 
-* `load_mem_limit`
-
-    Used to specify the memory limit of the load operation. The default is 2GB.
-
-    Broker Load, Stream Load and Routine Load use `load_mem_limit` by default; if the user specifies the task `exec_mem_limit` parameter when creating a load, the specified value is used.
-
-    The INSERT operation has two parts: query and import. The memory limit of the load part of INSERT is `load_mem_limit`, and the query part is limited to `exec_mem_limit`.
-    
 * `lower_case_table_names`
 
     Used to control whether the user table name is case-sensitive.
