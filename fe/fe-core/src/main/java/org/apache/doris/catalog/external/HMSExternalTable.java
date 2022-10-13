@@ -171,7 +171,7 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 
-    public void setUnInitialized() {
+    public synchronized void setUnInitialized() {
         this.initialized = false;
         this.fullSchema = null;
     }

@@ -62,7 +62,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     private void init() {
-        // Must set here. Because after replay from image, these 2 map will become null again.
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<Long, HMSExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
         HiveConf hiveConf = new HiveConf();

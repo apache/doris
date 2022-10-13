@@ -34,14 +34,24 @@ import org.apache.logging.log4j.Logger;
 public class RefreshDbStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(RefreshDbStmt.class);
 
+    private String catalogName;
     private String dbName;
 
     public RefreshDbStmt(String dbName) {
         this.dbName = dbName;
     }
 
+    public RefreshDbStmt(String catalogName, String dbName) {
+        this.catalogName = catalogName;
+        this.dbName = dbName;
+    }
+
     public String getDbName() {
         return dbName;
+    }
+
+    public String getCatalogName() {
+        return catalogName;
     }
 
     @Override
@@ -74,7 +84,11 @@ public class RefreshDbStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("REFRESH DATABASE ").append("`").append(dbName).append("`");
+        sb.append("REFRESH DATABASE ");
+        if (catalogName != null) {
+            sb.append("`").append(catalogName).append("`.");
+        }
+        sb.append("`").append(dbName).append("`");
         return sb.toString();
     }
 

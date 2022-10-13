@@ -1127,6 +1127,10 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshDbStmt(db);
     :}
+    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db
+    {:
+        RESULT = new RefreshDbStmt(ctl, db);
+    :}
     | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
     {:
         RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);

@@ -88,7 +88,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         }
     }
 
-    public void setUnInitialized() {
+    public synchronized void setUnInitialized() {
         this.initialized = false;
     }
 
