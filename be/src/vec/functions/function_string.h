@@ -161,7 +161,7 @@ private:
 
         std::array<std::byte, 128 * 1024> buf;
         std::pmr::monotonic_buffer_resource pool {buf.data(), buf.size()};
-        std::pmr::vector<size_t> index{&pool};
+        std::pmr::vector<size_t> index {&pool};
 
         std::pmr::vector<std::pair<const unsigned char*, int>> strs(&pool);
         strs.resize(size);
