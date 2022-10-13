@@ -796,7 +796,6 @@ public class MemoRewriteTest implements PatternMatchSupported {
                 .analyze(new LogicalLimit<>(10, 0,
                         new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                                 ImmutableList.of(new EqualTo(new UnboundSlot("sid"), new UnboundSlot("id"))),
-                                Optional.empty(),
                                 new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.score),
                                 new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student)
                         )
