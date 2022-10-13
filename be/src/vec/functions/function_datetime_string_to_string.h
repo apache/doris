@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "runtime/runtime_state.h"
+#include "udf/udf_internal.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -26,8 +28,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
-#include "udf/udf_internal.h"
-#include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
 
