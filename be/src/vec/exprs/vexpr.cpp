@@ -319,6 +319,7 @@ ColumnPtrWrapper* VExpr::get_const_col(VExprContext* context) {
 
     int result = -1;
     Block block;
+    block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
     execute(context, &block, &result);
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
