@@ -2730,6 +2730,11 @@ drop_stmt ::=
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
     :}
+    /* statistics */
+    | KW_DROP KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
+    {:
+        RESULT = new DropTableStatsStmt(tbl, partitionNames);
+    :}
     ;
 
 // Recover statement
