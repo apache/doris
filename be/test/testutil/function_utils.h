@@ -33,6 +33,9 @@ public:
     FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
                   const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
                   int varargs_buffer_size);
+    FunctionUtils(RuntimeState* state, const doris_udf::FunctionContext::TypeDesc& return_type,
+                  const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+                  int varargs_buffer_size);
     ~FunctionUtils();
 
     doris_udf::FunctionContext* get_fn_ctx() { return _fn_ctx; }

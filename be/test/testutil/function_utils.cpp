@@ -48,6 +48,15 @@ FunctionUtils::FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_
                                                   varargs_buffer_size, false);
 }
 
+FunctionUtils::FunctionUtils(RuntimeState* state, const doris_udf::FunctionContext::TypeDesc& return_type,
+                             const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+                             int varargs_buffer_size) {
+    _state = state;
+    _memory_pool = new MemPool();
+    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types,
+                                                  varargs_buffer_size, false);
+}
+
 FunctionUtils::~FunctionUtils() {
     _fn_ctx->impl()->close();
     delete _fn_ctx;

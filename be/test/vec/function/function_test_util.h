@@ -31,6 +31,7 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
@@ -161,8 +162,8 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
 // The type of the constant column is represented as follows: Consted {TypeIndex::String}
 // A DataSet with a constant column can only have one row of data
 template <typename ReturnType, bool nullable = false>
-void check_function(const std::string& func_name, const InputTypeSet& input_types,
-                    const DataSet& data_set) {
+Status check_function(const std::string& func_name, const InputTypeSet& input_types,
+                      const DataSet& data_set) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
@@ -230,20 +231,20 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
         fn_ctx_return.type = doris_udf::FunctionContext::INVALID_TYPE;
     }
 
-    FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
+    std::unique_ptr<RuntimeState> runtime_stat(new RuntimeState(TQueryGlobals()));
+    FunctionUtils fn_utils(runtime_stat.get(), fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->impl()->set_constant_cols(constant_cols);
-    fn_ctx->impl()->_state = new RuntimeState(TQueryGlobals());
-    func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-    func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL);
+    RETURN_IF_ERROR(func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
 
     auto result = block.columns() - 1;
-    func->execute(fn_ctx, block, arguments, result, row_size);
+    RETURN_IF_ERROR(func->execute(fn_ctx, block, arguments, result, row_size));
 
-    func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
-    func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    RETURN_IF_ERROR(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
@@ -251,32 +252,49 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
 
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
-            Field field;
-            column->get(i, field);
-
-            const auto& expect_data =
-                    std::any_cast<typename ReturnType::FieldType>(data_set[i].second);
-
-            if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
-                const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
-                EXPECT_EQ(column_data.value, expect_data.value);
-            } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32>) {
-                const auto& column_data = field.get<DataTypeFloat64::FieldType>();
-                EXPECT_EQ(column_data, expect_data);
+            if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
+                const auto& expect_data = std::any_cast<String>(data_set[i].second);
+                auto s = column->get_data_at(i);
+                if (expect_data.size() == 0) {
+                    // zero size result means invalid
+                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 for row " << i;
+                } else {
+                    // convert jsonb binary value to json string to compare with expected json text
+                    JsonbToJson to_json;
+                    doris::JsonbValue* val =
+                            doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
+                    EXPECT_EQ(to_json.jsonb_to_string(val), expect_data) << " for row " << i;
+                }
             } else {
-                const auto& column_data = field.get<typename ReturnType::FieldType>();
-                EXPECT_EQ(column_data, expect_data);
+                Field field;
+                column->get(i, field);
+
+                const auto& expect_data =
+                        std::any_cast<typename ReturnType::FieldType>(data_set[i].second);
+
+                if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
+                    const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
+                    EXPECT_EQ(expect_data.value, column_data.value);
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32>) {
+                    const auto& column_data = field.get<DataTypeFloat64::FieldType>();
+                    EXPECT_EQ(expect_data, column_data);
+                } else {
+                    const auto& column_data = field.get<typename ReturnType::FieldType>();
+                    EXPECT_EQ(expect_data, column_data);
+                }
             }
         };
 
         if constexpr (nullable) {
             bool is_null = data_set[i].second.type() == typeid(Null);
-            EXPECT_EQ(column->is_null_at(i), is_null);
+            EXPECT_EQ(is_null, column->is_null_at(i));
             if (!is_null) check_column_data();
         } else {
             check_column_data();
         }
     }
+
+    return Status::OK();
 }
 
 } // namespace doris::vectorized
