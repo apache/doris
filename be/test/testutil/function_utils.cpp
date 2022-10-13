@@ -48,7 +48,8 @@ FunctionUtils::FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_
                                                   varargs_buffer_size, false);
 }
 
-FunctionUtils::FunctionUtils(RuntimeState* state, const doris_udf::FunctionContext::TypeDesc& return_type,
+FunctionUtils::FunctionUtils(RuntimeState* state,
+                             const doris_udf::FunctionContext::TypeDesc& return_type,
                              const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
                              int varargs_buffer_size) {
     _state = state;
