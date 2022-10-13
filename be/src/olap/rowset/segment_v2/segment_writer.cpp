@@ -277,7 +277,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    CHECK(block->columns() == _column_writers.size())
+    CHECK(block->columns() >= _column_writers.size())
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size();
 

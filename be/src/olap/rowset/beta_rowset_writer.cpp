@@ -713,6 +713,11 @@ RowsetSharedPtr BetaRowsetWriter::build() {
             new_schema->append_column(col);
         }
         new_schema->set_schema_version(_context.schema_change_recorder->schema_version());
+        if (_context.schema_change_recorder->schema_version() > _context.tablet_schema->schema_version()) {
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()
+                                        ->get_tablet(_context.tablet_id, true /*include deleted*/); 
+            tablet->update_max_version_schema(new_schema);
+        }
         _rowset_meta->set_tablet_schema(new_schema);
     }
 
