@@ -324,5 +324,9 @@ public class SortNode extends PlanNode {
         info.setSortTupleDesc(tupleDescriptor);
         info.setSortTupleSlotExprs(resolvedTupleExprs);
 
+        nullabilityChangedFlags.clear();
+        for (int i = 0; i < resolvedTupleExprs.size(); i++) {
+            nullabilityChangedFlags.add(false);
+        }
     }
 }
