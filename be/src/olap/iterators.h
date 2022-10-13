@@ -33,6 +33,10 @@ class RowBlockV2;
 class Schema;
 class ColumnPredicate;
 
+namespace vectorized {
+struct IteratorRowRef;
+};
+
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -121,6 +125,13 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
+    virtual Status next_row(vectorized::IteratorRowRef* ref) {
+        return Status::NotSupported("to be implemented");
+    }
+    virtual Status unique_key_next_row(vectorized::IteratorRowRef* ref) {
+        return Status::NotSupported("to be implemented");
+    }
+
     virtual bool support_return_data_by_ref() { return false; }
 
     virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
@@ -136,6 +147,9 @@ public:
     // Return the data id such as segment id, used for keep the insert order when do
     // merge sort in priority queue
     virtual uint64_t data_id() const { return 0; }
+
+    // return rows merged count by iterator
+    virtual uint64_t merged_rows() const { return 0; }
 };
 
 } // namespace doris

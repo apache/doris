@@ -22,6 +22,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet.h"
+#include "olap/task/engine_checksum_task.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -112,12 +113,48 @@ Status Compaction::quick_rowsets_compact() {
 
 Status Compaction::do_compaction(int64_t permits) {
     TRACE("start to do compaction");
+    uint32_t checksum_before;
+    uint32_t checksum_after;
+    if (config::enable_compaction_checksum) {
+        EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
+                                         _input_rowsets.back()->end_version(), &checksum_before);
+        checksum_task.execute();
+    }
+
     _tablet->data_dir()->disks_compaction_score_increment(permits);
     _tablet->data_dir()->disks_compaction_num_increment(1);
     Status st = do_compaction_impl(permits);
     _tablet->data_dir()->disks_compaction_score_increment(-permits);
     _tablet->data_dir()->disks_compaction_num_increment(-1);
+
+    if (config::enable_compaction_checksum) {
+        EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
+                                         _input_rowsets.back()->end_version(), &checksum_after);
+        checksum_task.execute();
+        if (checksum_before != checksum_after) {
+            LOG(WARNING) << "Compaction tablet=" << _tablet->tablet_id()
+                         << " checksum not consistent"
+                         << ", before=" << checksum_before << ", checksum_after=" << checksum_after;
+        }
+    }
     return st;
+}
+
+bool Compaction::should_vertical_compaction() {
+    // some conditions that not use vertical compaction
+    if (!config::enable_vertical_compaction) {
+        return false;
+    }
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        return false;
+    }
+    return true;
+}
+
+int64_t Compaction::get_avg_segment_rows() {
+    // take care of empty rowset
+    // todo(yixiu): add a new conf of segment size in compaction
+    return config::write_buffer_size / (_input_rowsets_size / (_input_row_num + 1) + 1);
 }
 
 Status Compaction::do_compaction_impl(int64_t permits) {
@@ -142,9 +179,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
     auto use_vectorized_compaction = config::enable_vectorized_compaction;
     string merge_type = use_vectorized_compaction ? "v" : "";
+    bool vertical_compaction = should_vertical_compaction();
 
     LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version << ", permits: " << permits;
+              << ", output_version=" << _output_version << ", permits: " << permits
+              << ", is_vertical_compaction=" << vertical_compaction;
     // get cur schema if rowset schema exist, rowset schema must be newer than tablet schema
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
@@ -152,7 +191,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     TabletSchemaSPtr cur_tablet_schema =
             _tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
 
-    RETURN_NOT_OK(construct_output_rowset_writer(cur_tablet_schema));
+    RETURN_NOT_OK(construct_output_rowset_writer(cur_tablet_schema, vertical_compaction));
     RETURN_NOT_OK(construct_input_rowset_readers());
     TRACE("prepare finished");
 
@@ -166,8 +205,14 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     if (use_vectorized_compaction) {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
-                                     _input_rs_readers, _output_rs_writer.get(), &stats);
+        if (vertical_compaction) {
+            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
+                                                 _input_rs_readers, _output_rs_writer.get(),
+                                                 get_avg_segment_rows(), &stats);
+        } else {
+            res = Merger::vmerge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
+                                         _input_rs_readers, _output_rs_writer.get(), &stats);
+        }
     } else {
         res = Merger::merge_rowsets(_tablet, compaction_type(), cur_tablet_schema,
                                     _input_rs_readers, _output_rs_writer.get(), &stats);
@@ -233,11 +278,15 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << "s. cumulative_compaction_policy="
               << (cumu_policy == nullptr ? "quick" : cumu_policy->name())
               << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second());
-
     return Status::OK();
 }
 
-Status Compaction::construct_output_rowset_writer(TabletSchemaSPtr schema) {
+Status Compaction::construct_output_rowset_writer(TabletSchemaSPtr schema, bool is_vertical) {
+    if (is_vertical) {
+        return _tablet->create_vertical_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING,
+                                                      schema, _oldest_write_timestamp,
+                                                      _newest_write_timestamp, &_output_rs_writer);
+    }
     return _tablet->create_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING, schema,
                                          _oldest_write_timestamp, _newest_write_timestamp,
                                          &_output_rs_writer);
