@@ -36,7 +36,7 @@ import java.util.List;
 /**
  * MergeConsecutiveFilter ut
  */
-public class MergeConsecutiveFilterTest {
+public class MergeFiltersTest {
     @Test
     public void testMergeConsecutiveFilters() {
         UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
@@ -48,7 +48,7 @@ public class MergeConsecutiveFilterTest {
         LogicalFilter filter3 = new LogicalFilter<>(expression3, filter2);
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filter3);
-        List<Rule> rules = Lists.newArrayList(new MergeConsecutiveFilters().build());
+        List<Rule> rules = Lists.newArrayList(new MergeFilters().build());
         cascadesContext.bottomUpRewrite(rules);
         //check transformed plan
         Plan resultPlan = cascadesContext.getMemo().copyOut();
