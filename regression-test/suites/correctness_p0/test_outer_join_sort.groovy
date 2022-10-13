@@ -94,18 +94,22 @@ suite("test_outer_join_sort") {
 
     qt_select """
         select
-        ref_411.a as c1
+        case
+            when outerjoin_C.a is  NULL then subq_0.`c1`
+            else subq_0.`c2`
+        end as c0
         from
-        test_test_outer_join_sort_outerjoin_A as ref_411
-        left join (
+        (
             select
-            case
-                when test_outer_join_sort_outerjoin_B.a is NULL then test_outer_join_sort_outerjoin_B.a
-                else test_outer_join_sort_outerjoin_B.a
-            end as c2
+            1 as c0,
+            version() as c1,
+            a as c2
             from
-            test_outer_join_sort_outerjoin_B as ref_499
-        ) as subq_16 on (ref_411.a = subq_16.c2);
+            test_test_outer_join_sort_outerjoin_A
+        ) as subq_0
+        right join outerjoin_C on (subq_0.`c0` = outerjoin_C.a)
+        order by
+        subq_0.`c1`;
     """
 
     sql """
