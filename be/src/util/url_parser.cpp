@@ -350,14 +350,15 @@ std::string UrlParser::extract_url(const StringValue& url, const StringValue& na
     std::string str_name = name.to_string();
     // Remove leading and trailing spaces.
     StringValue trimmed_url = url.trim();
-    // find '?' and '#'
+    // find '?' 
     int32_t question_pos = _s_question_search.search(&trimmed_url);
-    int32_t hash_pos = _s_hash_search.search(&trimmed_url);
     if(question_pos < 0) {
         // this url no parameters.
         // Example: https://doris.apache.org/
         return result;
     }
+    // find '#'
+    int32_t hash_pos = _s_hash_search.search(&trimmed_url);
     std::string sub_url = "";
     if(hash_pos < 0) {
         sub_url = trimmed_url.substring(question_pos + 1, trimmed_url.len - question_pos -1).to_string();
@@ -374,7 +375,7 @@ std::string UrlParser::extract_url(const StringValue& url, const StringValue& na
         if(len <= 0) {
             break;
         }
-        and_pod  = sub_url.find('&');
+        and_pod  = sub_url.find_first_of('&');
         if(and_pod != std::string::npos) {
             key_url = sub_url.substr(0, and_pod);
             sub_url = sub_url.substr(and_pod + 1, len - and_pod);   
@@ -382,14 +383,19 @@ std::string UrlParser::extract_url(const StringValue& url, const StringValue& na
             key_url = sub_url;
             sub_url = "";
         }
+        len = sub_url.length();
+
         std::string::size_type eq_pod = key_url.find_first_of('=');
+        if(eq_pod == std::string::npos) {
+            // invalid url. like: k1&k2=bb
+            continue;
+        }
         int32_t key_len = key_url.length();
         std::string key = key_url.substr(0, eq_pod);
         if(str_name == key) {
             result = key_url.substr(eq_pod + 1, key_len - eq_pod);
             return result;
         }
-        len = sub_url.length();
     }
     return result;
 }

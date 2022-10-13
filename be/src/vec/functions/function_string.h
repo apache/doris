@@ -1261,10 +1261,6 @@ public:
      return std::make_shared<DataTypeString>();
     }
 
-    DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
-    }  
-
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1273,12 +1269,14 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto col_parameter =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto url_col = assert_cast<const ColumnString*>(col_url.get());
+        auto parameter_col = assert_cast<const ColumnString*>(col_parameter.get());
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
         for(int i = 0; i < input_rows_count; ++i) {
-            auto source = col_url->get_data_at(i);
-            auto param = col_parameter->get_data_at(i);
+            auto source = url_col->get_data_at(i);
+            auto param = parameter_col->get_data_at(i);
             StringValue url_str(const_cast<char*>(source.data), source.size);
             StringValue parameter_str(const_cast<char*>(param.data), param.size);
 
