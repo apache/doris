@@ -56,8 +56,12 @@ import java.util.stream.Collectors;
  * SELECT * FROM t1 JOIN t3 ON t1.id=t3.id JOIN t2 ON t2.id=t3.id
  * </pre>
  * </p>
- * TODO: This is tested by SSB queries currently, add more `unit` test for this rule
- * when we have a plan building and comparing framework.
+ * Using the {@link MultiJoin} to complete this task.
+ * {Join cluster}: contain multiple join with filter inside.
+ * <ul>
+ * <li> {Join cluster} to MultiJoin</li>
+ * <li> MultiJoin to {Join cluster}</li>
+ * </ul>
  */
 public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
@@ -148,6 +152,53 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      * -->
      * {@link LogicalJoin} or
      * {@link LogicalFilter}--{@link LogicalJoin}
+     * <p>
+     * When all input is CROSS/Inner Join, all join will be flattened.
+     * Otherwise, we will split {join cluster} into multiple {@link MultiJoin}.
+     * <p>
+     * Here are examples of the {@link MultiJoin}s constructed after this rules has been applied.
+     * <p>
+     * simple example:
+     * <ul>
+     * <li>A JOIN B --> MJ(A, B)
+     * <li>A JOIN B JOIN C JOIN D --> MJ(A, B, C, D)
+     * <li>A LEFT (OUTER/SEMI/ANTI) JOIN B --> MJ([LOJ/LSJ/LAJ]A, B)
+     * <li>A LEFT (OUTER/SEMI/ANTI) JOIN B --> MJ([ROJ/RSJ/RAJ]A, B)
+     * <li>A FULL JOIN B --> MJ[FOJ](A, B)
+     * </ul>
+     * </p>
+     * <p>
+     * complex example:
+     * <ul>
+     * <li>A LEFT OUTER JOIN (B JOIN C) --> MJ([LOJ]A, MJ(B, C)))
+     * <li>(A JOIN B) LEFT JOIN C --> MJ(A, B, C)
+     * <li>(A LEFT OUTER JOIN B) JOIN C --> MJ(MJ(A, B), C)
+     * <li>A LEFT JOIN (B FULL JOIN C) --> MJ(A, MJ[full](B, C))
+     * <li>(A LEFT JOIN B) FULL JOIN (C RIGHT JOIN D) --> MJ[full](MJ(A, B), MJ(C, D))
+     * </ul>
+     * </p>
+     * more complex example:
+     * <ul>
+     * <li> A JOIN B JOIN C LEFT JOIN D --> MJ([LOJ]A, B, C, D)
+     * <li> A JOIN B JOIN C LEFT JOIN (D JOIN F) --> MJ([LOJ]A, B, C, MJ(D, F))
+     * <li> A RIGHT JOIN (B JOIN C JOIN D)--> MJ([ROJ]A, B, C, D)
+     * <li> A JOIN B RIGHT JOIN (C JOIN D) --> MJ(A, B, MJ([ROJ]C, D))
+     * </ul>
+     * </p>
+     * <p>
+     * Graphic presentation:
+     * A JOIN B JOIN C LEFT JOIN D JOIN F
+     *      left                  left│
+     * A  B  C  D  F   ──►   A  B  C  │ D  F   ──►  MJ(LOJ A,B,C,MJ(DF)
+     * <p>
+     * A JOIN B JOIN C RIGHT JOIN D JOIN F
+     *     right                  │right
+     * A  B  C  D  F   ──►   A  B │  C  D  F   ──►  MJ(A,B,MJ(ROJ C,D,F)
+     * <p>
+     * A JOIN B JOIN C FULL JOIN D JOIN F
+     *       full                    │
+     * A  B  C  D  F   ──►   A  B  C │ D  F    ──►  MJ(FOJ MJ(A,B,C) MJ(D,F))
+     * </p>
      */
     public Plan multiJoinToJoin(MultiJoin multiJoin) {
         if (multiJoin.arity() == 1) {

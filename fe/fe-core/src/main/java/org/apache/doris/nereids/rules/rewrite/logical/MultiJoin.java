@@ -38,6 +38,19 @@ import java.util.stream.Collectors;
 /**
  * A MultiJoin represents a join of N inputs (NAry-Join).
  * The regular Join represent strictly binary input (Binary-Join).
+ * <p>
+ * One {@link MultiJoin} just contains one {@link JoinType} of SEMI/ANTI/OUTER Join.
+ * <p>
+ * onlyJoinType is Full OUTER JOIN, children.size() == 2.
+ * leftChild [Full OUTER JOIN] rightChild.
+ * <p>
+ * onlyJoinType is LEFT (OUTER/SEMI/ANTI) JOIN,
+ * children[0, last) [LEFT (OUTER/SEMI/ANTI) JOIN] lastChild.
+ * eg: MJ([LOJ] A, B, C, D) is {A B C} [LOJ] {D}.
+ * <p>
+ * onlyJoinType is RIGHT (OUTER/SEMI/ANTI) JOIN,
+ * firstChild [RIGHT (OUTER/SEMI/ANTI) JOIN] children[1, last].
+ * eg: MJ([ROJ] A, B, C, D) is {A} [ROJ] {B C D}.
  */
 public class MultiJoin extends AbstractLogicalPlan {
     /*
@@ -48,9 +61,13 @@ public class MultiJoin extends AbstractLogicalPlan {
      *    A      B
      */
 
+    // Push predicates into it.
+    // But joinFilter shouldn't contain predicate which just contains one predicate like `T.key > 1`.
+    // Because these predicate should be pushdown.
     private final List<Expression> joinFilter;
     // MultiJoin just contains one OUTER/SEMI/ANTI.
     private final Optional<JoinType> onlyJoinType;
+    // When contains one OUTER/SEMI/ANTI join, keep separately its condition.
     private final List<Expression> notInnerJoinConditions;
 
     // private final List<@Nullable List<NamedExpression>> projFields;
