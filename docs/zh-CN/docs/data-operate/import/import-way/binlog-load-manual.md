@@ -363,7 +363,7 @@ ALTER TABLE target_test ENABLE FEATURE "BATCH_DELETE";
 ```
 **！！Doris表结构和Mysql表结构字段顺序必须保持一致！！**
 
-### 创建同步作业
+### 创建一个连接到单点canal server的同步作业
 
 ```text
 CREATE SYNC `demo`.`job`
@@ -376,6 +376,23 @@ FROM BINLOG
 "type" = "canal",
 "canal.server.ip" = "127.0.0.1",
 "canal.server.port" = "11111",
+"canal.destination" = "xxx",
+"canal.username" = "canal",
+"canal.password" = "canal"
+);
+```
+### 创建一个连接到集群canal server的同步作业
+
+```text
+CREATE SYNC `demo`.`job`
+(
+FROM `demo`.`source_test1` INTO `target_test`
+(id,name)
+)
+FROM BINLOG
+(
+"type" = "canal",
+"canal.zk.servers" = "127.0.0.1:2181",
 "canal.destination" = "xxx",
 "canal.username" = "canal",
 "canal.password" = "canal"
@@ -412,11 +429,12 @@ binlog_desc
 
   1. `canal.server.ip`: canal server的地址
   2. `canal.server.port`: canal server的端口
-  3. `canal.destination`: 前文提到的instance的字符串标识
-  4. `canal.batchSize`: 每批从canal server处获取的batch大小的最大值，默认8192
-  5. `canal.username`: instance的用户名
-  6. `canal.password`: instance的密码
-  7. `canal.debug`: 设置为true时，会将batch和每一行数据的详细信息都打印出来，会影响性能。
+  3. `canal.zk.servers`: canal server cluser所在的zookeeper集群地址，示例：“127.0.0.1:2181”，如果指定了该配置忽略“canal.server.ip”和“canal.server.port”
+  4. `canal.destination`: 前文提到的instance的字符串标识
+  5. `canal.batchSize`: 每批从canal server处获取的batch大小的最大值，默认8192
+  6. `canal.username`: instance的用户名
+  7. `canal.password`: instance的密码
+  8. `canal.debug`: 设置为true时，会将batch和每一行数据的详细信息都打印出来，会影响性能。
 
 ### 查看作业状态
 
