@@ -71,7 +71,9 @@ public class Tag implements Writable {
     public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(
             VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
             VALUE_DEFAULT_CLUSTER);
-    private static final String TAG_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,32}$";
+    private static final String TAG_TYPE_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+    private static final String TAG_VALUE_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,32}$";
+
 
     public static final Tag DEFAULT_BACKEND_TAG;
     public static final Tag INVALID_TAG;
@@ -87,13 +89,16 @@ public class Tag implements Writable {
     public String value;
 
     private Tag(String type, String val) {
-        this.type = type.toLowerCase();
-        this.value = val.toLowerCase();
+        this.type = type;
+        this.value = val;
     }
 
     public static Tag create(String type, String value) throws AnalysisException {
-        if (!type.matches(TAG_REGEX) || !value.matches(TAG_REGEX)) {
-            throw new AnalysisException("Invalid tag format: " + type + ":" + value);
+        if (!type.matches(TAG_TYPE_REGEX)) {
+            throw new AnalysisException("Invalid tag type format: " + type);
+        }
+        if (!value.matches(TAG_VALUE_REGEX)) {
+            throw new AnalysisException("Invalid tag value format: " + value);
         }
         return new Tag(type, value);
     }
