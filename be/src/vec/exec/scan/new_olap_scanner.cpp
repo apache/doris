@@ -25,8 +25,8 @@ namespace doris::vectorized {
 
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, bool need_agg_finalize,
-                               const TPaloScanRange& scan_range, MemTracker* tracker)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, tracker),
+                               const TPaloScanRange& scan_range)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1) {
@@ -36,10 +36,8 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
 Status NewOlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
         RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
@@ -114,7 +112,6 @@ Status NewOlapScanner::prepare(
 
 Status NewOlapScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
@@ -130,7 +127,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     bool single_version =

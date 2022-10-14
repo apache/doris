@@ -121,6 +121,8 @@ public:
         return std::make_shared<DataTypeUInt8>();
     }
 
+    bool use_default_implementation_for_constants() const override { return true; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override;
 
@@ -133,6 +135,16 @@ protected:
                          const ColumnString::Offsets& pattern_offsets,
                          ColumnUInt8::Container& result, const LikeFn& function,
                          LikeSearchState* search_state);
+
+    Status vector_const(const ColumnString::Chars& values,
+                        const ColumnString::Offsets& value_offsets, const StringRef* pattern_val,
+                        ColumnUInt8::Container& result, const LikeFn& function,
+                        LikeSearchState* search_state);
+
+    Status execute_substring(const ColumnString::Chars& values,
+                             const ColumnString::Offsets& value_offsets,
+                             ColumnUInt8::Container& result, const LikeFn& function,
+                             LikeSearchState* search_state);
 
     static Status constant_starts_with_fn(LikeSearchState* state, const StringValue& val,
                                           const StringValue& pattern, unsigned char* result);

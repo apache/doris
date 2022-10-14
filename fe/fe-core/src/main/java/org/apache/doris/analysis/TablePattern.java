@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -44,7 +45,7 @@ import java.util.stream.Stream;
  * the higher segment can't be a wildcard. The following examples are not allowed:
  * "ctl1.*.table1", "*.*.table2", "*.db1.*", ...
  */
-public class TablePattern implements Writable {
+public class TablePattern implements Writable, GsonPostProcessable {
     @SerializedName(value = "ctl")
     private String ctl;
     @SerializedName(value = "db")
@@ -183,5 +184,10 @@ public class TablePattern implements Writable {
         Preconditions.checkState(isAnalyzed);
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        isAnalyzed = true;
     }
 }

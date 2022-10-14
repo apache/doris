@@ -50,6 +50,16 @@ struct SerializedHashTableContext {
     }
 };
 
+template <typename HashMethod>
+struct IsSerializedHashTableContextTraits {
+    constexpr static bool value = false;
+};
+
+template <typename Value, typename Mapped>
+struct IsSerializedHashTableContextTraits<ColumnsHashing::HashMethodSerialized<Value, Mapped>> {
+    constexpr static bool value = true;
+};
+
 // T should be UInt32 UInt64 UInt128
 template <class T>
 struct PrimaryTypeHashTableContext {
@@ -203,6 +213,8 @@ private:
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
+    RuntimeProfile::Counter* _build_side_compute_hash_timer;
+    RuntimeProfile::Counter* _build_side_merge_block_timer;
 
     RuntimeProfile::Counter* _join_filter_timer;
 

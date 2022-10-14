@@ -81,26 +81,26 @@ public class PartitionStatsTest {
 
         // Run the test
         partitionStatsUnderTest.updateColumnStats("columnName", columnType, statsTypeToValue);
-        ColumnStats columnStats = partitionStatsUnderTest.getColumnStats("columnName");
+        ColumnStat columnStats = partitionStatsUnderTest.getColumnStats("columnName");
 
         // Verify the results
-        long ndv = columnStats.getNdv();
-        Assert.assertEquals(1, ndv);
+        double ndv = columnStats.getNdv();
+        Assert.assertEquals(1, ndv, 0.1);
 
-        float avgSize = columnStats.getAvgSize();
+        double avgSize = columnStats.getAvgSizeByte();
         Assert.assertEquals(8.0f, avgSize, 0.0001);
 
-        long maxSize = columnStats.getMaxSize();
-        Assert.assertEquals(8, maxSize);
+        double maxSize = columnStats.getMaxSizeByte();
+        Assert.assertEquals(8, maxSize, 0.1);
 
-        long maxValue = columnStats.getMaxValue().getLongValue();
-        Assert.assertEquals(1000, maxValue);
+        double maxValue = columnStats.getMaxValue();
+        Assert.assertEquals(1000, maxValue, 0.1);
 
-        long minValue = columnStats.getMinValue().getLongValue();
-        Assert.assertEquals(0, minValue);
+        double minValue = columnStats.getMinValue();
+        Assert.assertEquals(0, minValue, 0.1);
 
-        long numNulls = columnStats.getNumNulls();
-        Assert.assertEquals(2, numNulls);
+        double numNulls = columnStats.getNumNulls();
+        Assert.assertEquals(2, numNulls, 0.1);
     }
 
     @Test

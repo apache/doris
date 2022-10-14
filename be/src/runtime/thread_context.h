@@ -159,6 +159,18 @@ public:
     const std::string& thread_id_str() const { return _thread_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
+    static TaskType query_to_task_type(const TQueryType::type& query_type) {
+        switch (query_type) {
+        case TQueryType::SELECT:
+            return TaskType::QUERY;
+        case TQueryType::LOAD:
+            return TaskType::LOAD;
+        default:
+            DCHECK(false);
+            return TaskType::UNKNOWN;
+        }
+    }
+
     std::string get_thread_id() {
         std::stringstream ss;
         ss << std::this_thread::get_id();
@@ -206,18 +218,6 @@ public:
 
     explicit AttachTask(RuntimeState* runtime_state);
 
-    const ThreadContext::TaskType query_to_task_type(const TQueryType::type& query_type) {
-        switch (query_type) {
-        case TQueryType::SELECT:
-            return ThreadContext::TaskType::QUERY;
-        case TQueryType::LOAD:
-            return ThreadContext::TaskType::LOAD;
-        default:
-            DCHECK(false);
-            return ThreadContext::TaskType::UNKNOWN;
-        }
-    }
-
     ~AttachTask();
 };
 
@@ -241,12 +241,16 @@ private:
 class StopCheckThreadMemTrackerLimit {
 public:
     explicit StopCheckThreadMemTrackerLimit() {
+        _pre = thread_context()->_thread_mem_tracker_mgr->check_limit();
         thread_context()->_thread_mem_tracker_mgr->set_check_limit(false);
     }
 
     ~StopCheckThreadMemTrackerLimit() {
-        thread_context()->_thread_mem_tracker_mgr->set_check_limit(true);
+        thread_context()->_thread_mem_tracker_mgr->set_check_limit(_pre);
     }
+
+private:
+    bool _pre;
 };
 
 // The following macros are used to fix the tracking accuracy of caches etc.

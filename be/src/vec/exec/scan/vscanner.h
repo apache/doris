@@ -30,7 +30,7 @@ class VScanNode;
 
 class VScanner {
 public:
-    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, MemTracker* mem_tracker);
+    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit);
 
     virtual ~VScanner() {}
 
@@ -93,6 +93,16 @@ public:
         _conjunct_ctxs = conjunct_ctxs;
     }
 
+    // return false if _is_counted_down is already true,
+    // otherwise, set _is_counted_down to true and return true.
+    bool set_counted_down() {
+        if (_is_counted_down) {
+            return false;
+        }
+        _is_counted_down = true;
+        return true;
+    }
+
 protected:
     void _discard_conjuncts() {
         if (_vconjunct_ctx) {
@@ -107,7 +117,6 @@ protected:
     VScanNode* _parent;
     // Set if scan node has sort limit info
     int64_t _limit = -1;
-    MemTracker* _mem_tracker;
 
     const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
@@ -151,6 +160,8 @@ protected:
     std::vector<ExprContext*> _conjunct_ctxs;
 
     bool _is_load = false;
+    // set to true after decrease the "_num_unfinished_scanners" in scanner context
+    bool _is_counted_down = false;
 };
 
 } // namespace doris::vectorized

@@ -42,9 +42,10 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
     DCHECK(runtime_state->fragment_instance_id() != TUniqueId());
 #endif // BE_TEST
     DCHECK(runtime_state->instance_mem_tracker());
-    thread_context()->attach_task(
-            query_to_task_type(runtime_state->query_type()), print_id(runtime_state->query_id()),
-            runtime_state->fragment_instance_id(), runtime_state->instance_mem_tracker());
+    thread_context()->attach_task(ThreadContext::query_to_task_type(runtime_state->query_type()),
+                                  print_id(runtime_state->query_id()),
+                                  runtime_state->fragment_instance_id(),
+                                  runtime_state->instance_mem_tracker());
 }
 
 AttachTask::~AttachTask() {

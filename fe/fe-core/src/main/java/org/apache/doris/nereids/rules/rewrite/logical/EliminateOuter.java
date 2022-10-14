@@ -84,7 +84,7 @@ public class EliminateOuter extends OneRewriteRuleFactory {
 
                     return new LogicalFilter<>(filter.getPredicates(),
                             new LogicalJoin<>(joinType,
-                                    join.getHashJoinConjuncts(), join.getOtherJoinCondition(),
+                                    join.getHashJoinConjuncts(), join.getOtherJoinConjuncts(),
                                     join.left(), join.right()));
                 }).toRule(RuleType.ELIMINATE_OUTER);
     }

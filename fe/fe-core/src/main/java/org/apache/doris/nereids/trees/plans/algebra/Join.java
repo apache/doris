@@ -31,7 +31,7 @@ public interface Join {
 
     List<Expression> getHashJoinConjuncts();
 
-    Optional<Expression> getOtherJoinCondition();
+    List<Expression> getOtherJoinConjuncts();
 
     Optional<Expression> getOnClauseCondition();
 
@@ -39,6 +39,6 @@ public interface Join {
      * The join plan has join condition or not.
      */
     default boolean hasJoinCondition() {
-        return !getHashJoinConjuncts().isEmpty() || getOtherJoinCondition().isPresent();
+        return !getHashJoinConjuncts().isEmpty() || !getOtherJoinConjuncts().isEmpty();
     }
 }

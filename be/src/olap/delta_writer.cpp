@@ -105,8 +105,8 @@ Status DeltaWriter::init() {
     // get rowset ids snapshot
     if (_tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
-        _rowset_ids = _tablet->all_rs_id();
         _cur_max_version = _tablet->max_version_unlocked().second;
+        _rowset_ids = _tablet->all_rs_id(_cur_max_version);
     }
 
     _mem_tracker = std::make_shared<MemTrackerLimiter>(

@@ -31,7 +31,7 @@ public class ExchangeStatsDerive extends BaseStatsDerive {
     @Override
     protected long deriveRowCount() {
         Preconditions.checkState(!childrenStatsResult.isEmpty());
-        rowCount = childrenStatsResult.get(0).getRowCount();
+        rowCount = (long) childrenStatsResult.get(0).getRowCount();
         capRowCountAtLimit();
         return rowCount;
     }

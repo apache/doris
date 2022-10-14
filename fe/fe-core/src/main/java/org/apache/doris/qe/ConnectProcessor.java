@@ -266,8 +266,8 @@ public class ConnectProcessor {
                 } catch (Exception e) {
                     nereidsParseException = e;
                     // TODO: We should catch all exception here until we support all query syntax.
-                    LOG.warn(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt, e);
+                    LOG.info(" Fallback to stale planner."
+                            + " Nereids cannot process this statement: \"{}\".", originStmt.toString());
                 }
             }
             // stmts == null when Nereids cannot planner this query or Nereids is disabled.
@@ -561,9 +561,6 @@ public class ConnectProcessor {
             }
             if (request.isSetQueryTimeout()) {
                 ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
-            }
-            if (request.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
             }
         }
 

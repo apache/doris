@@ -461,6 +461,9 @@ public:
     template <TimeUnit unit>
     bool date_add_interval(const TimeInterval& interval);
 
+    template <TimeUnit unit>
+    bool datetime_trunc(); //datetime trunc, like trunc minute = 0
+
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
@@ -911,6 +914,9 @@ public:
 
     template <TimeUnit unit>
     bool date_add_interval(const TimeInterval& interval);
+
+    template <TimeUnit unit>
+    bool datetime_trunc(); //datetime trunc, like trunc minute = 0
 
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC

@@ -209,8 +209,6 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-    _scanner_mem_tracker = std::make_unique<MemTracker>("OlapScanners");
-
     if (_tuple_desc == nullptr) {
         // TODO: make sure we print all available diagnostic output to our error log
         return Status::InternalError("Failed to get tuple descriptor.");
@@ -389,8 +387,10 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
-    // SCOPED_ATTACH_TASK(_runtime_state); // TODO Recorded on an independent tracker
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_ATTACH_TASK(_runtime_state->scanner_mem_tracker(),
+                       ThreadContext::query_to_task_type(_runtime_state->query_type()),
+                       print_id(_runtime_state->query_id()),
+                       _runtime_state->fragment_instance_id());
     Thread::set_self_name("volap_scanner");
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
@@ -892,9 +892,8 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
                  ++j, ++i) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
-            VOlapScanner* scanner =
-                    new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                     _need_agg_finalize, *scan_range, _scanner_mem_tracker.get());
+            VOlapScanner* scanner = new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
+                                                     _need_agg_finalize, *scan_range);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
@@ -1648,9 +1647,26 @@ void VOlapScanNode::eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, b
                 *push_down = true;
                 _eos = true;
             }
+        } else if (const ColumnVector<UInt8>* bool_column =
+                           check_and_get_column<ColumnVector<UInt8>>(
+                                   vexpr->get_const_col(expr_ctx)->column_ptr)) {
+            // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
+            //  But now we still don't cover all predicates for const expression.
+            //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
+            //  predicate `like` will return a ColumnVector<UInt8> which contains a single value.
+            LOG(WARNING) << "Expr[" << vexpr->debug_string()
+                         << "] should return a const column but actually is "
+                         << vexpr->get_const_col(expr_ctx)->column_ptr->get_name();
+            DCHECK_EQ(bool_column->size(), 1);
+            constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
+            if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
+                *push_down = true;
+                _eos = true;
+            }
         } else {
             LOG(WARNING) << "Expr[" << vexpr->debug_string()
-                         << "] is a constant but doesn't contain a const column!";
+                         << "] should return a boolean column but actually is "
+                         << vexpr->get_const_col(expr_ctx)->column_ptr->get_name();
         }
     }
 }
@@ -1686,13 +1702,15 @@ VExpr* VOlapScanNode::_normalize_predicate(RuntimeState* state, VExpr* conjunct_
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
             VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
-            SlotDescriptor* slot;
+            SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             bool push_down = false;
             eval_const_conjuncts(cur_expr, *(_vconjunct_ctx_ptr.get()), &push_down);
-            if (!push_down &&
-                (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
-                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range))) {
+            if (push_down) {
+                return nullptr;
+            }
+            if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
+                _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
                 std::visit(
                         [&](auto& value_range) {
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(

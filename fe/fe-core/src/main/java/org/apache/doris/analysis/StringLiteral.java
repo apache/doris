@@ -158,7 +158,7 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     public double getDoubleValue() {
-        return Double.valueOf(value);
+        return Double.parseDouble(value);
     }
 
     @Override

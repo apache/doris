@@ -50,9 +50,6 @@ public class CommonUserProperties implements Writable {
     // user level exec_mem_limit, if > 0, will overwrite the exec_mem_limit in session variable
     @SerializedName("execMemLimit")
     private long execMemLimit = -1;
-    // user level load_mem_limit, if > 0, will overwrite the load_mem_limit in session variable
-    @SerializedName("loadMemLimit")
-    private long loadMemLimit = -1;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -112,14 +109,6 @@ public class CommonUserProperties implements Writable {
 
     public void setExecMemLimit(long execMemLimit) {
         this.execMemLimit = execMemLimit;
-    }
-
-    public long getLoadMemLimit() {
-        return loadMemLimit;
-    }
-
-    public void setLoadMemLimit(long loadMemLimit) {
-        this.loadMemLimit = loadMemLimit;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

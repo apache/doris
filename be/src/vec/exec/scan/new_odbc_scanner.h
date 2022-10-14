@@ -26,7 +26,7 @@ namespace doris::vectorized {
 class NewOdbcScanner : public VScanner {
 public:
     NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int64_t limit,
-                   MemTracker* mem_tracker, const TOdbcScanNode& odbc_scan_node);
+                   const TOdbcScanNode& odbc_scan_node);
 
     Status open(RuntimeState* state) override;
 

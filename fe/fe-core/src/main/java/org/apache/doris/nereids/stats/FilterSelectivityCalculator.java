@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStat;
 
 import com.google.common.base.Preconditions;
 
@@ -39,9 +39,9 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
 
     private static final double DEFAULT_EQUAL_SELECTIVITY = 0.3;
     private static final double DEFAULT_RANGE_SELECTIVITY = 0.8;
-    private final Map<Slot, ColumnStats> slotRefToStats;
+    private final Map<Slot, ColumnStat> slotRefToStats;
 
-    public FilterSelectivityCalculator(Map<Slot, ColumnStats> slotRefToStats) {
+    public FilterSelectivityCalculator(Map<Slot, ColumnStat> slotRefToStats) {
         Preconditions.checkNotNull(slotRefToStats);
         this.slotRefToStats = slotRefToStats;
     }
@@ -92,11 +92,11 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
     @Override
     public Double visitEqualTo(EqualTo equalTo, Void context) {
         SlotReference left = (SlotReference) equalTo.left();
-        ColumnStats columnStats = slotRefToStats.get(left);
+        ColumnStat columnStats = slotRefToStats.get(left);
         if (columnStats == null) {
             return DEFAULT_EQUAL_SELECTIVITY;
         }
-        long ndv = columnStats.getNdv();
+        double ndv = columnStats.getNdv();
         return ndv < 0 ? DEFAULT_EQUAL_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
     }
     // TODO: Should consider the distribution of data.

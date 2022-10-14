@@ -307,12 +307,6 @@ public class Coordinator {
             this.queryOptions.setInitialReservationTotalClaims(memLimit);
             this.queryOptions.setBufferPoolLimit(memLimit);
         }
-        // set load mem limit
-        memLimit = Env.getCurrentEnv().getAuth().getLoadMemLimit(qualifiedUser);
-        if (memLimit > 0) {
-            // overwrite the load_mem_limit from session variable;
-            this.queryOptions.setLoadMemLimit(memLimit);
-        }
     }
 
     private void initQueryOptions(ConnectContext context) {

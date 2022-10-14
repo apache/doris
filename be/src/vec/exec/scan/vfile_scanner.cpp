@@ -30,6 +30,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "vec/exec/format/csv/vcsv_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/functions/simple_function_factory.h"
@@ -37,9 +38,8 @@
 namespace doris::vectorized {
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                           const TFileScanRange& scan_range, MemTracker* tracker,
-                           RuntimeProfile* profile)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, tracker),
+                           const TFileScanRange& scan_range, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
           _next_range(0),
@@ -52,7 +52,6 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 Status VFileScanner::prepare(
         VExprContext** vconjunct_ctx_ptr,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     _colname_to_value_range = colname_to_value_range;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
@@ -495,6 +494,17 @@ Status VFileScanner::_get_next_reader() {
             init_status =
                     ((ORCReaderWrap*)(_cur_reader.get()))
                             ->init_reader(_real_tuple_desc, _conjunct_ctxs, _state->timezone());
+            break;
+        }
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE: {
+            _cur_reader.reset(new CsvReader(_state, _profile, &_counter, _params, range,
+                                            _file_slot_descs, file_reader.release()));
+            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         default:

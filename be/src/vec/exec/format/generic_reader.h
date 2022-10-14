@@ -37,7 +37,7 @@ public:
                                std::unordered_set<std::string>* missing_cols) {
         return Status::NotSupported("get_columns is not implemented");
     }
-    virtual ~GenericReader() {}
+    virtual ~GenericReader() = default;
 };
 
 } // namespace doris::vectorized

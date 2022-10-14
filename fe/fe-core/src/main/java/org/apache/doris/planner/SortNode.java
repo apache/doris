@@ -69,6 +69,8 @@ public class SortNode extends PlanNode {
     private boolean isAnalyticSort;
     private DataPartition inputPartition;
 
+    private boolean isUnusedExprRemoved = false;
+
     /**
      * Constructor.
      */
@@ -176,7 +178,7 @@ public class SortNode extends PlanNode {
         }
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Sort: cardinality=" + cardinality);
@@ -193,7 +195,7 @@ public class SortNode extends PlanNode {
                 cardinality = Math.min(cardinality, limit);
             }
         }
-        LOG.debug("stats Sort: cardinality=" + Long.toString(cardinality));
+        LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
     }
 
     public void init(Analyzer analyzer) throws UserException {
@@ -241,19 +243,28 @@ public class SortNode extends PlanNode {
         Expr.getIds(info.getOrderingExprs(), null, ids);
     }
 
+    private void removeUnusedExprs() {
+        if (!isUnusedExprRemoved) {
+            if (resolvedTupleExprs != null) {
+                List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+                for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
+                    if (!slotDescriptorList.get(i).isMaterialized()) {
+                        resolvedTupleExprs.remove(i);
+                    }
+                }
+            }
+            isUnusedExprRemoved = true;
+        }
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
 
         TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
+        removeUnusedExprs();
         if (resolvedTupleExprs != null) {
-            List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
-            for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-                if (!slotDescriptorList.get(i).isMaterialized()) {
-                    resolvedTupleExprs.remove(i);
-                }
-            }
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
         }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
@@ -280,13 +291,8 @@ public class SortNode extends PlanNode {
 
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
-        List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+        removeUnusedExprs();
         List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
-        for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-            if (!slotDescriptorList.get(i).isMaterialized()) {
-                materializedTupleExprs.remove(i);
-            }
-        }
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);

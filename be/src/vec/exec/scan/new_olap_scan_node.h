@@ -57,8 +57,6 @@ private:
     OlapScanKeys _scan_keys;
     std::vector<TCondition> _olap_filters;
 
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
-
 private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
 

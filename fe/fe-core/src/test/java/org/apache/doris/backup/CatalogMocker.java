@@ -399,13 +399,13 @@ public class CatalogMocker {
             InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
 
             Database db = new Database();
-            PaloAuth paloAuth = fetchAdminAccess();
+            PaloAuth auth = fetchAdminAccess();
 
             new Expectations(env, catalog) {
                 {
                     env.getAuth();
                     minTimes = 0;
-                    result = paloAuth;
+                    result = auth;
 
                     env.getInternalCatalog();
                     minTimes = 0;
