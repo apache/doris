@@ -19,6 +19,7 @@ suite("set_var") {
     // enable nereids and vectorized engine
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
 
     // test single set_var
     sql "select /*+ SET_VAR(query_timeout=1800) */ * from supplier limit 10"
