@@ -104,7 +104,8 @@ void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& sr
     if (UNLIKELY(dst->ptr == nullptr)) {
         dst->is_null = false;
         dst->len = sizeof(BitmapValue);
-        dst->ptr = (uint8_t*)new BitmapValue((char*)src.ptr);
+        dst->ptr = (uint8_t*)new BitmapValue();
+        BitmapFunctions::bitmap_union(ctx, src, dst);
         return;
     }
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
@@ -165,6 +166,16 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
     if (!src.is_null) {
         uint32_t hash_value =
                 HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
+        bitmap.add(hash_value);
+    }
+    return serialize(ctx, &bitmap);
+}
+StringVal BitmapFunctions::bitmap_hash64(doris_udf::FunctionContext* ctx,
+                                         const doris_udf::StringVal& src) {
+    BitmapValue bitmap;
+    if (!src.is_null) {
+        uint64_t hash_value = 0;
+        murmur_hash3_x64_64(src.ptr, src.len, 0, &hash_value);
         bitmap.add(hash_value);
     }
     return serialize(ctx, &bitmap);

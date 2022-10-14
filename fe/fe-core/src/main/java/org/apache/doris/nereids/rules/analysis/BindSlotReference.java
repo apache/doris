@@ -108,9 +108,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_JOIN_SLOT.build(
                 logicalJoin().when(Plan::canBind).thenApply(ctx -> {
                     LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
-                    Optional<Expression> cond = join.getOtherJoinCondition()
-                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext));
-
+                    List<Expression> cond = join.getOtherJoinConjuncts().stream()
+                            .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
+                            .collect(Collectors.toList());
                     List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
                             .map(expr -> bind(expr, join.children(), join, ctx.cascadesContext))
                             .collect(Collectors.toList());
@@ -237,21 +237,21 @@ public class BindSlotReference implements AnalysisRuleFactory {
                         .get()
                         .getSlots()));
             }
-            if (!boundedOpt.isPresent()) {
-                throw new AnalysisException("Cannot resolve " + unboundSlot.toString());
-            }
             List<Slot> bounded = boundedOpt.get();
             switch (bounded.size()) {
+                case 0:
+                    throw new AnalysisException(String.format("Cannot find column %s.", unboundSlot.toSql()));
                 case 1:
                     if (!foundInThisScope) {
                         getScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
                     }
                     return bounded.get(0);
                 default:
-                    throw new AnalysisException(unboundSlot + " is ambiguous： "
-                            + bounded.stream()
-                            .map(Slot::toString)
-                            .collect(Collectors.joining(", ")));
+                    throw new AnalysisException(String.format("%s is ambiguous: %s.",
+                            unboundSlot.toSql(),
+                            bounded.stream()
+                                    .map(Slot::toString)
+                                    .collect(Collectors.joining(", "))));
             }
         }
 

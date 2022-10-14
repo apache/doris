@@ -25,7 +25,10 @@ public enum StatsType {
     MAX_SIZE("max_size"),
     NUM_NULLS("num_nulls"),
     MIN_VALUE("min_value"),
-    MAX_VALUE("max_value");
+    MAX_VALUE("max_value"),
+    // only for test
+    UNKNOWN("unknown");
+
     private final String value;
 
     StatsType(String value) {

@@ -99,6 +99,7 @@ jobs:
           rm -rf  website/i18n/zh-CN/docusaurus-plugin-content-docs-community/*
           mkdir website/i18n/zh-CN/docusaurus-plugin-content-docs-community/current
           cp -R docs/zh-CN/community/* website/i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
+          cp -R docs/sidebarsCommunity.json website/
           cp -R docs/sidebars.json website/
           cp -R docs/images website/static/
           sed '2,3d' website/versions.json > website/versions.json1

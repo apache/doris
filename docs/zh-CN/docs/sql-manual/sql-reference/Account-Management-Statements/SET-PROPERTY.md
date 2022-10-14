@@ -54,15 +54,13 @@ key:
 
 ​        exec_mem_limit: 限制查询的内存使用。详见会话变量 `exec_mem_limit` 的介绍。-1 表示未设置。
 
-​        load_mem_limit: 限制导入的内存使用。详见会话变量 `load_mem_limit` 的介绍。-1 表示未设置。
-
 ​        resource.cpu_share: cpu资源分配。（已废弃）
 
 ​        load_cluster.{cluster_name}.priority: 为指定的cluster分配优先级，可以为 HIGH 或 NORMAL
 
 ​        resource_tags：指定用户的资源标签权限。
 
-    注：`cpu_resource_limit`, `exec_mem_limit`, `load_mem_limit` 三个属性如果未设置，则默认使用会话变量中值。
+    注：`cpu_resource_limit`, `exec_mem_limit` 两个属性如果未设置，则默认使用会话变量中值。
 
 普通用户权限：
 
@@ -158,12 +156,6 @@ key:
     SET PROPERTY FOR 'jack' 'exec_mem_limit' = '2147483648';
     ```
     
-13. 修改用户的导入内存使用限制，单位字节
-    
-    ```sql
-    SET PROPERTY FOR 'jack' 'load_mem_limit' = '2147483648';
-    ```
-
 ### Keywords
 
     SET, PROPERTY

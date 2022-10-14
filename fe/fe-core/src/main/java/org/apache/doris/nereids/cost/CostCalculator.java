@@ -216,7 +216,7 @@ public class CostCalculator {
             PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin) {
         StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
 
-        float size = outputStats.computeSize();
+        double size = outputStats.computeSize();
         return CostEstimate.ofCpu(size);
     }
 }

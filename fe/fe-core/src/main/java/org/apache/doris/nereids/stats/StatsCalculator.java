@@ -63,7 +63,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
@@ -94,6 +94,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
      * estimate stats
      */
     public static void estimate(GroupExpression groupExpression) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableNereidsStatsDeriveV2) {
+            StatsCalculatorV2.estimate(groupExpression);
+            return;
+        }
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression);
         statsCalculator.estimate();
     }
@@ -251,6 +255,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 new FilterSelectivityCalculator(stats.getSlotToColumnStats());
         double selectivity = selectivityCalculator.estimate(filter.getPredicates());
         stats.updateRowCountBySelectivity(selectivity);
+        stats.isReduced = selectivity < 1.0;
         return stats;
     }
 
@@ -262,7 +267,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 // TODO: tmp mock the table stats, after we support the table stats, we should remove this mock.
                 mockRowCountInStatistic(scan)
         );
-        Map<Slot, ColumnStats> slotToColumnStats = new HashMap<>();
+        Map<Slot, ColumnStat> slotToColumnStats = new HashMap<>();
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         for (SlotReference slotReference : slotSet) {
@@ -270,10 +275,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             if (colName == null) {
                 throw new RuntimeException("Column name of SlotReference shouldn't be null here");
             }
-            ColumnStats columnStats = tableStats.getColumnStats(colName);
+            ColumnStat columnStats = tableStats.getColumnStatsOrDefault(colName);
             slotToColumnStats.put(slotReference, columnStats);
         }
-        long rowCount = tableStats.getRowCount();
+        long rowCount = (long) tableStats.getRowCount();
         StatsDeriveResult stats = new StatsDeriveResult(rowCount,
                 new HashMap<>(), new HashMap<>());
         stats.setSlotToColumnStats(slotToColumnStats);
@@ -318,19 +323,20 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         //         .map(childSlotToColumnStats::get)
         //         .map(ColumnStats::getNdv)
         //         .reduce(1L, (a, b) -> a * b);
-        long resultSetCount = childStats.getRowCount() / DEFAULT_AGGREGATE_RATIO;
+        long resultSetCount = (long) childStats.getRowCount() / DEFAULT_AGGREGATE_RATIO;
         if (resultSetCount <= 0) {
             resultSetCount = 1L;
         }
 
-        Map<Slot, ColumnStats> slotToColumnStats = Maps.newHashMap();
+        Map<Slot, ColumnStat> slotToColumnStats = Maps.newHashMap();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
         for (NamedExpression outputExpression : outputExpressions) {
-            slotToColumnStats.put(outputExpression.toSlot(), new ColumnStats());
+            slotToColumnStats.put(outputExpression.toSlot(), new ColumnStat());
         }
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotToColumnStats);
+        statsDeriveResult.isReduced = true;
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
     }
@@ -339,12 +345,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     private StatsDeriveResult computeProject(Project project) {
         List<NamedExpression> projections = project.getProjects();
         StatsDeriveResult statsDeriveResult = groupExpression.getCopyOfChildStats(0);
-        Map<Slot, ColumnStats> childColumnStats = statsDeriveResult.getSlotToColumnStats();
-        Map<Slot, ColumnStats> columnsStats = projections.stream().map(projection -> {
-            ColumnStats value = null;
+        Map<Slot, ColumnStat> childColumnStats = statsDeriveResult.getSlotToColumnStats();
+        Map<Slot, ColumnStat> columnsStats = projections.stream().map(projection -> {
+            ColumnStat value = null;
             Set<Slot> slots = projection.getInputSlots();
             if (slots.isEmpty()) {
-                value = ColumnStats.createDefaultColumnStats();
+                value = ColumnStat.createDefaultColumnStats();
             } else {
                 // TODO: just a trick here, need to do real project on column stats
                 for (Slot slot : slots) {
@@ -354,7 +360,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                     }
                 }
                 if (value == null) {
-                    value = ColumnStats.createDefaultColumnStats();
+                    value = ColumnStat.createDefaultColumnStats();
                 }
             }
             return new SimpleEntry<>(projection.toSlot(), value);
@@ -364,10 +370,10 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     private StatsDeriveResult computeOneRowRelation(OneRowRelation oneRowRelation) {
-        Map<Slot, ColumnStats> columnStatsMap = oneRowRelation.getProjects()
+        Map<Slot, ColumnStat> columnStatsMap = oneRowRelation.getProjects()
                 .stream()
                 .map(project -> {
-                    ColumnStats columnStats = new ColumnStats();
+                    ColumnStat columnStats = new ColumnStat();
                     columnStats.setNdv(1);
                     // TODO: compute the literal size
                     return Pair.of(project.toSlot(), columnStats);
@@ -378,14 +384,14 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     private StatsDeriveResult computeEmptyRelation(EmptyRelation emptyRelation) {
-        Map<Slot, ColumnStats> columnStatsMap = emptyRelation.getProjects()
+        Map<Slot, ColumnStat> columnStatsMap = emptyRelation.getProjects()
                 .stream()
                 .map(project -> {
-                    ColumnStats columnStats = new ColumnStats();
+                    ColumnStat columnStats = new ColumnStat();
                     columnStats.setNdv(0);
-                    columnStats.setMaxSize(0);
+                    columnStats.setMaxSizeByte(0);
                     columnStats.setNumNulls(0);
-                    columnStats.setAvgSize(0);
+                    columnStats.setAvgSizeByte(0);
                     return Pair.of(project.toSlot(), columnStats);
                 })
                 .collect(Collectors.toMap(Pair::key, Pair::value));

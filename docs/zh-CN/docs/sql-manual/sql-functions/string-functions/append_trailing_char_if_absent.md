@@ -57,4 +57,4 @@ MySQL [test]> select append_trailing_char_if_absent('ac','c');
 
 ### keywords
 
-APPEND_TRAILING_CHAR_IF_ABSENT
+    APPEND_TRAILING_CHAR_IF_ABSENT

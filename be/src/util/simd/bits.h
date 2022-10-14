@@ -112,6 +112,11 @@ inline static size_t find_byte(const std::vector<T>& vec, size_t start, T byte) 
     return (T*)p - vec.data();
 }
 
+template <typename T>
+inline bool contain_byte(const T* __restrict data, const size_t length, const signed char byte) {
+    return nullptr != std::memchr(reinterpret_cast<const void*>(data), byte, length);
+}
+
 inline size_t find_one(const std::vector<uint8_t>& vec, size_t start) {
     return find_byte<uint8_t>(vec, start, 1);
 }

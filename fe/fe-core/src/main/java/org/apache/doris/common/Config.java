@@ -753,6 +753,7 @@ public class Config extends ConfigBase {
      * this config has been replaced by async_loading_load_task_pool_size,
      * it will be removed in the future.
      */
+    @Deprecated
     @ConfField(mutable = false, masterOnly = true)
     public static int async_load_task_pool_size = 10;
 
@@ -1027,11 +1028,6 @@ public class Config extends ConfigBase {
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
     @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
-
-    /**
-     * if set to false, auth check will be disable, in case some goes wrong with the new privilege system.
-     */
-    @ConfField public static boolean enable_auth_check = true;
 
     /**
      * Max bytes a broker scanner can process in one broker load job.
@@ -1638,7 +1634,7 @@ public class Config extends ConfigBase {
      */
     // TODO change it to mutable true
     @ConfField(mutable = false, masterOnly = true)
-    public static int cbo_concurrency_statistics_task_num = 1;
+    public static int cbo_concurrency_statistics_task_num = 10;
     /*
      * default sample percentage
      * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
@@ -1767,4 +1763,29 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_new_load_scan_node = false;
+
+    /**
+     * Max data version of backends serialize block.
+     */
+    @ConfField(mutable = false)
+    public static int max_be_exec_version = 1;
+
+    /**
+     * Min data version of backends serialize block.
+     */
+    @ConfField(mutable = false)
+    public static int min_be_exec_version = 0;
+
+    /**
+     * Data version of backends serialize block.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int be_exec_version = max_be_exec_version;
+
+    @ConfField(mutable = false)
+    public static int statistic_job_scheduler_execution_interval_ms = 60 * 1000;
+
+    @ConfField(mutable = false)
+    public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
+
 }

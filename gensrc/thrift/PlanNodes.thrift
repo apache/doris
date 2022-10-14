@@ -261,16 +261,18 @@ struct TFileScanRangeParams {
     // The convert exprt map for load job
     // desc slot id -> expr
     9: optional map<Types.TSlotId, Exprs.TExpr> expr_of_dest_slot
+    10: optional map<Types.TSlotId, Exprs.TExpr> default_value_of_src_slot
     // This is the mapping of dest slot id and src slot id in load expr
     // It excludes the slot id which has the transform expr
-    10: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
+    11: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
 
     // strictMode is a boolean
     // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
-    11: optional bool strict_mode
+    12: optional bool strict_mode
 
-    12: list<Types.TNetworkAddress> broker_addresses
-    13: TFileAttributes file_attributes
+    13: optional list<Types.TNetworkAddress> broker_addresses
+    14: optional TFileAttributes file_attributes
+    15: optional Exprs.TExpr pre_filter_exprs
 }
 
 struct TFileRangeDesc {
@@ -364,7 +366,6 @@ struct TBrokerScanNode {
 
 struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
-    2: optional list<Exprs.TExpr> pre_filter_exprs
 }
 
 struct TEsScanNode {
@@ -463,6 +464,13 @@ struct TSortInfo {
   4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
 }
 
+enum TPushAggOp {
+	NONE = 0,
+	MINMAX = 1,
+	COUNT = 2,
+	MIX = 3
+}
+
 struct TOlapScanNode {
   1: required Types.TTupleId tuple_id
   2: required list<string> key_column_name
@@ -471,12 +479,13 @@ struct TOlapScanNode {
   5: optional string sort_column
   6: optional Types.TKeysType keyType
   7: optional string table_name
-  8: required list<Descriptors.TColumn> columns_desc
+  8: optional list<Descriptors.TColumn> columns_desc
   9: optional TSortInfo sort_info
   // When scan match sort_info, we can push limit into OlapScanNode.
   // It's limit for scanner instead of scanNode so we add a new limit.
   10: optional i64 sort_limit
   11: optional bool enable_unique_key_merge_on_write
+  12: optional TPushAggOp push_down_agg_type_opt
 }
 
 struct TEqJoinCondition {

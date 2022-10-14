@@ -30,6 +30,10 @@
 
 namespace doris::vectorized {
 
+// TODO: Best prefetch step is decided by machine. We should also provide a
+//  SQL hint to allow users to tune by hand.
+static constexpr int PREFETCH_STEP = 64;
+
 using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext>
 struct ProcessHashTableBuild {
@@ -41,7 +45,8 @@ struct ProcessHashTableBuild {
               _build_raw_ptrs(build_raw_ptrs),
               _join_node(join_node),
               _batch_size(batch_size),
-              _offset(offset) {}
+              _offset(offset),
+              _build_side_compute_hash_timer(join_node->_build_side_compute_hash_timer) {}
 
     template <bool ignore_null, bool build_unique, bool has_runtime_filter>
     void run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map) {
@@ -71,6 +76,26 @@ struct ProcessHashTableBuild {
             inserted_rows.reserve(_batch_size);
         }
 
+        _build_side_hash_values.resize(_rows);
+        auto& arena = _join_node->_arena;
+        {
+            SCOPED_TIMER(_build_side_compute_hash_timer);
+            for (size_t k = 0; k < _rows; ++k) {
+                if constexpr (ignore_null) {
+                    if ((*null_map)[k]) {
+                        continue;
+                    }
+                }
+                if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+                    _build_side_hash_values[k] =
+                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena).key);
+                } else {
+                    _build_side_hash_values[k] =
+                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
+                }
+            }
+        }
+
         for (size_t k = 0; k < _rows; ++k) {
             if constexpr (ignore_null) {
                 if ((*null_map)[k]) {
@@ -78,10 +103,11 @@ struct ProcessHashTableBuild {
                 }
             }
 
-            auto emplace_result =
-                    key_getter.emplace_key(hash_table_ctx.hash_table, k, _join_node->_arena);
-            if (k + 1 < _rows) {
-                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, _join_node->_arena);
+            auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table,
+                                                         _build_side_hash_values[k], k, arena);
+            if (k + PREFETCH_STEP < _rows) {
+                key_getter.template prefetch_by_hash<false>(
+                        hash_table_ctx.hash_table, _build_side_hash_values[k + PREFETCH_STEP]);
             }
 
             if (emplace_result.is_inserted()) {
@@ -123,6 +149,9 @@ private:
     HashJoinNode* _join_node;
     int _batch_size;
     uint8_t _offset;
+
+    ProfileCounter* _build_side_compute_hash_timer;
+    std::vector<size_t> _build_side_hash_values;
 };
 
 template <class HashTableContext>
@@ -321,6 +350,9 @@ struct ProcessHashTableProbe {
                                                                           _arena)) {nullptr, false}
                                            : key_getter.find_key(hash_table_ctx.hash_table,
                                                                  _probe_index, _arena);
+                if (_probe_index + PREFETCH_STEP < _probe_rows)
+                    key_getter.template prefetch<true>(hash_table_ctx.hash_table,
+                                                       _probe_index + PREFETCH_STEP, _arena);
 
                 if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
                     if (!find_result.is_found()) {
@@ -344,11 +376,6 @@ struct ProcessHashTableProbe {
                                 ++current_offset;
                             }
                         } else {
-                            // prefetch is more useful while matching to multiple rows
-                            if (_probe_index + 2 < _probe_rows)
-                                key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2,
-                                                    _arena);
-
                             for (auto it = mapped.begin(); it.ok(); ++it) {
                                 if constexpr (!is_right_semi_anti_join) {
                                     if (current_offset < _batch_size) {
@@ -441,7 +468,9 @@ struct ProcessHashTableProbe {
                             ? decltype(key_getter.find_key(hash_table_ctx.hash_table, _probe_index,
                                                            _arena)) {nullptr, false}
                             : key_getter.find_key(hash_table_ctx.hash_table, _probe_index, _arena);
-
+            if (_probe_index + PREFETCH_STEP < _probe_rows)
+                key_getter.template prefetch<true>(hash_table_ctx.hash_table,
+                                                   _probe_index + PREFETCH_STEP, _arena);
             if (find_result.is_found()) {
                 auto& mapped = find_result.get_mapped();
                 auto origin_offset = current_offset;
@@ -863,10 +892,12 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     runtime_profile()->add_child(build_phase_profile, false, nullptr);
     _build_timer = ADD_TIMER(build_phase_profile, "BuildTime");
     _build_table_timer = ADD_TIMER(build_phase_profile, "BuildTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(build_phase_profile, "BuildSideMergeBlockTime");
     _build_table_insert_timer = ADD_TIMER(build_phase_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(build_phase_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(build_phase_profile, "BuildTableExpanseTime");
     _build_rows_counter = ADD_COUNTER(build_phase_profile, "BuildRows", TUnit::UNIT);
+    _build_side_compute_hash_timer = ADD_TIMER(build_phase_profile, "BuildSideHashComputingTime");
 
     // Probe phase
     auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
@@ -1142,6 +1173,7 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         _mem_used += block.allocated_bytes();
 
         if (block.rows() != 0) {
+            SCOPED_TIMER(_build_side_merge_block_timer);
             mutable_block.merge(block);
         }
 

@@ -50,10 +50,10 @@ size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
 //  - [optional] len.  No len indicates longest substr possible
 StringVal StringFunctions::substring(FunctionContext* context, const StringVal& str,
                                      const IntVal& pos, const IntVal& len) {
-    if (str.is_null || pos.is_null || len.is_null || pos.val > str.len) {
+    if (str.is_null || pos.is_null || len.is_null) {
         return StringVal::null();
     }
-    if (len.val <= 0 || str.len == 0 || pos.val == 0) {
+    if (len.val <= 0 || str.len == 0 || pos.val == 0 || pos.val > str.len) {
         return StringVal();
     }
 
@@ -347,6 +347,27 @@ StringVal StringFunctions::upper(FunctionContext* context, const StringVal& str)
         return result;
     }
     simd::VStringFunctions::to_upper(str.ptr, str.len, result.ptr);
+    return result;
+}
+
+StringVal StringFunctions::initcap(FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return StringVal::null();
+    }
+    StringVal result(context, str.len);
+
+    simd::VStringFunctions::to_lower(str.ptr, str.len, result.ptr);
+
+    bool need_capitalize = true;
+    for (int64_t i = 0; i < str.len; ++i) {
+        if (!::isalnum(result.ptr[i])) {
+            need_capitalize = true;
+        } else if (need_capitalize) {
+            result.ptr[i] = ::toupper(result.ptr[i]);
+            need_capitalize = false;
+        }
+    }
+
     return result;
 }
 

@@ -28,16 +28,20 @@ namespace doris {
 
 namespace vectorized {
 class ColumnString;
-}
+class ColumnJsonb;
+} // namespace vectorized
 
 class DateTimeValue;
 class DecimalV2Value;
 struct StringValue;
+struct JsonBinaryValue;
 
 PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
 
 bool is_enumeration_type(PrimitiveType type);
 bool is_date_type(PrimitiveType type);
+bool is_float_or_double(PrimitiveType type);
+bool is_int_or_bool(PrimitiveType type);
 bool is_string_type(PrimitiveType type);
 bool has_variable_type(PrimitiveType type);
 
@@ -173,6 +177,13 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
     using ColumnType = vectorized::ColumnString;
 };
 
+template <>
+struct PrimitiveTypeTraits<TYPE_JSONB> {
+    using CppType = JsonBinaryValue;
+    using ColumnType = vectorized::ColumnJsonb;
+};
+
+// only for adapt get_predicate_column_ptr
 template <PrimitiveType type>
 struct PredicatePrimitiveTypeTraits {
     using PredicateFieldType = typename PrimitiveTypeTraits<type>::CppType;

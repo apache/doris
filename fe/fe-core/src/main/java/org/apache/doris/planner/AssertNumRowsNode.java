@@ -64,7 +64,7 @@ public class AssertNumRowsNode extends PlanNode {
         super.computeStats(analyzer);
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
             StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-            cardinality = statsDeriveResult.getRowCount();
+            cardinality = (long) statsDeriveResult.getRowCount();
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats AssertNumRows: cardinality={}", cardinality);

@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -47,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
@@ -134,7 +136,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
 
-
     /**
      * Translate Agg.
      * todo: support DISTINCT
@@ -191,9 +192,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // 3. generate output tuple
         List<Slot> slotList = Lists.newArrayList();
         TupleDescriptor outputTupleDesc;
-        if (aggregate.getAggPhase() == AggPhase.LOCAL) {
-            outputTupleDesc = generateTupleDesc(aggregate.getOutput(), null, context);
-        } else if ((aggregate.getAggPhase() == AggPhase.GLOBAL && aggregate.isFinalPhase())
+        if (aggregate.getAggPhase() == AggPhase.LOCAL
+                || (aggregate.getAggPhase() == AggPhase.GLOBAL && aggregate.isFinalPhase())
                 || aggregate.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
             slotList.addAll(groupSlotList);
             slotList.addAll(aggFunctionOutput);
@@ -220,10 +220,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 outputTupleDesc, aggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(), aggInfo);
+        if (!aggregate.isFinalPhase()) {
+            aggregationNode.unsetNeedsFinalize();
+        }
         PlanFragment currentFragment = inputPlanFragment;
         switch (aggregate.getAggPhase()) {
             case LOCAL:
-                aggregationNode.unsetNeedsFinalize();
                 aggregationNode.setUseStreamingPreagg(aggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
                 break;
@@ -316,11 +318,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             case AGG_KEYS:
             case UNIQUE_KEYS:
                 // TODO: Improve complete info for aggregate and unique key types table.
-                olapScanNode.selectSelectIndexInfo(olapScan.getSelectedIndexId(), true, "");
+                PreAggStatus preAgg = olapScan.getPreAggStatus();
+                olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(), preAgg.getOffReason());
                 break;
             case DUP_KEYS:
                 try {
-                    olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), false, "");
+                    olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), true, "");
+                    olapScanNode.setIsPreAggregation(true, "");
                 } catch (Exception e) {
                     throw new AnalysisException(e.getMessage());
                 }
@@ -347,8 +351,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, dataPartition);
         context.addPlanFragment(planFragment);
-        // TODO: Nereids support duplicate table only for now, remove this when support aggregate/unique table.
-        olapScanNode.setIsPreAggregation(true, "Nereids support duplicate table only for now");
         return planFragment;
     }
 
@@ -564,9 +566,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         Map<ExprId, SlotReference> hashOutputSlotReferenceMap = Maps.newHashMap(outputSlotReferenceMap);
 
-        hashJoin.getOtherJoinCondition()
-                .map(ExpressionUtils::extractConjunction)
-                .orElseGet(Lists::newArrayList)
+        hashJoin.getOtherJoinConjuncts()
                 .stream()
                 .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                 .flatMap(e -> e.getInputSlots().stream())
@@ -587,19 +587,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(SlotReference.class::cast)
                 .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
 
-        //make intermediate tuple
+        // make intermediate tuple
         List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
         List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
         TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
 
-        if (!hashJoin.getOtherJoinCondition().isPresent()
+        if (hashJoin.getOtherJoinConjuncts().isEmpty()
                 && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
             for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
                 SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
                 SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                 leftIntermediateSlotDescriptor.add(sd);
             }
-        } else if (!hashJoin.getOtherJoinCondition().isPresent()
+        } else if (hashJoin.getOtherJoinConjuncts().isEmpty()
                 && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
             for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
                 SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
@@ -625,7 +625,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        //set slots as nullable for outer join
+        // set slots as nullable for outer join
         if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
             rightIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
         }
@@ -633,9 +633,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             leftIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
         }
 
-        List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinCondition()
-                .map(ExpressionUtils::extractConjunction)
-                .orElseGet(Lists::newArrayList)
+        List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinConjuncts()
                 .stream()
                 // TODO add constant expr will cause be crash, currently we only handle true literal.
                 //  remove it after Nereids could ensure no constant expr in other join condition
@@ -657,7 +655,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
         if (hashJoin.isShouldTranslateOutput()) {
-            //translate output expr on intermediate tuple
+            // translate output expr on intermediate tuple
             List<Expr> srcToOutput = outputSlotReferences.stream()
                     .map(e -> ExpressionTranslator.translate(e, context))
                     .collect(Collectors.toList());
@@ -696,6 +694,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             crossJoinNode.setChild(0, leftFragment.getPlanRoot());
             connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);
             leftFragment.setPlanRoot(crossJoinNode);
+            nestedLoopJoin.getOtherJoinConjuncts().stream()
+                    .map(e -> ExpressionTranslator.translate(e, context)).forEach(crossJoinNode::addConjunct);
 
             return leftFragment;
         } else {
@@ -841,14 +841,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             PlanTranslatorContext context) {
-        PlanFragment inputFragment = assertNumRows.child(0).accept(this, context);
-        //create assertNode
+        PlanFragment currentFragment = assertNumRows.child(0).accept(this, context);
+        // create assertNode
         AssertNumRowsNode assertNumRowsNode = new AssertNumRowsNode(context.nextPlanNodeId(),
-                inputFragment.getPlanRoot(),
+                currentFragment.getPlanRoot(),
                 ExpressionTranslator.translateAssert(assertNumRows.getAssertNumRowsElement()));
-        PlanFragment mergeFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
-        mergeFragment.addPlanRoot(assertNumRowsNode);
-        return mergeFragment;
+        if (currentFragment.getPlanRoot() instanceof ExchangeNode) {
+            currentFragment.setPlanRoot(currentFragment.getPlanRoot().getChild(0));
+            currentFragment = createParentFragment(currentFragment, DataPartition.UNPARTITIONED, context);
+        }
+        currentFragment.addPlanRoot(assertNumRowsNode);
+        return currentFragment;
     }
 
     private void extractExecSlot(Expr root, Set<Integer> slotRefList) {
@@ -966,10 +969,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         // assemble fragment
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
+        if (leftDistributionSpec.getShuffleType() != ShuffleType.NATURAL) {
+            hashJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
+        }
         connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
         leftFragment.setPlanRoot(hashJoinNode);
-        // TODO: use left fragment d
-        DataPartition rhsJoinPartition = new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED,
+        TPartitionType partitionType = TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
+        if (leftDistributionSpec.getShuffleType() != ShuffleType.NATURAL) {
+            partitionType = TPartitionType.HASH_PARTITIONED;
+        }
+        DataPartition rhsJoinPartition = new DataPartition(partitionType,
                 rightPartitionExprIds.stream().map(context::findSlotRef).collect(Collectors.toList()));
         rightFragment.setOutputPartition(rhsJoinPartition);
 

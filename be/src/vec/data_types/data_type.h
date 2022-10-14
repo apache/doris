@@ -236,9 +236,10 @@ public:
     static void update_avg_value_size_hint(const IColumn& column, double& avg_value_size_hint);
 
     virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column,
-                                                      int data_version) const = 0;
-    virtual char* serialize(const IColumn& column, char* buf, int data_version) const = 0;
-    virtual const char* deserialize(const char* buf, IColumn* column, int data_version) const = 0;
+                                                      int be_exec_version) const = 0;
+    virtual char* serialize(const IColumn& column, char* buf, int be_exec_version) const = 0;
+    virtual const char* deserialize(const char* buf, IColumn* column,
+                                    int be_exec_version) const = 0;
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 
@@ -278,6 +279,7 @@ struct WhichDataType {
     bool is_int() const {
         return is_int8() || is_int16() || is_int32() || is_int64() || is_int128();
     }
+    bool is_int_or_uint() const { return is_int() || is_uint(); }
     bool is_native_int() const { return is_int8() || is_int16() || is_int32() || is_int64(); }
 
     bool is_decimal32() const { return idx == TypeIndex::Decimal32; }
@@ -303,6 +305,8 @@ struct WhichDataType {
     bool is_string() const { return idx == TypeIndex::String; }
     bool is_fixed_string() const { return idx == TypeIndex::FixedString; }
     bool is_string_or_fixed_string() const { return is_string() || is_fixed_string(); }
+
+    bool is_json() const { return idx == TypeIndex::JSONB; }
 
     bool is_uuid() const { return idx == TypeIndex::UUID; }
     bool is_array() const { return idx == TypeIndex::Array; }

@@ -247,6 +247,9 @@ JsonReader::JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProf
           _strip_outer_array(strip_outer_array),
           _num_as_string(num_as_string),
           _fuzzy_parse(fuzzy_parse),
+          _value_allocator(_value_buffer, sizeof(_value_buffer)),
+          _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
+          _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _json_doc(nullptr),
           _scanner_eof(scanner_eof) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
@@ -343,6 +346,8 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
         return Status::OK();
     }
 
+    // clear memory here.
+    _origin_json_doc.GetAllocator().Clear();
     bool has_parse_error = false;
     // parse jsondata to JsonDoc
 

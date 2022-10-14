@@ -30,10 +30,10 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 public class ReplicaAllocationTest {
@@ -123,7 +123,7 @@ public class ReplicaAllocationTest {
 
         properties.clear();
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.12321:1");
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid tag format: location:12321",
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid tag value format: 12321",
                 () -> PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
     }
 
@@ -134,9 +134,8 @@ public class ReplicaAllocationTest {
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./replicaInfo");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./replicaInfo"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ReplicaAllocation replicaAlloc = new ReplicaAllocation();
         replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, "zone1"), (short) 3);
@@ -147,12 +146,12 @@ public class ReplicaAllocationTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         ReplicaAllocation newAlloc = ReplicaAllocation.read(dis);
         Assert.assertEquals(replicaAlloc, newAlloc);
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

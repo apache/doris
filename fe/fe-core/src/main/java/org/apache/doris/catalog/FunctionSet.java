@@ -242,6 +242,70 @@ public class FunctionSet<T> {
                     "3maxIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PS6_")
                .build();
 
+    private static final Map<Type, String> ANY_INIT_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.BOOLEAN,
+                            "8any_initIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.TINYINT,
+                            "8any_initIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.SMALLINT,
+                            "8any_initIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.INT,
+                            "8any_initIN9doris_udf6IntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.BIGINT,
+                            "8any_initIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.FLOAT,
+                            "8any_initIN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.DOUBLE,
+                            "8any_initIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPT_")
+                    // .put(Type.CHAR,
+                    //     "3anyIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.VARCHAR,
+                            "8any_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.STRING,
+                            "8any_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.DATE,
+                            "8any_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.DATETIME,
+                            "8any_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.DECIMALV2,
+                            "8any_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.LARGEINT,
+                            "8any_initIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextEPT_")
+                    .build();
+
+    private static final Map<Type, String> ANY_UPDATE_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.BOOLEAN,
+                            "3anyIN9doris_udf10BooleanValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.TINYINT,
+                            "3anyIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.SMALLINT,
+                            "3anyIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.INT,
+                            "3anyIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.BIGINT,
+                            "3anyIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.FLOAT,
+                            "3anyIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.DOUBLE,
+                            "3anyIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    // .put(Type.CHAR,
+                    //    "3anyIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.VARCHAR,
+                            "3anyIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.STRING,
+                            "3anyIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.DATE,
+                            "3anyIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.DATETIME,
+                            "3anyIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.DECIMALV2,
+                            "3anyIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .put(Type.LARGEINT,
+                            "3anyIN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PS6_")
+                    .build();
+
     private static final Map<Type, Type> MULTI_DISTINCT_SUM_RETURN_TYPE =
              ImmutableMap.<Type, Type>builder()
                     .put(Type.TINYINT, Type.BIGINT)
@@ -1700,6 +1764,27 @@ public class FunctionSet<T> {
                     prefix + MAX_UPDATE_SYMBOL.get(t),
                     minMaxSerializeOrFinalize, minMaxGetValue,
                     null, minMaxSerializeOrFinalize, true, true, false, true));
+
+            // Any
+            addBuiltin(AggregateFunction.createBuiltin("any",
+                    Lists.newArrayList(t), t, t, prefix + ANY_INIT_SYMBOL.get(t),
+                    prefix + ANY_UPDATE_SYMBOL.get(t),
+                    prefix + ANY_UPDATE_SYMBOL.get(t),
+                    minMaxSerializeOrFinalize, minMaxGetValue,
+                    null, minMaxSerializeOrFinalize, true, true, false));
+            // vectorized
+            addBuiltin(AggregateFunction.createBuiltin("any", Lists.newArrayList(t), t, t, null, null, null, null, null,
+                    null, null, true, false, false, true));
+            // Any_Value
+            addBuiltin(AggregateFunction.createBuiltin("any_value",
+                    Lists.newArrayList(t), t, t, prefix + ANY_INIT_SYMBOL.get(t),
+                    prefix + ANY_UPDATE_SYMBOL.get(t),
+                    prefix + ANY_UPDATE_SYMBOL.get(t),
+                    minMaxSerializeOrFinalize, minMaxGetValue,
+                    null, minMaxSerializeOrFinalize, true, true, false));
+            // vectorized
+            addBuiltin(AggregateFunction.createBuiltin("any_value", Lists.newArrayList(t), t, t, null, null, null, null,
+                    null, null, null, true, false, false, true));
 
             // vectorized
             for (Type kt : Type.getSupportedTypes()) {

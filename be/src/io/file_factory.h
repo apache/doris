@@ -58,6 +58,14 @@ public:
                                      const TFileRangeDesc& range,
                                      std::shared_ptr<FileReader>& file_reader);
 
+    /**
+     * Create FileReader. If buffer_size > 0, use BufferedReader to wrap the underlying FileReader;
+     * Otherwise, return the underlying FileReader directly.
+     */
+    static Status create_file_reader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                                     const TFileRangeDesc& range,
+                                     std::unique_ptr<FileReader>& file_reader, int64_t buffer_size);
+
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {
         case TStorageBackendType::LOCAL:

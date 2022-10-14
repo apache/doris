@@ -67,7 +67,7 @@
     "message": "Join 优化",
     "description": "The label for category Join Optimization in sidebar docs"
   },
-  "sidebar.docs.category.Date Cache": {
+  "sidebar.docs.category.Data Cache": {
     "message": "数据缓存",
     "description": "The label for category Date Cache in sidebar docs"
   },

@@ -221,7 +221,11 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
         }
-
+        if (!Env.getCurrentEnv().isMaster()) {
+            if (ctx.executor.isForwardToMaster()) {
+                ctx.getAuditEventBuilder().setState(ctx.executor.getProxyStatus());
+            }
+        }
         Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
@@ -262,8 +266,8 @@ public class ConnectProcessor {
                 } catch (Exception e) {
                     nereidsParseException = e;
                     // TODO: We should catch all exception here until we support all query syntax.
-                    LOG.warn(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt, e);
+                    LOG.info(" Fallback to stale planner."
+                            + " Nereids cannot process this statement: \"{}\".", originStmt.toString());
                 }
             }
             // stmts == null when Nereids cannot planner this query or Nereids is disabled.
@@ -353,6 +357,8 @@ public class ConnectProcessor {
             } else {
                 throw new AnalysisException(errorMessage, e);
             }
+        } catch (ArrayStoreException e) {
+            throw new AnalysisException("Sql parser can't convert the result to array, please check your sql.", e);
         } catch (Exception e) {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.
@@ -556,9 +562,6 @@ public class ConnectProcessor {
             if (request.isSetQueryTimeout()) {
                 ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
             }
-            if (request.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
-            }
         }
 
         Map<String, String> traceCarrier = new HashMap<>();
@@ -623,6 +626,7 @@ public class ConnectProcessor {
         }
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setPacket(getResultPacket());
+        result.setStatus(ctx.getState().toString());
         if (executor != null && executor.getProxyResultSet() != null) {
             result.setResultSet(executor.getProxyResultSet().tothrift());
         }

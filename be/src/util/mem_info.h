@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
@@ -46,14 +47,18 @@ public:
     }
 
     static inline size_t current_mem() { return _s_allocator_physical_mem; }
+    static inline size_t allocator_virtual_mem() { return _s_virtual_memory_used; }
     static inline size_t allocator_cache_mem() { return _s_allocator_cache_mem; }
     static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
+    static inline int64_t proc_mem_no_allocator_cache() { return _s_proc_mem_no_allocator_cache; }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
     static inline void refresh_allocator_mem() {
         MallocExtension::instance()->GetNumericProperty("generic.total_physical_bytes",
                                                         &_s_allocator_physical_mem);
+        MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_unmapped_bytes",
+                                                        &_s_pageheap_unmapped_bytes);
         MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes",
                                                         &_s_tcmalloc_pageheap_free_bytes);
         MallocExtension::instance()->GetNumericProperty("tcmalloc.central_cache_free_bytes",
@@ -65,6 +70,9 @@ public:
         _s_allocator_cache_mem = _s_tcmalloc_pageheap_free_bytes + _s_tcmalloc_central_bytes +
                                  _s_tcmalloc_transfer_bytes + _s_tcmalloc_thread_bytes;
         _s_allocator_cache_mem_str = PrettyPrinter::print(_s_allocator_cache_mem, TUnit::BYTES);
+        _s_virtual_memory_used = _s_allocator_physical_mem + _s_pageheap_unmapped_bytes;
+        _s_proc_mem_no_allocator_cache =
+                PerfCounters::get_vm_rss() - static_cast<int64_t>(_s_allocator_cache_mem);
     }
 
     static inline int64_t mem_limit() {
@@ -86,12 +94,15 @@ private:
     static std::string _s_mem_limit_str;
     static int64_t _s_hard_mem_limit;
     static size_t _s_allocator_physical_mem;
+    static size_t _s_pageheap_unmapped_bytes;
     static size_t _s_tcmalloc_pageheap_free_bytes;
     static size_t _s_tcmalloc_central_bytes;
     static size_t _s_tcmalloc_transfer_bytes;
     static size_t _s_tcmalloc_thread_bytes;
     static size_t _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;
+    static size_t _s_virtual_memory_used;
+    static int64_t _s_proc_mem_no_allocator_cache;
 };
 
 } // namespace doris

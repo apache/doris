@@ -97,7 +97,7 @@ private:
             refs[i].data = sv.ptr;
             refs[i].size = sv.len;
         }
-        res_ptr->insert_many_strings(refs, sel_size);
+        res_ptr->insert_many_continuous_strings(refs, sel_size);
     }
 
     void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
@@ -133,22 +133,16 @@ private:
         }
     }
 
-    // note(wb): Write data one by one has a slight performance improvement than memcpy directly
     void insert_many_default_type(const char* data_ptr, size_t num) {
-        T* input_val_ptr = (T*)data_ptr;
-        T* res_val_ptr = (T*)data.get_end_ptr();
-        for (int i = 0; i < num; i++) {
-            res_val_ptr[i] = input_val_ptr[i];
-        }
-        res_val_ptr += num;
-        data.set_end_ptr(res_val_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
     void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        char* res_ptr = (char*)data.get_end_ptr();
-        memcpy(res_ptr, data_ptr, num * sizeof(T));
-        res_ptr += num * sizeof(T);
-        data.set_end_ptr(res_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
 public:
@@ -278,15 +272,29 @@ public:
             }
 
             char* destination = (char*)_pool->allocate(total_mem_size);
-            memcpy(destination, data_array, total_mem_size);
-            // Resize the underline data to allow data copy directly
+            char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
+            uint32_t fragment_start_offset = start_offset_array[0];
+            size_t fragment_len = 0;
             for (size_t i = 0; i < num; i++) {
-                data[org_elem_num + i].ptr = destination;
+                data[org_elem_num + i].ptr = destination + fragment_len;
                 data[org_elem_num + i].len = len_array[i];
-                destination += len_array[i];
+                fragment_len += len_array[i];
+                // Compute the largest continuous memcpy block and copy them.
+                // If this is the last element in data array, then should copy the current memory block.
+                if (i == num - 1 ||
+                    start_offset_array[i + 1] != start_offset_array[i] + len_array[i]) {
+                    memcpy(destination, data_array + fragment_start_offset, fragment_len);
+                    destination += fragment_len;
+                    fragment_start_offset = (i == num - 1 ? 0 : start_offset_array[i + 1]);
+                    fragment_len = 0;
+                }
             }
+            CHECK(destination - org_dst == total_mem_size)
+                    << "Copied size not equal to expected size";
+        } else {
+            LOG(FATAL) << "Method insert_many_binary_data is not supported";
         }
     }
 

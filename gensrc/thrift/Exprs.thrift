@@ -51,6 +51,9 @@ enum TExprNodeType {
 
   // only used in runtime filter
   BLOOM_PRED,
+
+  // for josn
+  JSON_LITERAL,
 }
 
 //enum TAggregationOp {
@@ -140,6 +143,10 @@ struct TStringLiteral {
   1: required string value;
 }
 
+struct TJsonLiteral {
+  1: required string value;
+}
+
 struct TInfoFunc {
   1: required i64 int_value;
   2: required string str_value;
@@ -192,6 +199,8 @@ struct TExprNode {
 
   // For vectorized engine
   29: optional bool is_nullable
+  
+  30: optional TJsonLiteral json_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

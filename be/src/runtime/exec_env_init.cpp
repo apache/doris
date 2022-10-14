@@ -120,19 +120,19 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
                                    config::doris_remote_scanner_thread_pool_queue_size);
 
     ThreadPoolBuilder("LimitedScanThreadPool")
-            .set_min_threads(1)
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
             .build(&_limited_scan_thread_pool);
 
     ThreadPoolBuilder("SendBatchThreadPool")
-            .set_min_threads(1)
+            .set_min_threads(config::send_batch_thread_pool_thread_num)
             .set_max_threads(config::send_batch_thread_pool_thread_num)
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
 
     ThreadPoolBuilder("DownloadCacheThreadPool")
-            .set_min_threads(1)
+            .set_min_threads(config::download_cache_thread_pool_thread_num)
             .set_max_threads(config::download_cache_thread_pool_thread_num)
             .set_max_queue_size(config::download_cache_thread_pool_queue_size)
             .build(&_download_cache_thread_pool);
@@ -206,8 +206,9 @@ Status ExecEnv::_init_mem_tracker() {
     }
     _process_mem_tracker =
             std::make_shared<MemTrackerLimiter>(global_memory_limit_bytes, "Process");
-    _process_mem_tracker_raw = _process_mem_tracker.get();
-    thread_context()->_thread_mem_tracker_mgr->init();
+    _orphan_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Orphan", _process_mem_tracker);
+    _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
+    thread_context()->_thread_mem_tracker_mgr->init_impl();
     thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -215,7 +216,6 @@ Status ExecEnv::_init_mem_tracker() {
         init_hook();
     }
 #endif
-
     _allocator_cache_mem_tracker = std::make_shared<MemTracker>("Tc/JemallocAllocatorCache");
     _query_pool_mem_tracker =
             std::make_shared<MemTrackerLimiter>(-1, "QueryPool", _process_mem_tracker);
@@ -287,7 +287,21 @@ Status ExecEnv::_init_mem_tracker() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
-    SegmentLoader::create_global_instance(config::segment_cache_capacity);
+    uint64_t fd_number = config::min_file_descriptor_number;
+    struct rlimit l;
+    int ret = getrlimit(RLIMIT_NOFILE, &l);
+    if (ret != 0) {
+        LOG(WARNING) << "call getrlimit() failed. errno=" << strerror(errno)
+                     << ", use default configuration instead.";
+    } else {
+        fd_number = static_cast<uint64_t>(l.rlim_cur);
+    }
+    // SegmentLoader caches segments in rowset granularity. So the size of
+    // opened files will greater than segment_cache_capacity.
+    uint64_t segment_cache_capacity = fd_number / 3 * 2;
+    LOG(INFO) << "segment_cache_capacity = fd_number / 3 * 2, fd_number: " << fd_number
+              << " segment_cache_capacity: " << segment_cache_capacity;
+    SegmentLoader::create_global_instance(segment_cache_capacity);
 
     // 4. init other managers
     RETURN_IF_ERROR(_disk_io_mgr->init(global_memory_limit_bytes));

@@ -70,6 +70,7 @@ public class OlapTableTest {
             DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
             Table copiedTbl = OlapTable.read(in);
             System.out.println("copied table id: " + copiedTbl.getId());
+            in.close();
         }
 
     }
@@ -89,7 +90,7 @@ public class OlapTableTest {
         olapTable.setColocateGroup("test_group");
         Assert.assertTrue(olapTable.isColocateTable());
 
-        olapTable.resetPropertiesForRestore();
+        olapTable.resetPropertiesForRestore(false);
         Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
         Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
         Assert.assertFalse(olapTable.isColocateTable());
@@ -108,7 +109,7 @@ public class OlapTableTest {
 
         tableProperty = new TableProperty(properties);
         olapTable.setTableProperty(tableProperty);
-        olapTable.resetPropertiesForRestore();
+        olapTable.resetPropertiesForRestore(false);
 
         Map<String, String> expectedProperties = Maps.newHashMap(properties);
         expectedProperties.put(DynamicPartitionProperty.ENABLE, "false");

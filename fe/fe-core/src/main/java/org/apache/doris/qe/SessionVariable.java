@@ -100,16 +100,6 @@ public class SessionVariable implements Serializable, Writable {
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
-    /*
-     * configure the mem limit of load process on BE.
-     * Previously users used exec_mem_limit to set memory limits.
-     * To maintain compatibility, the default value of load_mem_limit is 0,
-     * which means that the load memory limit is still using exec_mem_limit.
-     * Users can set a value greater than zero to explicitly specify the load memory limit.
-     * This variable is mainly for INSERT operation, because INSERT operation has both query and load part.
-     * Using only the exec_mem_limit variable does not make a good distinction of memory limit between the two parts.
-     */
-    public static final String LOAD_MEM_LIMIT = "load_mem_limit";
     public static final String USE_V2_ROLLUP = "use_v2_rollup";
     public static final String TEST_MATERIALIZED_VIEW = "test_materialized_view";
     public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
@@ -199,6 +189,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
+    public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
+    public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
 
@@ -220,6 +212,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
 
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
+
+    public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
+
+    public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
+
+    public static final String ENABLE_NEREIDS_STATS_DERIVE_V2 = "enable_nereids_stats_derive_v2";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -391,9 +389,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
 
-    @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
-    public long loadMemLimit = 2 * 1024 * 1024 * 1024L; // 2GB as default
-
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     public boolean useV2Rollup = false;
 
@@ -517,6 +512,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER)
     private boolean enableNereidsPlanner = false;
 
+    @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
+    private boolean nereidsStarSchemaSupport = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
+    private boolean enableNereidsTrace = true;
+
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
     private boolean enableNereidsRuntimeFilter = true;
 
@@ -541,8 +542,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFunctionPushdown;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
-    public boolean enableLocalExchange = false;
-
+    public boolean enableLocalExchange = true;
 
     /**
      * For debugg purpose, dont' merge unique key and agg key when reading data.
@@ -563,7 +563,20 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFallbackToOriginalPlanner = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
-    public boolean enableNewShffleHashMethod = true;
+    public boolean enableNewShuffleHashMethod = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
+    public boolean enablePushDownNoGroupAgg = true;
+
+    /**
+     * The current statistics are only used for CBO test,
+     * and are not available to users. (work in progress)
+     */
+    @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
+    public boolean enableCboStatistics = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_STATS_DERIVE_V2)
+    public boolean enableNereidsStatsDeriveV2 = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -575,10 +588,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
-    }
-
-    public long getLoadMemLimit() {
-        return loadMemLimit;
     }
 
     public int getQueryTimeoutS() {
@@ -726,10 +735,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
         this.sqlQuoteShowCreate = sqlQuoteShowCreate;
-    }
-
-    public void setLoadMemLimit(long loadMemLimit) {
-        this.loadMemLimit = loadMemLimit;
     }
 
     public void setQueryTimeoutS(int queryTimeoutS) {
@@ -958,12 +963,20 @@ public class SessionVariable implements Serializable, Writable {
         this.enableVectorizedEngine = enableVectorizedEngine;
     }
 
+    public boolean enablePushDownNoGroupAgg() {
+        return enablePushDownNoGroupAgg;
+    }
+
     public boolean getEnableFunctionPushdown() {
         return this.enableFunctionPushdown;
     }
 
     public boolean getEnableLocalExchange() {
         return enableLocalExchange;
+    }
+
+    public boolean getEnableCboStatistics() {
+        return enableCboStatistics;
     }
 
     /**
@@ -1085,6 +1098,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
+    public boolean isNereidsStarSchemaSupport() {
+        return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
+    }
+
+    public boolean isEnableNereidsTrace() {
+        return isEnableNereidsPlanner() && enableNereidsTrace;
+    }
+
     public boolean isEnableNereidsRuntimeFilter() {
         return enableNereidsRuntimeFilter;
     }
@@ -1107,6 +1128,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
         this.enableSingleReplicaInsert = enableSingleReplicaInsert;
+    }
+
+    public boolean isEnableNereidsStatsDeriveV2() {
+        return enableNereidsStatsDeriveV2;
+    }
+
+    public void setEnableNereidsStatsDeriveV2(boolean enableNereidsStatsDeriveV2) {
+        this.enableNereidsStatsDeriveV2 = enableNereidsStatsDeriveV2;
     }
 
     /**
@@ -1146,7 +1175,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
-        tResult.setLoadMemLimit(loadMemLimit);
 
         if (maxScanKeyNum > -1) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
@@ -1170,7 +1198,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
         tResult.setEnableLocalExchange(enableLocalExchange);
-        tResult.setEnableNewShuffleHashMethod(enableNewShffleHashMethod);
+        tResult.setEnableNewShuffleHashMethod(enableNewShuffleHashMethod);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 
@@ -1344,9 +1372,6 @@ public class SessionVariable implements Serializable, Writable {
         if (queryOptions.isSetQueryTimeout()) {
             setQueryTimeoutS(queryOptions.getQueryTimeout());
         }
-        if (queryOptions.isSetLoadMemLimit()) {
-            setLoadMemLimit(queryOptions.getLoadMemLimit());
-        }
     }
 
     /**
@@ -1356,7 +1381,6 @@ public class SessionVariable implements Serializable, Writable {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
         queryOptions.setQueryTimeout(queryTimeoutS);
-        queryOptions.setLoadMemLimit(loadMemLimit);
         return queryOptions;
     }
 

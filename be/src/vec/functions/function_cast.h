@@ -24,6 +24,7 @@
 
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
@@ -173,6 +174,8 @@ struct ConvertImpl {
                         } else if constexpr (IsDateTimeV2Type<ToDataType> &&
                                              IsDateTimeV2Type<FromDataType>) {
                             DataTypeDateTimeV2::cast_to_date(vec_from[i], vec_to[i]);
+                        } else if constexpr (IsDateType<ToDataType> && IsDateV2Type<FromDataType>) {
+                            DataTypeDateV2::cast_to_date(vec_from[i], vec_to[i]);
                         }
                     } else {
                         if constexpr (IsDateTimeV2Type<FromDataType>) {
@@ -1278,32 +1281,31 @@ private:
                 const auto& nested_type = nullable_type.get_nested_type();
 
                 Block tmp_block;
+                size_t tmp_res_index = 0;
                 if (source_is_nullable) {
                     tmp_block = create_block_with_nested_columns_only_args(block, arguments);
-                    size_t tmp_res_index = tmp_block.columns();
+                    tmp_res_index = tmp_block.columns();
                     tmp_block.insert({nullptr, nested_type, ""});
 
                     /// Perform the requested conversion.
                     RETURN_IF_ERROR(
                             wrapper(context, tmp_block, {0}, tmp_res_index, input_rows_count));
-
-                    const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
-
-                    res.column = wrap_in_nullable(
-                            tmp_res.column, Block({block.get_by_position(arguments[0]), tmp_res}),
-                            {0}, 1, input_rows_count);
                 } else {
                     tmp_block = block;
 
-                    size_t tmp_res_index = block.columns();
+                    tmp_res_index = block.columns();
                     tmp_block.insert({nullptr, nested_type, ""});
 
                     /// Perform the requested conversion.
                     RETURN_IF_ERROR(wrapper(context, tmp_block, arguments, tmp_res_index,
                                             input_rows_count));
-
-                    res.column = tmp_block.get_by_position(tmp_res_index).column;
                 }
+
+                // Note: here we should return the nullable result column
+                const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
+                res.column = wrap_in_nullable(tmp_res.column,
+                                              Block({block.get_by_position(arguments[0]), tmp_res}),
+                                              {0}, 1, input_rows_count);
 
                 return Status::OK();
             };

@@ -115,6 +115,7 @@ set(EXPRS_TEST_FILES
     exprs/array_functions_test.cpp
     exprs/quantile_function_test.cpp
     exprs/window_funnel_test.cpp
+    exprs/hash_function_test.cpp
 )
 set(GEO_TEST_FILES
     geo/wkt_parse_test.cpp
@@ -244,6 +245,7 @@ set(RUNTIME_TEST_FILES
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
     runtime/collection_value_test.cpp
+    runtime/free_pool_test.cpp
     #runtime/array_test.cpp
 )
 set(TESTUTIL_TEST_FILES
@@ -353,6 +355,7 @@ set(VEC_TEST_FILES
     vec/function/function_like_test.cpp
     vec/function/function_arithmetic_test.cpp
     vec/function/function_json_test.cpp
+    vec/function/function_jsonb_test.cpp
     vec/function/function_geo_test.cpp
     vec/function/function_test_util.cpp
     vec/function/table_function_test.cpp

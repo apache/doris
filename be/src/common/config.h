@@ -72,7 +72,7 @@ CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "90%");
+CONF_String(mem_limit, "80%");
 
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");
@@ -191,8 +191,6 @@ CONF_mInt32(max_pushdown_conditions_per_column, "1024");
 CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
-// push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
@@ -227,8 +225,6 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
-//file descriptors cache, by default, cache 32768 descriptors
-CONF_Int32(file_descriptor_cache_capacity, "32768");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
@@ -256,9 +252,6 @@ CONF_mBool(disable_auto_compaction, "false");
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
-
-// serialize data version
-CONF_mInt32(block_data_version, "-1");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
@@ -440,14 +433,6 @@ CONF_Int32(max_free_io_buffers, "128");
 // including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
-// Whether to allocate chunk using mmap. If you enable this, you'd better to
-// increase vm.max_map_count's value whose default value is 65530.
-// you can do it as root via "sysctl -w vm.max_map_count=262144" or
-// "echo 262144 > /proc/sys/vm/max_map_count"
-// NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
-// to a relative large number or the performance is very very bad.
-CONF_Bool(use_mmap_allocate_chunk, "false");
-
 // The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
 // defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
@@ -520,6 +505,13 @@ CONF_mInt64(memtable_max_buffer_size, "419430400");
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
 CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 
+// If the memory consumption of load jobs exceed load_process_max_memory_limit,
+// all load jobs will hang there to wait for memtable flush. We should have a
+// soft limit which can trigger the memtable flush for the load channel who
+// consumes lagest memory size before we reach the hard limit. The soft limit
+// might avoid all load jobs hang at the same time.
+CONF_Int32(load_process_soft_mem_limit_percent, "50");
+
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
 
@@ -581,7 +573,7 @@ CONF_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 // The min bytes that should be left of a data dir
 CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
-CONF_Int32(flush_thread_num_per_store, "2");
+CONF_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
 CONF_Int32(high_priority_flush_thread_num_per_store, "1");
 
@@ -725,11 +717,6 @@ CONF_mInt32(max_segment_num_per_rowset, "200");
 // The connection timeout when connecting to external table such as odbc table.
 CONF_mInt32(external_table_connect_timeout_sec, "30");
 
-// The capacity of lur cache in segment loader.
-// Althought it is called "segment cache", but it caches segments in rowset granularity.
-// So the value of this config should corresponding to the number of rowsets on this BE.
-CONF_mInt32(segment_cache_capacity, "1000000");
-
 // Global bitmap cache capacity for aggregation cache, size in bytes
 CONF_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 
@@ -804,15 +791,23 @@ CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
 CONF_Validator(string_type_length_soft_limit_bytes,
                [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
+CONF_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
+
+CONF_Validator(jsonb_type_length_soft_limit_bytes,
+               [](const int config) -> bool { return config > 0 && config <= 2147483643; });
+
 // used for olap scanner to save memory, when the size of unused_object_pool
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
-CONF_Bool(parquet_predicate_push_down, "true");
-CONF_Int32(parquet_header_max_size, "8388608");
-CONF_Bool(parquet_reader_using_internal, "false");
+// Max size of parquet page header in bytes
+CONF_mInt32(parquet_header_max_size_mb, "1");
+// Max buffer size for parquet row group
+CONF_mInt32(parquet_rowgroup_max_buffer_mb, "128");
+// Max buffer size for parquet chunk column
+CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
@@ -844,6 +839,7 @@ CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
 });
+CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
@@ -870,10 +866,14 @@ CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 
 // Temp config. True to use new file scan node to do load job. Will remove after fully test.
-CONF_Bool(enable_new_load_scan_node, "false");
+CONF_mBool(enable_new_load_scan_node, "false");
 
 // Temp config. True to use new file scanner. Will remove after fully test.
-CONF_Bool(enable_new_file_scanner, "false");
+CONF_mBool(enable_new_file_scanner, "false");
+
+// Hide webserver page for safety.
+// Hide the be config page for webserver.
+CONF_Bool(hide_webserver_config_page, "false");
 
 #ifdef BE_TEST
 // test s3

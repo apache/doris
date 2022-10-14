@@ -19,6 +19,10 @@
 
 namespace doris {
 
+namespace segment_v2 {
+class Segment;
+}
+
 namespace vectorized {
 
 // Create a merge iterator for input iterators. Merge iterator will merge
@@ -42,6 +46,8 @@ RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs);
 //
 // Client should delete returned iterator.
 RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows);
+
+RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema);
 
 } // namespace vectorized
 

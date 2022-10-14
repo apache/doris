@@ -47,6 +47,7 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
     _jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
     _table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     _use_transaction = t_jdbc_sink.use_transaction;
+    _need_extra_convert = (t_jdbc_sink.table_type == TOdbcTableType::ORACLE);
 
     return Status::OK();
 }
@@ -81,7 +82,7 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block) {
     uint32_t num_row_sent = 0;
     while (start_send_row < output_block.rows()) {
         RETURN_IF_ERROR(_writer->append(_table_name, &output_block, _output_vexpr_ctxs,
-                                        start_send_row, &num_row_sent));
+                                        start_send_row, &num_row_sent, _need_extra_convert));
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }

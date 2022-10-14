@@ -111,7 +111,9 @@ PROPERTIES (
 备注：
 `PROPERTIES` 中除了可以添加上述参数之外，还支持每个数据库的ODBC driver 实现的专用参数，比如mysql 的`sslverify` 等
 
-
+>注意：
+>
+>如果你是SQL Server 2017 及之后的版本，因为SQL Server 2017及之后版本默认开启了安全认证，你需要再定义 ODBC Resources的时候加上 `"TrustServerCertificate"="Yes"`
 
 ##### ODBC Driver的安装和配置
 

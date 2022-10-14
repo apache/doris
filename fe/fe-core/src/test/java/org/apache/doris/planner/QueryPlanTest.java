@@ -1189,6 +1189,12 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
+        // here only a bucket shuffle + broadcast jost join
+        queryStr = "explain SELECT * FROM test.bucket_shuffle1 T LEFT JOIN test.bucket_shuffle1 T1 ON T1.k2 = T.k1 and T.k2 = T1.k3 LEFT JOIN"
+                + " test.bucket_shuffle2 T2 ON T2.k2 = T1.k1 and T2.k1 = T1.k2;";
+        explainString = getSQLPlanOrErrorMsg(queryStr);
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
+        Assert.assertTrue(explainString.contains("BROADCAST"));
         // disable bucket shuffle join again
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
     }
@@ -1645,15 +1651,15 @@ public class QueryPlanTest extends TestWithFeService {
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    999"));
+        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("1\n" + "    999"));
+        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("1\n" + "    999"));
+        Assert.assertTrue(explainString.contains("<slot 5>\n" + "    <slot 7>"));
     }
 
     @Test

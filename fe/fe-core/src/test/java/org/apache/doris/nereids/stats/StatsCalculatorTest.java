@@ -37,7 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -112,15 +112,16 @@ public class StatsCalculatorTest {
         qualifier.add("t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
-        ColumnStats columnStats1 = new ColumnStats();
-        columnStats1.setNdv(10);
-        columnStats1.setNumNulls(5);
-        ColumnStats columnStats2 = new ColumnStats();
-        columnStats2.setNdv(20);
-        columnStats1.setNumNulls(10);
-        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1, columnStats1);
-        slotColumnStatsMap.put(slot2, columnStats2);
+
+        ColumnStat columnStat1 = new ColumnStat();
+        columnStat1.setNdv(10);
+        columnStat1.setNumNulls(5);
+        ColumnStat columnStat2 = new ColumnStat();
+        columnStat2.setNdv(20);
+        columnStat1.setNumNulls(10);
+        Map<Slot, ColumnStat> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStat1);
+        slotColumnStatsMap.put(slot2, columnStat2);
         StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
 
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
@@ -197,14 +198,14 @@ public class StatsCalculatorTest {
 
     @Test
     public void testOlapScan() {
-        ColumnStats columnStats1 = new ColumnStats();
-        columnStats1.setNdv(10);
-        columnStats1.setNumNulls(5);
+        ColumnStat columnStat1 = new ColumnStat();
+        columnStat1.setNdv(10);
+        columnStat1.setNumNulls(5);
         long tableId1 = 0;
         TableStats tableStats1 = new TableStats();
-        tableStats1.putColumnStats("c1", columnStats1);
+        tableStats1.putColumnStats("c1", columnStat1);
         Statistics statistics = new Statistics();
-        statistics.putTableStats(tableId1, tableStats1);
+
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         new Expectations() {{
@@ -237,11 +238,11 @@ public class StatsCalculatorTest {
         qualifier.add("test");
         qualifier.add("t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
-        ColumnStats columnStats1 = new ColumnStats();
-        columnStats1.setNdv(10);
-        columnStats1.setNumNulls(5);
-        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1, columnStats1);
+        ColumnStat columnStat1 = new ColumnStat();
+        columnStat1.setNdv(10);
+        columnStat1.setNumNulls(5);
+        Map<Slot, ColumnStat> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStat1);
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
         Group childGroup = new Group();
@@ -257,7 +258,7 @@ public class StatsCalculatorTest {
         StatsCalculator.estimate(groupExpression);
         StatsDeriveResult limitStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, limitStats.getRowCount());
-        ColumnStats slot1Stats = limitStats.getSlotToColumnStats().get(slot1);
+        ColumnStat slot1Stats = limitStats.getSlotToColumnStats().get(slot1);
         Assertions.assertEquals(1, slot1Stats.getNdv());
         Assertions.assertEquals(1, slot1Stats.getNumNulls());
     }
@@ -268,11 +269,11 @@ public class StatsCalculatorTest {
         qualifier.add("test");
         qualifier.add("t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
-        ColumnStats columnStats1 = new ColumnStats();
-        columnStats1.setNdv(10);
-        columnStats1.setNumNulls(5);
-        Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1, columnStats1);
+        ColumnStat columnStat1 = new ColumnStat();
+        columnStat1.setNdv(10);
+        columnStat1.setNumNulls(5);
+        Map<Slot, ColumnStat> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStat1);
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
         Group childGroup = new Group();
@@ -288,7 +289,7 @@ public class StatsCalculatorTest {
         StatsCalculator.estimate(groupExpression);
         StatsDeriveResult topNStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, topNStats.getRowCount());
-        ColumnStats slot1Stats = topNStats.getSlotToColumnStats().get(slot1);
+        ColumnStat slot1Stats = topNStats.getSlotToColumnStats().get(slot1);
         Assertions.assertEquals(1, slot1Stats.getNdv());
         Assertions.assertEquals(1, slot1Stats.getNumNulls());
     }

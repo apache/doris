@@ -135,6 +135,9 @@ abc123
 abc123
 
 -- !sql --
+Abc123abc Abc.Abc,?|Abc
+
+-- !sql --
 Hello
 
 -- !sql --
@@ -201,6 +204,9 @@ aaa
 https://doris.apache.org
 
 -- !sql --
+https://doris.apache.org:9090
+
+-- !sql --
 olleh
 
 -- !sql --
@@ -235,4 +241,25 @@ c1
 
 -- !sql --
 bc
+
+-- !sql --
+
+
+-- !sql --
+
+
+-- !sql --
+a
+
+-- !sql --
+
+
+-- !sql --
+a
+
+-- !sql --
+
+
+-- !sql --
+
 

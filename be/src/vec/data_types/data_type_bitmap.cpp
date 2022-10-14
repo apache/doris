@@ -27,7 +27,7 @@ namespace doris::vectorized {
 //  <size array>: row num | bitmap1 size | bitmap2 size | ...
 //  <bitmap array>: bitmap1 | bitmap2 | ...
 int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                          int data_version) const {
+                                                          int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
 
@@ -41,7 +41,7 @@ int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
     return allocate_len_size + allocate_content_size;
 }
 
-char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int data_version) const {
+char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
 
@@ -64,7 +64,8 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int data_versi
     return data_ptr;
 }
 
-const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column, int data_version) const {
+const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column,
+                                        int be_exec_version) const {
     auto& data_column = assert_cast<ColumnBitmap&>(*column);
     auto& data = data_column.get_data();
 

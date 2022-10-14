@@ -30,13 +30,7 @@ public class SampleSQLStatisticsTask extends SQLStatisticsTask {
     private float samplePercentage = Config.cbo_default_sample_percentage;
 
     public SampleSQLStatisticsTask(long jobId, List<StatisticsDesc> statsDescs) {
+        // TODO(wzt): implement sql sampling to collect statistics
         super(jobId, statsDescs);
-    }
-
-    @Override
-    protected void constructQuery() {
-        // TODO
-        super.constructQuery();
-        // step1: construct table sample
     }
 }

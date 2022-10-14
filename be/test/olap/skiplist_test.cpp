@@ -378,11 +378,9 @@ private:
 static void concurrent_reader(void* arg) {
     TestState* state = reinterpret_cast<TestState*>(arg);
     Random rnd(state->_seed);
-    int64_t reads = 0;
     state->change(TestState::RUNNING);
     while (!state->_quit_flag.load(std::memory_order_acquire)) {
         state->_t.read_step(&rnd);
-        ++reads;
     }
     state->change(TestState::DONE);
 }

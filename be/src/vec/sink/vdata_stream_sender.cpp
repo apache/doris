@@ -22,12 +22,12 @@
 
 #include <random>
 
-#include "runtime/client_cache.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
 #include "vec/common/sip_hash.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -174,7 +174,8 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
                 brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
         _closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
         _closure->cntl.http_request().set_content_type("application/json");
-        _brpc_http_stub->transmit_block_by_http(&_closure->cntl, NULL, &_closure->result, _closure);
+        _brpc_http_stub->transmit_block_by_http(&_closure->cntl, nullptr, &_closure->result,
+                                                _closure);
     } else {
         _closure->cntl.http_request().Clear();
         _brpc_stub->transmit_block(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
@@ -190,7 +191,7 @@ Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>
         return Status::OK();
     }
 
-    if (_mutable_block.get() == nullptr) {
+    if (_mutable_block == nullptr) {
         _mutable_block.reset(new MutableBlock(block->clone_empty()));
     }
 
@@ -398,7 +399,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     }
     std::string title = fmt::format("VDataStreamSender (dst_id={}, dst_fragments=[{}])",
                                     _dest_node_id, instances);
-    _profile = _pool->add(new RuntimeProfile(std::move(title)));
+    _profile = _pool->add(new RuntimeProfile(title));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = std::make_unique<MemTracker>(
             "VDataStreamSender:" + print_id(state->fragment_instance_id()), _profile);
@@ -468,7 +469,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         // 3. rollover block
         int local_size = 0;
         for (auto channel : _channels) {
-            if (channel->is_local()) local_size++;
+            if (channel->is_local()) {
+                local_size++;
+            }
         }
         if (local_size == _channels.size()) {
             for (auto channel : _channels) {
@@ -562,7 +565,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
 }
 
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
-    if (_closed) return Status::OK();
+    if (_closed) {
+        return Status::OK();
+    }
 
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::close");
     Status final_st = Status::OK();

@@ -32,9 +32,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -116,9 +116,9 @@ public class BackendTest {
     @Test
     public void testSerialization() throws Exception {
         // Write 100 objects to file
-        File file = new File("./backendTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Paths.get("./backendTest");
+        Files.createFile(path);
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         List<Backend> list1 = new LinkedList<Backend>();
         List<Backend> list2 = new LinkedList<Backend>();
@@ -147,7 +147,7 @@ public class BackendTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         for (int count = 0; count < 200; ++count) {
             Backend backend = Backend.read(dis);
             list2.add(backend);
@@ -206,7 +206,7 @@ public class BackendTest {
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
 }

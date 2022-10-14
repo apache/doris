@@ -78,6 +78,7 @@ struct FixedHashMapImplicitZeroCell {
 
     FixedHashMapImplicitZeroCell() {}
     FixedHashMapImplicitZeroCell(const Key&, const State&) {}
+    FixedHashMapImplicitZeroCell(const Key&, const Mapped& mapped_) : mapped(mapped_) {}
     FixedHashMapImplicitZeroCell(const value_type& value_, const State&) : mapped(value_.second) {}
 
     const VoidKey get_first() const { return {}; }

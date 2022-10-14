@@ -135,8 +135,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
                                          std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
     if (rs_readers->empty()) {
-        LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name();
-        return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+        return Status::InternalError("fail to acquire data sources. tablet={}",
+                                     _tablet->full_name());
     }
 
     bool eof = false;
@@ -464,7 +464,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
-        const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter) {
+        const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter) {
     int32_t index = _tablet_schema->field_index(bloom_filter.first);
     if (index < 0) {
         return nullptr;

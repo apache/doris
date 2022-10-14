@@ -96,12 +96,21 @@ struct LikeSearchState {
     }
 };
 
-using LikeFn = std::function<doris::Status(LikeSearchState* state, const StringValue&,
-                                           const StringValue&, unsigned char*)>;
+using LikeFn = std::function<doris::Status(LikeSearchState*, const StringValue&, const StringValue&,
+                                           unsigned char*)>;
+
+using LikeFnVec =
+        std::function<doris::Status(LikeSearchState*, const StringValue&, const StringValue*,
+                                    uint16_t*, uint16_t, bool, uint16_t*)>;
+
+using LikeFnVecDict = std::function<doris::Status(LikeSearchState*, const StringValue&,
+                                                  const StringValue*, uint16_t, unsigned char*)>;
 
 struct LikeState {
     LikeSearchState search_state;
     LikeFn function;
+    LikeFnVec function_vec;
+    LikeFnVecDict function_vec_dict;
 };
 
 class FunctionLikeBase : public IFunction {
@@ -111,6 +120,8 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
         return std::make_shared<DataTypeUInt8>();
     }
+
+    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override;
@@ -125,6 +136,16 @@ protected:
                          ColumnUInt8::Container& result, const LikeFn& function,
                          LikeSearchState* search_state);
 
+    Status vector_const(const ColumnString::Chars& values,
+                        const ColumnString::Offsets& value_offsets, const StringRef* pattern_val,
+                        ColumnUInt8::Container& result, const LikeFn& function,
+                        LikeSearchState* search_state);
+
+    Status execute_substring(const ColumnString::Chars& values,
+                             const ColumnString::Offsets& value_offsets,
+                             ColumnUInt8::Container& result, const LikeFn& function,
+                             LikeSearchState* search_state);
+
     static Status constant_starts_with_fn(LikeSearchState* state, const StringValue& val,
                                           const StringValue& pattern, unsigned char* result);
 
@@ -136,6 +157,14 @@ protected:
 
     static Status constant_substring_fn(LikeSearchState* state, const StringValue& val,
                                         const StringValue& pattern, unsigned char* result);
+
+    static Status constant_substring_fn_vec(LikeSearchState* state, const StringValue& pattern,
+                                            const StringValue* values, uint16_t* sel, uint16_t size,
+                                            bool opposite, uint16_t* new_size);
+
+    static Status constant_substring_fn_vec_dict(LikeSearchState* state, const StringValue& pattern,
+                                                 const StringValue* values, uint16_t size,
+                                                 unsigned char* result);
 
     static Status constant_regex_fn(LikeSearchState* state, const StringValue& val,
                                     const StringValue& pattern, unsigned char* result);

@@ -43,7 +43,7 @@ public class BackendPolicy {
 
     public void init() throws UserException {
         Set<Tag> tags = Sets.newHashSet();
-        if (ConnectContext.get().getCurrentUserIdentity() != null) {
+        if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
             String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
             tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
             if (tags == UserProperty.INVALID_RESOURCE_TAGS) {

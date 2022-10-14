@@ -140,8 +140,22 @@ public:
     }
 };
 
-struct BitmapHash {
+template <int HashBits>
+struct BitmapHashName {};
+
+template <>
+struct BitmapHashName<32> {
     static constexpr auto name = "bitmap_hash";
+};
+
+template <>
+struct BitmapHashName<64> {
+    static constexpr auto name = "bitmap_hash64";
+};
+
+template <int HashBits>
+struct BitmapHash {
+    static constexpr auto name = BitmapHashName<HashBits>::name;
 
     using ReturnType = DataTypeBitMap;
 
@@ -154,9 +168,15 @@ struct BitmapHash {
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t str_size = offsets[i] - offsets[i - 1];
-            uint32_t hash_value =
-                    HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
-            res_data[i].add(hash_value);
+            if constexpr (HashBits == 32) {
+                uint32_t hash_value =
+                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+                res_data[i].add(hash_value);
+            } else {
+                uint64_t hash_value = 0;
+                murmur_hash3_x64_64(raw_str, str_size, 0, &hash_value);
+                res_data[i].add(hash_value);
+            }
         }
     }
 
@@ -173,9 +193,15 @@ struct BitmapHash {
             } else {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
                 size_t str_size = offsets[i] - offsets[i - 1];
-                uint32_t hash_value =
-                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
-                res_data[i].add(hash_value);
+                if constexpr (HashBits == 32) {
+                    uint32_t hash_value =
+                            HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+                    res_data[i].add(hash_value);
+                } else {
+                    uint64_t hash_value = 0;
+                    murmur_hash3_x64_64(raw_str, str_size, 0, &hash_value);
+                    res_data[i].add(hash_value);
+                }
             }
         }
     }
@@ -511,7 +537,8 @@ public:
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
 using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
-using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash>;
+using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash<32>>;
+using FunctionBitmapHash64 = FunctionAlwaysNotNullable<BitmapHash<64>>;
 
 using FunctionBitmapMin = FunctionBitmapSingle<FunctionBitmapMinImpl>;
 using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;
@@ -539,6 +566,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToBitmap>();
     factory.register_function<FunctionBitmapFromString>();
     factory.register_function<FunctionBitmapHash>();
+    factory.register_function<FunctionBitmapHash64>();
     factory.register_function<FunctionBitmapCount>();
     factory.register_function<FunctionBitmapMin>();
     factory.register_function<FunctionBitmapMax>();

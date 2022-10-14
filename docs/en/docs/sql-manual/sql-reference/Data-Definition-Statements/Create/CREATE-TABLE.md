@@ -314,7 +314,9 @@ distribution_desc
 
     * `light_schema_change`
 
-        Doris would not use light schema change optimization by default. It is supported to turn on the optimization by set the property as true.
+        Whether to use the Light Schema Change optimization.
+        
+        If set to true, the addition and deletion of value columns can be done more quickly and synchronously.
     
         `"light_schema_change"="true"`
     

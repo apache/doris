@@ -19,31 +19,26 @@ package com.alibaba.datax.plugin.writer.doriswriter;
 
 import com.alibaba.datax.common.element.Record;
 
-import java.util.ArrayList;
-import java.util.List;
+public class DorisCsvCodec extends DorisBaseCodec implements DorisCodec {
 
-public class DorisCsvCodec extends DorisCodec {
+    private static final long serialVersionUID = 1L;
 
     private final String columnSeparator;
 
-    public DorisCsvCodec(final List<String> fieldNames, String columnSeparator, String timeZone) {
-        super(fieldNames, timeZone);
-        this.columnSeparator = EscapeHandler.escapeString(columnSeparator);
+    public DorisCsvCodec ( String sp) {
+        this.columnSeparator = DelimiterParser.parse(sp, "\t");
     }
 
     @Override
-    public String serialize(final Record row) {
-        if (null == this.fieldNames) {
-            return "";
+    public String codec( Record row) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < row.getColumnNumber(); i++) {
+            String value = convertionField(row.getColumn(i));
+            sb.append(null == value ? "\\N" : value);
+            if (i < row.getColumnNumber() - 1) {
+                sb.append(columnSeparator);
+            }
         }
-        List<String> list = new ArrayList<>();
-
-        for (int i = 0; i < this.fieldNames.size(); i++) {
-            Object value = this.convertColumn(row.getColumn(i));
-            list.add(value != null ? value.toString() : "\\N");
-        }
-
-        return String.join(columnSeparator, list);
+        return sb.toString();
     }
-
 }

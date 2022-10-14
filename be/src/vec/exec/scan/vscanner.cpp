@@ -21,11 +21,10 @@
 
 namespace doris::vectorized {
 
-VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, MemTracker* mem_tracker)
+VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit)
         : _state(state),
           _parent(parent),
           _limit(limit),
-          _mem_tracker(mem_tracker),
           _input_tuple_desc(parent->input_tuple_desc()),
           _output_tuple_desc(parent->output_tuple_desc()) {
     _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;
@@ -36,7 +35,6 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, MemTra
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
@@ -47,72 +45,26 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
         }
     }
 
-    _init_input_block(block);
     {
         do {
             // 1. Get input block from scanner
             {
                 SCOPED_TIMER(_parent->_scan_timer);
-                RETURN_IF_ERROR(_get_block_impl(state, _input_block_ptr, eof));
+                RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
-                    DCHECK(_input_block_ptr->rows() == 0);
+                    DCHECK(block->rows() == 0);
                     break;
                 }
-                _num_rows_read += _input_block_ptr->rows();
+                _num_rows_read += block->rows();
             }
 
-            // 2. For load, use prefilter to filter the input block first.
-            {
-                SCOPED_TIMER(_parent->_prefilter_timer);
-                RETURN_IF_ERROR(_filter_input_block(_input_block_ptr));
-            }
-
-            // 3. For load, convert input block to output block
-            {
-                SCOPED_TIMER(_parent->_convert_block_timer);
-                RETURN_IF_ERROR(_convert_to_output_block(block));
-            }
-
-            // 4. Filter the output block finally.
-            //    NOTE that step 2/3 may be skipped, for Query.
+            // 2. Filter the output block finally.
             {
                 SCOPED_TIMER(_parent->_filter_timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
             }
         } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
     }
-
-    return Status::OK();
-}
-
-void VScanner::_init_input_block(Block* output_block) {
-    if (_input_tuple_desc == nullptr) {
-        _input_block_ptr = output_block;
-        return;
-    }
-
-    // init the input block used for scanner.
-    _input_block.clear();
-    _input_block_ptr = &_input_block;
-    DCHECK(_input_block.columns() == 0);
-
-    for (auto& slot_desc : _input_tuple_desc->slots()) {
-        auto data_type = slot_desc->get_data_type_ptr();
-        _input_block.insert(vectorized::ColumnWithTypeAndName(
-                data_type->create_column(), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
-    }
-}
-
-Status VScanner::_filter_input_block(Block* block) {
-    // TODO: implement
-    return Status::OK();
-}
-
-Status VScanner::_convert_to_output_block(Block* output_block) {
-    if (_input_block_ptr == output_block) {
-        return Status::OK();
-    }
-    // TODO: implement
 
     return Status::OK();
 }

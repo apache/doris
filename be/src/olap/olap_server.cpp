@@ -542,9 +542,10 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                 max_compaction_score = std::max(max_compaction_score, disk_max_score);
             } else if (tablet != nullptr &&
                        tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-                LOG(INFO) << "Tablet " << tablet->full_name()
-                          << " will be ignored by automatic compaction tasks since it's set to "
-                          << "disabled automatic compaction.";
+                LOG_EVERY_N(INFO, 500)
+                        << "Tablet " << tablet->full_name()
+                        << " will be ignored by automatic compaction tasks since it's "
+                        << "set to disabled automatic compaction.";
             }
         }
     }
@@ -766,28 +767,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
     int64_t interval = config::generate_cache_cleaner_task_interval_sec;
     do {
         LOG(INFO) << "Begin to Clean cache files";
-        FileCacheManager::instance()->clean_timeout_caches();
-        std::vector<TabletSharedPtr> tablets =
-                StorageEngine::instance()->tablet_manager()->get_all_tablet();
-        for (const auto& tablet : tablets) {
-            std::vector<Path> seg_file_paths;
-            if (io::global_local_filesystem()->list(tablet->tablet_path(), &seg_file_paths).ok()) {
-                for (Path seg_file : seg_file_paths) {
-                    std::string seg_filename = seg_file.native();
-                    // check if it is a dir name
-                    if (ends_with(seg_filename, ".dat")) {
-                        continue;
-                    }
-                    std::stringstream ss;
-                    ss << tablet->tablet_path() << "/" << seg_filename;
-                    std::string cache_path = ss.str();
-                    if (FileCacheManager::instance()->exist(cache_path)) {
-                        continue;
-                    }
-                    FileCacheManager::instance()->clean_timeout_file_not_in_mem(cache_path);
-                }
-            }
-        }
+        FileCacheManager::instance()->gc_file_caches();
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 

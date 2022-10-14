@@ -24,7 +24,7 @@ Type before bug fix: varchar(*)
  suite("test_view_varchar_length") {
      sql """ DROP TABLE IF EXISTS T """
      sql """
-         CREATE TABLE `T` (
+         CREATE TABLE `t_test_view_varchar_length` (
              `id` int,
              `name` varchar(32) 
          ) ENGINE=OLAP
@@ -36,13 +36,13 @@ Type before bug fix: varchar(*)
              "storage_format" = "V2"
          );
      """
-     sql "drop view if exists V;"
+     sql "drop view if exists v_test_view_varchar_length;"
      sql """
-         create view V as select name from T;
+         create view v_test_view_varchar_length as select name from t_test_view_varchar_length;
      """
 
      qt_sql """
-         desc V;
+         desc v_test_view_varchar_length;
      """
  }
 

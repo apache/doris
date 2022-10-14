@@ -22,11 +22,13 @@ How to do?
 1、To configure mysql.conf and doris.conf in the conf directory,the conf including
 host、port and password
 
-2、sh all_tables.sh and give it two args,it is mysql database and doris database
+2、To configure mysql_tables and doris_tables in the conf directory,the conf is user need to synchronization tables and want to get table name
 
-In addition
+3、To execute e_mysql_to_doris.sh by sh e_mysql_to_doris.sh
 
-user can add mysql tables to the conf directory tables by sh user_define_tables.sh
-can also be export mysql tables to doris
+4、To execute e_auto.sh by nohup sh e_auto.sh &
 
-just do it
+What do you get?
+
+A simple configuration synchronizes all configured tables and Monitor Mysql metadata changes in real time
+

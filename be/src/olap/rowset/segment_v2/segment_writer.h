@@ -67,7 +67,7 @@ public:
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
-    Status init(uint32_t write_mbytes_per_sec);
+    Status init();
 
     template <typename RowType>
     Status append_row(const RowType& row);
@@ -84,6 +84,7 @@ public:
 
     static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
                                  const TabletColumn& column, TabletSchemaSPtr tablet_schema);
+    uint32_t get_segment_id() { return _segment_id; }
     Slice min_encoded_key();
     Slice max_encoded_key();
 

@@ -28,8 +28,8 @@ namespace doris::vectorized {
 class NewFileArrowScanner : public NewFileScanner {
 public:
     NewFileArrowScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                        const TFileScanRange& scan_range, MemTracker* tracker,
-                        RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs);
+                        const TFileScanRange& scan_range, RuntimeProfile* profile,
+                        const std::vector<TExpr>& pre_filter_texprs);
     Status open(RuntimeState* state) override;
 
 protected:
@@ -59,8 +59,8 @@ private:
 class NewFileParquetScanner final : public NewFileArrowScanner {
 public:
     NewFileParquetScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                          const TFileScanRange& scan_range, MemTracker* tracker,
-                          RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs);
+                          const TFileScanRange& scan_range, RuntimeProfile* profile,
+                          const std::vector<TExpr>& pre_filter_texprs);
 
     ~NewFileParquetScanner() override = default;
 
@@ -75,8 +75,8 @@ protected:
 class NewFileORCScanner final : public NewFileArrowScanner {
 public:
     NewFileORCScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                      const TFileScanRange& scan_range, MemTracker* tracker,
-                      RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs);
+                      const TFileScanRange& scan_range, RuntimeProfile* profile,
+                      const std::vector<TExpr>& pre_filter_texprs);
 
     ~NewFileORCScanner() override = default;
 

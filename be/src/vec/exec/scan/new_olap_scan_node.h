@@ -55,8 +55,7 @@ private:
     TOlapScanNode _olap_scan_node;
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     OlapScanKeys _scan_keys;
-
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
+    std::vector<TCondition> _olap_filters;
 
 private:
     std::unique_ptr<RuntimeProfile> _segment_profile;

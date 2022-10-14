@@ -30,7 +30,6 @@
 #include "util/thread.h"
 #include "util/types.h"
 #include "vec/exec/file_arrow_scanner.h"
-#include "vec/exec/file_hdfs_scanner.h"
 #include "vec/exec/file_text_scanner.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vexpr.h"
@@ -51,11 +50,6 @@ FileScanNode::FileScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
 
 Status FileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode, state));
-    auto& file_scan_node = tnode.file_scan_node;
-
-    if (file_scan_node.__isset.pre_filter_exprs) {
-        _pre_filter_texprs = file_scan_node.pre_filter_exprs;
-    }
 
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.resize(filter_size);
@@ -464,13 +458,8 @@ std::unique_ptr<FileScanner> FileScanNode::create_scanner(const TFileScanRange& 
     FileScanner* scan = nullptr;
     switch (scan_range.params.format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        if (config::parquet_reader_using_internal) {
-            scan = new ParquetFileHdfsScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                              scan_range.ranges, _pre_filter_texprs, counter);
-        } else {
-            scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                           scan_range.ranges, _pre_filter_texprs, counter);
-        }
+        scan = new VFileParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                       scan_range.ranges, _pre_filter_texprs, counter);
         break;
     case TFileFormatType::FORMAT_ORC:
         scan = new VFileORCScanner(_runtime_state, runtime_profile(), scan_range.params,

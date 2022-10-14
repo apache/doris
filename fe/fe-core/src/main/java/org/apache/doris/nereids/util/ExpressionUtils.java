@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.base.Preconditions;
@@ -45,6 +47,8 @@ import java.util.Set;
  * Expression rewrite helper class.
  */
 public class ExpressionUtils {
+
+    public static final List<Expression> EMPTY_CONDITION = ImmutableList.of();
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
@@ -91,6 +95,21 @@ public class ExpressionUtils {
             return Optional.empty();
         } else {
             return Optional.of(ExpressionUtils.and(expressions));
+        }
+    }
+
+    /**
+     * And two list.
+     */
+    public static Optional<Expression> optionalAnd(List<Expression> left, List<Expression> right) {
+        if (left.isEmpty() && right.isEmpty()) {
+            return Optional.empty();
+        } else if (left.isEmpty()) {
+            return optionalAnd(right);
+        } else if (right.isEmpty()) {
+            return optionalAnd(left);
+        } else {
+            return Optional.of(new And(optionalAnd(left).get(), optionalAnd(right).get()));
         }
     }
 
@@ -226,6 +245,13 @@ public class ExpressionUtils {
         return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
     }
 
+    public static List<Expression> replace(List<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        return exprs.stream()
+                .map(expr -> replace(expr, replaceMap))
+                .collect(ImmutableList.toImmutableList());
+    }
+
     private static class ExpressionReplacer
             extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
@@ -257,5 +283,21 @@ public class ExpressionUtils {
             }
         }
         return builder.build();
+    }
+
+    public static boolean isAllLiteral(Expression... children) {
+        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean isAllLiteral(List<Expression> children) {
+        return children.stream().allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean hasNullLiteral(List<Expression> children) {
+        return children.stream().anyMatch(c -> c instanceof NullLiteral);
+    }
+
+    public static boolean isAllNullLiteral(List<Expression> children) {
+        return children.stream().allMatch(c -> c instanceof NullLiteral);
     }
 }

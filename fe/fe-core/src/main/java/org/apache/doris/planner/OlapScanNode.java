@@ -28,6 +28,7 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -65,11 +66,13 @@ import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -153,8 +156,13 @@ public class OlapScanNode extends ScanNode {
     // It's limit for scanner instead of scanNode so we add a new limit.
     private long sortLimit = -1;
 
+    private TPushAggOp pushDownAggNoGroupingOp = null;
+
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
+
+    private Set<Long> sampleTabletIds = Sets.newHashSet();
+    private TableSample tableSample;
 
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
@@ -175,12 +183,30 @@ public class OlapScanNode extends ScanNode {
                                       this.reasonOfPreAggregation + " " + reason;
     }
 
+    public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
+        this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
+    }
+
     public boolean isPreAggregation() {
         return isPreAggregation;
     }
 
     public boolean getCanTurnOnPreAggr() {
         return canTurnOnPreAggr;
+    }
+
+    public Set<Long> getSampleTabletIds() {
+        return sampleTabletIds;
+    }
+
+    public void setSampleTabletIds(List<Long> sampleTablets) {
+        if (sampleTablets != null) {
+            this.sampleTabletIds.addAll(sampleTablets);
+        }
+    }
+
+    public void setTableSample(TableSample tSample) {
+        this.tableSample = tSample;
     }
 
     public void setCanTurnOnPreAggr(boolean canChangePreAggr) {
@@ -240,7 +266,7 @@ public class OlapScanNode extends ScanNode {
     /**
      * Only used for Neredis to set rollup or materialized view selection result.
      */
-    public void selectSelectIndexInfo(
+    public void setSelectedIndexInfo(
             long selectedIndexId,
             boolean isPreAggregation,
             String reasonOfPreAggregation) {
@@ -393,6 +419,9 @@ public class OlapScanNode extends ScanNode {
         }
         MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(selectedIndexId);
         for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            if (!slotDescriptor.isMaterialized()) {
+                continue;
+            }
             Column baseColumn = slotDescriptor.getColumn();
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
             slotDescriptor.setColumn(mvColumn);
@@ -420,6 +449,7 @@ public class OlapScanNode extends ScanNode {
         computeColumnFilter();
         computePartitionInfo();
         computeTupleState(analyzer);
+        computeSampleTabletIds();
 
         /**
          * Compute InAccurate cardinality before mv selector and tablet pruning.
@@ -523,7 +553,7 @@ public class OlapScanNode extends ScanNode {
 
     private void computeInaccurateCardinality() throws UserException {
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
@@ -745,6 +775,76 @@ public class OlapScanNode extends ScanNode {
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
 
+    /**
+     * First, determine how many rows to sample from each partition according to the number of partitions.
+     * Then determine the number of Tablets to be selected for each partition according to the average number
+     * of rows of Tablet,
+     * If seek is not specified, the specified number of Tablets are pseudo-randomly selected from each partition.
+     * If seek is specified, it will be selected sequentially from the seek tablet of the partition.
+     * And add the manually specified Tablet id to the selected Tablet.
+     * simpleTabletNums = simpleRows / partitionNums / (partitionRows / partitionTabletNums)
+     */
+    public void computeSampleTabletIds() {
+        if (tableSample == null) {
+            return;
+        }
+        OlapTable olapTable = (OlapTable) desc.getTable();
+        long sampleRows; // The total number of sample rows
+        long hitRows = 1; // The total number of rows hit by the tablet
+        long totalRows = 0; // The total number of partition rows hit
+        long totalTablet = 0; // The total number of tablets in the hit partition
+        if (tableSample.isPercent()) {
+            sampleRows = (long) Math.max(olapTable.getRowCount() * (tableSample.getSampleValue() / 100.0), 1);
+        } else {
+            sampleRows = Math.max(tableSample.getSampleValue(), 1);
+        }
+
+        // calculate the number of tablets by each partition
+        long avgRowsPerPartition = sampleRows / Math.max(olapTable.getPartitions().size(), 1);
+
+        for (Partition p : olapTable.getPartitions()) {
+            List<Long> ids = p.getBaseIndex().getTabletIdsInOrder();
+
+            if (ids.isEmpty()) {
+                continue;
+            }
+
+            // Skip partitions with row count < row count / 2 expected to be sampled per partition.
+            // It can be expected to sample a smaller number of partitions to avoid uneven distribution
+            // of sampling results.
+            if (p.getBaseIndex().getRowCount() < (avgRowsPerPartition / 2)) {
+                continue;
+            }
+
+            long avgRowsPerTablet = Math.max(p.getBaseIndex().getRowCount() / ids.size(), 1);
+            long tabletCounts = Math.max(
+                    avgRowsPerPartition / avgRowsPerTablet + (avgRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
+            tabletCounts = Math.min(tabletCounts, ids.size());
+
+            long seek = tableSample.getSeek() != -1
+                    ? tableSample.getSeek() : (long) (Math.random() * ids.size());
+            for (int i = 0; i < tabletCounts; i++) {
+                int seekTid = (int) ((i + seek) % ids.size());
+                sampleTabletIds.add(ids.get(seekTid));
+            }
+
+            hitRows += avgRowsPerTablet * tabletCounts;
+            totalRows += p.getBaseIndex().getRowCount();
+            totalTablet += ids.size();
+        }
+
+        // all hit, direct full
+        if (totalRows < sampleRows) {
+            // can't fill full sample rows
+            sampleTabletIds.clear();
+        } else if (sampleTabletIds.size() == totalTablet) {
+            // TODO add limit
+            sampleTabletIds.clear();
+        } else if (!sampleTabletIds.isEmpty()) {
+            // TODO add limit
+        }
+    }
+
     private void computeTabletInfo() throws UserException {
         /**
          * The tablet info could be computed only once.
@@ -758,6 +858,10 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
+            if (sampleTabletIds.size() != 0) {
+                tabletIds.retainAll(sampleTabletIds);
+                LOG.debug("after sample tablets: {}", tabletIds);
+            }
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {
@@ -902,8 +1006,8 @@ public class OlapScanNode extends ScanNode {
         }
 
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
-        msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation,
-                columnsDesc);
+        msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
+        msg.olap_scan_node.setColumnsDesc(columnsDesc);
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
@@ -923,6 +1027,10 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
+
+        if (pushDownAggNoGroupingOp != null) {
+            msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        }
     }
 
     // export some tablets
@@ -1089,5 +1197,10 @@ public class OlapScanNode extends ScanNode {
         } else {
             return DataPartition.RANDOM;
         }
+    }
+
+    @VisibleForTesting
+    public String getReasonOfPreAggregation() {
+        return reasonOfPreAggregation;
     }
 }

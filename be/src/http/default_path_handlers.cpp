@@ -349,7 +349,10 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
 void add_default_path_handlers(WebPageHandler* web_page_handler) {
     // TODO(yingchun): logs_handler is not implemented yet, so not show it on navigate bar
     web_page_handler->register_page("/logs", "Logs", logs_handler, false /* is_on_nav_bar */);
-    web_page_handler->register_page("/varz", "Configs", config_handler, true /* is_on_nav_bar */);
+    if (!config::hide_webserver_config_page) {
+        web_page_handler->register_page("/varz", "Configs", config_handler,
+                                        true /* is_on_nav_bar */);
+    }
     web_page_handler->register_page("/memz", "Memory", mem_usage_handler, true /* is_on_nav_bar */);
     web_page_handler->register_page(
             "/mem_tracker", "MemTracker",
