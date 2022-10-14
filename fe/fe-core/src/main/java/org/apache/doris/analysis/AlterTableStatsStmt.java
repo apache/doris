@@ -44,13 +44,15 @@ import java.util.Set;
 /**
  * Manually inject statistics for tables or partitions.
  * Only OLAP table statistics are supported.
- * e.g.
+ *
+ * syntax:
  *   ALTER TABLE table_name
  *   SET STATS ('k1' = 'v1', ...) [ PARTITIONS(p_name1, p_name2...) ]
  */
 public class AlterTableStatsStmt extends DdlStmt {
 
-    private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
+    private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET =
+            new ImmutableSet.Builder<StatsType>()
             .add(TableStats.DATA_SIZE)
             .add(TableStats.ROW_COUNT)
             .build();

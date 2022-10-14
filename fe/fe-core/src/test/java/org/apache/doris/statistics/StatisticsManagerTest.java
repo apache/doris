@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.DropTableStatsStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -32,6 +33,9 @@ import org.apache.doris.statistics.StatisticsTaskResult.TaskResult;
 import org.apache.doris.statistics.StatsCategory.Category;
 import org.apache.doris.statistics.StatsGranularity.Granularity;
 
+import com.google.common.collect.Maps;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,7 +45,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
 
 public class StatisticsManagerTest {
     private StatisticsManager statisticsManagerUnderTest;
@@ -116,5 +122,46 @@ public class StatisticsManagerTest {
         // Run the test
         Assert.assertThrows(AnalysisException.class,
                 () -> statisticsManagerUnderTest.updateStatistics(statsTaskResults));
+    }
+
+    @Test
+    public void testDropStats(@Mocked DropTableStatsStmt stmt) throws AnalysisException {
+        TaskResult taskResult = new TaskResult();
+        taskResult.setDbId(0L);
+        taskResult.setTableId(0L);
+        taskResult.setCategory(Category.TABLE);
+        taskResult.setGranularity(Granularity.TABLE);
+        Map<StatsType, String> statsTypeToValue = new HashMap<>();
+        statsTypeToValue.put(StatsType.ROW_COUNT, "1000");
+        statsTypeToValue.put(StatsType.DATA_SIZE, "10240");
+        taskResult.setStatsTypeToValue(statsTypeToValue);
+
+        List<StatisticsTaskResult> statsTaskResults = Collections.singletonList(
+                new StatisticsTaskResult(Collections.singletonList(taskResult)));
+        statisticsManagerUnderTest.updateStatistics(statsTaskResults);
+
+        Map<Long, Set<String>> tblIdToPartition = Maps.newHashMap();
+        tblIdToPartition.put(0L, null);
+
+        new Expectations() {
+            {
+                stmt.getTblIdToPartition();
+                this.minTimes = 0;
+                this.result = tblIdToPartition;
+            }
+        };
+
+        // Run the test
+        statisticsManagerUnderTest.dropStats(stmt);
+
+        // Verify the results
+        Statistics statistics = statisticsManagerUnderTest.getStatistics();
+        TableStats statsOrDefault = statistics.getTableStatsOrDefault(0L);
+
+        double rowCount = statsOrDefault.getRowCount();
+        Assert.assertEquals(-1.0f, rowCount, 0.0001);
+
+        double dataSize = statsOrDefault.getDataSize();
+        Assert.assertEquals(-1.0f, dataSize, 0.0001);
     }
 }

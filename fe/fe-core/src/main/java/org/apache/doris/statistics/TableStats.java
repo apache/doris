@@ -78,7 +78,9 @@ public class TableStats {
     }
 
     public double getRowCount() {
-        if  (rowCount == -1) {
+        // '!isEmpty()' is added mainly because the result returns 0
+        // instead of the expected -1 when nameToPartitionStats is empty.
+        if (rowCount == -1 && !nameToPartitionStats.isEmpty()) {
             return nameToPartitionStats.values().stream()
                     .filter(partitionStats -> partitionStats.getRowCount() != -1)
                     .mapToLong(PartitionStats::getRowCount).sum();
@@ -86,12 +88,8 @@ public class TableStats {
         return rowCount;
     }
 
-    void setRowCount(double rowCount) {
-        this.rowCount = rowCount;
-    }
-
     public long getDataSize() {
-        if (dataSize == -1) {
+        if (dataSize == -1 && !nameToPartitionStats.isEmpty()) {
             return nameToPartitionStats.values().stream()
                     .filter(partitionStats -> partitionStats.getDataSize() != -1)
                     .mapToLong(PartitionStats::getDataSize).sum();
@@ -291,7 +289,6 @@ public class TableStats {
             double minValue = Math.max(leftStats.getMinValue(), rightStats.getMinValue());
             leftStats.setMinValue(minValue);
         }
-
 
         if (Double.isNaN(leftStats.getMaxValue())) {
             if (!Double.isNaN(rightStats.getMaxValue())) {
