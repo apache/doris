@@ -190,6 +190,7 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.StorageInfoV2;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
@@ -4030,12 +4031,113 @@ public class Env {
         }
     }
 
-    public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
-        throw new DdlException("not implemented");
+    public void renameColumn(Database db, OlapTable table, String colName,
+            String newColName, boolean isReplay) throws DdlException {
+        if (table.getState() != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+        }
+
+        if (colName.equalsIgnoreCase(newColName)) {
+            throw new DdlException("Same column name");
+        }
+
+        Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            // rename column is not implemented for table without column unique id.
+            if (entry.getValue().getMaxColUniqueId() < 0) {
+                throw new DdlException("not implemented for table without column unique id");
+            }
+            // check if new name is already used
+            if (entry.getValue().getColumnByName(newColName) != null) {
+                throw new DdlException("Column name[" + newColName + "] is already used");
+            }
+        }
+
+        // 1. modify MaterializedIndexMeta
+        boolean hasColumn = false;
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            Column column = entry.getValue().getColumnByName(colName);
+            if (column != null) {
+                column.setName(newColName);
+                hasColumn = true;
+            }
+        }
+        if (!hasColumn) {
+            throw new DdlException("Column[" + colName + "] does not exists");
+        }
+
+        // 2. modify partition key
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        for (Column column : partitionColumns) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                column.setName(newColName);
+                break;
+            }
+        }
+
+        // 3. modify index
+        List<Index> indexes = table.getIndexes();
+        for (Index index : indexes) {
+            List<String> columns = index.getColumns();
+            for (int i = 0; i < columns.size(); i++) {
+                if (columns.get(i).equalsIgnoreCase(colName)) {
+                    columns.set(i, newColName);
+                }
+            }
+        }
+
+        // 4. modify distribution info
+        DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
+        if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+            for (Column column : distributionColumns) {
+                if (column.getName().equalsIgnoreCase(colName)) {
+                    column.setName(newColName);
+                    break;
+                }
+            }
+        }
+
+        table.rebuildFullSchema();
+
+        if (!isReplay) {
+            // log
+            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName);
+            editLog.logColumnRename(info);
+            LOG.info("rename coloumn[{}] to {}", colName, newColName);
+        }
     }
 
-    public void replayRenameColumn(TableInfo tableInfo) throws DdlException {
-        throw new DdlException("not implemented");
+    public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
+        table.writeLockOrDdlException();
+        try {
+            String colName = renameClause.getColName();
+            String newColName = renameClause.getNewColName();
+            renameColumn(db, table, colName, newColName, false);
+        } finally {
+            table.writeUnlock();
+        }
+    }
+
+    public void replayRenameColumn(TableRenameColumnInfo info) throws MetaNotFoundException {
+        LOG.debug("info:{}", info);
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        String colName = info.getColName();
+        String newColName = info.getNewColName();
+
+        Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        table.writeLock();
+        try {
+            renameColumn(db, table, colName, newColName, true);
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("failed to replay rename column", e);
+        } finally {
+            table.writeUnlock();
+        }
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)

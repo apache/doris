@@ -92,6 +92,7 @@ import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -253,6 +254,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RENAME_PARTITION: {
                 data = new TableInfo();
                 ((TableInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_RENAME_COLUMN: {
+                data = TableRenameColumnInfo.read(in);
                 isRead = true;
                 break;
             }
