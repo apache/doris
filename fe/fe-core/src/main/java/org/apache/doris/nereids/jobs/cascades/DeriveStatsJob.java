@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
@@ -61,13 +60,11 @@ public class DeriveStatsJob extends Job {
             deriveChildren = true;
             pushJob(new DeriveStatsJob(this));
             for (Group child : groupExpression.children()) {
-                if (child.getLogicalExpressions().isEmpty()) {
-                    NereidsPlanner.builder.append(String.format("%s\n", child.treeString()));
-                    continue;
-                }
-                GroupExpression childGroupExpr = child.getLogicalExpressions().get(0);
-                if (!child.getLogicalExpressions().isEmpty() && !childGroupExpr.isStatDerived()) {
-                    pushJob(new DeriveStatsJob(childGroupExpr, context));
+                if (!child.getLogicalExpressions().isEmpty()) {
+                    GroupExpression childGroupExpr = child.getLogicalExpressions().get(0);
+                    if (!childGroupExpr.isStatDerived()) {
+                        pushJob(new DeriveStatsJob(childGroupExpr, context));
+                    }
                 }
             }
         } else {
