@@ -421,7 +421,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
 
             uint32_t count = (uint32_t)(current_offset - last_offset);
             _items_counts[probe_index++] = count;
-            all_match_one &= count != 1;
+            all_match_one &= (count == 1);
             if (current_offset >= _batch_size && !all_match_one) {
                 break;
             }
@@ -552,7 +552,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
 
         uint32_t count = (uint32_t)(current_offset - last_offset);
         _items_counts[probe_index++] = count;
-        all_match_one &= count != 1;
+        all_match_one &= (count == 1);
         if (current_offset >= _batch_size && !all_match_one) {
             break;
         }
