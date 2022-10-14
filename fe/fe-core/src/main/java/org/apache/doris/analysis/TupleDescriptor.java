@@ -120,12 +120,12 @@ public class TupleDescriptor {
         return null;
     }
 
-    public void setCardinality(long cardinality) {
-        this.cardinality = cardinality;
-    }
-
     public long getCardinality() {
         return cardinality;
+    }
+
+    public void setCardinality(long cardinality) {
+        this.cardinality = cardinality;
     }
 
     public ArrayList<SlotDescriptor> getMaterializedSlots() {
@@ -167,12 +167,12 @@ public class TupleDescriptor {
         return isMaterialized;
     }
 
-    public boolean isMaterialized() {
-        return isMaterialized;
-    }
-
     public void setIsMaterialized(boolean value) {
         isMaterialized = value;
+    }
+
+    public boolean isMaterialized() {
+        return isMaterialized;
     }
 
     public float getAvgSerializedSize() {

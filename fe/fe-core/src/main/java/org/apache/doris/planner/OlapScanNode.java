@@ -28,6 +28,7 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -160,6 +161,9 @@ public class OlapScanNode extends ScanNode {
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
+    private Set<Long> sampleTabletIds = Sets.newHashSet();
+    private TableSample tableSample;
+
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
@@ -189,6 +193,20 @@ public class OlapScanNode extends ScanNode {
 
     public boolean getCanTurnOnPreAggr() {
         return canTurnOnPreAggr;
+    }
+
+    public Set<Long> getSampleTabletIds() {
+        return sampleTabletIds;
+    }
+
+    public void setSampleTabletIds(List<Long> sampleTablets) {
+        if (sampleTablets != null) {
+            this.sampleTabletIds.addAll(sampleTablets);
+        }
+    }
+
+    public void setTableSample(TableSample tSample) {
+        this.tableSample = tSample;
     }
 
     public void setCanTurnOnPreAggr(boolean canChangePreAggr) {
@@ -431,6 +449,7 @@ public class OlapScanNode extends ScanNode {
         computeColumnFilter();
         computePartitionInfo();
         computeTupleState(analyzer);
+        computeSampleTabletIds();
 
         /**
          * Compute InAccurate cardinality before mv selector and tablet pruning.
@@ -756,6 +775,76 @@ public class OlapScanNode extends ScanNode {
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
 
+    /**
+     * First, determine how many rows to sample from each partition according to the number of partitions.
+     * Then determine the number of Tablets to be selected for each partition according to the average number
+     * of rows of Tablet,
+     * If seek is not specified, the specified number of Tablets are pseudo-randomly selected from each partition.
+     * If seek is specified, it will be selected sequentially from the seek tablet of the partition.
+     * And add the manually specified Tablet id to the selected Tablet.
+     * simpleTabletNums = simpleRows / partitionNums / (partitionRows / partitionTabletNums)
+     */
+    public void computeSampleTabletIds() {
+        if (tableSample == null) {
+            return;
+        }
+        OlapTable olapTable = (OlapTable) desc.getTable();
+        long sampleRows; // The total number of sample rows
+        long hitRows = 1; // The total number of rows hit by the tablet
+        long totalRows = 0; // The total number of partition rows hit
+        long totalTablet = 0; // The total number of tablets in the hit partition
+        if (tableSample.isPercent()) {
+            sampleRows = (long) Math.max(olapTable.getRowCount() * (tableSample.getSampleValue() / 100.0), 1);
+        } else {
+            sampleRows = Math.max(tableSample.getSampleValue(), 1);
+        }
+
+        // calculate the number of tablets by each partition
+        long avgRowsPerPartition = sampleRows / Math.max(olapTable.getPartitions().size(), 1);
+
+        for (Partition p : olapTable.getPartitions()) {
+            List<Long> ids = p.getBaseIndex().getTabletIdsInOrder();
+
+            if (ids.isEmpty()) {
+                continue;
+            }
+
+            // Skip partitions with row count < row count / 2 expected to be sampled per partition.
+            // It can be expected to sample a smaller number of partitions to avoid uneven distribution
+            // of sampling results.
+            if (p.getBaseIndex().getRowCount() < (avgRowsPerPartition / 2)) {
+                continue;
+            }
+
+            long avgRowsPerTablet = Math.max(p.getBaseIndex().getRowCount() / ids.size(), 1);
+            long tabletCounts = Math.max(
+                    avgRowsPerPartition / avgRowsPerTablet + (avgRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
+            tabletCounts = Math.min(tabletCounts, ids.size());
+
+            long seek = tableSample.getSeek() != -1
+                    ? tableSample.getSeek() : (long) (Math.random() * ids.size());
+            for (int i = 0; i < tabletCounts; i++) {
+                int seekTid = (int) ((i + seek) % ids.size());
+                sampleTabletIds.add(ids.get(seekTid));
+            }
+
+            hitRows += avgRowsPerTablet * tabletCounts;
+            totalRows += p.getBaseIndex().getRowCount();
+            totalTablet += ids.size();
+        }
+
+        // all hit, direct full
+        if (totalRows < sampleRows) {
+            // can't fill full sample rows
+            sampleTabletIds.clear();
+        } else if (sampleTabletIds.size() == totalTablet) {
+            // TODO add limit
+            sampleTabletIds.clear();
+        } else if (!sampleTabletIds.isEmpty()) {
+            // TODO add limit
+        }
+    }
+
     private void computeTabletInfo() throws UserException {
         /**
          * The tablet info could be computed only once.
@@ -769,6 +858,10 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
+            if (sampleTabletIds.size() != 0) {
+                tabletIds.retainAll(sampleTabletIds);
+                LOG.debug("after sample tablets: {}", tabletIds);
+            }
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {
