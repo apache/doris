@@ -272,10 +272,18 @@ if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
 fi
 if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    USE_MEM_TRACKER='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_MEM_TRACKER='ON'
+    else
+        USE_MEM_TRACKER='OFF'
+    fi
 fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
-    USE_JEMALLOC='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_JEMALLOC='ON'
+    else
+        USE_JEMALLOC='OFF'
+    fi
 fi
 if [[ -z "${STRICT_MEMORY_USE}" ]]; then
     STRICT_MEMORY_USE='OFF'
@@ -485,7 +493,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     # Fix Killed: 9 error on MacOS (arm64).
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
-    rm "${DORIS_OUTPUT}/be/lib/doris_be"
+    rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
     cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
 
     # make a soft link palo_be point to doris_be, for forward compatibility

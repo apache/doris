@@ -841,7 +841,7 @@ else()
         "-framework SystemConfiguration"
         "-framework Security"
     )
-    if (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE")
+    if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
         set(DORIS_LINK_LIBS
             ${DORIS_LINK_LIBS}
             "-Wl,-U,_MallocExtension_ReleaseFreeMemory"
