@@ -17,26 +17,15 @@
 
 package org.apache.doris.nereids.datasets.ssb;
 
-import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.PlanRewriter;
+import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
-public class SSBJoinReorderTest extends SSBTestBase {
+public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSupported {
     @Test
     public void q4_1() {
         test(
@@ -47,9 +36,11 @@ public class SSBJoinReorderTest extends SSBTestBase {
                         "(lo_suppkey = s_suppkey)",
                         "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("(((CAST(c_region AS STRING) = CAST('AMERICA' AS STRING)) AND (CAST(s_region AS STRING) "
-                        + "= CAST('AMERICA' AS STRING))) AND ((CAST(p_mfgr AS STRING) = CAST('MFGR#1' AS STRING)) "
-                        + "OR (CAST(p_mfgr AS STRING) = CAST('MFGR#2' AS STRING))))")
+                ImmutableList.of(
+                        "(CAST(c_region AS STRING) = 'AMERICA')",
+                        "(CAST(s_region AS STRING) = 'AMERICA')",
+                        "((CAST(p_mfgr AS STRING) = 'MFGR#1') OR (CAST(p_mfgr AS STRING) = 'MFGR#2'))"
+                )
         );
     }
 
@@ -64,10 +55,11 @@ public class SSBJoinReorderTest extends SSBTestBase {
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "((((CAST(c_region AS STRING) = CAST('AMERICA' AS STRING)) AND (CAST(s_region AS STRING) "
-                                + "= CAST('AMERICA' AS STRING))) AND ((d_year = 1997) OR (d_year = 1998))) "
-                                + "AND ((CAST(p_mfgr AS STRING) = CAST('MFGR#1' AS STRING)) OR (CAST(p_mfgr AS STRING) "
-                                + "= CAST('MFGR#2' AS STRING))))")
+                        "((d_year = 1997) OR (d_year = 1998))",
+                        "(CAST(c_region AS STRING) = 'AMERICA')",
+                        "(CAST(s_region AS STRING) = 'AMERICA')",
+                        "((CAST(p_mfgr AS STRING) = 'MFGR#1') OR (CAST(p_mfgr AS STRING) = 'MFGR#2'))"
+                )
         );
     }
 
@@ -81,94 +73,31 @@ public class SSBJoinReorderTest extends SSBTestBase {
                         "(lo_suppkey = s_suppkey)",
                         "(lo_partkey = p_partkey)"
                 ),
-                ImmutableList.of("(((CAST(s_nation AS STRING) = CAST('UNITED STATES' AS STRING)) AND ((d_year = 1997) "
-                        + "OR (d_year = 1998))) AND (CAST(p_category AS STRING) = CAST('MFGR#14' AS STRING)))")
+                ImmutableList.of(
+                        "((d_year = 1997) OR (d_year = 1998))",
+                        "(CAST(s_nation AS STRING) = 'UNITED STATES')",
+                        "(CAST(p_category AS STRING) = 'MFGR#14')"
+                )
         );
     }
 
     private void test(String sql, List<String> expectJoinConditions, List<String> expectFilterPredicates) {
-        LogicalPlan analyzed = analyze(sql);
-        LogicalPlan plan = testJoinReorder(analyzed);
-        System.out.println(plan.treeString());
-        new PlanChecker(expectJoinConditions, expectFilterPredicates).check(plan);
-    }
+        PlanChecker planChecker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .printlnTree();
 
-    private LogicalPlan testJoinReorder(LogicalPlan plan) {
-        return (LogicalPlan) PlanRewriter.topDownRewrite(plan, connectContext, new ReorderJoin());
-    }
-
-    private static class PlanChecker extends PlanVisitor<Void, Context> {
-        private final List<LogicalRelation> joinInputs = new ArrayList<>();
-        private final List<LogicalJoin> joins = new ArrayList<>();
-        private final List<LogicalFilter> filters = new ArrayList<>();
-        // TODO: it's tricky to compare expression by string, use a graceful manner to do this in the future.
-        private final List<String> expectJoinConditions;
-        private final List<String> expectFilterPredicates;
-
-        public PlanChecker(List<String> expectJoinConditions, List<String> expectFilterPredicates) {
-            this.expectJoinConditions = expectJoinConditions;
-            this.expectFilterPredicates = expectFilterPredicates;
+        for (String expectJoinCondition : expectJoinConditions) {
+            planChecker.matches(
+                    innerLogicalJoin().when(
+                            join -> join.getHashJoinConjuncts().get(0).toSql().equals(expectJoinCondition))
+            );
         }
 
-        public void check(Plan plan) {
-            plan.accept(this, new Context(null));
-
-            // check join table orders
-            Assertions.assertEquals(
-                    ImmutableList.of("dates", "lineorder", "customer", "supplier", "part"),
-                    joinInputs.stream().map(p -> p.getTable().getName()).collect(Collectors.toList()));
-
-            // check join conditions
-            List<String> actualJoinConditions = joins.stream().map(j -> {
-                Optional<Expression> condition = j.getOnClauseCondition();
-                return condition.map(Expression::toSql).orElse("");
-            }).collect(Collectors.toList());
-
-            Assertions.assertEquals(expectJoinConditions, actualJoinConditions);
-
-            // check filter predicates
-            List<String> actualFilterPredicates = filters.stream()
-                    .map(f -> f.getPredicates().toSql()).collect(Collectors.toList());
-            Assertions.assertEquals(expectFilterPredicates, actualFilterPredicates);
-        }
-
-        @Override
-        public Void visit(Plan plan, Context context) {
-            for (Plan child : plan.children()) {
-                child.accept(this, new Context(plan));
-            }
-            return null;
-        }
-
-        @Override
-        public Void visitLogicalRelation(LogicalRelation relation, Context context) {
-            if (context.parent instanceof LogicalJoin) {
-                joinInputs.add(relation);
-            }
-            return null;
-        }
-
-        @Override
-        public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, Context context) {
-            filters.add(filter);
-            filter.child().accept(this, new Context(filter));
-            return null;
-        }
-
-        @Override
-        public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Context context) {
-            join.left().accept(this, new Context(join));
-            join.right().accept(this, new Context(join));
-            joins.add(join);
-            return null;
-        }
-    }
-
-    private static class Context {
-        public final Plan parent;
-
-        public Context(Plan parent) {
-            this.parent = parent;
+        for (String expectFilterPredicate : expectFilterPredicates) {
+            planChecker.matches(
+                    logicalFilter().when(filter -> filter.getPredicates().toSql().equals(expectFilterPredicate))
+            );
         }
     }
 }
