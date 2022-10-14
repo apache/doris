@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "exec/olap_utils.h"
-#include "runtime/large_int_value.h"
 
 namespace doris {
 
@@ -57,48 +56,6 @@ void ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_fixed_value() {
 template <>
 void ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_fixed_value() {
     return;
-}
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size) {
-    return false;
-}
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_CHAR>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size) {
-    return false;
-}
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size) {
-    return false;
-}
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_HLL>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size) {
-    return false;
-}
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size) {
-    return false;
-}
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size) {
-    return false;
 }
 
 Status OlapScanKeys::get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range) {

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <boost/lexical_cast.hpp>
 #include <map>
 #include <sstream>
@@ -113,7 +111,8 @@ public:
     void convert_to_range_value();
 
     bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
-                                    std::vector<OlapTuple>& end_scan_keys, size_t step_size);
+                                    std::vector<OlapTuple>& end_scan_keys,
+                                    int32_t max_scan_key_num);
 
     bool has_intersection(ColumnValueRange<primitive_type>& range);
 
@@ -554,77 +553,60 @@ void ColumnValueRange<primitive_type>::convert_to_fixed_value() {
     }
 }
 
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size);
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_CHAR>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size);
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size);
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_HLL>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size);
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size);
-
-template <>
-bool ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_avg_range_value(
-        std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size);
-
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        size_t step_size) {
-    // Incrementing boolean is denied in C++17, So we use int as bool type
-    using type = std::conditional_t<std::is_same<bool, CppType>::value, int, CppType>;
-    type current = get_range_min_value();
-
-    constexpr bool cant_add = primitive_type == PrimitiveType::TYPE_DATEV2 ||
-                              primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
-                              primitive_type == PrimitiveType::TYPE_DATE ||
-                              primitive_type == PrimitiveType::TYPE_DATETIME;
-
-    size_t range_size = get_convertible_fixed_value_size();
-    // we should avoid range too big to oom.
-    if (range_size == 0 || range_size / (cant_add ? 1 : step_size) > (size_t)65536) {
+        int32_t max_scan_key_num) {
+    constexpr bool reject_type = primitive_type == PrimitiveType::TYPE_LARGEINT ||
+                                 primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
+                                 primitive_type == PrimitiveType::TYPE_HLL ||
+                                 primitive_type == PrimitiveType::TYPE_VARCHAR ||
+                                 primitive_type == PrimitiveType::TYPE_CHAR ||
+                                 primitive_type == PrimitiveType::TYPE_STRING;
+    if constexpr (reject_type) {
         return false;
-    }
+    } else {
+        constexpr bool cant_add = primitive_type == PrimitiveType::TYPE_DATEV2 ||
+                                  primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
+                                  primitive_type == PrimitiveType::TYPE_DATE ||
+                                  primitive_type == PrimitiveType::TYPE_DATETIME;
 
-    while (current < get_range_max_value()) {
-        begin_scan_keys.emplace_back();
-        end_scan_keys.emplace_back();
-        begin_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(current, scale()),
-                                         contain_null());
-        if constexpr (cant_add) {
-            int advance = step_size;
-            while (advance > 0 && current < get_range_max_value()) {
-                ++current;
-                --advance;
-            }
-        } else {
-            if (get_range_max_value() - current < step_size) {
-                current = get_range_max_value();
-            } else {
-                current += step_size;
-            }
+        // Incrementing boolean is denied in C++17, So we use int as bool type
+        using type = std::conditional_t<std::is_same<bool, CppType>::value, int, CppType>;
+        type current = get_range_min_value();
+
+        size_t range_size = get_convertible_fixed_value_size();
+        size_t step_size =
+                std::max((range_size + max_scan_key_num - 1) / max_scan_key_num, (size_t)1);
+        // we should avoid range too big to oom.
+        if (range_size == 0 || range_size / (cant_add ? 1 : step_size) > (size_t)65536) {
+            return false;
         }
-        end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(current, scale()));
-    }
 
-    return true;
+        while (current < get_range_max_value()) {
+            begin_scan_keys.emplace_back();
+            end_scan_keys.emplace_back();
+            begin_scan_keys.back().add_value(
+                    cast_to_string<primitive_type, CppType>(current, scale()), contain_null());
+            if constexpr (cant_add) {
+                int advance = step_size;
+                while (advance > 0 && current < get_range_max_value()) {
+                    ++current;
+                    --advance;
+                }
+            } else {
+                if (get_range_max_value() - current < step_size) {
+                    current = get_range_max_value();
+                } else {
+                    current += step_size;
+                }
+            }
+            end_scan_keys.back().add_value(
+                    cast_to_string<primitive_type, CppType>(current, scale()));
+        }
+
+        return true;
+    }
 }
 
 template <PrimitiveType primitive_type>
@@ -1022,11 +1004,8 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         _has_range_value = true;
 
         if (_begin_scan_keys.empty()) {
-            size_t step_size =
-                    std::max((range.get_convertible_fixed_value_size() + max_scan_key_num - 1) /
-                                     max_scan_key_num,
-                             (size_t)1);
-            if (!range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, step_size)) {
+            if (!range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys,
+                                                  max_scan_key_num)) {
                 _begin_scan_keys.emplace_back();
                 _end_scan_keys.emplace_back();
                 _begin_scan_keys.back().add_value(
