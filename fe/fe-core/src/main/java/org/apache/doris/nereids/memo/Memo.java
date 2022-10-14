@@ -346,11 +346,7 @@ public class Memo {
             // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
-                    source.removeParentExpression(groupExpression);
                     children.set(i, destination);
-                    if (destination.getParentGroupExpressions().contains(groupExpression)) {
-                        destination.addParentExpression(groupExpression);
-                    }
                 }
             }
             GroupExpression that = groupExpressions.get(groupExpression);
