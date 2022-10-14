@@ -319,6 +319,8 @@ ColumnPtrWrapper* VExpr::get_const_col(VExprContext* context) {
 
     int result = -1;
     Block block;
+    // If block is empty, some functions will produce no result. So we insert a column with
+    // single value here.
     block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
     execute(context, &block, &result);
     DCHECK(result != -1);
