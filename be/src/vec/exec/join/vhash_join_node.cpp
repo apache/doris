@@ -289,6 +289,7 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::probe_side_output_column(
                 DCHECK_EQ(probe_size, column->size() - last_probe_index);
                 mcol[i]->insert_range_from(*column, last_probe_index, probe_size);
             } else {
+                DCHECK_GE(_items_counts.size(), last_probe_index + probe_size);
                 column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
             }
         } else {
@@ -381,10 +382,10 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                         if constexpr (!is_right_semi_anti_join) {
                             if (LIKELY(current_offset < _build_block_rows.size())) {
                                 _build_block_offsets[current_offset] = mapped.block_offset;
-                                _build_block_rows[current_offset] = mapped.block_offset;
+                                _build_block_rows[current_offset] = mapped.row_num;
                             } else {
                                 _build_block_offsets.emplace_back(mapped.block_offset);
-                                _build_block_rows.emplace_back(mapped.block_offset);
+                                _build_block_rows.emplace_back(mapped.row_num);
                             }
                             ++current_offset;
                         }
