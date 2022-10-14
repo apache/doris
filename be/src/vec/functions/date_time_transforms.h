@@ -247,7 +247,7 @@ struct TransformerToStringOneArgument {
                     reinterpret_cast<const typename DateTraits<typename Transform::OpArgType>::T&>(
                             t);
             res_offsets[i] = Transform::execute(date_time_value, res_data, offset);
-            null_map[i] = date_time_value.is_valid_date();
+            null_map[i] = !date_time_value.is_valid_date();
         }
     }
 };
@@ -299,11 +299,16 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         vec_to.resize(size);
         null_map.resize(size);
 
+        auto* __restrict to_ptr = vec_to.data();
+        auto* __restrict from_ptr = vec_from.data();
+        auto* __restrict null_map_ptr = null_map.data();
+
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = ToYearImpl<FromType>::execute(vec_from[i]);
-            null_map[i] = !((typename DateTraits<
-                                    typename ToYearImpl<FromType>::OpArgType>::T&)(vec_from[i]))
-                                   .is_valid_year();
+            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            null_map_ptr[i] = to_ptr[i] <= MIN_YEAR || to_ptr[i] >= MAX_YEAR;
         }
     }
 };
