@@ -206,6 +206,8 @@ struct ProcessHashTableProbe {
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
+
+    constexpr int PROBE_SIDE_EXPLODE_RATE = 3;
 };
 
 using HashTableCtxVariants = std::variant<

@@ -313,9 +313,10 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
         _items_counts.resize(probe_rows);
     }
-    if (_build_block_rows.size() < probe_rows) {
-        _build_block_rows.resize(probe_rows);
-        _build_block_offsets.resize(probe_rows);
+
+    if (_build_block_rows.size() < probe_rows * PROBE_SIDE_EXPLODE_RATE) {
+        _build_block_rows.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+        _build_block_offsets.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
     }
     using KeyGetter = typename HashTableType::State;
     using Mapped = typename HashTableType::Mapped;
@@ -378,14 +379,19 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                         if constexpr (need_to_set_visited) mapped.visited = true;
 
                         if constexpr (!is_right_semi_anti_join) {
-                            _build_block_offsets[current_offset] = mapped.block_offset;
-                            _build_block_rows[current_offset] = mapped.row_num;
+                            if (LIKELY(current_offset < _build_block_rows.size())) {
+                                _build_block_offsets[current_offset] = mapped.block_offset;
+                                _build_block_rows[current_offset] = mapped.block_offset;
+                            } else {
+                                _build_block_offsets.emplace_back(mapped.block_offset);
+                                _build_block_rows.emplace_back(mapped.block_offset);
+                            }
                             ++current_offset;
                         }
                     } else {
                         for (auto it = mapped.begin(); it.ok(); ++it) {
                             if constexpr (!is_right_semi_anti_join) {
-                                if (current_offset < _build_block_rows.size()) {
+                                if (LIKELY(current_offset < _build_block_rows.size())) {
                                     _build_block_offsets[current_offset] = it->block_offset;
                                     _build_block_rows[current_offset] = it->row_num;
                                 } else {
@@ -400,8 +406,13 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                 } else {
                     if constexpr (probe_all) {
                         // only full outer / left outer need insert the data of right table
-                        _build_block_offsets[current_offset] = -1;
-                        _build_block_rows[current_offset] = -1;
+                        if (LIKELY(current_offset < _build_block_rows.size())) {
+                            _build_block_offsets[current_offset] = -1;
+                            _build_block_rows[current_offset] = -1;
+                        } else {
+                            _build_block_offsets.emplace_back(-1);
+                            _build_block_rows.emplace_back(-1);
+                        }
                         ++current_offset;
                     }
                 }
@@ -444,9 +455,9 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
         _items_counts.resize(probe_rows);
     }
-    if (_build_block_rows.size() < probe_rows) {
-        _build_block_rows.resize(probe_rows);
-        _build_block_offsets.resize(probe_rows);
+    if (_build_block_rows.size() < probe_rows * PROBE_SIDE_EXPLODE_RATE) {
+        _build_block_rows.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
+        _build_block_offsets.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
     }
 
     using KeyGetter = typename HashTableType::State;
@@ -493,13 +504,18 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
             // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
             // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
             if (mapped.get_row_count() == 1) {
-                _build_block_offsets[current_offset] = mapped.block_offset;
-                _build_block_rows[current_offset] = mapped.row_num;
+                if (LIKELY(current_offset < _build_block_rows.size())) {
+                    _build_block_offsets[current_offset] = mapped.block_offset;
+                    _build_block_rows[current_offset] = mapped.row_num;
+                } else {
+                    _build_block_offsets.emplace_back(mapped.block_offset);
+                    _build_block_rows.emplace_back(mapped.row_num);
+                }
                 ++current_offset;
                 visited_map.emplace_back(&mapped.visited);
             } else {
                 for (auto it = mapped.begin(); it.ok(); ++it) {
-                    if (current_offset < _build_block_rows.size()) {
+                    if (LIKELY(current_offset < _build_block_rows.size())) {
                         _build_block_offsets[current_offset] = it->block_offset;
                         _build_block_rows[current_offset] = it->row_num;
                     } else {
@@ -521,8 +537,13 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
             visited_map.emplace_back(nullptr);
             // only full outer / left outer need insert the data of right table
             // left anti use -1 use a default value
-            _build_block_offsets[current_offset] = -1;
-            _build_block_rows[current_offset] = -1;
+            if (LIKELY(current_offset < _build_block_rows.size())) {
+                _build_block_offsets[current_offset] = -1;
+                _build_block_rows[current_offset] = -1;
+            } else {
+                _build_block_offsets.emplace_back(-1);
+                _build_block_rows.emplace_back(-1);
+            }
             ++current_offset;
         } else {
             // other join, no nothing
