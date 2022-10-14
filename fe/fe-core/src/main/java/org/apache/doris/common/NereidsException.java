@@ -15,39 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("agg_with_const") {
+package org.apache.doris.common;
 
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_nereids_planner=true"
+/**
+ * temporary exception, use for fallback to legacy planner. remove it when Nereids is GA.
+ */
+public class NereidsException extends RuntimeException {
 
-    sql """
-        DROP TABLE IF EXISTS t1
-       """
+    private final Exception exception;
 
-    sql """CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)
-        DISTRIBUTED BY HASH(col3)
-        BUCKETS 1
-        PROPERTIES(
-            "replication_num"="1"
-        )
-        """
+    public NereidsException(Exception cause) {
+        this.exception = cause;
+    }
 
-    sql """
-    insert into t1 values(1994, 1994, 1995)
-    """
+    public Exception getException() {
+        return exception;
+    }
 
-    sql "SET enable_fallback_to_original_planner=false"
-
-    qt_select """
-        select count(2) + 1, sum(2) + sum(col1) from t1
-    """
-
-    qt_select """
-        select count(*) from t1
-    """
-
-    qt_select """
-         select count(2) + 1, sum(2) + sum(2) from t1
-    """
-
+    @Override
+    public String getMessage() {
+        return exception.getMessage();
+    }
 }
