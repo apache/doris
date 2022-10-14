@@ -192,8 +192,6 @@ ProcessHashTableProbe<JoinOpType, ignore_null>::ProcessHashTableProbe(HashJoinNo
         : _join_node(join_node),
           _batch_size(batch_size),
           _build_blocks(join_node->_build_blocks),
-          _build_block_offsets(join_node->_build_block_offsets),
-          _build_block_rows(join_node->_build_block_rows),
           _tuple_is_null_left_flags(
                   reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_left_flag_column)
                           .get_data()),
@@ -203,10 +201,7 @@ ProcessHashTableProbe<JoinOpType, ignore_null>::ProcessHashTableProbe(HashJoinNo
           _rows_returned_counter(join_node->_rows_returned_counter),
           _search_hashtable_timer(join_node->_search_hashtable_timer),
           _build_side_output_timer(join_node->_build_side_output_timer),
-          _probe_side_output_timer(join_node->_probe_side_output_timer) {
-    _build_block_offsets.resize(_batch_size);
-    _build_block_rows.resize(_batch_size);
-}
+          _probe_side_output_timer(join_node->_probe_side_output_timer) {}
 
 template <class JoinOpType, bool ignore_null>
 template <bool have_other_join_conjunct>
@@ -291,10 +286,10 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::probe_side_output_column(
         if (output_slot_flags[i]) {
             auto& column = probe_block.get_by_position(i).column;
             if (all_match_one) {
-                column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
+                DCHECK_EQ(probe_size, column->size() - last_probe_index);
+                mcol[i]->insert_range_from(*column, last_probe_index, probe_size);
             } else {
-                mcol[i]->insert_range_from(*column, last_probe_index,
-                                           column->size() - last_probe_index);
+                column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
             }
         } else {
             mcol[i]->resize(size);
@@ -317,6 +312,10 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
     auto& probe_raw_ptrs = _join_node->_probe_columns;
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
         _items_counts.resize(probe_rows);
+    }
+    if (_build_block_rows.size() < probe_rows) {
+        _build_block_rows.resize(probe_rows);
+        _build_block_offsets.resize(probe_rows);
     }
     using KeyGetter = typename HashTableType::State;
     using Mapped = typename HashTableType::Mapped;
@@ -348,6 +347,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
             if constexpr (ignore_null) {
                 if ((*null_map)[probe_index]) {
                     _items_counts[probe_index++] = (uint32_t)0;
+                    all_match_one = false;
                     continue;
                 }
             }
@@ -385,7 +385,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                     } else {
                         for (auto it = mapped.begin(); it.ok(); ++it) {
                             if constexpr (!is_right_semi_anti_join) {
-                                if (current_offset < _batch_size) {
+                                if (current_offset < _build_block_rows.size()) {
                                     _build_block_offsets[current_offset] = it->block_offset;
                                     _build_block_rows[current_offset] = it->row_num;
                                 } else {
@@ -444,6 +444,10 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
         _items_counts.resize(probe_rows);
     }
+    if (_build_block_rows.size() < probe_rows) {
+        _build_block_rows.resize(probe_rows);
+        _build_block_offsets.resize(probe_rows);
+    }
 
     using KeyGetter = typename HashTableType::State;
     using Mapped = typename HashTableType::Mapped;
@@ -495,7 +499,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
                 visited_map.emplace_back(&mapped.visited);
             } else {
                 for (auto it = mapped.begin(); it.ok(); ++it) {
-                    if (current_offset < _batch_size) {
+                    if (current_offset < _build_block_rows.size()) {
                         _build_block_offsets[current_offset] = it->block_offset;
                         _build_block_rows[current_offset] = it->row_num;
                     } else {
@@ -924,8 +928,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _process_hashtable_ctx_variants_init(state);
     _construct_mutable_join_block();
 
-    _build_block_offsets.resize(state->batch_size());
-    _build_block_rows.resize(state->batch_size());
     return Status::OK();
 }
 

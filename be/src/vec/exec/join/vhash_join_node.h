@@ -195,8 +195,8 @@ struct ProcessHashTableProbe {
     Arena _arena;
 
     std::vector<uint32_t> _items_counts;
-    std::vector<int8_t>& _build_block_offsets;
-    std::vector<int>& _build_block_rows;
+    std::vector<int8_t> _build_block_offsets;
+    std::vector<int> _build_block_rows;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container& _tuple_is_null_left_flags;
     // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
@@ -340,9 +340,6 @@ private:
     bool _have_other_join_conjunct = false;
 
     Block _join_block;
-
-    std::vector<int8_t> _build_block_offsets;
-    std::vector<int> _build_block_rows;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
