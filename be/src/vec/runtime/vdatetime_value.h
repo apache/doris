@@ -618,8 +618,6 @@ public:
                _day > 0;
     }
 
-    bool is_valid_year() const { return _year < MAX_YEAR && _year > MIN_YEAR; }
-
     void convert_vec_dt_to_dt(doris::DateTimeValue* dt);
     void convert_dt_to_vec_dt(doris::DateTimeValue* dt);
     int64_t to_datetime_int64() const;
@@ -1038,8 +1036,6 @@ public:
             return !is_invalid(this->year(), this->month(), this->day(), 0, 0, 0, 0);
         }
     }
-
-    bool is_valid_year() const { return year() < MAX_YEAR && year() > MIN_YEAR; }
 
     template <typename RHS>
     int64_t second_diff(const DateV2Value<RHS>& rhs) const {
