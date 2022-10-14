@@ -459,6 +459,7 @@ Status AggregationNode::open(RuntimeState* state) {
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
         _create_agg_status(_agg_data.without_key);
+        _agg_data_created_without_key = true;
     }
     bool eos = false;
     Block block;
@@ -524,12 +525,8 @@ Status AggregationNode::close(RuntimeState* state) {
 
     for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
     VExpr::close(_probe_expr_ctxs, state);
-    //because prepare maybe failed, and couldn't create agg data.
-    //but finally call close to destory agg data, if agg data has bitmapValue
-    //will be core dump, because it's not initialized
-    if (_agg_data_created && _executor.close) {
-        _executor.close();
-    }
+    if (_executor.close) _executor.close();
+
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter) {
         std::visit(
@@ -546,7 +543,6 @@ Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->create(data + _offsets_of_aggregate_states[i]);
     }
-    _agg_data_created = true;
     return Status::OK();
 }
 
@@ -554,7 +550,6 @@ Status AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->function()->destroy(data + _offsets_of_aggregate_states[i]);
     }
-    _agg_data_created = false;
     return Status::OK();
 }
 
@@ -713,7 +708,13 @@ void AggregationNode::_update_memusage_without_key() {
 }
 
 void AggregationNode::_close_without_key() {
-    _destroy_agg_status(_agg_data.without_key);
+    //because prepare maybe failed, and couldn't create agg data.
+    //but finally call close to destory agg data, if agg data has bitmapValue
+    //will be core dump, it's not initialized
+    if (_agg_data_created_without_key) {
+        _destroy_agg_status(_agg_data.without_key);
+        _agg_data_created_without_key = false;
+    }
     release_tracker();
 }
 
