@@ -511,48 +511,6 @@ size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() cons
     return _high_value - _low_value;
 }
 
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_STRING>::convert_to_fixed_value();
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_CHAR>::convert_to_fixed_value();
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_VARCHAR>::convert_to_fixed_value();
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_HLL>::convert_to_fixed_value();
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_DECIMALV2>::convert_to_fixed_value();
-
-template <>
-void ColumnValueRange<PrimitiveType::TYPE_LARGEINT>::convert_to_fixed_value();
-
-template <PrimitiveType primitive_type>
-void ColumnValueRange<primitive_type>::convert_to_fixed_value() {
-    if (!is_fixed_value_convertible()) {
-        return;
-    }
-
-    // Incrementing boolean is denied in C++17, So we use int as bool type
-    using type = std::conditional_t<std::is_same<bool, CppType>::value, int, CppType>;
-    type low_value = _low_value;
-    type high_value = _high_value;
-
-    if (_low_op == FILTER_LARGER) {
-        ++low_value;
-    }
-
-    for (auto v = low_value; v < high_value; ++v) {
-        _fixed_values.insert(v);
-    }
-
-    if (_high_op == FILTER_LESS_OR_EQUAL) {
-        _fixed_values.insert(high_value);
-    }
-}
-
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
@@ -931,9 +889,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         }
     } else {
         if (range.is_fixed_value_convertible() && _is_convertible) {
-            if (range.get_convertible_fixed_value_size() < max_scan_key_num / scan_keys_size) {
-                range.convert_to_fixed_value();
-            }
+            range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, max_scan_key_num);
         }
     }
 
@@ -1004,17 +960,14 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         _has_range_value = true;
 
         if (_begin_scan_keys.empty()) {
-            if (!range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys,
-                                                  max_scan_key_num)) {
-                _begin_scan_keys.emplace_back();
-                _end_scan_keys.emplace_back();
-                _begin_scan_keys.back().add_value(
-                        cast_to_string<primitive_type, CppType>(range.get_range_min_value(),
-                                                                range.scale()),
-                        range.contain_null());
-                _end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
-                        range.get_range_max_value(), range.scale()));
-            }
+            _begin_scan_keys.emplace_back();
+            _end_scan_keys.emplace_back();
+            _begin_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
+                                                      range.get_range_min_value(), range.scale()),
+                                              range.contain_null());
+            _end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
+                    range.get_range_max_value(), range.scale()));
+
         } else {
             for (int i = 0; i < _begin_scan_keys.size(); ++i) {
                 _begin_scan_keys[i].add_value(cast_to_string<primitive_type, CppType>(
