@@ -123,8 +123,7 @@ public:
         // ThreadContext before `init = true in ThreadContextPtr()`,
         // Equal to the size of the memory release that is not tracked during the destruction of the
         // ThreadContext after `init = false in ~ThreadContextPtr()`,
-        _thread_mem_tracker_mgr->clear();
-        init();
+        if (ExecEnv::GetInstance()->initialized()) _thread_mem_tracker_mgr->clear();
         thread_context_ptr.init = false;
     }
 
@@ -194,7 +193,9 @@ static void attach_bthread() {
     bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
     // First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
     if (bthread_context == nullptr) {
+#ifndef BE_TEST
         DCHECK(ExecEnv::GetInstance()->initialized());
+#endif // BE_TEST
         // Create thread-local data on demand.
         bthread_context = new ThreadContext;
         // set the data so that next time bthread_getspecific in the thread returns the data.

@@ -119,10 +119,12 @@ public:
 
     std::shared_ptr<MemTrackerLimiter> process_mem_tracker() { return _process_mem_tracker; }
     void set_global_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& process_tracker,
-                                const std::shared_ptr<MemTrackerLimiter>& orphan_tracker) {
+                                const std::shared_ptr<MemTrackerLimiter>& orphan_tracker,
+                                const std::shared_ptr<MemTrackerLimiter>& bthread_mem_tracker) {
         _process_mem_tracker = process_tracker;
         _orphan_mem_tracker = orphan_tracker;
         _orphan_mem_tracker_raw = orphan_tracker.get();
+        _bthread_mem_tracker = bthread_mem_tracker;
     }
     std::shared_ptr<MemTracker> allocator_cache_mem_tracker() {
         return _allocator_cache_mem_tracker;

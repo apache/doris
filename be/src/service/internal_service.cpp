@@ -653,8 +653,8 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_block");
     }
     SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
-    // LOG(WARNING) << "transmit block 1111: fragment_instance_id=" << print_id(request->finst_id())
-    //          << " query_id=" << query_id << " node=" << request->node_id() << ", " << transmit_tracker->label();
+    VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
+             << " query_id=" << query_id << " node=" << request->node_id();
     // The response is accessed when done->Run is called in transmit_block(),
     // give response a default value to avoid null pointers in high concurrency.
     Status st;

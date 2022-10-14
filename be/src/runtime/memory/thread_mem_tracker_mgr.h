@@ -45,8 +45,10 @@ public:
 
     ~ThreadMemTrackerMgr() {
         flush_untracked_mem<false>();
-        DCHECK(_consumer_tracker_stack.empty());
-        DCHECK(_limiter_tracker_stack.size() == 1);
+        if (bthread_self() == 0) {
+            DCHECK(_consumer_tracker_stack.empty());
+            DCHECK(_limiter_tracker_stack.size() == 1) << ", limiter_tracker_stack.size(): " << _limiter_tracker_stack.size() ;
+        }
     }
 
     // only for tcmalloc hook
@@ -59,6 +61,7 @@ public:
     // After thread initialization, calling `init` again must call `clear_untracked_mems` first
     // to avoid memory tracking loss.
     void init();
+    void init_impl();
     void clear();
 
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
@@ -144,7 +147,12 @@ private:
 
 inline void ThreadMemTrackerMgr::init() {
     DCHECK(_limiter_tracker_stack.size() == 0);
+    DCHECK(_limiter_tracker_raw == nullptr);
     DCHECK(_consumer_tracker_stack.empty());
+    init_impl();
+}
+
+inline void ThreadMemTrackerMgr::init_impl() {
     _limiter_tracker_stack.push_back(ExecEnv::GetInstance()->orphan_mem_tracker());
     _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
     _task_id_stack.push_back("");
@@ -159,6 +167,7 @@ inline void ThreadMemTrackerMgr::clear() {
     std::vector<std::string>().swap(_task_id_stack);
     std::vector<TUniqueId>().swap(_fragment_instance_id_stack);
     flush_untracked_mem<false>();
+    init_impl();
 }
 
 inline void ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
