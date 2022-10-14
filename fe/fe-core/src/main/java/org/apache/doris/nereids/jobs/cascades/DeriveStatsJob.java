@@ -62,7 +62,7 @@ public class DeriveStatsJob extends Job {
             pushJob(new DeriveStatsJob(this));
             for (Group child : groupExpression.children()) {
                 if (child.getLogicalExpressions().isEmpty()) {
-                    NereidsPlanner.builder.append(String.format("%s\n ", child.treeString()));
+                    NereidsPlanner.builder.append(String.format("%s\n", child.treeString()));
                     continue;
                 }
                 GroupExpression childGroupExpr = child.getLogicalExpressions().get(0);
