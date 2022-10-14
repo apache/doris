@@ -1258,7 +1258,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-     return std::make_shared<DataTypeString>();
+        return std::make_shared<DataTypeString>();
     }
 
     bool use_default_implementation_for_constants() const override { return true; }
@@ -1274,7 +1274,7 @@ public:
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
-        for(int i = 0; i < input_rows_count; ++i) {
+        for (int i = 0; i < input_rows_count; ++i) {
             auto source = url_col->get_data_at(i);
             auto param = parameter_col->get_data_at(i);
             StringValue url_str(const_cast<char*>(source.data), source.size);
@@ -1291,7 +1291,7 @@ public:
 
 private:
     std::string extract_url(StringValue url, StringValue parameter) {
-        if(url.len == 0 || parameter.len == 0) {
+        if (url.len == 0 || parameter.len == 0) {
             return "";
         }
         return UrlParser::extract_url(url, parameter);
