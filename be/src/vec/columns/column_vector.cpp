@@ -479,7 +479,7 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 
 template <typename T>
 void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                                size_t begin, size_t count_sz) const {
+                                size_t begin, int count_sz) const {
     size_t size = count_sz < 0 ? data.size() : count_sz;
     if (size == 0) return;
 

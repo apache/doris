@@ -333,7 +333,7 @@ ColumnPtr ColumnJsonb::replicate(const Offsets& replicate_offsets) const {
 }
 
 void ColumnJsonb::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                            size_t begin, size_t count_sz) const {
+                            size_t begin, int count_sz) const {
     size_t col_size = count_sz < 0 ? size() : count_sz;
     if (0 == col_size) return;
 
