@@ -236,8 +236,8 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                   size_t begin = 0, size_t count_sz = -1) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   size_t count_sz = -1) const override;
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {

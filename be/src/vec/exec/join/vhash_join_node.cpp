@@ -285,12 +285,17 @@ template <class JoinOpType, bool ignore_null>
 template <bool have_other_join_conjunct>
 void ProcessHashTableProbe<JoinOpType, ignore_null>::probe_side_output_column(
         MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
-        int last_probe_index, size_t probe_size) {
+        int last_probe_index, size_t probe_size, bool all_match_one) {
     auto& probe_block = _join_node->_probe_block;
     for (int i = 0; i < output_slot_flags.size(); ++i) {
         if (output_slot_flags[i]) {
             auto& column = probe_block.get_by_position(i).column;
-            column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
+            if (all_match_one) {
+                column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
+            } else {
+                mcol[i]->insert_range_from(*column, last_probe_index,
+                                           column->size() - last_probe_index);
+            }
         } else {
             mcol[i]->resize(size);
         }
@@ -335,6 +340,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
     constexpr auto probe_all = JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
                                JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
 
+    bool all_match_one = true;
     int last_probe_index = probe_index;
     {
         SCOPED_TIMER(_search_hashtable_timer);
@@ -401,8 +407,10 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                 }
             }
 
-            _items_counts[probe_index++] = (uint32_t)(current_offset - last_offset);
-            if (current_offset >= _batch_size) {
+            uint32_t count = (uint32_t)(current_offset - last_offset);
+            _items_counts[probe_index++] = count;
+            all_match_one &= count != 1;
+            if (current_offset >= _batch_size && !all_match_one) {
                 break;
             }
         }
@@ -418,7 +426,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                   JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN) {
         SCOPED_TIMER(_probe_side_output_timer);
         probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset,
-                                 last_probe_index, probe_index - last_probe_index);
+                                 last_probe_index, probe_index - last_probe_index, all_match_one);
     }
 
     output_block->swap(mutable_block.to_block());
@@ -455,6 +463,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
 
     int current_offset = 0;
 
+    bool all_match_one = true;
     int last_probe_index = probe_index;
     while (probe_index < probe_rows) {
         // ignore null rows
@@ -515,8 +524,10 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
             // other join, no nothing
         }
 
-        _items_counts[probe_index++] = (uint32_t)(current_offset - last_offset);
-        if (current_offset >= _batch_size) {
+        uint32_t count = (uint32_t)(current_offset - last_offset);
+        _items_counts[probe_index++] = count;
+        all_match_one &= count != 1;
+        if (current_offset >= _batch_size && !all_match_one) {
             break;
         }
     }
@@ -529,7 +540,8 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
     {
         SCOPED_TIMER(_probe_side_output_timer);
         probe_side_output_column<true>(mcol, _join_node->_left_output_slot_flags, current_offset,
-                                       last_probe_index, probe_index - last_probe_index);
+                                       last_probe_index, probe_index - last_probe_index,
+                                       all_match_one);
     }
     output_block->swap(mutable_block.to_block());
 
