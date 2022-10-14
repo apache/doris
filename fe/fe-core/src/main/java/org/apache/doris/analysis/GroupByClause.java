@@ -95,9 +95,17 @@ public class GroupByClause implements ParseNode {
     public void reset() {
         analyzed = false;
         exprGenerated = false;
-        if (groupingExprs != null) {
-            for (Expr e : groupingExprs) {
-                e.reset();
+        if (groupingType != GroupingType.GROUP_BY) {
+            groupingExprs = new ArrayList<>();
+            if (oriGroupingExprs != null) {
+                Expr.resetList(oriGroupingExprs);
+                groupingExprs.addAll(oriGroupingExprs);
+            }
+        } else {
+            if (groupingExprs != null) {
+                for (Expr e : groupingExprs) {
+                    e.reset();
+                }
             }
         }
         if (groupingSetList != null) {
