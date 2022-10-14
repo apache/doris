@@ -436,6 +436,6 @@ private:
     std::shared_ptr<BloomFilterFuncBase> _filter;
     bool _has_calculate_filter = false;
     // if filter rate less than this, bloom filter will set always true
-    constexpr static double _expect_filter_rate = 0.5;
+    constexpr static double _expect_filter_rate = 0.4;
 };
 } // namespace doris
