@@ -857,8 +857,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                 auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
                         std::move(*ref_col.column).mutate().get());
 
-                const auto* null_map =
-                        ref_nullable_col->get_null_map_column().get_data().data();
+                const auto* null_map = ref_nullable_col->get_null_map_column().get_data().data();
 
                 for (size_t i = 0; i < row_size; i++) {
                     if (null_map[i]) {
