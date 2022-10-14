@@ -36,6 +36,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -343,7 +344,7 @@ public class Memo {
         });
         NereidsPlanner.builder.append(String.format("%s\n", needReplaceChild))
                 .append(String.format("%s\n", source.getParentGroupExpressions()
-                        .stream().filter(e -> e.getOwnerGroup().equals(destination))));
+                        .stream().filter(e -> e.getOwnerGroup().equals(destination)).collect(Collectors.toList())));
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
