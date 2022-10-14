@@ -27,42 +27,50 @@
 namespace doris {
 namespace io {
 
-class WholeFileCache final : public FileCache {
+// Only used for GC
+class DummyFileCache final : public FileCache {
 public:
-    WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
-                   io::FileReaderSPtr remote_file_reader);
-    ~WholeFileCache() override;
+    DummyFileCache(const Path& cache_dir, int64_t alive_time_sec);
 
-    Status close() override { return _remote_file_reader->close(); }
+    ~DummyFileCache() override;
 
-    Status read_at(size_t offset, Slice result, size_t* bytes_read) override;
+    Status close() override { return Status::OK(); }
 
-    const Path& path() const override { return _remote_file_reader->path(); }
+    Status read_at(size_t offset, Slice result, size_t* bytes_read) override {
+        return Status::NotSupported("dummy file cache only used for GC");
+    }
 
-    size_t size() const override { return _remote_file_reader->size(); }
+    const Path& path() const override { return _cache_dir; }
 
-    bool closed() const override { return _remote_file_reader->closed(); }
+    size_t size() const override { return 0; }
+
+    bool closed() const override { return true; }
 
     const Path& cache_dir() const override { return _cache_dir; }
 
-    io::FileReaderSPtr remote_file_reader() const override { return _remote_file_reader; }
+    io::FileReaderSPtr remote_file_reader() const override { return nullptr; }
 
     Status clean_timeout_cache() override;
 
     Status clean_all_cache() override;
 
-private:
-    Status _generate_cache_reader(size_t offset, size_t req_size);
+    Status load_and_clean();
 
+    bool is_dummy_file_cache() override { return true; }
+
+private:
+    Status _clean_unfinished_cache();
+    void _update_last_mtime(const Path& done_file);
+    void _add_file_cache(const Path& data_file);
+    void _load();
     Status _clean_cache_internal();
 
 private:
     Path _cache_dir;
     int64_t _alive_time_sec;
-    io::FileReaderSPtr _remote_file_reader;
 
-    std::shared_mutex _cache_lock;
-    io::FileReaderSPtr _cache_file_reader;
+    std::map<Path, int64_t> _file_sizes;
+    std::list<Path> _unfinished_files;
 };
 
 } // namespace io

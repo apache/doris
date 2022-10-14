@@ -40,6 +40,7 @@ set(IO_FILES
     fs/local_file_writer.cpp
     fs/s3_file_reader.cpp
     fs/s3_file_system.cpp
+    cache/dummy_file_cache.cpp
     cache/file_cache.cpp
     cache/file_cache_manager.cpp
     cache/sub_file_cache.cpp
