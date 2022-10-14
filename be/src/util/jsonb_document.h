@@ -1042,7 +1042,6 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
 
     if (kp_len == 0) return this;
 
-
     if (!delim) delim = "."; // default delimiter
 
     JsonbValue* pval = this;
