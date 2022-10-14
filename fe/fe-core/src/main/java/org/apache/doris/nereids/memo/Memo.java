@@ -20,6 +20,7 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -340,13 +341,16 @@ public class Memo {
                 needReplaceChild.add(groupExpression);
             }
         });
+        NereidsPlanner.builder.append(String.format("%s\n", needReplaceChild))
+                .append(String.format("%s\n", source.getParentGroupExpressions()
+                        .stream().filter(e -> e.getOwnerGroup().equals(destination))));
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
             // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
-                    children.set(i, destination);
+                    groupExpression.setChildren(i, destination);
                 }
             }
             GroupExpression that = groupExpressions.get(groupExpression);

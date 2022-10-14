@@ -57,7 +57,6 @@ public class Group {
     private final Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans = Maps.newHashMap();
     private double costLowerBound = -1;
     private boolean isExplored = false;
-    private boolean hasCost = false;
     private StatsDeriveResult statistics;
 
     /**
@@ -85,14 +84,6 @@ public class Group {
 
     public GroupId getGroupId() {
         return groupId;
-    }
-
-    public boolean isHasCost() {
-        return hasCost;
-    }
-
-    public void setHasCost(boolean hasCost) {
-        this.hasCost = hasCost;
     }
 
     /**

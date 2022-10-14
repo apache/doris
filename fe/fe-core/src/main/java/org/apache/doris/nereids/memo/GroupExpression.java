@@ -107,7 +107,15 @@ public class GroupExpression {
     }
 
     public void setChildren(List<Group> children) {
+        this.children.forEach(g -> g.removeParentExpression(this));
         this.children = children;
+        this.children.forEach(g -> g.addParentExpression(this));
+    }
+
+    public void setChildren(int idx, Group group) {
+        this.children.get(idx).removeParentExpression(this);
+        this.children.set(idx, group);
+        this.children.get(idx).addParentExpression(this);
     }
 
     /**
