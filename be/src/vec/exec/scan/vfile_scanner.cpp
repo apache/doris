@@ -31,6 +31,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/exec/format/csv/csv_reader.h"
+#include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/functions/simple_function_factory.h"
@@ -464,7 +465,7 @@ Status VFileScanner::_get_next_reader() {
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
 
-        // 2. create reader for specific format
+        // create reader for specific format
         // TODO: add json, avro
         Status init_status;
         switch (_params.format_type) {
@@ -477,24 +478,10 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            // create file reader of orc reader.
-            std::unique_ptr<FileReader> file_reader;
-            RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _params, range.path,
-                                                            range.start_offset, range.file_size, 0,
-                                                            file_reader));
-            RETURN_IF_ERROR(file_reader->open());
-            if (file_reader->size() == 0) {
-                file_reader->close();
-                init_status = Status::EndOfFile("Empty orc file");
-                break;
-            }
-
-            _cur_reader.reset(new ORCReaderWrap(_state, _file_slot_descs, file_reader.release(),
-                                                _num_of_columns_from_file, range.start_offset,
-                                                range.size, false));
-            init_status =
-                    ((ORCReaderWrap*)(_cur_reader.get()))
-                            ->init_reader(_real_tuple_desc, _conjunct_ctxs, _state->timezone());
+            _cur_reader.reset(new OrcReader(_profile, _params, range, _file_col_names,
+                                            _state->query_options().batch_size,
+                                            _state->timezone()));
+            init_status = ((OrcReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:
