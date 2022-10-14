@@ -207,6 +207,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
             clear();
         }
+        groupExpression.setCostCalculated();
     }
 
     private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {

@@ -46,7 +46,9 @@ public class OptimizeGroupJob extends Job {
             }
         }
         for (GroupExpression physicalGroupExpression : group.getPhysicalExpressions()) {
-            context.getCascadesContext().pushJob(new CostAndEnforcerJob(physicalGroupExpression, context));
+            if (!physicalGroupExpression.isCostCalculated()) {
+                context.getCascadesContext().pushJob(new CostAndEnforcerJob(physicalGroupExpression, context));
+            }
         }
         group.setExplored(true);
     }

@@ -44,6 +44,7 @@ public class GroupExpression {
     private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
+    private boolean costCalculated;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
     private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
@@ -235,5 +236,13 @@ public class GroupExpression {
         builder.append("] stats=");
         builder.append(ownerGroup.getStatistics());
         return builder.toString();
+    }
+
+    public boolean isCostCalculated() {
+        return costCalculated;
+    }
+
+    public void setCostCalculated() {
+        this.costCalculated = true;
     }
 }

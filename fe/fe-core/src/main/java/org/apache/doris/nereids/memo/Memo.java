@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -345,7 +346,11 @@ public class Memo {
             // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
+                    source.removeParentExpression(groupExpression);
                     children.set(i, destination);
+                    if (destination.getParentGroupExpressions().contains(groupExpression)) {
+                        destination.addParentExpression(groupExpression);
+                    }
                 }
             }
             GroupExpression that = groupExpressions.get(groupExpression);
@@ -564,5 +569,12 @@ public class Memo {
             }
         }
         return builder.toString();
+    }
+
+    public boolean checkParentExpressionInGroup() {
+        return groupExpressions.values().stream().map(expr -> Pair.of(expr, expr.children()))
+                .allMatch(pair -> pair.second.stream().allMatch(
+                        group -> group.getParentGroupExpressions().contains(pair.first)
+                ));
     }
 }
