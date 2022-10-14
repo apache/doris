@@ -121,7 +121,7 @@ public:
     void protect() override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                   size_t begin = 0) const override;
+                   size_t begin = 0, size_t count_sz = -1) const override;
     ColumnPtr convert_to_full_column_if_const() const override;
     void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not implemented";

@@ -285,12 +285,12 @@ template <class JoinOpType, bool ignore_null>
 template <bool have_other_join_conjunct>
 void ProcessHashTableProbe<JoinOpType, ignore_null>::probe_side_output_column(
         MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
-        int last_probe_index) {
+        int last_probe_index, size_t probe_size) {
     auto& probe_block = _join_node->_probe_block;
     for (int i = 0; i < output_slot_flags.size(); ++i) {
         if (output_slot_flags[i]) {
             auto& column = probe_block.get_by_position(i).column;
-            column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index);
+            column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
         } else {
             mcol[i]->resize(size);
         }
@@ -418,7 +418,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                   JoinOpType::value != TJoinOp::RIGHT_ANTI_JOIN) {
         SCOPED_TIMER(_probe_side_output_timer);
         probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset,
-                                 last_probe_index);
+                                 last_probe_index, probe_index - last_probe_index);
     }
 
     output_block->swap(mutable_block.to_block());
@@ -529,7 +529,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
     {
         SCOPED_TIMER(_probe_side_output_timer);
         probe_side_output_column<true>(mcol, _join_node->_left_output_slot_flags, current_offset,
-                                       last_probe_index);
+                                       last_probe_index, probe_index - last_probe_index);
     }
     output_block->swap(mutable_block.to_block());
 

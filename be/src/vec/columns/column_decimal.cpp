@@ -348,8 +348,8 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 
 template <typename T>
 void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                                 size_t begin) const {
-    size_t size = data.size();
+                                 size_t begin, size_t count_sz) const {
+    size_t size = count_sz < 0 ? data.size() : count_sz;
     if (0 == size) return;
 
     auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);

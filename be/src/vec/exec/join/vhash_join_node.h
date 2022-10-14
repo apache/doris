@@ -164,7 +164,7 @@ struct ProcessHashTableProbe {
 
     template <bool have_other_join_conjunct = false>
     void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
-                                  int size, int last_probe_index);
+                                  int size, int last_probe_index, size_t probe_size);
     // Only process the join with no other join conjunt, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe

@@ -68,7 +68,7 @@ ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
 }
 
 void ColumnConst::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                            size_t begin) const {
+                            size_t begin, size_t count_sz) const {
     if (s == 0) return;
     auto& res = reinterpret_cast<ColumnConst&>(column);
     res.s = s;

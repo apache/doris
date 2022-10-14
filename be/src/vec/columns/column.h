@@ -429,7 +429,7 @@ public:
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
     virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                           size_t begin = 0) const {
+                           size_t begin = 0, size_t count_sz = -1) const {
         LOG(FATAL) << "not support";
     };
 
