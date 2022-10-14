@@ -440,6 +440,9 @@ CONF_Bool(disable_mem_pools, "false");
 // but will acquire more free memory which can not be used by other modules.
 CONF_mString(chunk_reserved_bytes_limit, "10%");
 
+// 1024, The minimum chunk allocator size (in bytes)
+CONF_Int32(min_chunk_reserved_bytes, "1024");
+
 // Whether using chunk allocator to cache memory chunk
 CONF_Bool(disable_chunk_allocator, "true");
 // Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
