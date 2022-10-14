@@ -88,7 +88,7 @@ public class DropInfo implements Writable {
         } else {
             indexId = -1L;
         }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
             recycleTime = in.readLong();
         }
     }

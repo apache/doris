@@ -87,7 +87,7 @@ public class RecoverInfo implements Writable {
         dbId = in.readLong();
         tableId = in.readLong();
         partitionId = in.readLong();
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
             newDbName = Text.readString(in);
             newTableName = Text.readString(in);
             newPartitionName = Text.readString(in);

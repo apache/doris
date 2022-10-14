@@ -907,7 +907,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 String tableName = Text.readString(in);
                 tableNames.add(tableName);
             }
-            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
                 count = in.readInt();
                 for (int i = 0; i < count; i++) {
                     long tableId = in.readLong();
