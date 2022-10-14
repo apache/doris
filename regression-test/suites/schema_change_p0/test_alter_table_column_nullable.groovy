@@ -98,7 +98,37 @@ suite("test_alter_table_column_nullable") {
 
     qt_select_int """select * from ${tbName} limit 1"""
 
-    // char not null to int not null
+    // char not null to int not null, data loss
+    sql "DROP TABLE ${tbName}"
+    sql """
+            CREATE TABLE ${tbName} (
+                k1 INT NOT NULL,
+                value1 varchar(16) NOT NULL
+            )
+            DUPLICATE KEY (k1)
+            DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1");
+        """
+    sql "INSERT INTO ${tbName} VALUES (1, 'zz')";
+
+    // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
+    sql """alter table ${tbName} modify column value1 INT NOT NULL"""
+
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbName)
+        if (res == "CANCELLED") {
+            break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("CANCELLED",res)
+            }
+        }
+    }
+    qt_select_char_to_int_fail """select * from ${tbName}"""
+
+    // char not null to int not null OK
     sql "DROP TABLE ${tbName}"
     sql """
             CREATE TABLE ${tbName} (

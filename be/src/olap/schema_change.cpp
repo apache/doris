@@ -856,6 +856,15 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                 // so need to handle nullable to not nullable here
                 auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
                         std::move(*ref_col.column).mutate().get());
+
+                const auto* null_map =
+                        ref_nullable_col->get_null_map_column().get_data().data();
+
+                for (size_t i = 0; i < row_size; i++) {
+                    if (null_map[i]) {
+                        return Status::DataQualityError("is_null of data is changed!");
+                    }
+                }
                 ref_nullable_col->swap_nested_column(new_col.column);
             }
         } else {
