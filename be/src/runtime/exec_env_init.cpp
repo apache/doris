@@ -131,13 +131,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
 
-    ThreadPoolBuilder("DownloadCacheThreadPool")
-            .set_min_threads(config::download_cache_thread_pool_thread_num)
-            .set_max_threads(config::download_cache_thread_pool_thread_num)
-            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
-            .build(&_download_cache_thread_pool);
-    set_serial_download_cache_thread_token();
-    init_download_cache_buf();
+    init_download_cache_required_components();
 
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
@@ -336,6 +330,23 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
                                 int64_t clean_pages_limit) {
     DCHECK(_buffer_pool == nullptr);
     _buffer_pool = new BufferPool(min_page_size, capacity, clean_pages_limit);
+}
+
+void ExecEnv::init_download_cache_buf() {
+    std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
+    memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
+    _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
+            std::move(download_cache_buf);
+}
+
+void ExecEnv::init_download_cache_required_components() {
+    ThreadPoolBuilder("DownloadCacheThreadPool")
+            .set_min_threads(1)
+            .set_max_threads(config::download_cache_thread_pool_thread_num)
+            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
+            .build(&_download_cache_thread_pool);
+    set_serial_download_cache_thread_token();
+    init_download_cache_buf();
 }
 
 void ExecEnv::_register_metrics() {
