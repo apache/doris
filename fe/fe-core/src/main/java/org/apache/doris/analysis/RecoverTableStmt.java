@@ -34,12 +34,14 @@ import com.google.common.base.Strings;
 public class RecoverTableStmt extends DdlStmt {
     private TableName dbTblName;
     private long tableId = -1;
-    private String newTableName;
+    private String newTableName = "";
 
     public RecoverTableStmt(TableName dbTblName, long tableId, String newTableName) {
         this.dbTblName = dbTblName;
         this.tableId = tableId;
-        this.newTableName = newTableName;
+        if (newTableName != null) {
+            this.newTableName = newTableName;
+        }
     }
 
     public String getDbName() {

@@ -35,13 +35,15 @@ public class RecoverPartitionStmt extends DdlStmt {
     private TableName dbTblName;
     private String partitionName;
     private long partitionId = -1;
-    private String newPartitionName;
+    private String newPartitionName = "";
 
     public RecoverPartitionStmt(TableName dbTblName, String partitionName, long partitionId, String newPartitionName) {
         this.dbTblName = dbTblName;
         this.partitionName = partitionName;
         this.partitionId = partitionId;
-        this.newPartitionName = newPartitionName;
+        if (newPartitionName != null) {
+            this.newPartitionName = newPartitionName;
+        }
     }
 
     public String getDbName() {
