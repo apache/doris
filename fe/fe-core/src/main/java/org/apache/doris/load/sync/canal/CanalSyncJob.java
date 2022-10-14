@@ -51,6 +51,7 @@ public class CanalSyncJob extends SyncJob {
 
     protected static final String CANAL_SERVER_IP = "canal.server.ip";
     protected static final String CANAL_SERVER_PORT = "canal.server.port";
+    protected static final String CANAL_ZK_SERVERS = "canal.zk.servers";
     protected static final String CANAL_DESTINATION = "canal.destination";
     protected static final String CANAL_USERNAME = "canal.username";
     protected static final String CANAL_PASSWORD = "canal.password";
@@ -77,8 +78,14 @@ public class CanalSyncJob extends SyncJob {
     }
 
     private void init() throws DdlException {
-        CanalConnector connector = CanalConnectors.newSingleConnector(
+        CanalConnector connector;
+        if (remote.isCluster()) {
+            connector = CanalConnectors.newClusterConnector(
+                remote.getZkServers(), remote.getDestination(), username, password);
+        } else {
+            connector = CanalConnectors.newSingleConnector(
                 new InetSocketAddress(remote.getIp(), remote.getPort()), remote.getDestination(), username, password);
+        }
         // create channels
         initChannels();
         // create client
@@ -162,13 +169,20 @@ public class CanalSyncJob extends SyncJob {
 
     @Override
     public void execute() throws UserException {
-        LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("remote ip", remote.getIp())
-                .add("remote port", remote.getPort())
-                .add("msg", "Try to start canal client.")
-                .add("debug", debug)
-                .build());
-
+        if (remote.isCluster()) {
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("cluster", remote.getZkServers())
+                    .add("msg", "Try to start canal client.")
+                    .add("debug", debug)
+                    .build());
+        } else {
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("remote ip", remote.getIp())
+                    .add("remote port", remote.getPort())
+                    .add("msg", "Try to start canal client.")
+                    .add("debug", debug)
+                    .build());
+        }
         // init
         if (!isInit()) {
             init();
@@ -210,23 +224,39 @@ public class CanalSyncJob extends SyncJob {
     @Override
     public void pause() throws UserException {
         unprotectedStopClient(JobState.PAUSED);
-        LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("remote ip", remote.getIp())
-                .add("remote port", remote.getPort())
-                .add("msg", "Pause canal sync job.")
-                .add("debug", debug)
-                .build());
+        if (remote.isCluster()) {
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("cluster", remote.getZkServers())
+                    .add("msg", "Pause canal sync job.")
+                    .add("debug", debug)
+                    .build());
+        } else {
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("remote ip", remote.getIp())
+                    .add("remote port", remote.getPort())
+                    .add("msg", "Pause canal sync job.")
+                    .add("debug", debug)
+                    .build());
+        }
     }
 
     @Override
     public void resume() throws UserException {
         updateState(JobState.PENDING, false);
-        LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("remote ip", remote.getIp())
-                .add("remote port", remote.getPort())
-                .add("msg", "Resume canal sync job.")
-                .add("debug", debug)
-                .build());
+        if (remote.isCluster()) {
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("cluster", remote.getZkServers())
+                    .add("msg", "Resume canal sync job.")
+                    .add("debug", debug)
+                    .build());
+        } else {
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("remote ip", remote.getIp())
+                    .add("remote port", remote.getPort())
+                    .add("msg", "Resume canal sync job.")
+                    .add("debug", debug)
+                    .build());
+        }
     }
 
     public void unprotectedStartClient() throws UserException {
@@ -300,9 +330,15 @@ public class CanalSyncJob extends SyncJob {
     @Override
     public String getJobConfig() {
         StringBuilder sb = new StringBuilder();
-        sb.append("address:").append(remote.getIp()).append(":").append(remote.getPort()).append(",")
+        if (remote.isCluster()) {
+            sb.append("cluster:").append(remote.getZkServers()).append(",")
                 .append("destination:").append(remote.getDestination()).append(",")
                 .append("batchSize:").append(batchSize);
+        } else {
+            sb.append("address:").append(remote.getIp()).append(":").append(remote.getPort()).append(",")
+                .append("destination:").append(remote.getDestination()).append(",")
+                .append("batchSize:").append(batchSize);
+        }
         return sb.toString();
     }
 

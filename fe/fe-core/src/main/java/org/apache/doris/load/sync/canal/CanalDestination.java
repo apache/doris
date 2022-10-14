@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import org.springframework.util.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -36,23 +37,34 @@ public class CanalDestination implements Writable {
     private String ip;
     @SerializedName(value = "port")
     private int port;
+    @SerializedName(value = "zkServers")
+    private String zkServers;
     @SerializedName(value = "destination")
     private String destination;
 
+    public boolean isCluster() {
+        return StringUtils.hasText(zkServers);
+    }
+
     public void parse(Map<String, String> properties) throws DdlException {
         // required binlog properties
-        if (!properties.containsKey(CanalSyncJob.CANAL_SERVER_IP)) {
-            throw new DdlException("Missing " + CanalSyncJob.CANAL_SERVER_IP + " property in binlog properties");
+        if (properties.containsKey(CanalSyncJob.CANAL_ZK_SERVERS)
+                && StringUtils.hasText(properties.get(CanalSyncJob.CANAL_ZK_SERVERS))) {
+            zkServers = properties.get(CanalSyncJob.CANAL_ZK_SERVERS);
         } else {
-            ip = properties.get(CanalSyncJob.CANAL_SERVER_IP);
-        }
-        if (!properties.containsKey(CanalSyncJob.CANAL_SERVER_PORT)) {
-            throw new DdlException("Missing " + CanalSyncJob.CANAL_SERVER_PORT + " property in binlog properties");
-        } else {
-            try {
-                port = Integer.parseInt(properties.get(CanalSyncJob.CANAL_SERVER_PORT));
-            } catch (NumberFormatException e) {
-                throw new DdlException("canal port is not int");
+            if (!properties.containsKey(CanalSyncJob.CANAL_SERVER_IP)) {
+                throw new DdlException("Missing " + CanalSyncJob.CANAL_SERVER_IP + " property in binlog properties");
+            } else {
+                ip = properties.get(CanalSyncJob.CANAL_SERVER_IP);
+            }
+            if (!properties.containsKey(CanalSyncJob.CANAL_SERVER_PORT)) {
+                throw new DdlException("Missing " + CanalSyncJob.CANAL_SERVER_PORT + " property in binlog properties");
+            } else {
+                try {
+                    port = Integer.parseInt(properties.get(CanalSyncJob.CANAL_SERVER_PORT));
+                } catch (NumberFormatException e) {
+                    throw new DdlException("canal port is not int");
+                }
             }
         }
         if (!properties.containsKey(CanalSyncJob.CANAL_DESTINATION)) {
@@ -82,6 +94,14 @@ public class CanalDestination implements Writable {
 
     public void setPort(int port) {
         this.port = port;
+    }
+
+    public String getZkServers() {
+        return this.zkServers;
+    }
+
+    public void setZkServers(String zkServers) {
+        this.zkServers = zkServers;
     }
 
     public String getDestination() {
