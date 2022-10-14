@@ -16,9 +16,9 @@
  // under the License.
 
 suite("test_pushdown_constant") {
- sql """ DROP TABLE IF EXISTS T """
+ sql """ DROP TABLE IF EXISTS `test_pushdown_constant` """
  sql """
-     CREATE TABLE `T` (
+     CREATE TABLE `test_pushdown_constant` (
          `id` int
      ) ENGINE=OLAP
      AGGREGATE KEY(`id`)
@@ -31,11 +31,11 @@ suite("test_pushdown_constant") {
      );
  """
  sql """
-     insert into T values(1);
+     insert into test_pushdown_constant values(1);
  """
 
  qt_sql """
-     select 1 from T where BITMAP_MAX( BITMAP_AND(BITMAP_EMPTY(), coalesce(NULL, bitmap_empty()))) is NULL;
+     select 1 from test_pushdown_constant where BITMAP_MAX( BITMAP_AND(BITMAP_EMPTY(), coalesce(NULL, bitmap_empty()))) is NULL;
  """
 }
 
