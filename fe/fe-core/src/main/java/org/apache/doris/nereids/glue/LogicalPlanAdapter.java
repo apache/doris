@@ -22,6 +22,7 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -35,12 +36,14 @@ import java.util.List;
  */
 public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
+    private final StatementContext statementContext;
     private final LogicalPlan logicalPlan;
     private List<Expr> resultExprs;
     private ArrayList<String> colLabels;
 
-    public LogicalPlanAdapter(LogicalPlan logicalPlan) {
+    public LogicalPlanAdapter(LogicalPlan logicalPlan, StatementContext statementContext) {
         this.logicalPlan = logicalPlan;
+        this.statementContext = statementContext;
     }
 
     @Override
@@ -62,21 +65,25 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
         return null;
     }
 
+    public void setResultExprs(List<Expr> resultExprs) {
+        this.resultExprs = resultExprs;
+    }
+
     @Override
     public List<Expr> getResultExprs() {
         return resultExprs;
+    }
+
+    public void setColLabels(ArrayList<String> colLabels) {
+        this.colLabels = colLabels;
     }
 
     public ArrayList<String> getColLabels() {
         return colLabels;
     }
 
-    public void setResultExprs(List<Expr> resultExprs) {
-        this.resultExprs = resultExprs;
-    }
-
-    public void setColLabels(ArrayList<String> colLabels) {
-        this.colLabels = colLabels;
+    public StatementContext getStatementContext() {
+        return statementContext;
     }
 
     public String toDigest() {
@@ -85,6 +92,6 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     }
 
     public static LogicalPlanAdapter of(Plan plan) {
-        return new LogicalPlanAdapter((LogicalPlan) plan);
+        return new LogicalPlanAdapter((LogicalPlan) plan, null);
     }
 }

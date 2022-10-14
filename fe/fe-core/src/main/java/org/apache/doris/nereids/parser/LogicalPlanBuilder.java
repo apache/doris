@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
@@ -71,6 +72,7 @@ import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -167,6 +169,8 @@ import java.util.stream.Collectors;
  */
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
+    private StatementContext statementContext = new StatementContext();
+
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
     }
@@ -194,8 +198,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * Visit multi-statements.
      */
     @Override
-    public List<LogicalPlan> visitMultiStatements(MultiStatementsContext ctx) {
-        return visit(ctx.statement(), LogicalPlan.class);
+    public List<Pair<LogicalPlan, StatementContext>> visitMultiStatements(MultiStatementsContext ctx) {
+        List<Pair<LogicalPlan, StatementContext>> logicalPlans = Lists.newArrayList();
+        for (org.apache.doris.nereids.DorisParser.StatementContext statement : ctx.statement()) {
+            statementContext = new StatementContext();
+            logicalPlans.add(Pair.of(
+                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
+        }
+        return logicalPlans;
     }
 
     /* ********************************************************************************************
@@ -301,7 +311,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression expression = getExpression(ctx.expression());
             if (ctx.name != null) {
-                return new Alias(expression, ctx.name.getText());
+                return new Alias(statementContext.getNextExprId(), expression, ctx.name.getText());
             } else {
                 return expression;
             }
