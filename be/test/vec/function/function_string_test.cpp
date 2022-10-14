@@ -953,13 +953,13 @@ TEST(function_string_test, function_sm4_decrypt_test) {
     }
 }
 
-TEST(function_string_test, function_extract_url_parameter) {
+TEST(function_string_test, function_extract_url_parameter_test) {
     std::string func_name = "extract_url_parameter";
     InputTypeSet input_types = {
             TypeIndex::String,
             TypeIndex::String
     };
-    DataSet data_set = {{{VARCHAR(""), VARCHAR("k1"))}, {VARCHAR("")}},
+    DataSet data_set = {{{VARCHAR(""), VARCHAR("k1")}, {VARCHAR("")}},
                         {{VARCHAR("http://doris.apache.org?k1=aa"), VARCHAR("")},{VARCHAR("")}},
                         {{VARCHAR("https://doris.apache.org/"), VARCHAR("k1")},{VARCHAR("")}},
                         {{VARCHAR("http://doris.apache.org?"), VARCHAR("k1")},{VARCHAR("")}},
