@@ -240,13 +240,13 @@ public class PartitionKeyTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         PartitionKey rKeyEmpty = PartitionKey.read(dis);
-        Assert.assertTrue(keyEmpty.equals(rKeyEmpty));
+        Assert.assertEquals(keyEmpty, rKeyEmpty);
 
         PartitionKey rKey = new PartitionKey();
         rKey.readFields(dis);
-        Assert.assertTrue(key.equals(rKey));
-        Assert.assertTrue(key.equals(key));
-        Assert.assertFalse(key.equals(this));
+        Assert.assertEquals(key, rKey);
+        Assert.assertEquals(key, key);
+        Assert.assertNotEquals(key, this);
 
         // 3. delete files
         dis.close();

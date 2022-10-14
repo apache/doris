@@ -43,7 +43,7 @@ public class ReplicaAllocationTest {
         // DEFAULT_ALLOCATION
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         Assert.assertFalse(replicaAlloc.isNotSet());
-        Assert.assertTrue(replicaAlloc.equals(ReplicaAllocation.DEFAULT_ALLOCATION));
+        Assert.assertEquals(replicaAlloc, ReplicaAllocation.DEFAULT_ALLOCATION);
         Assert.assertFalse(replicaAlloc.isEmpty());
         Assert.assertEquals(3, replicaAlloc.getTotalReplicaNum());
         Assert.assertEquals("tag.location.default: 3", replicaAlloc.toCreateStmt());
@@ -51,7 +51,7 @@ public class ReplicaAllocationTest {
         // NOT SET
         replicaAlloc = ReplicaAllocation.NOT_SET;
         Assert.assertTrue(replicaAlloc.isNotSet());
-        Assert.assertFalse(replicaAlloc.equals(ReplicaAllocation.DEFAULT_ALLOCATION));
+        Assert.assertNotEquals(replicaAlloc, ReplicaAllocation.DEFAULT_ALLOCATION);
         Assert.assertTrue(replicaAlloc.isEmpty());
         Assert.assertEquals(0, replicaAlloc.getTotalReplicaNum());
         Assert.assertEquals("", replicaAlloc.toCreateStmt());
@@ -59,7 +59,7 @@ public class ReplicaAllocationTest {
         // set replica num
         replicaAlloc = new ReplicaAllocation((short) 5);
         Assert.assertFalse(replicaAlloc.isNotSet());
-        Assert.assertFalse(replicaAlloc.equals(ReplicaAllocation.DEFAULT_ALLOCATION));
+        Assert.assertNotEquals(replicaAlloc, ReplicaAllocation.DEFAULT_ALLOCATION);
         Assert.assertFalse(replicaAlloc.isEmpty());
         Assert.assertEquals(5, replicaAlloc.getTotalReplicaNum());
         Assert.assertEquals("tag.location.default: 5", replicaAlloc.toCreateStmt());

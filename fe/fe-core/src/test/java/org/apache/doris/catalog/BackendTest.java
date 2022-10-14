@@ -172,23 +172,23 @@ public class BackendTest {
         Assert.assertEquals(100, backend100BackendStatus.lastStreamLoadTime);
 
         for (int count = 0; count < 200; count++) {
-            Assert.assertTrue(list1.get(count).equals(list2.get(count)));
+            Assert.assertEquals(list1.get(count), list2.get(count));
         }
-        Assert.assertFalse(list1.get(1).equals(list1.get(2)));
-        Assert.assertFalse(list1.get(1).equals(this));
-        Assert.assertTrue(list1.get(1).equals(list1.get(1)));
+        Assert.assertNotEquals(list1.get(1), list1.get(2));
+        Assert.assertNotEquals(list1.get(1), this);
+        Assert.assertEquals(list1.get(1), list1.get(1));
 
         Backend back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         Backend back2 = new Backend(2, "a", 1);
         back2.updateOnce(1, 1, 1);
-        Assert.assertFalse(back1.equals(back2));
+        Assert.assertNotEquals(back1, back2);
 
         back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "b", 1);
         back2.updateOnce(1, 1, 1);
-        Assert.assertFalse(back1.equals(back2));
+        Assert.assertNotEquals(back1, back2);
 
         back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
@@ -198,7 +198,7 @@ public class BackendTest {
         tagMap.put(Tag.TYPE_LOCATION, "l1");
         tagMap.put("compute", "c1");
         back2.setTagMap(tagMap);
-        Assert.assertFalse(back1.equals(back2));
+        Assert.assertNotEquals(back1, back2);
 
         Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tags: {location=default}]",
                 back1.toString());

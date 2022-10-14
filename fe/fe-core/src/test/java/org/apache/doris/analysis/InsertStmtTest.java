@@ -200,7 +200,7 @@ public class InsertStmtTest {
 
         Assert.assertTrue(queryStmtSubstitute.getResultExprs().get(4) instanceof FunctionCallExpr);
         FunctionCallExpr expr4 = (FunctionCallExpr) queryStmtSubstitute.getResultExprs().get(4);
-        Assert.assertTrue(expr4.getFnName().getFunction().equals("to_bitmap"));
+        Assert.assertEquals(expr4.getFnName().getFunction(), "to_bitmap");
         List<Expr> slots = Lists.newArrayList();
         expr4.collect(IntLiteral.class, slots);
         Assert.assertEquals(1, slots.size());
@@ -208,7 +208,7 @@ public class InsertStmtTest {
 
         Assert.assertTrue(queryStmtSubstitute.getResultExprs().get(5) instanceof FunctionCallExpr);
         FunctionCallExpr expr5 = (FunctionCallExpr) queryStmtSubstitute.getResultExprs().get(5);
-        Assert.assertTrue(expr5.getFnName().getFunction().equals("hll_hash"));
+        Assert.assertEquals(expr5.getFnName().getFunction(), "hll_hash");
         slots = Lists.newArrayList();
         expr5.collect(StringLiteral.class, slots);
         Assert.assertEquals(1, slots.size());
@@ -263,7 +263,7 @@ public class InsertStmtTest {
 
         Assert.assertTrue(queryStmtSubstitue.getResultExprs().get(4) instanceof FunctionCallExpr);
         FunctionCallExpr expr4 = (FunctionCallExpr) queryStmtSubstitue.getResultExprs().get(4);
-        Assert.assertTrue(expr4.getFnName().getFunction().equals("to_bitmap"));
+        Assert.assertEquals(expr4.getFnName().getFunction(), "to_bitmap");
         List<Expr> slots = Lists.newArrayList();
         expr4.collect(SlotRef.class, slots);
         Assert.assertEquals(1, slots.size());
@@ -273,7 +273,7 @@ public class InsertStmtTest {
 
         Assert.assertTrue(queryStmtSubstitue.getResultExprs().get(5) instanceof FunctionCallExpr);
         FunctionCallExpr expr5 = (FunctionCallExpr) queryStmtSubstitue.getResultExprs().get(5);
-        Assert.assertTrue(expr5.getFnName().getFunction().equals("hll_hash"));
+        Assert.assertEquals(expr5.getFnName().getFunction(), "hll_hash");
         slots = Lists.newArrayList();
         expr5.collect(SlotRef.class, slots);
         Assert.assertEquals(1, slots.size());

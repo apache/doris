@@ -178,7 +178,7 @@ public class EnvTest {
         long checksum2 = env.loadLoadJob(dis, 0);
         Assert.assertEquals(checksum1, checksum2);
         LoadJob job2 = env.getLoadInstance().getLoadJob(-1);
-        Assert.assertTrue(job1.equals(job2));
+        Assert.assertEquals(job1, job2);
         dis.close();
 
         deleteDir(dir);

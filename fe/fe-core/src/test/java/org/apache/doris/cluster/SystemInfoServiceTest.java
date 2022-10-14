@@ -290,7 +290,7 @@ public class SystemInfoServiceTest {
         Assert.assertEquals(checksum1, checksum2);
         Assert.assertEquals(1, systemInfoService.getIdToBackend().size());
         Backend back2 = systemInfoService.getBackend(1);
-        Assert.assertTrue(back1.equals(back2));
+        Assert.assertEquals(back1, back2);
         dis.close();
 
         deleteDir(dir);

@@ -171,11 +171,11 @@ public class LoadJobTest {
         LoadJob rLoadJob3 = new LoadJob();
         rLoadJob3.readFields(dis);
 
-        Assert.assertTrue(loadJob0.equals(rLoadJob0));
-        Assert.assertTrue(loadJob1.equals(rLoadJob1));
-        Assert.assertTrue(loadJob3.equals(rLoadJob3));
+        Assert.assertEquals(loadJob0, rLoadJob0);
+        Assert.assertEquals(loadJob1, rLoadJob1);
+        Assert.assertEquals(loadJob3, rLoadJob3);
 
-        Assert.assertFalse(loadJob0.equals(rLoadJob1));
+        Assert.assertNotEquals(loadJob0, rLoadJob1);
 
         dis.close();
         file.delete();

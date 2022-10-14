@@ -80,7 +80,7 @@ public class EtlJobStatusTest {
             Assert.assertEquals(counters.get(countersKey), countersValue);
         }
 
-        Assert.assertTrue(etlJobStatus.equals(etlJobStatus1));
+        Assert.assertEquals(etlJobStatus, etlJobStatus1);
         Assert.assertEquals(trackingUrl, etlJobStatus1.getTrackingUrl());
 
         dis.close();

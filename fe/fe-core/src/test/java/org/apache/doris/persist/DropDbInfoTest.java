@@ -54,19 +54,19 @@ public class DropDbInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         DropDbInfo rInfo1 = DropDbInfo.read(dis);
-        Assert.assertTrue(rInfo1.equals(info1));
+        Assert.assertEquals(rInfo1, info1);
 
         DropDbInfo rInfo2 = DropDbInfo.read(dis);
-        Assert.assertTrue(rInfo2.equals(info2));
+        Assert.assertEquals(rInfo2, info2);
 
         Assert.assertEquals("test_db", rInfo2.getDbName());
         Assert.assertTrue(rInfo2.isForceDrop());
 
-        Assert.assertTrue(rInfo2.equals(rInfo2));
-        Assert.assertFalse(rInfo2.equals(this));
-        Assert.assertFalse(info2.equals(new DropDbInfo("test_db1", true)));
-        Assert.assertFalse(info2.equals(new DropDbInfo("test_db", false)));
-        Assert.assertTrue(info2.equals(new DropDbInfo("test_db", true)));
+        Assert.assertEquals(rInfo2, rInfo2);
+        Assert.assertNotEquals(rInfo2, this);
+        Assert.assertNotEquals(info2, new DropDbInfo("test_db1", true));
+        Assert.assertNotEquals(info2, new DropDbInfo("test_db", false));
+        Assert.assertEquals(info2, new DropDbInfo("test_db", true));
 
         // 3. delete files
         dis.close();

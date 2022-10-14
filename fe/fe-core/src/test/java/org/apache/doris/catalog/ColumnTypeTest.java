@@ -240,17 +240,17 @@ public class ColumnTypeTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         Type rType1 = ColumnType.read(dis);
-        Assert.assertTrue(rType1.equals(type1));
+        Assert.assertEquals(rType1, type1);
 
         Type rType2 = ColumnType.read(dis);
-        Assert.assertTrue(rType2.equals(type2));
+        Assert.assertEquals(rType2, type2);
 
         Type rType3 = ColumnType.read(dis);
 
         // Change it when remove DecimalV2
         Assert.assertTrue(rType3.equals(type3) || rType3.equals(type4));
 
-        Assert.assertFalse(type1.equals(this));
+        Assert.assertNotEquals(type1, this);
 
         // 3. delete files
         dis.close();
