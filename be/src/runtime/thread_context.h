@@ -201,7 +201,7 @@ static void attach_bthread() {
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
     } else {
-        bthread_context->detach_task();
+        bthread_context->_thread_mem_tracker_mgr->clear();
     }
     bthread_context->attach_task(ThreadContext::TaskType::BRPC, "", TUniqueId(),
                                  ExecEnv::GetInstance()->bthread_mem_tracker());
