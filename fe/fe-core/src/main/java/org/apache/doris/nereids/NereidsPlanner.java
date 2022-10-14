@@ -47,6 +47,8 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -55,6 +57,7 @@ import java.util.stream.Collectors;
  * Planner to do query plan in Nereids.
  */
 public class NereidsPlanner extends Planner {
+    public static StringBuilder builder = new StringBuilder();
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
     private CascadesContext cascadesContext;
@@ -84,6 +87,13 @@ public class NereidsPlanner extends Planner {
             System.out.println(memo);
             LOG.info(memo);
         }
+        try {
+            FileOutputStream fs = new FileOutputStream("/mnt/disk1/mch/projects/doris/fe.log");
+            fs.write(builder.toString().getBytes(StandardCharsets.UTF_8));
+            fs.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
         scanNodeList = planTranslatorContext.getScanNodes();
@@ -95,6 +105,7 @@ public class NereidsPlanner extends Planner {
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
                 .collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
+        builder = new StringBuilder();
     }
 
     @VisibleForTesting
