@@ -524,8 +524,12 @@ Status AggregationNode::close(RuntimeState* state) {
 
     for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
     VExpr::close(_probe_expr_ctxs, state);
-    if (_executor.close) _executor.close();
-
+    //because prepare maybe failed, and couldn't create agg data.
+    //but finally call close to destory agg data, if agg data has bitmapValue
+    //will be core dump, because it's not initialized
+    if (_agg_data_created && _executor.close) {
+        _executor.close();
+    }
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter) {
         std::visit(
@@ -542,6 +546,7 @@ Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->create(data + _offsets_of_aggregate_states[i]);
     }
+    _agg_data_created = true;
     return Status::OK();
 }
 
@@ -549,6 +554,7 @@ Status AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->function()->destroy(data + _offsets_of_aggregate_states[i]);
     }
+    _agg_data_created = false;
     return Status::OK();
 }
 
