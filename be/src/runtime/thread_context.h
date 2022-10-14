@@ -195,7 +195,7 @@ static void attach_bthread() {
     if (bthread_context == nullptr) {
 #ifndef BE_TEST
         DCHECK(ExecEnv::GetInstance()->initialized());
-#endif // BE_TEST
+#endif // BE_TEST \
         // Create thread-local data on demand.
         bthread_context = new ThreadContext;
         // set the data so that next time bthread_getspecific in the thread returns the data.

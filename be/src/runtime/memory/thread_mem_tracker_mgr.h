@@ -47,7 +47,8 @@ public:
         flush_untracked_mem<false>();
         if (bthread_self() == 0) {
             DCHECK(_consumer_tracker_stack.empty());
-            DCHECK(_limiter_tracker_stack.size() == 1) << ", limiter_tracker_stack.size(): " << _limiter_tracker_stack.size() ;
+            DCHECK(_limiter_tracker_stack.size() == 1)
+                    << ", limiter_tracker_stack.size(): " << _limiter_tracker_stack.size();
         }
     }
 
