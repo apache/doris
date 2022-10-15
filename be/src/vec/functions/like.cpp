@@ -104,7 +104,6 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Col
     for (size_t i = 0; i < sz; i++) {
         if (state->search_string_sv.size == 0) {
             result[i] = true;
-            return Status::OK();
         }
         result[i] = state->substring_pattern.search(val.get_data_at(i)) != -1;
     }
@@ -156,7 +155,6 @@ Status FunctionLikeBase::constant_substring_fn_predicate(
     for (size_t i = 0; i < sz; i++) {
         if (state->search_string_sv.size == 0) {
             result[i] = true;
-            return Status::OK();
         }
         result[i] = state->substring_pattern.search(data_ptr[sel[i]]) != -1;
     }
@@ -213,11 +211,11 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
 
 Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
                                           const StringValue& pattern, unsigned char* result) {
-    std::string re_pattern(pattern.ptr, pattern.len);
+    std::string_view re_pattern(pattern.ptr, pattern.len);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
-    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
+    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.data(), &database, &scratch));
 
     auto ret = hs_scan(database, val.data, val.size, 0, scratch, state->hs_match_handler,
                        (void*)result);
@@ -228,31 +226,6 @@ Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRe
     hs_free_scratch(scratch);
     hs_free_database(database);
 
-    return Status::OK();
-}
-
-Status FunctionLikeBase::constant_substring_fn_vec(LikeSearchState* state,
-                                                   const StringValue& pattern,
-                                                   const StringValue* values, uint16_t* sel,
-                                                   uint16_t size, bool opposite,
-                                                   uint16_t* new_size) {
-    uint16_t count = 0;
-    for (uint16_t i = 0; i < size; i++) {
-        uint16_t idx = sel[i];
-        sel[count] = idx;
-        count += opposite ^ (state->substring_pattern.search(&values[idx]) != -1);
-    }
-    *new_size = count;
-    return Status::OK();
-}
-
-Status FunctionLikeBase::constant_substring_fn_vec_dict(LikeSearchState* state,
-                                                        const StringValue& pattern,
-                                                        const StringValue* values, uint16_t size,
-                                                        unsigned char* result) {
-    for (uint16_t i = 0; i < size; i++) {
-        result[i] = (state->substring_pattern.search(&values[i]) != -1);
-    }
     return Status::OK();
 }
 
@@ -275,11 +248,11 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
 
 Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& val,
                                    const StringValue& pattern, ColumnUInt8::Container& result) {
-    std::string re_pattern(pattern.ptr, pattern.len);
+    std::string_view re_pattern(pattern.ptr, pattern.len);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
-    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
+    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.data(), &database, &scratch));
 
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -320,11 +293,11 @@ Status FunctionLikeBase::regexp_fn_predicate(LikeSearchState* state,
                                              const StringValue& pattern,
                                              ColumnUInt8::Container& result, uint16_t* sel,
                                              size_t sz) {
-    std::string re_pattern(pattern.ptr, pattern.len);
+    std::string_view re_pattern(pattern.ptr, pattern.len);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
-    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
+    RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.data(), &database, &scratch));
 
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     for (size_t i = 0; i < sz; i++) {
@@ -592,8 +565,6 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
             remove_escape_character(&search_string);
             state->search_state.set_search_string(search_string);
             state->function = constant_substring_fn;
-            state->function_vec = constant_substring_fn_vec;
-            state->function_vec_dict = constant_substring_fn_vec_dict;
             state->predicate_like_function = constant_substring_fn_predicate;
             state->scalar_function = constant_substring_fn_scalar;
         } else {
@@ -651,8 +622,6 @@ Status FunctionRegexp::prepare(FunctionContext* context,
             state->function = constant_substring_fn;
             state->predicate_like_function = constant_substring_fn_predicate;
             state->scalar_function = constant_substring_fn_scalar;
-            state->function_vec = constant_substring_fn_vec;
-            state->function_vec_dict = constant_substring_fn_vec_dict;
         } else {
             hs_database_t* database = nullptr;
             hs_scratch_t* scratch = nullptr;

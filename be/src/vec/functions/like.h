@@ -107,18 +107,9 @@ using LikePredicateFn = std::function<doris::Status(
 using ScalarLikeFn = std::function<doris::Status(LikeSearchState*, const StringRef&,
                                                  const StringValue&, unsigned char*)>;
 
-using LikeFnVec =
-        std::function<doris::Status(LikeSearchState*, const StringValue&, const StringValue*,
-                                    uint16_t*, uint16_t, bool, uint16_t*)>;
-
-using LikeFnVecDict = std::function<doris::Status(LikeSearchState*, const StringValue&,
-                                                  const StringValue*, uint16_t, unsigned char*)>;
-
 struct LikeState {
     LikeSearchState search_state;
     LikeFn function;
-    LikeFnVec function_vec;
-    LikeFnVecDict function_vec_dict;
     // Two functions below are used only for predicate.
     LikePredicateFn predicate_like_function;
     ScalarLikeFn scalar_function;
@@ -161,20 +152,13 @@ protected:
     static Status constant_substring_fn(LikeSearchState* state, const ColumnString& val,
                                         const StringValue& pattern, ColumnUInt8::Container& result);
 
-    static Status constant_substring_fn_vec(LikeSearchState* state, const StringValue& pattern,
-                                            const StringValue* values, uint16_t* sel, uint16_t size,
-                                            bool opposite, uint16_t* new_size);
-
-    static Status constant_substring_fn_vec_dict(LikeSearchState* state, const StringValue& pattern,
-                                                 const StringValue* values, uint16_t size,
-                                                 unsigned char* result);
-
     static Status constant_regex_fn(LikeSearchState* state, const ColumnString& val,
                                     const StringValue& pattern, ColumnUInt8::Container& result);
 
     static Status regexp_fn(LikeSearchState* state, const ColumnString& val,
                             const StringValue& pattern, ColumnUInt8::Container& result);
 
+    // These functions below are used only for predicate.
     static Status constant_regex_fn_predicate(LikeSearchState* state,
                                               const PredicateColumnType<TYPE_STRING>& val,
                                               const StringValue& pattern,
