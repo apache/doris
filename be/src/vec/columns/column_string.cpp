@@ -416,7 +416,8 @@ void ColumnString::replicate(const uint32_t* counts, size_t target_size, IColumn
     res_chars.reserve(chars.size() / col_size * target_size);
     res_offsets.reserve(target_size);
 
-    Offset prev_string_offset = 0;
+    size_t base = begin > 0 ? offsets[begin - 1] : 0;
+    Offset prev_string_offset = 0 + base;
     Offset current_new_offset = 0;
 
     size_t end = begin + col_size;
