@@ -419,7 +419,7 @@ public class BitmapValueTest {
         Assert.assertNotEquals(emp1, emp2);
         // empty == bitmap
         emp2.add(2);
-        Assert.assertTrue(emp1.equals(emp2));
+        Assert.assertNotEquals(emp1, emp2);
 
         // single value = empty
         BitmapValue sgv = new BitmapValue();
