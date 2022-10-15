@@ -154,35 +154,36 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
 Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
     CHECK((size > 0 && (size & (size - 1)) == 0));
 
-    // fast path: allocate from current core arena
     int core_id = CpuInfo::get_current_core();
-    chunk->size = size;
     chunk->core_id = core_id;
-
-    if (_arenas[core_id]->pop_free_chunk(size, &chunk->data)) {
-        DCHECK_GE(_reserved_bytes, 0);
-        _reserved_bytes.fetch_sub(size);
-        chunk_pool_local_core_alloc_count->increment(1);
-        // transfer the memory ownership of allocate from ChunkAllocator::tracker to the tls tracker.
-        THREAD_MEM_TRACKER_TRANSFER_FROM(size, _mem_tracker.get());
-        return Status::OK();
-    }
-    // Second path: try to allocate from other core's arena
-    // When the reserved bytes is greater than the limit, the chunk is stolen from other arena.
-    // Otherwise, it is allocated from the system first, which can reserve enough memory as soon as possible.
-    // After that, allocate from current core arena as much as possible.
-    if (_reserved_bytes > _steal_arena_limit) {
-        ++core_id;
-        for (int i = 1; i < _arenas.size(); ++i, ++core_id) {
-            if (_arenas[core_id % _arenas.size()]->pop_free_chunk(size, &chunk->data)) {
-                DCHECK_GE(_reserved_bytes, 0);
-                _reserved_bytes.fetch_sub(size);
-                chunk_pool_other_core_alloc_count->increment(1);
-                // reset chunk's core_id to other
-                chunk->core_id = core_id % _arenas.size();
-                // transfer the memory ownership of allocate from ChunkAllocator::tracker to the tls tracker.
-                THREAD_MEM_TRACKER_TRANSFER_FROM(size, _mem_tracker.get());
-                return Status::OK();
+    chunk->size = size;
+    if (!config::disable_chunk_allocator) {
+        // fast path: allocate from current core arena
+        if (_arenas[core_id]->pop_free_chunk(size, &chunk->data)) {
+            DCHECK_GE(_reserved_bytes, 0);
+            _reserved_bytes.fetch_sub(size);
+            chunk_pool_local_core_alloc_count->increment(1);
+            // transfer the memory ownership of allocate from ChunkAllocator::tracker to the tls tracker.
+            THREAD_MEM_TRACKER_TRANSFER_FROM(size, _mem_tracker.get());
+            return Status::OK();
+        }
+        // Second path: try to allocate from other core's arena
+        // When the reserved bytes is greater than the limit, the chunk is stolen from other arena.
+        // Otherwise, it is allocated from the system first, which can reserve enough memory as soon as possible.
+        // After that, allocate from current core arena as much as possible.
+        if (_reserved_bytes > _steal_arena_limit) {
+            ++core_id;
+            for (int i = 1; i < _arenas.size(); ++i, ++core_id) {
+                if (_arenas[core_id % _arenas.size()]->pop_free_chunk(size, &chunk->data)) {
+                    DCHECK_GE(_reserved_bytes, 0);
+                    _reserved_bytes.fetch_sub(size);
+                    chunk_pool_other_core_alloc_count->increment(1);
+                    // reset chunk's core_id to other
+                    chunk->core_id = core_id % _arenas.size();
+                    // transfer the memory ownership of allocate from ChunkAllocator::tracker to the tls tracker.
+                    THREAD_MEM_TRACKER_TRANSFER_FROM(size, _mem_tracker.get());
+                    return Status::OK();
+                }
             }
         }
     }
@@ -204,7 +205,7 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk) {
 void ChunkAllocator::free(const Chunk& chunk) {
     DCHECK(chunk.core_id != -1);
     CHECK((chunk.size & (chunk.size - 1)) == 0);
-    if (config::disable_mem_pools) {
+    if (config::disable_chunk_allocator) {
         SystemAllocator::free(chunk.data, chunk.size);
         return;
     }
