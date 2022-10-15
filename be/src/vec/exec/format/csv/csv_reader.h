@@ -58,6 +58,9 @@ private:
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
+    // _file_reader_s is for stream load pipe reader,
+    // and _file_reader is for other file reader.
+    // TODO: refactor this to use only shared_ptr or unique_ptr
     std::unique_ptr<FileReader> _file_reader;
     std::shared_ptr<FileReader> _file_reader_s;
     std::unique_ptr<LineReader> _line_reader;
