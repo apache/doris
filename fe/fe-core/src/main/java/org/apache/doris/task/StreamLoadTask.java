@@ -30,7 +30,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
