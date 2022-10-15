@@ -30,37 +30,42 @@
 
 namespace doris::vectorized {
 struct RetentionState {
-    static constexpr size_t max_events = 32;
-    uint8_t events[max_events] = {0};
+    static constexpr size_t MAX_EVENTS = 32;
+    uint8_t events[MAX_EVENTS] = {0};
 
     RetentionState() {}
 
     void reset() {
-        for (int64_t i = 0; i < max_events; i++) {
+        for (int64_t i = 0; i < MAX_EVENTS; i++) {
             events[i] = 0;
         }
     }
 
-    void add(int event) { events[event] = 1; }
+    void set(int event) { events[event] = 1; }
 
     void merge(const RetentionState& other) {
-        for (int64_t i = 0; i < max_events; i++) {
+        for (int64_t i = 0; i < MAX_EVENTS; i++) {
             events[i] |= other.events[i];
         }
     }
 
     void write(BufferWritable& out) const {
-        for (int64_t i = 0; i < max_events; i++) {
-            int64_t event = events[i];
-            write_var_int(event, out);
+        uint64_t serialized_events = 0;
+        for (int64_t i = 0; i < MAX_EVENTS; i++) {
+            serialized_events |= events[i];
+            serialized_events <<= 1;
         }
+
+        write_var_int(serialized_events, out);
     }
 
     void read(BufferReadable& in) {
-        for (int64_t i = 0; i < max_events; i++) {
-            int64_t event;
-            read_var_int(event, in);
-            events[i] = (uint8_t)event;
+        uint64_t serialized_events = 0;
+        read_var_int(serialized_events, in);
+
+        for (int64_t i = 0; i < MAX_EVENTS; i++) {
+            events[i] = (uint8_t)(1 & serialized_events);
+            serialized_events >>= 1;
         }
     }
 
@@ -100,7 +105,7 @@ public:
         for (int i = 0; i < get_argument_types().size(); i++) {
             auto event = assert_cast<const ColumnVector<UInt8>*>(columns[i])->get_data()[row_num];
             if (event) {
-                this->data(place).add(i);
+                this->data(place).set(i);
             }
         }
     }
