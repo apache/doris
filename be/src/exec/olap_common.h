@@ -110,7 +110,7 @@ public:
 
     void convert_to_range_value();
 
-    bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
+    void convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
                                     std::vector<OlapTuple>& end_scan_keys,
                                     int32_t max_scan_key_num);
 
@@ -512,7 +512,7 @@ size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() cons
 }
 
 template <PrimitiveType primitive_type>
-bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
+void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
         int32_t max_scan_key_num) {
     constexpr bool reject_type = primitive_type == PrimitiveType::TYPE_LARGEINT ||
@@ -520,50 +520,32 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                                  primitive_type == PrimitiveType::TYPE_HLL ||
                                  primitive_type == PrimitiveType::TYPE_VARCHAR ||
                                  primitive_type == PrimitiveType::TYPE_CHAR ||
-                                 primitive_type == PrimitiveType::TYPE_STRING;
+                                 primitive_type == PrimitiveType::TYPE_STRING ||
+                                 primitive_type == PrimitiveType::TYPE_BOOLEAN;
     if constexpr (reject_type) {
-        return false;
+        return;
     } else {
-        constexpr bool cant_add = primitive_type == PrimitiveType::TYPE_DATEV2 ||
-                                  primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
-                                  primitive_type == PrimitiveType::TYPE_DATE ||
-                                  primitive_type == PrimitiveType::TYPE_DATETIME;
-
-        // Incrementing boolean is denied in C++17, So we use int as bool type
-        using type = std::conditional_t<std::is_same<bool, CppType>::value, int, CppType>;
-        type current = get_range_min_value();
+        CppType current = get_range_min_value();
 
         size_t range_size = get_convertible_fixed_value_size();
         size_t step_size =
                 std::max((range_size + max_scan_key_num - 1) / max_scan_key_num, (size_t)1);
-        // we should avoid range too big to oom.
-        if (range_size == 0 || range_size / (cant_add ? 1 : step_size) > (size_t)65536) {
-            return false;
-        }
 
         while (current < get_range_max_value()) {
             begin_scan_keys.emplace_back();
             end_scan_keys.emplace_back();
             begin_scan_keys.back().add_value(
                     cast_to_string<primitive_type, CppType>(current, scale()), contain_null());
-            if constexpr (cant_add) {
-                int advance = step_size;
-                while (advance > 0 && current < get_range_max_value()) {
-                    ++current;
-                    --advance;
-                }
+
+            if (get_range_max_value() - current < step_size) {
+                current = get_range_max_value();
             } else {
-                if (get_range_max_value() - current < step_size) {
-                    current = get_range_max_value();
-                } else {
-                    current += step_size;
-                }
+                current += step_size;
             }
+
             end_scan_keys.back().add_value(
                     cast_to_string<primitive_type, CppType>(current, scale()));
         }
-
-        return true;
     }
 }
 
@@ -860,9 +842,8 @@ bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primiti
 template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value) {
-    using namespace std;
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
-    using ConstIterator = typename set<CppType>::const_iterator;
+    using ConstIterator = typename std::set<CppType>::const_iterator;
 
     // 1. clear ScanKey if some column range is empty
     if (range.is_empty_value_range()) {
@@ -897,7 +878,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
     if (range.is_fixed_value_range()) {
         // 3.1.1 construct num of fixed value ScanKey (begin_key == end_key)
         if (_begin_scan_keys.empty()) {
-            const set<CppType>& fixed_value_set = range.get_fixed_value_set();
+            auto fixed_value_set = range.get_fixed_value_set();
             ConstIterator iter = fixed_value_set.begin();
 
             for (; iter != fixed_value_set.end(); ++iter) {
@@ -917,7 +898,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
             }
         } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
         else {
-            const set<CppType>& fixed_value_set = range.get_fixed_value_set();
+            auto fixed_value_set = range.get_fixed_value_set();
             int original_key_range_size = _begin_scan_keys.size();
 
             for (int i = 0; i < original_key_range_size; ++i) {
