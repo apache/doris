@@ -50,7 +50,7 @@ struct RetentionState {
     }
 
     void write(BufferWritable& out) const {
-        uint64_t serialized_events = 0;
+        int64_t serialized_events = 0;
         for (int64_t i = 0; i < MAX_EVENTS; i++) {
             serialized_events |= events[i];
             serialized_events <<= 1;
@@ -60,7 +60,7 @@ struct RetentionState {
     }
 
     void read(BufferReadable& in) {
-        uint64_t serialized_events = 0;
+        int64_t serialized_events = 0;
         read_var_int(serialized_events, in);
 
         for (int64_t i = 0; i < MAX_EVENTS; i++) {
