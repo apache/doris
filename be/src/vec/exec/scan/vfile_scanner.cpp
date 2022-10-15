@@ -50,7 +50,6 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _strict_mode(false) {
     if (scan_range.params.__isset.strict_mode) {
         _strict_mode = scan_range.params.strict_mode;
-        LOG(INFO) << "cmy debug get strict mode: " << _strict_mode;
     }
 }
 
@@ -163,11 +162,11 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     } while (true);
 
     // Update filtered rows and unselected rows for load, reset counter.
-    {
-        state->update_num_rows_load_filtered(_counter.num_rows_filtered);
-        state->update_num_rows_load_unselected(_counter.num_rows_unselected);
-        _reset_counter();
-    }
+    // {
+    //     state->update_num_rows_load_filtered(_counter.num_rows_filtered);
+    //     state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    //     _reset_counter();
+    // }
 
     return Status::OK();
 }
@@ -360,8 +359,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     auto& filter_map = filter_column->get_data();
     auto origin_column_num = _src_block.columns();
 
-    LOG(INFO) << "cmy debug src: " << _src_block.dump_data(0, 2);
-
     for (auto slot_desc : _output_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -384,12 +381,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
-        LOG(INFO) << "cmy debug col: " << slot_desc->col_name() << ", dest_index: " << dest_index
-                  << ", _strict_mode: " << _strict_mode
-                  << ", _src_slot_descs_order_by_dest[dest_index]: "
-                  << _src_slot_descs_order_by_dest[dest_index]
-                  << ", _dest_slot_to_src_slot_index[dest_index]"
-                  << _dest_slot_to_src_slot_index[dest_index];
         if (LIKELY(column_ptr->is_nullable())) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
@@ -460,8 +451,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                     "filter column"));
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
     _counter.num_rows_filtered += rows - block->rows();
-
-    LOG(INFO) << "cmy debug dest: " << block->dump_data(0, 2);
     return Status::OK();
 }
 
@@ -583,7 +572,6 @@ Status VFileScanner::_init_expr_ctxes() {
     if (_is_load) {
         // follow desc expr map and src default value expr map is only for load task.
         bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
-        LOG(INFO) << "cmy debug has_slot_id_map: " << has_slot_id_map;
         int idx = 0;
         for (auto slot_desc : _output_tuple_desc->slots()) {
             if (!slot_desc->is_materialized()) {

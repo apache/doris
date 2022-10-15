@@ -221,7 +221,6 @@ Status CsvReader::_create_decompressor() {
             return Status::InternalError("unknown format type: {}", _file_format_type);
         }
     }
-    LOG(INFO) << "cmy debug decompress type: " << compress_type;
     Decompressor* decompressor;
     RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, &decompressor));
     _decompressor.reset(decompressor);

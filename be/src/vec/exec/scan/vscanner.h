@@ -28,6 +28,14 @@ namespace doris::vectorized {
 class Block;
 class VScanNode;
 
+// Counter for load
+struct ScannerCounter {
+    ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
+
+    int64_t num_rows_filtered;   // unqualified rows (unmatched the dest schema, or no partition)
+    int64_t num_rows_unselected; // rows filtered by predicates
+};
+
 class VScanner {
 public:
     VScanner(RuntimeState* state, VScanNode* parent, int64_t limit);
@@ -162,6 +170,8 @@ protected:
     bool _is_load = false;
     // set to true after decrease the "_num_unfinished_scanners" in scanner context
     bool _is_counted_down = false;
+
+    ScannerCounter _counter;
 };
 
 } // namespace doris::vectorized

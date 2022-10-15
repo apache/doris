@@ -36,6 +36,8 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : BaseScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           _cur_file_reader(nullptr),
+          _cur_file_reader_s(nullptr),
+          _real_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_json_reader(nullptr),
           _cur_reader_eof(false),
@@ -61,7 +63,7 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool*
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
-        if (!_cur_file_reader || _cur_reader_eof) {
+        if (!_real_reader || _cur_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
             // If there isn't any more reader, break this
             if (_scanner_eof) {
@@ -154,7 +156,7 @@ Status JsonScanner::open_line_reader() {
     } else {
         _skip_next_line = false;
     }
-    _cur_line_reader = new PlainTextLineReader(_profile, _cur_file_reader.get(), nullptr, size,
+    _cur_line_reader = new PlainTextLineReader(_profile, _real_reader, nullptr, size,
                                                _line_delimiter, _line_delimiter_length);
     _cur_reader_eof = false;
     return Status::OK();
@@ -179,9 +181,8 @@ Status JsonScanner::open_json_reader() {
                 new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
                                fuzzy_parse, &_scanner_eof, nullptr, _cur_line_reader);
     } else {
-        _cur_json_reader =
-                new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
-                               fuzzy_parse, &_scanner_eof, _cur_file_reader.get());
+        _cur_json_reader = new JsonReader(_state, _counter, _profile, strip_outer_array,
+                                          num_as_string, fuzzy_parse, &_scanner_eof, _real_reader);
     }
 
     RETURN_IF_ERROR(_cur_json_reader->init(jsonpath, json_root));

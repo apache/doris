@@ -333,7 +333,9 @@ suite("test_stream_load", "p0") {
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(2500, json.NumberTotalRows)
+            assertEquals(2500, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
         }
     }
     sql "sync"
@@ -362,8 +364,10 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(11, json.NumberTotalRows)
+            assertEquals(2500, json.NumberTotalRows)
+            assertEquals(11, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
+            assertEquals(2489, json.NumberUnselectedRows)
         }
     }
     sql "sync"
@@ -391,7 +395,9 @@ suite("test_stream_load", "p0") {
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(2500, json.NumberTotalRows)
+            assertEquals(2500, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
         }
     }
     sql "sync"
@@ -421,6 +427,7 @@ suite("test_stream_load", "p0") {
             assertEquals(2500, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
             assertEquals(2500, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
         }
     }
     sql "sync"
@@ -473,7 +480,10 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertEquals(1025, json.NumberTotalRows)
             assertEquals(1025, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
         }
     }
     sql "sync"
@@ -498,7 +508,10 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertEquals(8001, json.NumberTotalRows)
             assertEquals(8001, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
         }
     }
     sql "sync"
@@ -526,12 +539,15 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertEquals(6, json.NumberTotalRows)
             assertEquals(6, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
         }
     }
     sql "sync"
     order_qt_all91 "SELECT count(*) from ${tableName7}" // 2
-    // sql """truncate table ${tableName7}"""
+    sql """truncate table ${tableName7}"""
     sql """sync"""
 
 }
