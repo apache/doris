@@ -93,12 +93,20 @@ public class GroupByClause implements ParseNode {
     }
 
     public void reset() {
-        groupingExprs = new ArrayList<>();
         analyzed = false;
         exprGenerated = false;
-        if (oriGroupingExprs != null) {
-            Expr.resetList(oriGroupingExprs);
-            groupingExprs.addAll(oriGroupingExprs);
+        if (groupingType != GroupingType.GROUP_BY) {
+            groupingExprs = new ArrayList<>();
+            if (oriGroupingExprs != null) {
+                Expr.resetList(oriGroupingExprs);
+                groupingExprs.addAll(oriGroupingExprs);
+            }
+        } else {
+            if (groupingExprs != null) {
+                for (Expr e : groupingExprs) {
+                    e.reset();
+                }
+            }
         }
         if (groupingSetList != null) {
             for (List<Expr> s : groupingSetList) {
