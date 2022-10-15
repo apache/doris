@@ -69,7 +69,7 @@ public class SourceTest {
         rSource2.readFields(dis);
 
         Assert.assertEquals(rSource0, source0);
-        Assert.assertEquals(Source0, source0);
+        Assert.assertEquals(source0, source0);
         Assert.assertNotEquals(rSource0, this);
         Assert.assertEquals(rSource1, source1);
         Assert.assertNotEquals(rSource2, source2);
