@@ -459,6 +459,7 @@ Status AggregationNode::open(RuntimeState* state) {
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
         _create_agg_status(_agg_data.without_key);
+        _agg_data_created_without_key = true;
     }
     bool eos = false;
     Block block;
@@ -707,7 +708,13 @@ void AggregationNode::_update_memusage_without_key() {
 }
 
 void AggregationNode::_close_without_key() {
-    _destroy_agg_status(_agg_data.without_key);
+    //because prepare maybe failed, and couldn't create agg data.
+    //but finally call close to destory agg data, if agg data has bitmapValue
+    //will be core dump, it's not initialized
+    if (_agg_data_created_without_key) {
+        _destroy_agg_status(_agg_data.without_key);
+        _agg_data_created_without_key = false;
+    }
     release_tracker();
 }
 
