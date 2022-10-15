@@ -24,7 +24,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Test;
 
 /**
- * test for CreateTableAsSelectStmt.
+ * test for CreateViewStmtTest.
  **/
 public class CreateViewStmtTest extends TestWithFeService {
 
@@ -38,7 +38,7 @@ public class CreateViewStmtTest extends TestWithFeService {
     }
 
     @Test
-    public void testQuerySchema() throws Exception {
+    public void testCreateView() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String createViewStr1 = "create view 1view1 as select k1,k2 from test.table1;";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
