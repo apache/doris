@@ -55,17 +55,20 @@ struct RetentionState {
             serialized_events |= events[i];
             serialized_events <<= 1;
         }
-
         write_var_int(serialized_events, out);
     }
 
     void read(BufferReadable& in) {
         int64_t serialized_events = 0;
+        uint64_t u_serialized_events = 0;
         read_var_int(serialized_events, in);
+        u_serialized_events = serialized_events;
 
-        for (int64_t i = 0; i < MAX_EVENTS; i++) {
-            events[i] = (uint8_t)(1 & serialized_events);
-            serialized_events >>= 1;
+        u_serialized_events >>= 1;
+        for (int64_t i = MAX_EVENTS - 1; i >= 0; i--) {
+            events[i] = (uint8)(1& u_serialized_events);
+            printf("%d", events[i]);
+            u_serialized_events >>= 1;
         }
     }
 
