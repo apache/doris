@@ -368,14 +368,10 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
         const auto pattern_col = block.get_by_position(arguments[1]).column;
 
         if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
-            if (str_patterns->size() != 1) {
-                return Status::InvalidArgument(
-                        "The second argument pattern must be a constant value!");
-            } else {
-                const auto& pattern_val = str_patterns->get_data_at(0);
-                RETURN_IF_ERROR(vector_const(*values, &pattern_val, vec_res, state->function,
-                                             &state->search_state));
-            }
+            DCHECK_EQ(str_patterns->size(), 1);
+            const auto& pattern_val = str_patterns->get_data_at(0);
+            RETURN_IF_ERROR(vector_const(*values, &pattern_val, vec_res, state->function,
+                                         &state->search_state));
         } else if (const auto* const_patterns =
                            check_and_get_column<ColumnConst>(pattern_col.get())) {
             const auto& pattern_val = const_patterns->get_data_at(0);

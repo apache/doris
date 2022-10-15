@@ -159,8 +159,8 @@ uint16_t LikeColumnPredicate<is_vectorized>::evaluate(const vectorized::IColumn&
                         vectorized::PredicateColumnType<TYPE_STRING>>(column);
                 vectorized::ColumnUInt8::Container res(size, 0);
                 (_state->predicate_like_function)(
-                        const_cast<vectorized::LikeSearchState*>(&_like_state), *str_col,
-                        pattern, res, sel, size);
+                        const_cast<vectorized::LikeSearchState*>(&_like_state), *str_col, pattern,
+                        res, sel, size);
                 for (uint16_t i = 0; i != size; i++) {
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
