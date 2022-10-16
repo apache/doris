@@ -47,7 +47,16 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, const std::str
                      std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
     io::FileReaderSPtr file_reader;
+#ifndef BE_TEST
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
+#else
+    // be ut use local file reader instead of remote file reader while use remote cache
+    if (!config::file_cache_type.empty()) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
+    } else {
+        RETURN_IF_ERROR(fs->open_file(path, &file_reader));
+    }
+#endif
     if (fs->type() != io::FileSystemType::LOCAL && !config::file_cache_type.empty()) {
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, file_reader,
