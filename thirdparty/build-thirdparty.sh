@@ -157,7 +157,7 @@ popd
 check_prerequest() {
     local CMD="$1"
     local NAME="$2"
-    if ! ${CMD}; then
+    if ! eval "${CMD}"; then
         echo "${NAME} is missing"
         exit 1
     else
@@ -1027,7 +1027,11 @@ build_bitshuffle() {
             local objcopy="${DORIS_BIN_UTILS}/objcopy"
 
             if [[ ! -f "${nm}" ]]; then nm="$(command -v nm)"; fi
-            if [[ ! -f "${objcopy}" ]]; then objcopy="$(command -v objcopy)"; fi
+            if [[ ! -f "${objcopy}" ]]; then
+                if ! objcopy="$(command -v objcopy)"; then
+                    objcopy="${TP_INSTALL_DIR}/bin/objcopy"
+                fi
+            fi
 
             # Create a mapping file with '<old_sym> <suffixed_sym>' on each line.
             "${nm}" --defined-only --extern-only "${tmp_obj}" | while read -r addr type sym; do
@@ -1196,7 +1200,7 @@ build_aws_sdk() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull" -DCPP_STANDARD=17
+        -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
@@ -1256,7 +1260,7 @@ build_xml2() {
 
     export ACLOCAL_PATH='/usr/share/aclocal'
 
-    sh autogen.sh
+    sed '/(libtoolize/,/}/d' autogen.sh | bash
     make distclean
 
     mkdir -p "${BUILD_DIR}"

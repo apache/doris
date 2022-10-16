@@ -122,11 +122,13 @@ set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
 set(BOOST_ROOT ${THIRDPARTY_DIR})
 set(Boost_NO_BOOST_CMAKE OFF)
+set(BOOST_VERSION "1.73.0")
 
 if (NOT APPLE)
-    find_package(Boost 1.73.0 REQUIRED COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system date_time)
 else()
-    find_package(Boost 1.73.0 COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
 endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
@@ -510,7 +512,7 @@ if (USE_MEM_TRACKER)
 endif()
 
 # Compile with jemalloc.
-# Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc 
+# Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
 if (USE_JEMALLOC)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
 endif()
@@ -742,7 +744,13 @@ set(COMMON_THIRDPARTY
 )
 
 if (OS_MACOSX)
-    set(COMMON_THIRDPARTY ${COMMON_THIRDPARTY} bfd iberty intl)
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        Boost::container
+        bfd
+        iberty
+        intl
+    )
 endif()
 
 if (${MAKE_TEST} STREQUAL "ON")

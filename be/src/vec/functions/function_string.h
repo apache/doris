@@ -17,12 +17,20 @@
 
 #pragma once
 
+#ifndef USE_LIBCPP
+#include <memory_resource>
+#define PMR std::pmr
+#else
+#include <boost/container/pmr/monotonic_buffer_resource.hpp>
+#include <boost/container/pmr/vector.hpp>
+#define PMR boost::container::pmr
+#endif
+
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
 #include <cstdint>
-#include <memory_resource>
 #include <string_view>
 
 #include "exprs/math_functions.h"
@@ -160,10 +168,10 @@ private:
         res_chars.reserve(chars.size());
 
         std::array<std::byte, 128 * 1024> buf;
-        std::pmr::monotonic_buffer_resource pool {buf.data(), buf.size()};
-        std::pmr::vector<size_t> index {&pool};
+        PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
+        PMR::vector<size_t> index {&pool};
 
-        std::pmr::vector<std::pair<const unsigned char*, int>> strs(&pool);
+        PMR::vector<std::pair<const unsigned char*, int>> strs(&pool);
         strs.resize(size);
         auto* __restrict data_ptr = chars.data();
         auto* __restrict offset_ptr = offsets.data();
