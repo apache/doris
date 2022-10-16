@@ -22,6 +22,7 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
+#include <memory_resource>
 #include <string_view>
 
 #include "exprs/math_functions.h"
@@ -50,18 +51,14 @@ namespace doris::vectorized {
 
 inline size_t get_utf8_byte_length(unsigned char byte) {
     size_t char_size = 0;
-    if (byte >= 0xFC) {
-        char_size = 6;
-    } else if (byte >= 0xF8) {
-        char_size = 5;
+    if (byte < 0xC0) {
+        char_size = 1;
     } else if (byte >= 0xF0) {
         char_size = 4;
     } else if (byte >= 0xE0) {
         char_size = 3;
-    } else if (byte >= 0xC0) {
-        char_size = 2;
     } else {
-        char_size = 1;
+        char_size = 2;
     }
     return char_size;
 }
@@ -144,6 +141,7 @@ struct SubstringUtil {
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get());
         auto specific_len_column =
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+
         vector(specific_str_column->get_chars(), specific_str_column->get_offsets(),
                specific_start_column->get_data(), specific_len_column->get_data(),
                null_map->get_data(), res->get_chars(), res->get_offsets());
@@ -160,18 +158,24 @@ private:
         int size = offsets.size();
         res_offsets.resize(size);
         res_chars.reserve(chars.size());
-        std::vector<size_t> index;
+
+        std::array<std::byte, 128 * 1024> buf;
+        std::pmr::monotonic_buffer_resource pool {buf.data(), buf.size()};
+        std::pmr::vector<size_t> index {&pool};
+
+        std::pmr::vector<std::pair<const unsigned char*, int>> strs(&pool);
+        strs.resize(size);
+        auto* __restrict data_ptr = chars.data();
+        auto* __restrict offset_ptr = offsets.data();
+        for (int i = 0; i < size; ++i) {
+            strs[i].first = data_ptr + offset_ptr[i - 1];
+            strs[i].second = offset_ptr[i] - offset_ptr[i - 1];
+        }
 
         for (int i = 0; i < size; ++i) {
-            auto* raw_str = reinterpret_cast<const unsigned char*>(&chars[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1];
+            auto [raw_str, str_size] = strs[i];
             // return empty string if start > src.length
-            if (start[i] > str_size) {
-                StringOP::push_empty_string(i, res_chars, res_offsets);
-                continue;
-            }
-            // return "" if len < 0 or str == 0 or start == 0
-            if (len[i] <= 0 || str_size == 0 || start[i] == 0) {
+            if (start[i] > str_size || str_size == 0 || start[i] == 0 || len[i] <= 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
@@ -306,9 +310,8 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto int_type = std::make_shared<DataTypeInt32>();
         size_t num_columns_without_result = block.columns();
-        block.insert({int_type->create_column_const(input_rows_count, to_field(1))
-                              ->convert_to_full_column_if_const(),
-                      int_type, "const 1"});
+        block.insert({int_type->create_column_const(input_rows_count, to_field(1)), int_type,
+                      "const 1"});
         ColumnNumbers temp_arguments(3);
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
