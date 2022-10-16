@@ -42,3 +42,31 @@ SELECT
             FROM retention_test 
             GROUP BY uid 
             ORDER BY uid ASC;
+
+SET parallel_fragment_exec_instance_num=4;
+
+SELECT * from retention_test ORDER BY uid;
+
+SELECT 
+    uid,     
+    retention(date = '2022-10-12')
+        AS r 
+            FROM retention_test 
+            GROUP BY uid 
+            ORDER BY uid ASC;
+
+SELECT 
+    uid,     
+    retention(date = '2022-10-12', date = '2022-10-13')
+        AS r 
+            FROM retention_test 
+            GROUP BY uid 
+            ORDER BY uid ASC;
+
+SELECT 
+    uid,     
+    retention(date = '2022-10-12', date = '2022-10-13', date = '2022-10-14')
+        AS r 
+            FROM retention_test 
+            GROUP BY uid 
+            ORDER BY uid ASC;
