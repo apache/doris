@@ -53,6 +53,12 @@ suite("test_cast_array_functions_by_literal") {
     }
 
     test {
+        sql "select cast(NULL as array<int>)"
+        // check exception message contains
+        exception "errCode = 2,"
+    }
+
+    test {
         sql "select cast(1 as array<int>)"
         // check exception message contains
         exception "errCode = 2,"
