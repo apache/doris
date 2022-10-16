@@ -34,27 +34,20 @@
 
 namespace doris::vectorized {
 
-#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                               \
-    template <typename DateValueType, typename ArgType>                                         \
-    struct CLASS {                                                                              \
-        using ARG_TYPE = ArgType;                                                               \
-        static constexpr auto name = #UNIT;                                                     \
-                                                                                                \
-        static inline auto execute(const ARG_TYPE& t, bool& is_null) {                          \
-            const auto& date_time_value = (DateValueType&)(t);                                  \
-            is_null = !date_time_value.is_valid_date();                                         \
-            return date_time_value.FUNCTION;                                                    \
-        }                                                                                       \
-                                                                                                \
-        static DataTypes get_variadic_argument_types() {                                        \
-            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {                    \
-                return {std::make_shared<DataTypeDateTime>()};                                  \
-            } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) { \
-                return {std::make_shared<DataTypeDateV2>()};                                    \
-            } else {                                                                            \
-                return {std::make_shared<DataTypeDateTimeV2>()};                                \
-            }                                                                                   \
-        }                                                                                       \
+#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                \
+    template <typename ArgType>                                                  \
+    struct CLASS {                                                               \
+        using OpArgType = ArgType;                                               \
+        static constexpr auto name = #UNIT;                                      \
+                                                                                 \
+        static inline auto execute(const ArgType& t) {                           \
+            const auto& date_time_value = (typename DateTraits<ArgType>::T&)(t); \
+            return date_time_value.FUNCTION;                                     \
+        }                                                                        \
+                                                                                 \
+        static DataTypes get_variadic_argument_types() {                         \
+            return {std::make_shared<typename DateTraits<ArgType>::DateType>()}; \
+        }                                                                        \
     }
 
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
@@ -75,63 +68,50 @@ TIME_FUNCTION_IMPL(WeekDayImpl, weekday, weekday());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
 
-#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                                       \
-    template <typename DateValueType, typename ArgType>                                         \
-    struct CLASS {                                                                              \
-        using ARG_TYPE = ArgType;                                                               \
-        static constexpr auto name = #UNIT;                                                     \
-                                                                                                \
-        static inline auto execute(const ARG_TYPE& t, bool& is_null) {                          \
-            const auto& date_time_value = (DateValueType&)(t);                                  \
-            is_null = !date_time_value.is_valid_date();                                         \
-            return date_time_value.FUNCTION;                                                    \
-        }                                                                                       \
-                                                                                                \
-        static DataTypes get_variadic_argument_types() {                                        \
-            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {                    \
-                return {std::make_shared<DataTypeDateTime>()};                                  \
-            } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) { \
-                return {std::make_shared<DataTypeDateV2>()};                                    \
-            } else {                                                                            \
-                return {std::make_shared<DataTypeDateTimeV2>()};                                \
-            }                                                                                   \
-        }                                                                                       \
+#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                        \
+    template <typename ArgType>                                                  \
+    struct CLASS {                                                               \
+        using OpArgType = ArgType;                                               \
+        static constexpr auto name = #UNIT;                                      \
+                                                                                 \
+        static inline auto execute(const ArgType& t) {                           \
+            const auto& date_time_value = (typename DateTraits<ArgType>::T&)(t); \
+            return date_time_value.FUNCTION;                                     \
+        }                                                                        \
+                                                                                 \
+        static DataTypes get_variadic_argument_types() {                         \
+            return {std::make_shared<typename DateTraits<ArgType>::DateType>()}; \
+        }                                                                        \
     }
 
 TIME_FUNCTION_ONE_ARG_IMPL(ToWeekOneArgImpl, week, week(mysql_week_mode(0)));
 TIME_FUNCTION_ONE_ARG_IMPL(ToYearWeekOneArgImpl, yearweek, year_week(mysql_week_mode(0)));
 
-template <typename DateValueType, typename ArgType>
+template <typename ArgType>
 struct ToDateImpl {
-    using ARG_TYPE = ArgType;
+    using OpArgType = ArgType;
+    using T = typename DateTraits<ArgType>::T;
     static constexpr auto name = "to_date";
 
-    static inline auto execute(const ArgType& t, bool& is_null) {
-        auto dt = binary_cast<ArgType, DateValueType>(t);
-        is_null = !dt.is_valid_date();
-        if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
-            return binary_cast<DateValueType, ArgType>(dt);
-        } else if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+    static inline auto execute(const ArgType& t) {
+        auto dt = binary_cast<ArgType, T>(t);
+        if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
+            return binary_cast<T, ArgType>(dt);
+        } else if constexpr (std::is_same_v<T, VecDateTimeValue>) {
             dt.cast_to_date();
-            return binary_cast<DateValueType, ArgType>(dt);
+            return binary_cast<T, ArgType>(dt);
         } else {
-            return (UInt32)(binary_cast<DateValueType, ArgType>(dt) >> TIME_PART_LENGTH);
+            return (UInt32)(binary_cast<T, ArgType>(dt) >> TIME_PART_LENGTH);
         }
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            return {std::make_shared<DataTypeDateTime>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
-            return {std::make_shared<DataTypeDateV2>()};
-        } else {
-            return {std::make_shared<DataTypeDateTimeV2>()};
-        }
+        return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
     }
 };
 
-template <typename DateValue, typename ArgType>
-struct DateImpl : public ToDateImpl<DateValue, ArgType> {
+template <typename ArgType>
+struct DateImpl : public ToDateImpl<ArgType> {
     static constexpr auto name = "date";
 };
 
@@ -139,23 +119,22 @@ struct DateImpl : public ToDateImpl<DateValue, ArgType> {
 // this function
 template <typename ArgType>
 struct TimeStampImpl {
-    using ARG_TYPE = ArgType;
+    using OpArgType = ArgType;
     static constexpr auto name = "timestamp";
 
-    static inline auto execute(const ARG_TYPE& t, bool& is_null) { return t; }
+    static inline auto execute(const OpArgType& t) { return t; }
 };
 
-template <typename DateValueType, typename ArgType>
+template <typename ArgType>
 struct DayNameImpl {
-    using ARG_TYPE = ArgType;
+    using OpArgType = ArgType;
     static constexpr auto name = "dayname";
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
-    static inline auto execute(const DateValueType& dt, ColumnString::Chars& res_data,
-                               size_t& offset, bool& is_null) {
+    static inline auto execute(const typename DateTraits<ArgType>::T& dt,
+                               ColumnString::Chars& res_data, size_t& offset) {
         const auto* day_name = dt.day_name();
-        is_null = !dt.is_valid_date();
-        if (day_name != nullptr && !is_null) {
+        if (day_name != nullptr) {
             auto len = strlen(day_name);
             memcpy(&res_data[offset], day_name, len);
             offset += len;
@@ -164,27 +143,20 @@ struct DayNameImpl {
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            return {std::make_shared<DataTypeDateTime>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
-            return {std::make_shared<DataTypeDateV2>()};
-        } else {
-            return {std::make_shared<DataTypeDateTimeV2>()};
-        }
+        return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
     }
 };
 
-template <typename DateValueType, typename ArgType>
+template <typename ArgType>
 struct MonthNameImpl {
-    using ARG_TYPE = ArgType;
+    using OpArgType = ArgType;
     static constexpr auto name = "monthname";
     static constexpr auto max_size = MAX_MONTH_NAME_LEN;
 
-    static inline auto execute(const DateValueType& dt, ColumnString::Chars& res_data,
-                               size_t& offset, bool& is_null) {
+    static inline auto execute(const typename DateTraits<ArgType>::T& dt,
+                               ColumnString::Chars& res_data, size_t& offset) {
         const auto* month_name = dt.month_name();
-        is_null = !dt.is_valid_date();
-        if (month_name != nullptr && !is_null) {
+        if (month_name != nullptr) {
             auto len = strlen(month_name);
             memcpy(&res_data[offset], month_name, len);
             offset += len;
@@ -193,13 +165,7 @@ struct MonthNameImpl {
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            return {std::make_shared<DataTypeDateTime>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
-            return {std::make_shared<DataTypeDateV2>()};
-        } else {
-            return {std::make_shared<DataTypeDateTimeV2>()};
-        }
+        return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
     }
 };
 
@@ -227,25 +193,11 @@ struct DateFormatImpl {
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
-            return std::vector<DataTypePtr> {
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeDateTime>()),
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeString>())};
-        } else if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>>) {
-            return std::vector<DataTypePtr> {
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeDateV2>()),
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeString>())};
-        } else {
-            return std::vector<DataTypePtr> {
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeDateTimeV2>()),
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeString>())};
-        }
+        return std::vector<DataTypePtr> {
+                std::dynamic_pointer_cast<const IDataType>(
+                        std::make_shared<typename DateTraits<ArgType>::DateType>()),
+                std::dynamic_pointer_cast<const IDataType>(
+                        std::make_shared<vectorized::DataTypeString>())};
     }
 };
 
@@ -280,52 +232,22 @@ struct FromUnixTimeImpl {
 
 template <typename Transform>
 struct TransformerToStringOneArgument {
-    static void vector(const PaddedPODArray<Int64>& ts, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, NullMap& null_map) {
+    static void vector(const PaddedPODArray<typename Transform::OpArgType>& ts,
+                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
+                       NullMap& null_map) {
         const auto len = ts.size();
         res_data.resize(len * Transform::max_size);
         res_offsets.resize(len);
-        null_map.resize_fill(len, false);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<const VecDateTimeValue&>(t);
-            res_offsets[i] = Transform::execute(date_time_value, res_data, offset,
-                                                reinterpret_cast<bool&>(null_map[i]));
-        }
-    }
-
-    static void vector(const PaddedPODArray<UInt32>& ts, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, NullMap& null_map) {
-        const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
-        res_offsets.resize(len);
-        null_map.resize_fill(len, false);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(t);
-            res_offsets[i] = Transform::execute(date_time_value, res_data, offset,
-                                                reinterpret_cast<bool&>(null_map[i]));
-        }
-    }
-
-    static void vector(const PaddedPODArray<UInt64>& ts, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, NullMap& null_map) {
-        const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
-        res_offsets.resize(len);
-        null_map.resize_fill(len, false);
+        null_map.resize(len);
 
         size_t offset = 0;
         for (int i = 0; i < len; ++i) {
             const auto& t = ts[i];
             const auto& date_time_value =
-                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(t);
-            res_offsets[i] = Transform::execute(date_time_value, res_data, offset,
-                                                reinterpret_cast<bool&>(null_map[i]));
+                    reinterpret_cast<const typename DateTraits<typename Transform::OpArgType>::T&>(
+                            t);
+            res_offsets[i] = Transform::execute(date_time_value, res_data, offset);
+            null_map[i] = !date_time_value.is_valid_date();
         }
     }
 };
@@ -359,10 +281,34 @@ struct Transformer {
                        NullMap& null_map) {
         size_t size = vec_from.size();
         vec_to.resize(size);
-        null_map.resize_fill(size, false);
+        null_map.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from[i], reinterpret_cast<bool&>(null_map[i]));
+            vec_to[i] = Transform::execute(vec_from[i]);
+            null_map[i] = !((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
+                                   .is_valid_date();
+        }
+    }
+};
+
+template <typename FromType, typename ToType>
+struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
+                       NullMap& null_map) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+        null_map.resize(size);
+
+        auto* __restrict to_ptr = vec_to.data();
+        auto* __restrict from_ptr = vec_from.data();
+        auto* __restrict null_map_ptr = null_map.data();
+
+        for (size_t i = 0; i < size; ++i) {
+            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            null_map_ptr[i] = to_ptr[i] <= MIN_YEAR || to_ptr[i] >= MAX_YEAR;
         }
     }
 };
