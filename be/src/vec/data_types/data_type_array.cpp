@@ -24,6 +24,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "util/stack_util.h"
 
 namespace doris::vectorized {
 
@@ -187,6 +188,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
     ++rb.position();
     bool first = true;
     size_t size = 0;
+    bool find_end = false;
     while (!rb.eof() && *rb.position() != ']') {
         if (!first) {
             if (*rb.position() == ',') {
@@ -199,6 +201,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         }
         first = false;
         if (*rb.position() == ']') {
+            find_end = true;
             break;
         }
         size_t nested_str_len = 0;
@@ -253,6 +256,9 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         rb.position() += nested_str_len;
         DCHECK_LE(rb.position(), rb.end());
         ++size;
+    }
+    if (!(!rb.eof() && *rb.position() != ']') && !find_end) {
+        return Status::InvalidArgument("Array does not start with ']' character");
     }
     offsets.push_back(offsets.back() + size);
     return Status::OK();

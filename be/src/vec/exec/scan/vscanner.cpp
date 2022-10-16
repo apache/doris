@@ -120,9 +120,6 @@ Status VScanner::close(RuntimeState* state) {
 }
 
 void VScanner::_update_counters_before_close() {
-    LOG(INFO) << "cmy _update_counters_before_close: _counter.num_rows_filtered: "
-              << _counter.num_rows_filtered
-              << ", _counter.num_rows_unselected: " << _counter.num_rows_unselected;
     if (!_state->enable_profile() && !_is_load) return;
     COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
     // Update stats for load
