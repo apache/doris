@@ -531,6 +531,10 @@ void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         size_t step_size =
                 std::max((range_size + max_scan_key_num - 1) / max_scan_key_num, (size_t)1);
 
+        if (range_size / step_size > 65536) {
+            return;
+        }
+
         while (current < get_range_max_value()) {
             begin_scan_keys.emplace_back();
             end_scan_keys.emplace_back();
