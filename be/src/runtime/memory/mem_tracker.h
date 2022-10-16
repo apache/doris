@@ -19,6 +19,7 @@
 // and modified by Doris
 #pragma once
 
+#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -55,6 +56,11 @@ public:
     // which is usually used for debugging, to finding memory hotspots.
     static std::shared_ptr<MemTracker> get_global_mem_tracker(const std::string& label);
     static void make_global_mem_tracker_snapshot(std::vector<MemTracker::Snapshot>* snapshots);
+
+    static std::string print_bytes(int64_t bytes) {
+        return bytes >= 0 ? PrettyPrinter::print(bytes, TUnit::BYTES)
+                          : "-" + PrettyPrinter::print(std::abs(bytes), TUnit::BYTES);
+    }
 
 public:
     const std::string& label() const { return _label; }
