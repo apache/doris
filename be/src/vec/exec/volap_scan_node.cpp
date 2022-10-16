@@ -253,6 +253,9 @@ Status VOlapScanNode::open(RuntimeState* state) {
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtimefilter;
+        if (auto bf = runtime_filter->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->wait_for_initialization());
+        }
         bool ready = runtime_filter->is_ready();
         if (!ready) {
             ready = runtime_filter->await();

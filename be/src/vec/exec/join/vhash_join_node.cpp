@@ -836,9 +836,12 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _output_expr_ctxs.push_back(ctx);
     }
 
-    for (const auto& filter_desc : _runtime_filter_descs) {
+    _runtime_filters.resize(_runtime_filter_descs.size());
+    for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
-                RuntimeFilterRole::PRODUCER, filter_desc, state->query_options()));
+                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
+                _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
 
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
@@ -1115,6 +1118,11 @@ void HashJoinNode::_construct_mutable_join_block() {
 Status HashJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
+        if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->wait_for_initialization());
+        }
+    }
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
@@ -1130,7 +1138,7 @@ Status HashJoinNode::open(RuntimeState* state) {
     std::thread([this, state, thread_status_p = &thread_status,
                  parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
         OpentelemetryScope scope {parent_span};
-        this->_hash_table_build_thread(state, thread_status_p);
+        this->_probe_side_open_thread(state, thread_status_p);
     }).detach();
 
     // Open the probe-side child so that it may perform any initialisation in parallel.
@@ -1139,16 +1147,16 @@ Status HashJoinNode::open(RuntimeState* state) {
     // ISSUE-1247, check open_status after buildThread execute.
     // If this return first, build thread will use 'thread_status'
     // which is already destructor and then coredump.
-    Status open_status = child(0)->open(state);
+    Status status = _hash_table_build(state);
     RETURN_IF_ERROR(thread_status.get_future().get());
-    return open_status;
+    return status;
 }
 
-void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
+void HashJoinNode::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    status->set_value(_hash_table_build(state));
+    status->set_value(child(0)->open(state));
 }
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {

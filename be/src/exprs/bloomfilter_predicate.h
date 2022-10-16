@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -97,10 +98,30 @@ public:
 
     Status init(int64_t expect_num, double fpp) {
         size_t filter_size = BloomFilterAdaptor::optimal_bit_num(expect_num, fpp);
-        return init_with_fixed_length(filter_size);
+        return sync_init_with_fixed_length(filter_size);
+    }
+
+    Status wait_for_initialization() {
+        RETURN_IF_ERROR(_thread_status.get_future().get());
+        return Status::OK();
     }
 
     Status init_with_fixed_length(int64_t bloom_filter_length) {
+        if (_inited) {
+            return Status::OK();
+        }
+        std::lock_guard<std::mutex> l(_lock);
+        if (_inited) {
+            return Status::OK();
+        }
+        std::thread([this, bloom_filter_length, thread_status_p = &_thread_status] {
+            this->_async_init_with_fixed_length(bloom_filter_length, thread_status_p);
+        }).detach();
+        _inited = true;
+        return Status::OK();
+    }
+
+    Status sync_init_with_fixed_length(int64_t bloom_filter_length) {
         if (_inited) {
             return Status::OK();
         }
@@ -173,8 +194,19 @@ protected:
     // bloom filter size
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
+
+private:
+    void _async_init_with_fixed_length(int64_t bloom_filter_length, std::promise<Status>* status) {
+        DCHECK(bloom_filter_length >= 0);
+        DCHECK_EQ((bloom_filter_length & (bloom_filter_length - 1)), 0);
+        _bloom_filter_alloced = bloom_filter_length;
+        _bloom_filter.reset(BloomFilterAdaptor::create());
+        status->set_value(_bloom_filter->init(bloom_filter_length));
+    }
+
     bool _inited;
     std::mutex _lock;
+    std::promise<Status> _thread_status;
 };
 
 template <class T>

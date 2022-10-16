@@ -244,6 +244,9 @@ Status OlapScanNode::open(RuntimeState* state) {
         IRuntimeFilter* runtime_filter = nullptr;
         state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
         DCHECK(runtime_filter != nullptr);
+        if (auto bf = runtime_filter->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->wait_for_initialization());
+        }
         if (runtime_filter == nullptr) {
             continue;
         }

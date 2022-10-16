@@ -20,6 +20,7 @@
 #include <string>
 
 #include "client_cache.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
@@ -197,6 +198,9 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             return Status::InvalidArgument("unknown filter id");
         }
         cntVal = iter->second;
+        if (auto bf = cntVal->filter->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->wait_for_initialization());
+        }
         MergeRuntimeFilterParams params;
         params.data = data;
         params.request = request;
