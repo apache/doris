@@ -92,7 +92,7 @@ private:
 // Only Used In RuntimeFilter
 class BloomFilterFuncBase {
 public:
-    BloomFilterFuncBase() : _inited(false) {}
+    BloomFilterFuncBase() : _inited(false), _prepared(false) {}
 
     virtual ~BloomFilterFuncBase() = default;
 
@@ -102,6 +102,13 @@ public:
     }
 
     Status wait_for_initialization() {
+        if (_prepared) {
+            return Status::OK();
+        }
+        std::lock_guard<std::mutex> l(_lock);
+        if (_prepared) {
+            return Status::OK();
+        }
         RETURN_IF_ERROR(_thread_status.get_future().get());
         return Status::OK();
     }
@@ -205,6 +212,7 @@ private:
     }
 
     bool _inited;
+    bool _prepared;
     std::mutex _lock;
     std::promise<Status> _thread_status;
 };
