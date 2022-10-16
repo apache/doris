@@ -173,7 +173,7 @@ public:
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
         // for fast, expect MemInfo::initialized() to be true.
-        if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit() && config::enable_cancel_query) {
+        if (PerfCounters::get_vm_rss() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(fmt::format(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
                     label_, bytes, MemInfo::current_mem(), MemInfo::mem_limit()));
