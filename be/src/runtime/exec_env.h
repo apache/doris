@@ -145,12 +145,8 @@ public:
     ThreadPoolToken* get_serial_download_cache_thread_token() {
         return _serial_download_cache_thread_token.get();
     }
-    void init_download_cache_buf() {
-        std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
-        memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
-        _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
-                std::move(download_cache_buf);
-    }
+    void init_download_cache_buf();
+    void init_download_cache_required_components();
     char* get_download_cache_buf(ThreadPoolToken* token) {
         if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
             return nullptr;
