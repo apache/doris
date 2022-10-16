@@ -5,7 +5,6 @@
 *.iml
 *.swp
 *.jar
-*.gz
 *.log
 *.so.tmp
 *.flattened-pom.xml
