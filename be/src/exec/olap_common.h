@@ -521,7 +521,9 @@ void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                                  primitive_type == PrimitiveType::TYPE_VARCHAR ||
                                  primitive_type == PrimitiveType::TYPE_CHAR ||
                                  primitive_type == PrimitiveType::TYPE_STRING ||
-                                 primitive_type == PrimitiveType::TYPE_BOOLEAN;
+                                 primitive_type == PrimitiveType::TYPE_BOOLEAN ||
+                                 primitive_type == PrimitiveType::TYPE_DATETIME ||
+                                 primitive_type == PrimitiveType::TYPE_DATETIMEV2;
     if constexpr (reject_type) {
         return;
     } else {
@@ -533,6 +535,10 @@ void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
 
         if (range_size / step_size > 65536) {
             return;
+        }
+
+        if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
+            current.set_type(TimeType::TIME_DATE);
         }
 
         while (current < get_range_max_value()) {
