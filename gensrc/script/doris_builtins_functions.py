@@ -499,7 +499,16 @@ visible_functions = [
     [['to_days'], 'INT', ['DATE'],
         '_ZN5doris18TimestampFunctions7to_daysEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
-
+    [['last_day'], 'DATE', ['DATETIME'],
+        '_ZN5doris18TimestampFunctions8last_dayEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['last_day'], 'DATE', ['DATE'],
+        '_ZN5doris18TimestampFunctions8last_dayEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['last_day'], 'DATEV2', ['DATETIMEV2'],
+        '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['last_day'], 'DATEV2', ['DATEV2'],
+        '','', '', 'vec', 'ALWAYS_NULLABLE'],
     [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'],
         '', '', '', 'vec', 'ALWAYS_NULLABLE'],  
 

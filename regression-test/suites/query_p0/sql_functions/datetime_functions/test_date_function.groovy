@@ -425,7 +425,11 @@ suite("test_date_function") {
     //seconds_sub
     qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
 
+<<<<<<< HEAD
     // test last_month_day
+=======
+    // test last_day
+>>>>>>> 6525d8578 (add new date function 'lsy_day')
     sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
