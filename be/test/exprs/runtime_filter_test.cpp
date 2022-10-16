@@ -111,7 +111,7 @@ IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptio
     EXPECT_TRUE(status.ok()) << status.to_string();
 
     if (auto bf = runtime_filter->get_bloomfilter()) {
-        status = bf->init_with_fixed_length();
+        status = bf->wait_for_initialization();
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
