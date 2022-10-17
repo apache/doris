@@ -1413,7 +1413,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
 
     switch (column_type) {
     case TYPE_BOOLEAN: {
-        batch_copy<int32_t>(filter, it, [](PColumnValue* column, const int32_t* value) {
+        batch_copy<bool>(filter, it, [](PColumnValue* column, const bool* value) {
             column->set_boolval(*value);
         });
         return;

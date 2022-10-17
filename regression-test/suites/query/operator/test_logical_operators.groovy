@@ -37,4 +37,6 @@ suite("test_logical_operators", "query,p0") {
     }
     qt_logical_op9 "select k8, k9, k8%k9, k9%NULL, NULL%k9 from ${tableName} order by 1, 2"
     qt_logical_op10 'select * from baseall where (k1 = 1) or (k1 = 1 and k2 = 2)'
+    qt_logical_op11 'select * from baseall where k0 in (false,true)'
+    qt_logical_op12 'select * from baseall where k0 not in (false,true)'
 }
