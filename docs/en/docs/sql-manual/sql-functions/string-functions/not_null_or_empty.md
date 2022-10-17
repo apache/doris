@@ -36,25 +36,25 @@ It returns false if the string is an empty string or NULL. Otherwise it returns 
 
 ```
 MySQL [(none)]> select not_null_or_empty(null);
-+---------------------+
-| null_or_empty(NULL) |
-+---------------------+
-|                   0 |
-+---------------------+
++-------------------------+
+| not_null_or_empty(NULL) |
++-------------------------+
+|                       0 |
++-------------------------+
 
 MySQL [(none)]> select not_null_or_empty("");
-+-------------------+
-| null_or_empty('') |
-+-------------------+
-|                 0 |
-+-------------------+
++-----------------------+
+| not_null_or_empty('') |
++-----------------------+
+|                     0 |
++-----------------------+
 
 MySQL [(none)]> select not_null_or_empty("a");
-+--------------------+
-| null_or_empty('a') |
-+--------------------+
-|                  1 |
-+--------------------+
++------------------------+
+| not_null_or_empty('a') |
++------------------------+
+|                      1 |
++------------------------+
 ```
 ### keywords
     NOT_NULL_OR_EMPTY
