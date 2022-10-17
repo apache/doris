@@ -308,7 +308,7 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         }
 
         for (size_t i = 0; i < size; ++i) {
-            null_map_ptr[i] = to_ptr[i] <= MIN_YEAR || to_ptr[i] >= MAX_YEAR;
+            null_map_ptr[i] = to_ptr[i] < MIN_YEAR || to_ptr[i] > MAX_YEAR;
         }
     }
 };
