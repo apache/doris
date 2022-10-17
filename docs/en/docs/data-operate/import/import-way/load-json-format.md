@@ -507,6 +507,48 @@ Import result:
 105 {"order1":["guangzhou"]} 7
 ````
 
+6. Import Array by json
+Since the Rapidjson handles decimal and largeint numbers which will cause precision problems, 
+we suggest you to use json string to import data to `array<decimal>` or `array<largeint>` column.
+
+```json
+{"k1": 39, "k2": ["-818.2173181"]}
+```
+
+```json
+{"k1": 40, "k2": ["10000000000000000000.1111111222222222"]}
+```
+
+```bash
+curl --location-trusted -u root:  -H "max_filter_ration:0.01" -H "format:json" -H "timeout:300" -T test_decimal.json http://localhost:8035/api/example_db/array_test_decimal/_stream_load
+```
+
+Import result:
+MySQL > select * from array_test_decimal;
++------+----------------------------------+
+| k1   | k2                               |
++------+----------------------------------+
+|   39 | [-818.2173181]                   |
+|   40 | [100000000000000000.001111111]   |
++------+----------------------------------+
+
+
+```json
+{"k1": 999, "k2": ["76959836937749932879763573681792701709", "26017042825937891692910431521038521227"]}
+```
+
+```bash
+curl --location-trusted -u root:  -H "max_filter_ration:0.01" -H "format:json" -H "timeout:300" -T test_largeint.json http://localhost:8035/api/example_db/array_test_largeint/_stream_load
+```
+
+Import result:
+MySQL > select * from array_test_largeint;
++------+------------------------------------------------------------------------------------+
+| k1   | k2                                                                                 |
++------+------------------------------------------------------------------------------------+
+|  999 | [76959836937749932879763573681792701709, 26017042825937891692910431521038521227]   |
++------+------------------------------------------------------------------------------------+
+
 ### Routine Load
 
 The processing principle of Routine Load for Json data is the same as that of Stream Load. It is not repeated here.
