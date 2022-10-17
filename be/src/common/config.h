@@ -266,16 +266,6 @@ CONF_Bool(enable_base_compaction_idle_sched, "true");
 CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
 CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
-// config the cumulative compaction policy
-// Valid configs: num_based, size_based
-// num_based policy, the original version of cumulative compaction, cumulative version compaction once.
-// size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
-// lower write amplification, trading off read amplification and space amplification.
-CONF_mString(cumulative_compaction_policy, "size_based");
-CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "num_based";
-});
-
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
