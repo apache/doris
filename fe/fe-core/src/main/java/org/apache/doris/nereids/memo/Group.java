@@ -18,12 +18,9 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -115,38 +112,12 @@ public class Group {
             physicalExpressions.remove(groupExpression);
         }
         groupExpression.setOwnerGroup(null);
-        avoidNullOwnerGroup(groupExpression);
         return groupExpression;
     }
 
     public void addLogicalExpression(GroupExpression groupExpression) {
         groupExpression.setOwnerGroup(this);
         logicalExpressions.add(groupExpression);
-    }
-
-    public void addPhysicalExpression(GroupExpression groupExpression) {
-        groupExpression.setOwnerGroup(this);
-        physicalExpressions.add(groupExpression);
-    }
-
-    private void avoidNullOwnerGroup(GroupExpression expression) {
-        expression.children().forEach(g -> g.removeParentExpression(expression));
-    }
-
-    /**
-     * Rewrite the logical group expression to the new logical group expression.
-     *
-     * @param newExpression new logical group expression
-     * @return old logical group expression
-     */
-    public GroupExpression rewriteLogicalExpression(GroupExpression newExpression,
-            LogicalProperties logicalProperties) {
-        newExpression.setOwnerGroup(this);
-        this.logicalProperties = logicalProperties;
-        GroupExpression oldExpression = getLogicalExpression();
-        logicalExpressions.clear();
-        logicalExpressions.add(newExpression);
-        return oldExpression;
     }
 
     /**
@@ -156,7 +127,6 @@ public class Group {
     public List<GroupExpression> clearLogicalExpressions() {
         List<GroupExpression> move = logicalExpressions.stream()
                 .peek(groupExpr -> groupExpr.setOwnerGroup(null))
-                .peek(this::avoidNullOwnerGroup)
                 .collect(Collectors.toList());
         logicalExpressions.clear();
         return move;
@@ -169,7 +139,6 @@ public class Group {
     public List<GroupExpression> clearPhysicalExpressions() {
         List<GroupExpression> move = physicalExpressions.stream()
                 .peek(groupExpr -> groupExpr.setOwnerGroup(null))
-                .peek(this::avoidNullOwnerGroup)
                 .collect(Collectors.toList());
         physicalExpressions.clear();
         return move;
@@ -179,19 +148,11 @@ public class Group {
         return costLowerBound;
     }
 
-    public void setCostLowerBound(double costLowerBound) {
-        this.costLowerBound = costLowerBound;
-    }
-
     /**
      * Set or update lowestCostPlans: properties --> Pair.of(cost, expression)
      */
     public void setBestPlan(GroupExpression expression, double cost, PhysicalProperties properties) {
-        if (lowestCostPlans.containsKey(properties)) {
-            if (lowestCostPlans.get(properties).first >= cost) {
-                lowestCostPlans.put(properties, Pair.of(cost, expression));
-            }
-        } else {
+        if (!lowestCostPlans.containsKey(properties) || lowestCostPlans.get(properties).first >= cost) {
             lowestCostPlans.put(properties, Pair.of(cost, expression));
         }
     }
@@ -279,28 +240,6 @@ public class Group {
         return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
     }
 
-    /**
-     * Get the first Plan from Memo.
-     */
-    public PhysicalPlan extractPlan() throws AnalysisException {
-        GroupExpression groupExpression = this.physicalExpressions.get(0);
-
-        List<Plan> planChildren = com.google.common.collect.Lists.newArrayList();
-        for (int i = 0; i < groupExpression.arity(); i++) {
-            planChildren.add(groupExpression.child(i).extractPlan());
-        }
-
-        Plan plan = groupExpression.getPlan()
-                .withChildren(planChildren)
-                .withGroupExpression(Optional.of(groupExpression));
-        if (!(plan instanceof PhysicalPlan)) {
-            throw new AnalysisException("generate logical plan");
-        }
-        PhysicalPlan physicalPlan = (PhysicalPlan) plan;
-
-        return physicalPlan;
-    }
-
     public List<GroupExpression> getParentGroupExpressions() {
         return ImmutableList.copyOf(parentExpressions.keySet());
     }
@@ -320,8 +259,56 @@ public class Group {
         return parentExpressions.size();
     }
 
-    public int parentExpressionNum() {
-        return parentExpressions.size();
+    /**
+     * move the ownerGroup of all logical expressions to target group
+     * if this.equals(target), do nothing.
+     *
+     * @param target the new owner group of expressions
+     */
+    public void moveLogicalExpressionOwnership(Group target) {
+        if (equals(target)) {
+            return;
+        }
+        target.logicalExpressions.addAll(this.logicalExpressions);
+        logicalExpressions.clear();
+    }
+
+    /**
+     * move the ownerGroup of all physical expressions to target group
+     * if this.equals(target), do nothing.
+     *
+     * @param target the new owner group of expressions
+     */
+    public void movePhysicalExpressionOwnership(Group target) {
+        if (equals(target)) {
+            return;
+        }
+        target.physicalExpressions.addAll(this.physicalExpressions);
+        physicalExpressions.clear();
+    }
+
+    /**
+     * move the ownerGroup of all lowestCostPlans to target group
+     * if this.equals(target), do nothing.
+     *
+     * @param target the new owner group of expressions
+     */
+    public void moveLowestCostPlansOwnership(Group target) {
+        if (equals(target)) {
+            return;
+        }
+        lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
+            GroupExpression bestGroupExpression = costAndGroupExpr.second;
+            // change into target group.
+            if (bestGroupExpression.getOwnerGroup() == this) {
+                bestGroupExpression.setOwnerGroup(target);
+            }
+            if (!target.lowestCostPlans.containsKey(physicalProperties)
+                    || costAndGroupExpr.first < target.lowestCostPlans.get(physicalProperties).first) {
+                target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
+            }
+        });
+        lowestCostPlans.clear();
     }
 
     @Override
@@ -388,65 +375,5 @@ public class Group {
             }
         };
         return TreeStringUtils.treeString(this, toString, getChildren);
-    }
-
-    /**
-     * move the ownerGroup of all logical expressions to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void moveLogicalExpressionOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        for (GroupExpression expression : logicalExpressions) {
-            target.addGroupExpression(expression);
-        }
-        logicalExpressions.clear();
-    }
-
-    /**
-     * move the ownerGroup of all physical expressions to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void movePhysicalExpressionOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        for (GroupExpression expression : physicalExpressions) {
-            target.addGroupExpression(expression);
-        }
-        physicalExpressions.clear();
-    }
-
-    /**
-     * move the ownerGroup of all lowestCostPlans to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void moveLowestCostPlansOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
-            GroupExpression bestGroupExpression = costAndGroupExpr.second;
-            // change into target group.
-            if (bestGroupExpression.getOwnerGroup() == this) {
-                bestGroupExpression.setOwnerGroup(target);
-                bestGroupExpression.children().set(0, target);
-            }
-            if (!target.lowestCostPlans.containsKey(physicalProperties)) {
-                target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
-            } else {
-                if (costAndGroupExpr.first < target.lowestCostPlans.get(physicalProperties).first) {
-                    target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
-                }
-            }
-        });
-        lowestCostPlans.clear();
     }
 }

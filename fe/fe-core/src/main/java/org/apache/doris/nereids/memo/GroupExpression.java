@@ -94,10 +94,6 @@ public class GroupExpression {
         this.ownerGroup = ownerGroup;
     }
 
-    public Plan getPlan() {
-        return plan;
-    }
-
     public Group child(int i) {
         return children.get(i);
     }
@@ -112,7 +108,7 @@ public class GroupExpression {
         this.children.forEach(g -> g.addParentExpression(this));
     }
 
-    public void setChildren(int idx, Group group) {
+    public void setChild(int idx, Group group) {
         this.children.get(idx).removeParentExpression(this);
         this.children.set(idx, group);
         this.children.get(idx).addParentExpression(this);
@@ -124,18 +120,15 @@ public class GroupExpression {
      * @param newChild new child group
      */
     public void replaceChild(Group originChild, Group newChild) {
-        originChild.removeParentExpression(this);
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) == originChild) {
-                children.set(i, newChild);
-                originChild.removeParentExpression(this);
-                newChild.addParentExpression(this);
+                setChild(i, newChild);
             }
         }
     }
 
-    public void setChild(int index, Group group) {
-        this.children.set(index, group);
+    public Plan getPlan() {
+        return plan;
     }
 
     public boolean hasApplied(Rule rule) {

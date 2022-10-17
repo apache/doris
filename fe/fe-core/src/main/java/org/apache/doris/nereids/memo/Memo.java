@@ -345,17 +345,14 @@ public class Memo {
         });
         NereidsPlanner.builder.append(String.format("%s\n", needReplaceChild))
                 .append(String.format("%s\n", source.getParentGroupExpressions().stream()
-                        .filter(Objects::nonNull).collect(Collectors.toList())))
-                .append(String.format("%s\n", source.getParentGroupExpressions()
-                        .stream().filter(e -> e.getOwnerGroup() != null && e.getOwnerGroup().equals(destination))
-                        .collect(Collectors.toList())));
+                        .filter(Objects::nonNull).collect(Collectors.toList())));
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
             // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
-                    groupExpression.setChildren(i, destination);
+                    groupExpression.setChild(i, destination);
                 }
             }
             GroupExpression that = groupExpressions.get(groupExpression);
