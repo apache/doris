@@ -93,7 +93,8 @@ Status SchemaBackendsScanner::_fill_one_col(Tuple* tuple, MemPool* pool, size_t 
                str_slot->len);
     } else if (it->second == TYPE_DOUBLE) {
         void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        *(reinterpret_cast<double*>(slot)) = _batch_data[_row_idx].column_value[col_idx].doubleVal;
+        *(reinterpret_cast<double_t*>(slot)) =
+                _batch_data[_row_idx].column_value[col_idx].doubleVal;
     } else {
         // other type
     }
