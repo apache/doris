@@ -756,22 +756,22 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -lresolv
 )
 
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    set(ASAN_LIBS -static-libasan)
-    set(LSAN_LIBS -static-liblsan)
-    set(UBSAN_LIBS -static-libubsan tcmalloc)
-    set(TSAN_LIBS -static-libtsan)
-else ()
-    set(UBSAN_LIBS -rtlib=compiler-rt tcmalloc)
-endif ()
-
 if (USE_JEMALLOC)
     set(MALLOCLIB jemalloc)
 else ()
     set(MALLOCLIB tcmalloc)
 endif()
 
-# Add sanitize static link flags or tcmalloc
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    set(ASAN_LIBS -static-libasan)
+    set(LSAN_LIBS -static-liblsan)
+    set(UBSAN_LIBS -static-libubsan ${MALLOCLIB})
+    set(TSAN_LIBS -static-libtsan)
+else ()
+    set(UBSAN_LIBS -rtlib=compiler-rt ${MALLOCLIB})
+endif ()
+
+# Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
