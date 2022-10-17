@@ -114,6 +114,21 @@ enum TFileFormatType {
     FORMAT_PROTO,
 }
 
+// In previous versions, the data compression format and file format were stored together, as TFileFormatType,
+// which was inconvenient for flexible combination of file format and compression format.
+// Therefore, the compressed format is separately added here.
+// In order to ensure forward compatibility, if this type is set, the type shall prevail,
+// otherwise, the TFileFormatType shall prevail
+enum TFileCompressType {
+    UNKNOWN,
+    PLAIN,
+    GZ,
+    LZO,
+    BZ2,
+    LZ4FRAME,
+    DEFLATE
+}
+
 struct THdfsConf {
     1: required string key
     2: required string value
@@ -245,45 +260,50 @@ struct TFileAttributes {
 struct TFileScanRangeParams {
     1: optional Types.TFileType file_type;
     2: optional TFileFormatType format_type;
+    3: optional TFileCompressType compress_type;
     // If this is for load job, src point to the source table and dest point to the doris table.
     // If this is for query, only dest_tuple_id is set, including both file slot and partition slot.
-    3: optional Types.TTupleId src_tuple_id;
-    4: optional Types.TTupleId dest_tuple_id
+    4: optional Types.TTupleId src_tuple_id;
+    5: optional Types.TTupleId dest_tuple_id
     // num_of_columns_from_file can spilt the all_file_slot and all_partition_slot
-    5: optional i32 num_of_columns_from_file;
+    6: optional i32 num_of_columns_from_file;
     // all selected slots which may compose from file and partition value.
-    6: optional list<TFileScanSlotInfo> required_slots;
+    7: optional list<TFileScanSlotInfo> required_slots;
 
-    7: optional THdfsParams hdfs_params;
+    8: optional THdfsParams hdfs_params;
     // properties for file such as s3 information
-    8: optional map<string, string> properties;
+    9: optional map<string, string> properties;
 
     // The convert exprt map for load job
     // desc slot id -> expr
-    9: optional map<Types.TSlotId, Exprs.TExpr> expr_of_dest_slot
-    10: optional map<Types.TSlotId, Exprs.TExpr> default_value_of_src_slot
+    10: optional map<Types.TSlotId, Exprs.TExpr> expr_of_dest_slot
+    11: optional map<Types.TSlotId, Exprs.TExpr> default_value_of_src_slot
     // This is the mapping of dest slot id and src slot id in load expr
     // It excludes the slot id which has the transform expr
-    11: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
+    12: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
 
     // strictMode is a boolean
     // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
-    12: optional bool strict_mode
+    13: optional bool strict_mode
 
-    13: optional list<Types.TNetworkAddress> broker_addresses
-    14: optional TFileAttributes file_attributes
-    15: optional Exprs.TExpr pre_filter_exprs
+    14: optional list<Types.TNetworkAddress> broker_addresses
+    15: optional TFileAttributes file_attributes
+    16: optional Exprs.TExpr pre_filter_exprs
 }
 
 struct TFileRangeDesc {
+    // If load_id is set, this is for stream/routine load.
+    // If path is set, this is for bulk load.
+    1: optional Types.TUniqueId load_id
     // Path of this range
-    1: optional string path;
+    2: optional string path;
     // Offset of this file start
-    2: optional i64 start_offset;
+    3: optional i64 start_offset;
     // Size of this range, if size = -1, this means that will read to the end of file
-    3: optional i64 size;
+    4: optional i64 size;
+    5: optional i64 file_size;
     // columns parsed from file path should be after the columns read from file
-    4: optional list<string> columns_from_path;
+    6: optional list<string> columns_from_path;
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

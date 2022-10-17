@@ -174,8 +174,11 @@ ERRORS:
         SHOW LOAD WARNINGS ON 'url
        ````
 
+    where url is the url given by ErrorURL.
 
- where url is the url given by ErrorURL.
+23: compress_type
+
+    Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
 
 ### Example
 
