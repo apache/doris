@@ -714,8 +714,7 @@ DateTimeVal TimestampFunctions::last_day(FunctionContext* ctx, const DateTimeVal
 
     DateTimeValue ts_value = DateTimeValue::from_datetime_val(ts_val);
 
-    bool is_leap_year = (ts_value.year() % 400 == 0) ||
-                        (ts_value.year() % 4 == 0 && ts_value.year() % 100 != 0);
+    bool is_leap_year = doris::is_leap(ts_value.year());
     if (ts_value.month() == 2) {
         int day = is_leap_year ? 29 : 28;
         ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
@@ -1003,4 +1002,3 @@ void TimestampFunctions::convert_tz_close(doris_udf::FunctionContext* context,
 }
 
 } // namespace doris
-
