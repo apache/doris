@@ -33,16 +33,12 @@
 // Add thread mem tracker consumer during query execution.
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
-
 // Attach to task when thread starts
 #define SCOPED_ATTACH_TASK(arg1, ...) \
     auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, ##__VA_ARGS__)
-
-#define SCOPED_SWITCH_BTHREAD_TLS() auto VARNAME_LINENUM(switch_bthread) = SwitchBthread()
 #else
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
-#define SCOPED_SWITCH_BTHREAD_TLS() (void)0
 #endif
 
 namespace doris {
@@ -81,7 +77,7 @@ public:
     // Cannot add destructor `~ThreadContextPtr`, otherwise it will no longer be of type POD, the reason is as above.
 
     // TCMalloc hook is triggered during ThreadContext construction, which may lead to deadlock.
-    bool _init = false;
+    bool init = false;
 
     DECLARE_STATIC_THREAD_LOCAL(ThreadContext, _ptr);
 };
@@ -91,7 +87,7 @@ inline thread_local ThreadContextPtr thread_context_ptr;
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
 // in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
 inline thread_local ThreadContext* bthread_context;
-inline thread_local bthread_key_t bthread_context_key;
+inline thread_local bthread_t bthread_id;
 
 // The thread context saves some info about a working thread.
 // 2 required info:
@@ -122,18 +118,18 @@ public:
     }
 
     ~ThreadContext() {
-        // Restore to the memory state before _init=true to ensure accurate overall memory statistics.
+        // Restore to the memory state before init=true to ensure accurate overall memory statistics.
         // Thereby ensuring that the memory alloc size is not tracked during the initialization of the
-        // ThreadContext before `_init = true in ThreadContextPtr()`,
+        // ThreadContext before `init = true in ThreadContextPtr()`,
         // Equal to the size of the memory release that is not tracked during the destruction of the
-        // ThreadContext after `_init = false in ~ThreadContextPtr()`,
-        init();
-        thread_context_ptr._init = false;
+        // ThreadContext after `init = false in ~ThreadContextPtr()`,
+        if (ExecEnv::GetInstance()->initialized()) _thread_mem_tracker_mgr->clear();
+        thread_context_ptr.init = false;
     }
 
     void init() {
         _type = TaskType::UNKNOWN;
-        _thread_mem_tracker_mgr->init();
+        if (ExecEnv::GetInstance()->initialized()) _thread_mem_tracker_mgr->init();
         _thread_id = get_thread_id();
     }
 
@@ -192,17 +188,42 @@ private:
     TUniqueId _fragment_instance_id;
 };
 
-static void update_bthread_context() {
-    if (btls_key != bthread_context_key) {
-        // pthread switch occurs, updating bthread_context and bthread_context_key cached in pthread tls.
-        bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-        bthread_context_key = btls_key;
+static void attach_bthread() {
+    bthread_id = bthread_self();
+    bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+    if (bthread_context == nullptr) {
+        // A new bthread starts, two scenarios:
+        // 1. First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
+        // 2. There are not enough reusable btls in btls pool.
+#ifndef BE_TEST
+        DCHECK(ExecEnv::GetInstance()->initialized());
+#endif
+        // Create thread-local data on demand.
+        bthread_context = new ThreadContext;
+        std::shared_ptr<MemTrackerLimiter> btls_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Bthread:id=" + std::to_string(bthread_id),
+                                                    ExecEnv::GetInstance()->bthread_mem_tracker());
+        bthread_context->attach_task(ThreadContext::TaskType::BRPC, "", TUniqueId(), btls_tracker);
+        // set the data so that next time bthread_getspecific in the thread returns the data.
+        CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
+    } else {
+        // two scenarios:
+        // 1. A new bthread starts, but get a reuses btls.
+        // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
+        // So tracker call reset 0 like reuses btls.
+        DCHECK(bthread_context->_thread_mem_tracker_mgr->get_attach_layers() == 2);
+        bthread_context->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->reset_zero();
     }
 }
 
 static ThreadContext* thread_context() {
-    if (btls_key != EMPTY_BTLS_KEY && bthread_context != nullptr) {
-        update_bthread_context();
+    if (bthread_self() != 0) {
+        if (bthread_self() != bthread_id) {
+            // A new bthread starts or pthread switch occurs.
+            thread_context_ptr.init = false;
+            attach_bthread();
+            thread_context_ptr.init = true;
+        }
         return bthread_context;
     } else {
         return thread_context_ptr._ptr;
@@ -226,16 +247,6 @@ public:
     explicit AddThreadMemTrackerConsumer(MemTracker* mem_tracker);
 
     ~AddThreadMemTrackerConsumer();
-};
-
-class SwitchBthread {
-public:
-    explicit SwitchBthread();
-
-    ~SwitchBthread();
-
-private:
-    ThreadContext* _bthread_context;
 };
 
 class StopCheckThreadMemTrackerLimit {
@@ -277,30 +288,22 @@ private:
                                         ->_thread_mem_tracker_mgr->last_consumer_tracker(), \
                                 msg),                                                       \
                     ##__VA_ARGS__);
-
 // Mem Hook to consume thread mem tracker
-#define MEM_MALLOC_HOOK(size)                                                                \
-    do {                                                                                     \
-        if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_context != nullptr) { \
-            doris::update_bthread_context();                                                 \
-            doris::bthread_context->_thread_mem_tracker_mgr->consume(size);                  \
-        } else if (LIKELY(doris::thread_context_ptr._init)) {                                \
-            doris::thread_context_ptr._ptr->_thread_mem_tracker_mgr->consume(size);          \
-        } else {                                                                             \
-            doris::ThreadMemTrackerMgr::consume_no_attach(size);                             \
-        }                                                                                    \
+#define MEM_MALLOC_HOOK(size)                                                \
+    do {                                                                     \
+        if (doris::thread_context_ptr.init) {                                \
+            doris::thread_context()->_thread_mem_tracker_mgr->consume(size); \
+        } else {                                                             \
+            doris::ThreadMemTrackerMgr::consume_no_attach(size);             \
+        }                                                                    \
     } while (0)
-
-#define MEM_FREE_HOOK(size)                                                                  \
-    do {                                                                                     \
-        if (doris::btls_key != doris::EMPTY_BTLS_KEY && doris::bthread_context != nullptr) { \
-            doris::update_bthread_context();                                                 \
-            doris::bthread_context->_thread_mem_tracker_mgr->consume(-size);                 \
-        } else if (doris::thread_context_ptr._init) {                                        \
-            doris::thread_context_ptr._ptr->_thread_mem_tracker_mgr->consume(-size);         \
-        } else {                                                                             \
-            doris::ThreadMemTrackerMgr::consume_no_attach(-size);                            \
-        }                                                                                    \
+#define MEM_FREE_HOOK(size)                                                   \
+    do {                                                                      \
+        if (doris::thread_context_ptr.init) {                                 \
+            doris::thread_context()->_thread_mem_tracker_mgr->consume(-size); \
+        } else {                                                              \
+            doris::ThreadMemTrackerMgr::consume_no_attach(-size);             \
+        }                                                                     \
     } while (0)
 #else
 #define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() (void)0

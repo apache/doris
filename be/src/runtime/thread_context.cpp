@@ -26,7 +26,7 @@ DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, _ptr);
 
 ThreadContextPtr::ThreadContextPtr() {
     INIT_STATIC_THREAD_LOCAL(ThreadContext, _ptr);
-    _init = true;
+    init = true;
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
@@ -68,36 +68,6 @@ AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
 #endif // NDEBUG
         thread_context()->_thread_mem_tracker_mgr->pop_consumer_tracker();
     }
-}
-
-SwitchBthread::SwitchBthread() {
-    _bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-    // First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
-    if (_bthread_context == nullptr) {
-        // Create thread-local data on demand.
-        _bthread_context = new ThreadContext;
-        // set the data so that next time bthread_getspecific in the thread returns the data.
-        CHECK_EQ(0, bthread_setspecific(btls_key, _bthread_context));
-    } else {
-        DCHECK(_bthread_context->type() == ThreadContext::TaskType::UNKNOWN);
-        _bthread_context->_thread_mem_tracker_mgr->flush_untracked_mem<false>();
-    }
-    _bthread_context->_thread_mem_tracker_mgr->init();
-    _bthread_context->set_type(ThreadContext::TaskType::BRPC);
-    bthread_context_key = btls_key;
-    bthread_context = _bthread_context;
-}
-
-SwitchBthread::~SwitchBthread() {
-    DCHECK(_bthread_context != nullptr);
-    _bthread_context->_thread_mem_tracker_mgr->flush_untracked_mem<false>();
-    _bthread_context->_thread_mem_tracker_mgr->init();
-    _bthread_context->set_type(ThreadContext::TaskType::UNKNOWN);
-    bthread_context = nullptr;
-    bthread_context_key = EMPTY_BTLS_KEY;
-#ifndef NDEBUG
-    DorisMetrics::instance()->switch_bthread_count->increment(1);
-#endif // NDEBUG
 }
 
 } // namespace doris
