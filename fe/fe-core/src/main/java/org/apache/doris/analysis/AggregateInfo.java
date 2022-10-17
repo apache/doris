@@ -744,22 +744,22 @@ public final class AggregateInfo extends AggregateInfoBase {
         // in that case, only output slots is materialized
         // assume output tuple has correct marterialized infomation
         // we update intermediate tuple and materializedSlots based on output tuple
-        materializedSlots.clear();
-        ArrayList<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
-        int groupingExprNum = groupingExprs != null ? groupingExprs.size() : 0;
+        materializedSlots_.clear();
+        ArrayList<SlotDescriptor> outputSlots = outputTupleDesc_.getSlots();
+        int groupingExprNum = groupingExprs_ != null ? groupingExprs_.size() : 0;
         Preconditions.checkState(groupingExprNum <= outputSlots.size());
         for (int i = groupingExprNum; i < outputSlots.size(); ++i) {
             if (outputSlots.get(i).isMaterialized()) {
-                materializedSlots.add(i - groupingExprNum);
+                materializedSlots_.add(i - groupingExprNum);
             }
         }
 
-        ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc.getSlots();
+        ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc_.getSlots();
         Preconditions.checkState(intermediateSlots.size() == outputSlots.size());
         for (int i = 0; i < outputSlots.size(); ++i) {
             intermediateSlots.get(i).setIsMaterialized(outputSlots.get(i).isMaterialized());
         }
-        intermediateTupleDesc.computeStatAndMemLayout();
+        intermediateTupleDesc_.computeStatAndMemLayout();
     }
 
     /**

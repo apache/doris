@@ -102,14 +102,14 @@ public abstract class AggregateInfoBase {
     protected void createTupleDescs(Analyzer analyzer) {
         // Create the intermediate tuple desc first, so that the tuple ids are increasing
         // from bottom to top in the plan tree.
-        intermediateTupleDesc = createTupleDesc(analyzer, false);
-        if (requiresIntermediateTuple(aggregateExprs, groupingExprs.size() == 0)) {
-            outputTupleDesc = createTupleDesc(analyzer, true);
+        intermediateTupleDesc_ = createTupleDesc(analyzer, false);
+        if (requiresIntermediateTuple(aggregateExprs_, groupingExprs_.size() == 0)) {
+            outputTupleDesc_ = createTupleDesc(analyzer, true);
             // save the output and intermediate slots info into global desc table
             // after creaing the plan, we can call materializeIntermediateSlots method
             // to set the materialized info to intermediate slots based on output slots.
-            ArrayList<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
-            ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc.getSlots();
+            ArrayList<SlotDescriptor> outputSlots = outputTupleDesc_.getSlots();
+            ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc_.getSlots();
             HashMap<SlotDescriptor, SlotDescriptor> mapping = new HashMap<>();
             for (int i = 0; i < outputSlots.size(); ++i) {
                 mapping.put(outputSlots.get(i), intermediateSlots.get(i));
