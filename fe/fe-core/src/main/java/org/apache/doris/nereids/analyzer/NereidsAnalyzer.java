@@ -22,8 +22,8 @@ import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
 import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
 import org.apache.doris.nereids.jobs.batch.FinalizeAnalyzeJob;
+import org.apache.doris.nereids.jobs.batch.RegisterCTEJob;
 import org.apache.doris.nereids.jobs.batch.TypeCoercionJob;
-import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.rules.analysis.Scope;
 
 import java.util.Objects;
@@ -36,23 +36,22 @@ import java.util.Optional;
 public class NereidsAnalyzer {
     private final CascadesContext cascadesContext;
     private final Optional<Scope> outerScope;
-    private final CTEContext cteContext;
 
     public NereidsAnalyzer(CascadesContext cascadesContext) {
-        this(cascadesContext, Optional.empty(), new CTEContext());
+        this(cascadesContext, Optional.empty());
     }
 
-    public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope, CTEContext cteContext) {
+    public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope) {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext cannot be null");
         this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
-        this.cteContext = Objects.requireNonNull(cteContext, "cteContext cannot be null");
     }
 
     /**
      * nereids analyze sql.
      */
     public void analyze() {
-        new AnalyzeRulesJob(cascadesContext, cteContext, outerScope).execute();
+        new RegisterCTEJob(cascadesContext).execute();
+        new AnalyzeRulesJob(cascadesContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();
         new TypeCoercionJob(cascadesContext).execute();
         new FinalizeAnalyzeJob(cascadesContext).execute();
@@ -66,10 +65,6 @@ public class NereidsAnalyzer {
 
     public Optional<Scope> getOuterScope() {
         return outerScope;
-    }
-
-    public CTEContext getCteContext() {
-        return cteContext;
     }
 
 }

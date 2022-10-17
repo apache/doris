@@ -32,7 +32,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -84,12 +83,8 @@ public class CascadesContext {
         return new NereidsAnalyzer(this);
     }
 
-    public NereidsAnalyzer newAnalyzer(CTEContext cteContext) {
-        return new NereidsAnalyzer(this, Optional.empty(), cteContext);
-    }
-
-    public NereidsAnalyzer newAnalyzer(Optional<Scope> outerScope, CTEContext cteContext) {
-        return new NereidsAnalyzer(this, outerScope, cteContext);
+    public NereidsAnalyzer newAnalyzer(Optional<Scope> outerScope) {
+        return new NereidsAnalyzer(this, outerScope);
     }
 
     public void pushJob(Job job) {

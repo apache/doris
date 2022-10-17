@@ -22,19 +22,21 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.CTEContext;
+import org.apache.doris.nereids.rules.analysis.OneAnalysisRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WithClause;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -45,33 +47,30 @@ import java.util.stream.IntStream;
  * A LogicalProject node will be added to the root of the origin logicalPlan if there exist columnAliases.
  * Node LogicalCTE will be eliminated after registering.
  */
-public class RegisterCTE extends PlanPreprocessor {
-
-    private final CTEContext cteContext;
-
-    public RegisterCTE(CTEContext cteContext) {
-        this.cteContext = Objects.requireNonNull(cteContext, "cteContext cannot be null");
-    }
+public class RegisterCTE extends OneAnalysisRuleFactory {
 
     @Override
-    public LogicalPlan visitLogicalCTE(LogicalCTE<? extends Plan> logicalCTE, StatementContext statementContext) {
-        logicalCTE.getWithClauses().stream().forEach(withClause -> {
-            registerWithQuery(withClause, statementContext);
-        });
-        // eliminate LogicalCTE node
-        return (LogicalPlan) logicalCTE.child();
+    public Rule build() {
+        return logicalCTE().thenApply(ctx -> {
+            LogicalCTE<GroupPlan> logicalCTE = ctx.root;
+            logicalCTE.getWithClauses().stream().forEach(withClause -> {
+                registerWithQuery(withClause, ctx.statementContext);
+            });
+            return (LogicalPlan) logicalCTE.child();
+        }).toRule(RuleType.REGISTER_CTE);
     }
 
     private void registerWithQuery(WithClause withClause, StatementContext statementContext) {
         String name = withClause.getName();
         LogicalPlan originPlan = withClause.extractQueryPlan();
+        CTEContext cteContext = statementContext.getCteContext();
 
         if (cteContext.containsCTE(name)) {
             throw new AnalysisException("CTE name [" + name + "] cannot be used more than once.");
         }
 
         CascadesContext cascadesContext = new Memo(originPlan).newCascadesContext(statementContext);
-        cascadesContext.newAnalyzer(cteContext).analyze();
+        cascadesContext.newAnalyzer().analyze();
 
         if (withClause.getColumnAliases().isPresent()) {
             LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);

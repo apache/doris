@@ -61,14 +61,12 @@ public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
     private CascadesContext cascadesContext;
-    private CTEContext cteContext;
     private final StatementContext statementContext;
     private List<ScanNode> scanNodeList = null;
     private DescriptorTable descTable;
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
-        this.cteContext = new CTEContext();
     }
 
     @Override
@@ -125,7 +123,7 @@ public class NereidsPlanner extends Planner {
         plan = preprocess(plan);
 
         initCascadesContext(plan);
-
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
         // resolve column, table and function
         analyze();
 
@@ -149,7 +147,7 @@ public class NereidsPlanner extends Planner {
     }
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
-        return new PlanPreprocessors(statementContext, cteContext).process(logicalPlan);
+        return new PlanPreprocessors(statementContext).process(logicalPlan);
     }
 
     private void initCascadesContext(LogicalPlan plan) {
@@ -157,7 +155,7 @@ public class NereidsPlanner extends Planner {
     }
 
     private void analyze() {
-        cascadesContext.newAnalyzer(cteContext).analyze();
+        cascadesContext.newAnalyzer().analyze();
     }
 
     /**

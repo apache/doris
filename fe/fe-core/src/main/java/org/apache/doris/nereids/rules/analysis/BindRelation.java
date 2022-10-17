@@ -37,23 +37,12 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
-
-    private final CTEContext cteContext;
-
-    public BindRelation() {
-        cteContext = new CTEContext();
-    }
-
-    public BindRelation(CTEContext cteContext) {
-        this.cteContext = Objects.requireNonNull(cteContext, "cteContext cannot be null");
-    }
 
     @Override
     public Rule build() {
@@ -88,12 +77,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String nameParts) {
         // check if it is a CTE's name
-        Optional<LogicalPlan> ctePlan = cteContext.findCTE(nameParts);
+        Optional<LogicalPlan> ctePlan = cascadesContext.getStatementContext().getCteContext().findCTE(nameParts);
 
         if (ctePlan.isPresent()) {
             CascadesContext childContext = new Memo(ctePlan.get())
                     .newCascadesContext(cascadesContext.getStatementContext());
-            childContext.newAnalyzer(cteContext).analyze();
+            childContext.newAnalyzer().analyze();
             return new LogicalSubQueryAlias<>(nameParts, childContext.getMemo().copyOut(false));
         }
 

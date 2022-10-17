@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.processor.pre;
 
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
@@ -31,11 +30,9 @@ import java.util.Objects;
  */
 public class PlanPreprocessors {
     private final StatementContext statementContext;
-    private final CTEContext cteContext;
 
-    public PlanPreprocessors(StatementContext statementContext, CTEContext cteContext) {
+    public PlanPreprocessors(StatementContext statementContext) {
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext can not be null");
-        this.cteContext = Objects.requireNonNull(cteContext, "cteContext can not be null");
     }
 
     public LogicalPlan process(LogicalPlan logicalPlan) {
@@ -49,7 +46,6 @@ public class PlanPreprocessors {
     public List<PlanPreprocessor> getProcessors() {
         // add processor if we need
         return ImmutableList.of(
-                new RegisterCTE(cteContext),
                 new EliminateLogicalSelectHint()
         );
     }
