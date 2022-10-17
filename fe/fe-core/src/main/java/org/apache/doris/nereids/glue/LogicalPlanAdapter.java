@@ -65,8 +65,8 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
         return null;
     }
 
-    public void setResultExprs(List<Expr> resultExprs) {
-        this.resultExprs = resultExprs;
+    public ArrayList<String> getColLabels() {
+        return colLabels;
     }
 
     @Override
@@ -74,12 +74,12 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
         return resultExprs;
     }
 
-    public void setColLabels(ArrayList<String> colLabels) {
-        this.colLabels = colLabels;
+    public void setResultExprs(List<Expr> resultExprs) {
+        this.resultExprs = resultExprs;
     }
 
-    public ArrayList<String> getColLabels() {
-        return colLabels;
+    public void setColLabels(ArrayList<String> colLabels) {
+        this.colLabels = colLabels;
     }
 
     public StatementContext getStatementContext() {
