@@ -83,9 +83,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                 _consumption->current_value());
     }
     if (_reset_zero) {
-        ExecEnv::GetInstance()->orphan_mem_tracker_raw()->cache_consume_local(
-                _consumption->current_value());
-        cache_consume_local(-_consumption->current_value());
+        reset_zero();
         _all_ancestors.clear();
         _all_ancestors.push_back(ExecEnv::GetInstance()->orphan_mem_tracker_raw());
     }

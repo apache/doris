@@ -191,26 +191,35 @@ private:
 static void attach_bthread() {
     bthread_id = bthread_self();
     bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-    // First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
     if (bthread_context == nullptr) {
+        // A new bthread starts, two scenarios:
+        // 1. First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
+        // 2. There are not enough reusable btls in btls pool.
 #ifndef BE_TEST
         DCHECK(ExecEnv::GetInstance()->initialized());
 #endif
         // Create thread-local data on demand.
         bthread_context = new ThreadContext;
+        std::shared_ptr<MemTrackerLimiter> btls_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Bthread:id=" + std::to_string(bthread_id),
+                                                    ExecEnv::GetInstance()->bthread_mem_tracker());
+        bthread_context->attach_task(ThreadContext::TaskType::BRPC, "", TUniqueId(), btls_tracker);
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
     } else {
-        bthread_context->_thread_mem_tracker_mgr->clear();
+        // two scenarios:
+        // 1. A new bthread starts, but get a reuses btls.
+        // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
+        // So tracker call reset 0 like reuses btls.
+        DCHECK(bthread_context->_thread_mem_tracker_mgr->get_attach_layers() == 2);
+        bthread_context->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->reset_zero();
     }
-    bthread_context->attach_task(ThreadContext::TaskType::BRPC, "", TUniqueId(),
-                                 ExecEnv::GetInstance()->bthread_mem_tracker());
 }
 
 static ThreadContext* thread_context() {
     if (bthread_self() != 0) {
         if (bthread_self() != bthread_id) {
-            // pthread switch occurs, updating bthread_context and bthread_context_key cached in pthread tls.
+            // A new bthread starts or pthread switch occurs.
             thread_context_ptr.init = false;
             attach_bthread();
             thread_context_ptr.init = true;

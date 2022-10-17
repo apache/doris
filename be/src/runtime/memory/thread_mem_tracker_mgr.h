@@ -68,8 +68,10 @@ public:
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
     void attach_limiter_tracker(const std::string& task_id, const TUniqueId& fragment_instance_id,
                                 const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
-
     void detach_limiter_tracker();
+    // Usually there are only two layers, the first is the default trackerOrphan;
+    // the second is the query tracker or bthread tracker.
+    int64_t get_attach_layers() { return _limiter_tracker_stack.size(); }
 
     // Must be fast enough! Thread update_tracker may be called very frequently.
     // So for performance, add tracker as early as possible, and then call update_tracker<Existed>.
@@ -163,11 +165,11 @@ inline void ThreadMemTrackerMgr::init_impl() {
 }
 
 inline void ThreadMemTrackerMgr::clear() {
+    flush_untracked_mem<false>();
     std::vector<std::shared_ptr<MemTrackerLimiter>>().swap(_limiter_tracker_stack);
     std::vector<MemTracker*>().swap(_consumer_tracker_stack);
     std::vector<std::string>().swap(_task_id_stack);
     std::vector<TUniqueId>().swap(_fragment_instance_id_stack);
-    flush_untracked_mem<false>();
     init_impl();
 }
 

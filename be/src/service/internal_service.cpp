@@ -646,8 +646,6 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
         transmit_tracker = std::make_shared<MemTrackerLimiter>(
                 -1, fmt::format("QueryTransmit#queryId={}", query_id),
                 _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id));
-        transmit_tracker =
-                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
     } else {
         query_id = "unkown_transmit_block";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_block");
