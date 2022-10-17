@@ -67,7 +67,7 @@ public class EliminateOutJoin extends OneRewriteRuleFactory {
                     } else {
                         return filter.withChildren(join.withJoinType(newJoinType));
                     }
-                }).toRule(RuleType.ELIMINATE_OUTER);
+                }).toRule(RuleType.ELIMINATE_OUT_JOIN);
     }
 
     private JoinType buildNewJoinType(JoinType joinType, boolean canFilterLeftNull, boolean canFilterRightNull) {
