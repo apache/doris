@@ -620,6 +620,23 @@ public final class SparkDpp implements java.io.Serializable {
         if (fileGroup.columnsFromPath != null) {
             srcColumnsWithColumnsFromPath.addAll(fileGroup.columnsFromPath);
         }
+        if (fileGroup.fileFormat.equalsIgnoreCase("parquet")) {
+            // parquet had its own schema, just use it; perhaps we could add some validation in future.
+            return spark.read().parquet(fileUrl);
+        }
+        if (fileGroup.fileFormat.equalsIgnoreCase("orc")) {
+            // orc had its own schema, but lacks of columns names, we should fix it.
+            Dataset<Row> df = spark.read().orc(fileUrl);
+            List<StructField> fields = new ArrayList<>();
+            int i = 0;
+            for (StructField field : df.schema().fields()) {
+                // user StringType to load source data
+                fields.add(DataTypes.createStructField(srcColumnsWithColumnsFromPath.get(i), field.dataType(),
+                        field.nullable()));
+                ++i;
+            }
+            return spark.createDataFrame(df.toJavaRDD(), DataTypes.createStructType(fields));
+        }
         StructType srcSchema = createScrSchema(srcColumnsWithColumnsFromPath);
         JavaRDD<String> sourceDataRdd = spark.read().textFile(fileUrl).toJavaRDD();
         int columnSize = dataSrcColumns.size();
