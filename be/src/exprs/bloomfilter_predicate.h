@@ -92,9 +92,17 @@ private:
 // Only Used In RuntimeFilter
 class BloomFilterFuncBase {
 public:
-    BloomFilterFuncBase() : _inited(false), _prepared(false) {}
+    BloomFilterFuncBase() : _inited(false), _retrieved(false) {}
 
-    virtual ~BloomFilterFuncBase() = default;
+    virtual ~BloomFilterFuncBase() {
+        if (_inited && !_retrieved) {
+            std::lock_guard<std::mutex> l(_lock);
+            if (_inited && !_retrieved) {
+                _thread_status.get_future().get();
+            }
+            _retrieved = true;
+        }
+    }
 
     Status init(int64_t expect_num, double fpp) {
         size_t filter_size = BloomFilterAdaptor::optimal_bit_num(expect_num, fpp);
@@ -102,15 +110,15 @@ public:
     }
 
     Status wait_for_initialization() {
-        if (_prepared) {
+        if (_retrieved) {
             return Status::OK();
         }
         std::lock_guard<std::mutex> l(_lock);
-        if (_prepared) {
+        if (_retrieved) {
             return Status::OK();
         }
         RETURN_IF_ERROR(_thread_status.get_future().get());
-        _prepared = true;
+        _retrieved = true;
         return Status::OK();
     }
 
@@ -213,7 +221,7 @@ private:
     }
 
     bool _inited;
-    bool _prepared;
+    bool _retrieved;
     std::mutex _lock;
     std::promise<Status> _thread_status;
 };
