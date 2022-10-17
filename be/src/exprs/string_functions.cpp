@@ -143,6 +143,14 @@ BooleanVal StringFunctions::null_or_empty(FunctionContext* context, const String
     }
 }
 
+BooleanVal StringFunctions::not_null_or_empty(FunctionContext* context, const StringVal& str) {
+    if (str.is_null || str.len == 0) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
 StringVal StringFunctions::space(FunctionContext* context, const IntVal& len) {
     if (len.is_null) {
         return StringVal::null();

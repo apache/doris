@@ -371,6 +371,7 @@
                                 "sql-manual/sql-functions/string-functions/ltrim",
                                 "sql-manual/sql-functions/string-functions/rtrim",
                                 "sql-manual/sql-functions/string-functions/null_or_empty",
+                                "sql-manual/sql-functions/string-functions/not_null_or_empty",
                                 "sql-manual/sql-functions/string-functions/hex",
                                 "sql-manual/sql-functions/string-functions/unhex",
                                 "sql-manual/sql-functions/string-functions/elt",
