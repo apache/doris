@@ -35,6 +35,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -343,7 +344,8 @@ public class Memo {
             }
         });
         NereidsPlanner.builder.append(String.format("%s\n", needReplaceChild))
-                .append(String.format("%s\n", source.getParentGroupExpressions()))
+                .append(String.format("%s\n", source.getParentGroupExpressions().stream()
+                        .filter(Objects::nonNull).collect(Collectors.toList())))
                 .append(String.format("%s\n", source.getParentGroupExpressions()
                         .stream().filter(e -> e.getOwnerGroup() != null && e.getOwnerGroup().equals(destination))
                         .collect(Collectors.toList())));
