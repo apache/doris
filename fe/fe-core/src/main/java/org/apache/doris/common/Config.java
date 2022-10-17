@@ -1831,4 +1831,46 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static long hive_metastore_client_timeout_second = 10;
+
+    @ConfField(mutable = false)
+    public static int statistic_table_bucket_count = 7;
+
+    @ConfField
+    public static long statistics_max_mem_per_query_in_bytes = 2L * 1024 * 1024 * 1024;
+
+    @ConfField
+    public static int statistic_parallel_exec_instance_num = 1;
+
+    @ConfField
+    public static int statistics_simultaneously_running_job_num = 10;
+
+    @ConfField
+    public static int statistic_internal_table_replica_num = 1;
+
+    @ConfField
+    public static int statistic_clean_interval_in_hours = 24 * 2;
+
+    @ConfField
+    public static int statistics_stale_statistics_fetch_size = 1000;
+
+    @ConfField
+    public static int statistics_outdated_record_detector_running_interval_in_minutes = 5;
+
+    @ConfField
+    public static int statistics_records_outdated_time_in_ms = 2 * 24 * 3600 * 1000;
+
+    @ConfField
+    public static int statistics_job_execution_timeout_in_min = 5;
+
+    @ConfField
+    public static int statistics_table_creation_retry_interval_in_seconds = 5;
+
+    @ConfField
+    public static int statistics_cache_max_size = 100000;
+
+    @ConfField
+    public static int statistics_cache_valid_duration_in_hours = 24 * 2;
+
+    @ConfField
+    public static int statistics_cache_refresh_interval = 24 * 2;
 }

@@ -449,6 +449,7 @@ public class SchemaTable extends Table {
         return tSchemaTableStructureList;
     }
 
+
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
         super(id, name, type, baseSchema);
     }

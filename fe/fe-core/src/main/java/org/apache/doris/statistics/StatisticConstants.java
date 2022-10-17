@@ -17,18 +17,14 @@
 
 package org.apache.doris.statistics;
 
-import com.google.common.base.Preconditions;
+public class StatisticConstants {
+    public static final String STATISTIC_DB_NAME = "__internal_schema";
 
-/**
- * Derive ExchangeNode statistics.
- */
-public class ExchangeStatsDerive extends BaseStatsDerive {
+    public static final String STATISTIC_TBL_NAME = "column_statistics";
 
-    @Override
-    protected long deriveRowCount() {
-        Preconditions.checkState(!childrenStatsResult.isEmpty());
-        rowCount = (long) childrenStatsResult.get(0).getRowCount();
-        capRowCountAtLimit();
-        return rowCount;
-    }
+    public static final String ANALYSIS_JOB_TABLE = "analysis_jobs";
+
+    public static final int MAX_NAME_LEN = 64;
+
+    public static final int ID_LEN = 4096;
 }

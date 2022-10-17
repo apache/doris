@@ -251,8 +251,6 @@ public class ConnectProcessor {
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setSqlHash(ctx.getSqlHash());
-
-        // execute this query.
         StatementBase parsedStmt = null;
         List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
         boolean alreadyAddedToAuditInfoList = false;
