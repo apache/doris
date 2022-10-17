@@ -147,6 +147,9 @@ elif [[ "${CC}" == *clang ]]; then
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
     clang_version="$("${CC}" -dumpversion)"
+    if [[ "${clang_version}" < '15.0.0' ]]; then
+        warning_unused_but_set_variable=''
+    fi
 fi
 
 # prepare installed prefix
@@ -349,16 +352,12 @@ build_thrift() {
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags="-I${TP_INCLUDE_DIR}"
-        cxxflags="-I${TP_INCLUDE_DIR}"
+        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable}"
         ldflags="-L${TP_LIB_DIR} --static"
     else
         cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
-        cxxflags="-I${TP_INCLUDE_DIR}"
+        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable}"
         ldflags="-L${TP_LIB_DIR}"
-    fi
-
-    if [[ ! "${clang_version}" < '15.0.0' ]]; then
-        cxxflags="${cxxflags} -Wno-unused-but-set-variable"
     fi
 
     # NOTE(amos): libtool discard -static. --static works.
@@ -882,14 +881,9 @@ build_flatbuffers() {
         ldflags=''
     fi
 
-    cxxflags="${warning_class_memaccess}"
-    if [[ ! "${clang_version}" < '15.0.0' ]]; then
-        cxxflags="${cxxflags} -Wno-unused-but-set-variable"
-    fi
-
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" \
-        -DFLATBUFFERS_CXX_FLAGS="${cxxflags}" \
+        -DFLATBUFFERS_CXX_FLAGS="${warning_class_memaccess} ${warning_unused_but_set_variable}" \
         -DFLATBUFFERS_BUILD_TESTS=OFF \
         ..
 
@@ -1507,6 +1501,7 @@ build_gettext() {
 }
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
+    echo 'build for Darwin'
     build_binutils
     build_gettext
 fi
