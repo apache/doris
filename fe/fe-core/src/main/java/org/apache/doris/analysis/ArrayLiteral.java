@@ -156,4 +156,11 @@ public class ArrayLiteral extends LiteralExpr {
         literal.setType(targetType);
         return literal;
     }
+
+    @Override
+    public void checkValueValid() throws AnalysisException {
+        for (Expr e : children) {
+            e.checkValueValid();
+        }
+    }
 }

@@ -26,6 +26,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
 
@@ -122,7 +123,8 @@ private:
     SpecificFilter* _specific_filter; // owned by _filter
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
-    mutable bool _enable_pred = true;
+    mutable bool _always_true = false;
+    mutable bool _has_calculate_filter = false;
 };
 
 template <PrimitiveType T>
@@ -152,7 +154,7 @@ template <PrimitiveType T>
 uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
                                                  uint16_t size) const {
     uint16_t new_size = 0;
-    if (!_enable_pred) {
+    if (_always_true) {
         return size;
     }
     if (column.is_nullable()) {
@@ -168,11 +170,8 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& colu
     // useless.
     _evaluated_rows += size;
     _passed_rows += new_size;
-    if (_evaluated_rows > config::bloom_filter_predicate_check_row_num) {
-        if (_passed_rows / (_evaluated_rows * 1.0) > 0.5) {
-            _enable_pred = false;
-        }
-    }
+    vectorized::VRuntimeFilterWrapper::calculate_filter(
+            _evaluated_rows - _passed_rows, _evaluated_rows, _has_calculate_filter, _always_true);
     return new_size;
 }
 
