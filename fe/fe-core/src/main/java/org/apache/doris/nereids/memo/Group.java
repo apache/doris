@@ -115,6 +115,7 @@ public class Group {
             physicalExpressions.remove(groupExpression);
         }
         groupExpression.setOwnerGroup(null);
+        avoidNullOwnerGroup(groupExpression);
         return groupExpression;
     }
 
@@ -126,6 +127,10 @@ public class Group {
     public void addPhysicalExpression(GroupExpression groupExpression) {
         groupExpression.setOwnerGroup(this);
         physicalExpressions.add(groupExpression);
+    }
+
+    private void avoidNullOwnerGroup(GroupExpression expression) {
+        expression.children().forEach(g -> g.removeParentExpression(expression));
     }
 
     /**
@@ -144,17 +149,27 @@ public class Group {
         return oldExpression;
     }
 
+    /**
+     * tmp
+     * @return tmp
+     */
     public List<GroupExpression> clearLogicalExpressions() {
         List<GroupExpression> move = logicalExpressions.stream()
                 .peek(groupExpr -> groupExpr.setOwnerGroup(null))
+                .peek(this::avoidNullOwnerGroup)
                 .collect(Collectors.toList());
         logicalExpressions.clear();
         return move;
     }
 
+    /**
+     * tmp
+     * @return tmp
+     */
     public List<GroupExpression> clearPhysicalExpressions() {
         List<GroupExpression> move = physicalExpressions.stream()
                 .peek(groupExpr -> groupExpr.setOwnerGroup(null))
+                .peek(this::avoidNullOwnerGroup)
                 .collect(Collectors.toList());
         physicalExpressions.clear();
         return move;
