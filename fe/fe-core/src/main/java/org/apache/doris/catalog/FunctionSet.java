@@ -1390,6 +1390,8 @@ public class FunctionSet<T> {
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
 
+    public static final String RETENTION = "retention";
+
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1455,6 +1457,21 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
                 Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
                 Type.INT,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        // retention vectorization
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION,
+                Lists.newArrayList(Type.BOOLEAN),
+                Type.ARRAY,
                 Type.VARCHAR,
                 true,
                 "",

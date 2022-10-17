@@ -88,6 +88,78 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
     }
 
+
+    @Test
+    public void testRetentionAnalysisException() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+
+        // normal.
+        do {
+            String query = "select empid, retention(empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select empid, retention(empid = 1, empid = 2, empid = 3, empid = 4) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        // less argument.
+        do {
+            String query = "select empid, retention() from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("function must have at least one param"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        // argument with wrong type.
+        do {
+            String query = "select empid, retention('xx', empid = 1) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("All params of retention function must be boolean"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        do {
+            String query = "select empid, retention(1) from "
+                    + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("All params of retention function must be boolean"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+    }
+
     @Test
     public void testWindowFunnelAnalysisException() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
