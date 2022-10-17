@@ -713,7 +713,7 @@ struct LastDayImpl {
     }
 
     static int get_last_month_day(int year, int month) {
-        bool is_leap_year = doris::is_leap(ts_value.year());
+        bool is_leap_year = doris::is_leap(year);
         if (month == 2) {
             return is_leap_year ? 29 : 28;
         } else {
