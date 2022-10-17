@@ -810,7 +810,7 @@ public:
         for (ssize_t i = 0; i < input_row_size; ++i) {
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int size = offsets[i] - offsets[i - 1];
+            size_t size = offsets[i] - offsets[i - 1];
             int repeat = repeats[i];
 
             if (repeat <= 0) {
@@ -841,7 +841,7 @@ public:
         for (ssize_t i = 0; i < input_row_size; ++i) {
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int size = offsets[i] - offsets[i - 1];
+            size_t size = offsets[i] - offsets[i - 1];
 
             if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
