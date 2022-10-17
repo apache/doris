@@ -110,6 +110,7 @@ public:
             return Status::OK();
         }
         RETURN_IF_ERROR(_thread_status.get_future().get());
+        _prepared = true;
         return Status::OK();
     }
 
