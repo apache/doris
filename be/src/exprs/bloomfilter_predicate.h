@@ -435,9 +435,7 @@ private:
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     bool _has_calculate_filter = false;
-    // loop size must be power of 2
-    constexpr static int64_t _loop_size = 8192;
     // if filter rate less than this, bloom filter will set always true
-    constexpr static double _expect_filter_rate = 0.2;
+    constexpr static double _expect_filter_rate = 0.4;
 };
 } // namespace doris

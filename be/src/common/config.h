@@ -817,7 +817,7 @@ CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+CONF_mInt32(bloom_filter_predicate_check_row_num, "20480");
 
 CONF_Bool(enable_decimalv3, "false");
 
