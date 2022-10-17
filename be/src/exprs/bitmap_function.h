@@ -53,6 +53,7 @@ public:
     // the dst value could be null
     static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
     static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    static void group_bitmap_xor(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
     static BigIntVal bitmap_and_not_count(FunctionContext* ctx, const StringVal& src,
                                           const StringVal& dst);

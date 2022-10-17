@@ -2364,6 +2364,25 @@ public class FunctionSet<T> {
                 "",
                 "",
                 true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin("group_bitmap_xor", Lists.newArrayList(Type.BITMAP),
+                Type.BITMAP, Type.VARCHAR,
+                "_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16group_bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16group_bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, false, true));
+
+        // vec group_bitmap_xor
+        addBuiltin(AggregateFunction.createBuiltin("group_bitmap_xor", Lists.newArrayList(Type.BITMAP),
+                Type.BITMAP, Type.BITMAP,
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
         //quantile_state
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
                 Type.QUANTILE_STATE,
