@@ -429,7 +429,8 @@
                                 "sql-manual/sql-functions/aggregate-functions/any_value",
                                 "sql-manual/sql-functions/aggregate-functions/var_samp",
                                 "sql-manual/sql-functions/aggregate-functions/approx_count_distinct",
-                                "sql-manual/sql-functions/aggregate-functions/variance"
+                                "sql-manual/sql-functions/aggregate-functions/variance",
+                                "sql-manual/sql-functions/aggregate-functions/retention"
                             ]
                         },
                         {
