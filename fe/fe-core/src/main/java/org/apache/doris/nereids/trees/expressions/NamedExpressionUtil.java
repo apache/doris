@@ -27,7 +27,14 @@ import com.google.common.annotations.VisibleForTesting;
  */
 public class NamedExpressionUtil {
 
+    // for test only
+    private static StatementContext statementContext = new StatementContext();
+
     public static ExprId newExprId() {
+        // this branch is for test only
+        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
+            return statementContext.getNextExprId();
+        }
         return ConnectContext.get().getStatementContext().getNextExprId();
     }
 
@@ -36,6 +43,9 @@ public class NamedExpressionUtil {
      */
     @VisibleForTesting
     public static void clear() throws Exception {
-        ConnectContext.get().setStatementContext(new StatementContext());
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().setStatementContext(new StatementContext());
+        }
+        statementContext = new StatementContext();
     }
 }

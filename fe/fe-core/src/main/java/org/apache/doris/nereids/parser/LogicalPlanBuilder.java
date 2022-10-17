@@ -142,6 +142,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -202,6 +203,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = Lists.newArrayList();
         for (org.apache.doris.nereids.DorisParser.StatementContext statement : ctx.statement()) {
             statementContext = new StatementContext();
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().setStatementContext(statementContext);
+            }
             logicalPlans.add(Pair.of(
                     ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
         }
@@ -311,7 +315,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression expression = getExpression(ctx.expression());
             if (ctx.name != null) {
-                return new Alias(statementContext.getNextExprId(), expression, ctx.name.getText());
+                return new Alias(expression, ctx.name.getText());
             } else {
                 return expression;
             }
