@@ -146,6 +146,7 @@ elif [[ "${CC}" == *clang ]]; then
     warning_option_ignored='-Wno-option-ignored'
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
+    clang_version="$("${CC}" -dumpversion)"
 fi
 
 # prepare installed prefix
@@ -348,12 +349,16 @@ build_thrift() {
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cflags="-I${TP_INCLUDE_DIR}"
-        cxxflags="-I${TP_INCLUDE_DIR} -Wno-unused-but-set-variable"
+        cxxflags="-I${TP_INCLUDE_DIR}"
         ldflags="-L${TP_LIB_DIR} --static"
     else
         cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
-        cxxflags="-I${TP_INCLUDE_DIR} -Wno-unused-but-set-variable"
+        cxxflags="-I${TP_INCLUDE_DIR}"
         ldflags="-L${TP_LIB_DIR}"
+    fi
+
+    if [[ ! "${clang_version}" < '15.0.0' ]]; then
+        cxxflags="${cxxflags} -Wno-unused-but-set-variable"
     fi
 
     # NOTE(amos): libtool discard -static. --static works.
@@ -787,7 +792,11 @@ build_rocksdb() {
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         ldflags='-static-libstdc++ -static-libgcc'
     else
-        ldflags=''
+        if [[ "$(uname -m)" != 'x86_64' ]]; then
+            ldflags=''
+        else
+            ldflags="-L${TP_LIB_DIR} -ljemalloc_doris"
+        fi
     fi
 
     # -Wno-range-loop-construct gcc-11
@@ -873,9 +882,14 @@ build_flatbuffers() {
         ldflags=''
     fi
 
+    cxxflags="${warning_class_memaccess}"
+    if [[ ! "${clang_version}" < '15.0.0' ]]; then
+        cxxflags="${cxxflags} -Wno-unused-but-set-variable"
+    fi
+
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" \
-        -DFLATBUFFERS_CXX_FLAGS="${warning_class_memaccess} -Wno-unused-but-set-variable" \
+        -DFLATBUFFERS_CXX_FLAGS="${cxxflags}" \
         -DFLATBUFFERS_BUILD_TESTS=OFF \
         ..
 
@@ -1519,12 +1533,12 @@ build_hyperscan
 build_thrift
 build_leveldb
 build_brpc
+build_jemalloc
 build_rocksdb
 build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
 build_orc
-build_jemalloc
 build_arrow
 build_s2
 build_bitshuffle
