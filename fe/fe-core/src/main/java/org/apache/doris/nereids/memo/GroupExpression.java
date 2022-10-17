@@ -128,6 +128,7 @@ public class GroupExpression {
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) == originChild) {
                 children.set(i, newChild);
+                originChild.removeParentExpression(this);
                 newChild.addParentExpression(this);
             }
         }
