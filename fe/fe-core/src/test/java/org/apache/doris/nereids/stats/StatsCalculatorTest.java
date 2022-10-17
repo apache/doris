@@ -201,10 +201,10 @@ public class StatsCalculatorTest {
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         new Expectations() {{
-//                ConnectContext.get();
-//                result = context;
-//                context.getEnv();
-//                result = env;
+                ConnectContext.get();
+                result = context;
+                context.getEnv();
+                result = env;
                 env.getStatisticsManager();
                 result = statisticsManager;
                 statisticsManager.getStatistics();
