@@ -44,12 +44,14 @@ public:
     ThreadMemTrackerMgr() {}
 
     ~ThreadMemTrackerMgr() {
-        // exec env is not initialized when init(). and never consumed mem tracker once.
-        if (_limiter_tracker_raw != nullptr) flush_untracked_mem<false>();
-        if (bthread_self() == 0) {
-            DCHECK(_consumer_tracker_stack.empty());
-            DCHECK(_limiter_tracker_stack.size() == 1)
-                    << ", limiter_tracker_stack.size(): " << _limiter_tracker_stack.size();
+        // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
+        if (_init) {
+            flush_untracked_mem<false>();
+            if (bthread_self() == 0) {
+                DCHECK(_consumer_tracker_stack.empty());
+                DCHECK(_limiter_tracker_stack.size() == 1)
+                        << ", limiter_tracker_stack.size(): " << _limiter_tracker_stack.size();
+            }
         }
     }
 
@@ -95,11 +97,11 @@ public:
     bool is_attach_query() { return _fragment_instance_id_stack.back() != TUniqueId(); }
 
     std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
-        if (_init == false) init();
+        if (!_init) init();
         return _limiter_tracker_stack.back();
     }
     MemTrackerLimiter* limiter_mem_tracker_raw() {
-        if (_init == false) init();
+        if (!_init) init();
         return _limiter_tracker_raw;
     }
 
@@ -210,7 +212,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the TCMalloc Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;
-    if (_init == false) init();
+    if (!_init) init();
     DCHECK(_limiter_tracker_raw);
     old_untracked_mem = _untracked_mem;
     if (CheckLimit) {
