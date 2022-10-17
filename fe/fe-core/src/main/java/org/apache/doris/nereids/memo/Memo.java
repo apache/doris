@@ -342,9 +342,13 @@ public class Memo {
                 needReplaceChild.add(groupExpression);
             }
         });
-        NereidsPlanner.builder.append(String.format("%s\n", needReplaceChild))
-                .append(String.format("%s\n", source.getParentGroupExpressions()
-                        .stream().filter(e -> e.getOwnerGroup().equals(destination)).collect(Collectors.toList())));
+        if (source.getParentGroupExpressions() == null) {
+            NereidsPlanner.builder.append(String.format("source parent is null: %s\n", needReplaceChild));
+        } else {
+            NereidsPlanner.builder.append(String.format("%s\n", needReplaceChild))
+                    .append(String.format("%s\n", source.getParentGroupExpressions()
+                            .stream().filter(e -> e.getOwnerGroup().equals(destination)).collect(Collectors.toList())));
+        }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
