@@ -203,6 +203,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
+    // After the jemalloc hook is loaded, before ExecEnv init, _limiter_tracker=nullptr.
     if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
          _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
         !_stop_consume && ExecEnv::GetInstance()->initialized()) {
@@ -222,7 +223,6 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     if (!_init) init();
     DCHECK(_limiter_tracker_raw);
     old_untracked_mem = _untracked_mem;
-    DCHECK(_limiter_tracker_raw);
     if (CheckLimit) {
 #ifndef BE_TEST
         // When all threads are started, `attach_limiter_tracker` is expected to be called to bind the limiter tracker.

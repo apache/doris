@@ -119,6 +119,9 @@ export UBSAN_OPTIONS=print_stacktrace=1
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
     nohup $LIMIT ${DORIS_HOME}/lib/doris_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &
+
+export MALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16"
+
 else
     export DORIS_LOG_TO_STDERR=1
     $LIMIT ${DORIS_HOME}/lib/doris_be "$@" 2>&1 < /dev/null
