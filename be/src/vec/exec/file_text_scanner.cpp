@@ -158,7 +158,8 @@ Status FileTextScanner::_open_next_reader() {
 
 Status FileTextScanner::_open_file_reader() {
     const TFileRangeDesc& range = _ranges[_next_range];
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _params, range.path,
+                                                    range.start_offset, range.file_size, 0,
                                                     _cur_file_reader));
     return _cur_file_reader->open();
 }
