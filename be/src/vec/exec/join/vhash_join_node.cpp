@@ -1479,7 +1479,7 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
                                    _output_row_desc));
     auto rows = origin_block->rows();
     // TODO: After FE plan support same nullable of output expr and origin block and mutable column
-    // we should repalce `insert_column_datas` by `insert_range_from`
+    // we should replace `insert_column_datas` by `insert_range_from`
 
     auto insert_column_datas = [](auto& to, const auto& from, size_t rows) {
         if (to->is_nullable() && !from.is_nullable()) {
