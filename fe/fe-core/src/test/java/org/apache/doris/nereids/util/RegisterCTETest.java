@@ -142,7 +142,7 @@ public class RegisterCTETest extends TestWithFeService {
                         + "  \tSELECT s_suppkey\n"
                         + "  \tFROM cte2\n"
                         + "  \tWHERE s_suppkey < 5\n"
-                        + "), cte2 (sk2) AS (\n"
+                        + "), cte2 AS (\n"
                         + "  \tSELECT s_suppkey\n"
                         + "  \tFROM supplier\n"
                         + "  \tWHERE s_suppkey < 3\n"
@@ -150,6 +150,7 @@ public class RegisterCTETest extends TestWithFeService {
                         + "SELECT *\n"
                         + "FROM cte1, cte2");
         } catch (Exception e) {
+            System.out.println(e);
             Assertions.assertTrue(e instanceof RuntimeException);
             Assertions.assertTrue(e.getMessage().contains("does not exist in database"));
         }
@@ -171,6 +172,7 @@ public class RegisterCTETest extends TestWithFeService {
                         + "SELECT *\n"
                         + "FROM cte1");
         } catch (Exception e) {
+            System.out.println(e);
             Assertions.assertTrue(e instanceof RuntimeException);
             Assertions.assertTrue(e.getMessage().contains("does not exist in database"));
         }
@@ -192,6 +194,7 @@ public class RegisterCTETest extends TestWithFeService {
                         + "SELECT *\n"
                         + "FROM cte1");
         } catch (Exception e) {
+            System.out.println(e);
             Assertions.assertTrue(e instanceof AnalysisException);
             Assertions.assertTrue(e.getMessage().contains("cannot be used more than once"));
         }

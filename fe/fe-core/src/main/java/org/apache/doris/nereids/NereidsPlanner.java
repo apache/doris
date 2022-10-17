@@ -123,7 +123,7 @@ public class NereidsPlanner extends Planner {
         plan = preprocess(plan);
 
         initCascadesContext(plan);
-        System.out.println(cascadesContext.getMemo().copyOut().treeString());
+
         // resolve column, table and function
         analyze();
 

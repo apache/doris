@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.processor.pre.RegisterCTE;
+import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 
 import com.google.common.collect.ImmutableList;
 

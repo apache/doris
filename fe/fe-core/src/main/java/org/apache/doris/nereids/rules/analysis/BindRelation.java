@@ -77,10 +77,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String nameParts) {
         // check if it is a CTE's name
-        Optional<LogicalPlan> ctePlan = cascadesContext.getStatementContext().getCteContext().findCTE(nameParts);
-
-        if (ctePlan.isPresent()) {
-            CascadesContext childContext = new Memo(ctePlan.get())
+        CTEContext cteContext = cascadesContext.getStatementContext().getCteContext();
+        if (cteContext.containsCTE(nameParts)) {
+            LogicalPlan originPlan = cteContext.findCTEPlan(nameParts, cascadesContext.getStatementContext());
+            CascadesContext childContext = new Memo(originPlan)
                     .newCascadesContext(cascadesContext.getStatementContext());
             childContext.newAnalyzer().analyze();
             return new LogicalSubQueryAlias<>(nameParts, childContext.getMemo().copyOut(false));

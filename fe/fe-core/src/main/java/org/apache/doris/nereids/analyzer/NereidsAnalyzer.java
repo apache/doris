@@ -36,6 +36,7 @@ import java.util.Optional;
 public class NereidsAnalyzer {
     private final CascadesContext cascadesContext;
     private final Optional<Scope> outerScope;
+    
 
     public NereidsAnalyzer(CascadesContext cascadesContext) {
         this(cascadesContext, Optional.empty());

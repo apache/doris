@@ -39,7 +39,6 @@ public class StatementContext {
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
 
     private StatementBase parsedStatement;
-
     private CTEContext cteContext;
 
     public StatementContext() {
