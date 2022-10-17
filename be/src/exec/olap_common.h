@@ -543,9 +543,8 @@ void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
 
         while (current < get_range_max_value()) {
             begin_scan_keys.emplace_back();
-            end_scan_keys.emplace_back();
             begin_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(current, scale()), contain_null());
+                    cast_to_string<primitive_type, CppType>(current, scale()));
 
             if (get_range_max_value() - current < step_size) {
                 current = get_range_max_value();
@@ -553,8 +552,16 @@ void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                 current += step_size;
             }
 
+            end_scan_keys.emplace_back();
             end_scan_keys.back().add_value(
                     cast_to_string<primitive_type, CppType>(current, scale()));
+        }
+
+        if (contain_null()) {
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_null();
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_null();
         }
     }
 }
@@ -881,6 +888,9 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
     } else {
         if (range.is_fixed_value_convertible() && _is_convertible) {
             range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, max_scan_key_num);
+            _begin_include = range.is_begin_include();
+            _end_include = range.is_end_include();
+            return Status::OK();
         }
     }
 
