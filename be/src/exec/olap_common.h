@@ -110,7 +110,7 @@ public:
 
     void convert_to_range_value();
 
-    void convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
+    bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
                                     std::vector<OlapTuple>& end_scan_keys,
                                     int32_t max_scan_key_num);
 
@@ -512,7 +512,7 @@ size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() cons
 }
 
 template <PrimitiveType primitive_type>
-void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
+bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
         int32_t max_scan_key_num) {
     constexpr bool reject_type = primitive_type == PrimitiveType::TYPE_LARGEINT ||
@@ -525,17 +525,20 @@ void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                                  primitive_type == PrimitiveType::TYPE_DATETIME ||
                                  primitive_type == PrimitiveType::TYPE_DATETIMEV2;
     if constexpr (reject_type) {
-        return;
+        begin_scan_keys.emplace_back();
+        begin_scan_keys.back().add_value(
+                cast_to_string<primitive_type, CppType>(get_range_min_value(), scale()),
+                contain_null());
+        end_scan_keys.emplace_back();
+        end_scan_keys.back().add_value(
+                cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
+        return true;
     } else {
         CppType current = get_range_min_value();
 
         size_t range_size = get_convertible_fixed_value_size();
         size_t step_size =
                 std::max((range_size + max_scan_key_num - 1) / max_scan_key_num, (size_t)1);
-
-        if (range_size / step_size > 65536) {
-            return;
-        }
 
         if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
             current.set_type(TimeType::TIME_DATE);
@@ -563,6 +566,7 @@ void ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             end_scan_keys.emplace_back();
             end_scan_keys.back().add_null();
         }
+        return step_size != 1;
     }
 }
 
@@ -886,8 +890,11 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
             }
         }
     } else {
-        if (range.is_fixed_value_convertible() && _is_convertible) {
-            range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, max_scan_key_num);
+        if (_begin_scan_keys.empty() && range.is_fixed_value_convertible() && _is_convertible) {
+            if (range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys,
+                                                 max_scan_key_num)) {
+                _has_range_value = true;
+            }
             _begin_include = range.is_begin_include();
             _end_include = range.is_end_include();
             return Status::OK();
@@ -962,10 +969,10 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
 
         if (_begin_scan_keys.empty()) {
             _begin_scan_keys.emplace_back();
-            _end_scan_keys.emplace_back();
             _begin_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
                                                       range.get_range_min_value(), range.scale()),
                                               range.contain_null());
+            _end_scan_keys.emplace_back();
             _end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
                     range.get_range_max_value(), range.scale()));
 
@@ -981,9 +988,6 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                         range.get_range_max_value(), range.scale()));
             }
         }
-
-        _begin_include = range.is_begin_include();
-        _end_include = range.is_end_include();
     }
 
     return Status::OK();
