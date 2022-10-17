@@ -75,37 +75,39 @@ public class NereidsPlanner extends Planner {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
         }
 
-        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
-        PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
-        PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
-            String tree = physicalPlan.treeString();
-            System.out.println(tree);
-            LOG.info(tree);
-            String memo = cascadesContext.getMemo().toString();
-            System.out.println(memo);
-            LOG.info(memo);
-        }
         try {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
+            PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
+            PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
+            PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+            if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
+                String tree = physicalPlan.treeString();
+                System.out.println(tree);
+                LOG.info(tree);
+                String memo = cascadesContext.getMemo().toString();
+                System.out.println(memo);
+                LOG.info(memo);
+            }
             FileOutputStream fs = new FileOutputStream("/mnt/disk1/mch/projects/doris/fe.log");
             fs.write(builder.toString().getBytes(StandardCharsets.UTF_8));
             fs.close();
+            PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+
+            scanNodeList = planTranslatorContext.getScanNodes();
+            descTable = planTranslatorContext.getDescTable();
+            fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
+
+            // set output exprs
+            logicalPlanAdapter.setResultExprs(root.getOutputExprs());
+            ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
+                    .collect(Collectors.toCollection(ArrayList::new));
+            logicalPlanAdapter.setColLabels(columnLabelList);
+            builder = new StringBuilder();
         } catch (Exception e) {
             e.printStackTrace();
+            System.out.println(cascadesContext.getMemo().getGroupExpressions());
+            throw new AnalysisException(e.getMessage());
         }
-        PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
-
-        scanNodeList = planTranslatorContext.getScanNodes();
-        descTable = planTranslatorContext.getDescTable();
-        fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
-
-        // set output exprs
-        logicalPlanAdapter.setResultExprs(root.getOutputExprs());
-        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
-                .collect(Collectors.toCollection(ArrayList::new));
-        logicalPlanAdapter.setColLabels(columnLabelList);
-        builder = new StringBuilder();
     }
 
     @VisibleForTesting

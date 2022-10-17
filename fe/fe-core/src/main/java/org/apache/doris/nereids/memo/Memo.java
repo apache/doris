@@ -302,11 +302,6 @@ public class Memo {
     private CopyInResult insertGroupExpression(
             GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
-        boolean res = checkParentExpressionInGroup();
-        if (!res) {
-            System.out.println(groupExpressions.keySet());
-            throw new RuntimeException();
-        }
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
                 mergeGroup(existedGroupExpression.getOwnerGroup(), target);
