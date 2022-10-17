@@ -61,7 +61,7 @@ public:
     static doris_udf::BooleanVal null_or_empty(doris_udf::FunctionContext* context,
                                                const doris_udf::StringVal& str);
     static doris_udf::BooleanVal not_null_or_empty(doris_udf::FunctionContext* context,
-                                               const doris_udf::StringVal& str);
+                                                   const doris_udf::StringVal& str);
     static doris_udf::StringVal space(doris_udf::FunctionContext* context,
                                       const doris_udf::IntVal& len);
     static doris_udf::StringVal repeat(doris_udf::FunctionContext* context,
