@@ -39,7 +39,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalPro
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
-import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuter;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateOutJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
@@ -79,7 +79,7 @@ public class RuleSet {
             new PushdownExpressionsInHashCondition(),
             new PushdownProjectThroughLimit(),
             new PushdownFilterThroughProject(),
-            EliminateOuter.INSTANCE,
+            new EliminateOutJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeLimits());
