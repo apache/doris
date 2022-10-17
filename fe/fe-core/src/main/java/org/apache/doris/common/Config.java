@@ -1788,4 +1788,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
 
+    /**
+     * Max query profile num.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int max_query_profile_num = 100;
+
 }
