@@ -104,9 +104,17 @@ public class NereidsPlanner extends Planner {
             logicalPlanAdapter.setColLabels(columnLabelList);
             builder = new StringBuilder();
         } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println(cascadesContext.getMemo().getGroupExpressions());
-            throw new AnalysisException(e.getMessage());
+            try {
+                e.printStackTrace();
+                FileOutputStream fs = new FileOutputStream("/mnt/disk1/mch/projects/doris/fe.log");
+                StringBuilder b1 = new StringBuilder();
+                cascadesContext.getMemo().getGroupExpressions().values()
+                                .forEach(ex -> b1.append(ex.toString()).append('\n'));
+                fs.write(b1.toString().getBytes(StandardCharsets.UTF_8));
+                fs.close();
+            } catch (Exception e1) {
+                throw new AnalysisException(e.getMessage());
+            }
         }
     }
 
