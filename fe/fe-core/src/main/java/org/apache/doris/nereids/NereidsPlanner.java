@@ -76,7 +76,21 @@ public class NereidsPlanner extends Planner {
         }
 
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
-        PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
+        PhysicalPlan physicalPlan = null;
+        try {
+            physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new AnalysisException(e.getMessage());
+        } finally {
+            try {
+                FileOutputStream fs = new FileOutputStream("/mnt/disk1/mch/projects/doris/fe.log");
+                fs.write(builder.toString().getBytes(StandardCharsets.UTF_8));
+                fs.close();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
@@ -86,14 +100,6 @@ public class NereidsPlanner extends Planner {
             String memo = cascadesContext.getMemo().toString();
             System.out.println(memo);
             LOG.info(memo);
-        }
-        try {
-            FileOutputStream fs = new FileOutputStream("/mnt/disk1/mch/projects/doris/fe.log");
-            fs.write(builder.toString().getBytes(StandardCharsets.UTF_8));
-            fs.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new AnalysisException(e.getMessage());
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 

@@ -345,7 +345,9 @@ public class Memo {
         });
         NereidsPlanner.builder.append(String.format("%s\n", needReplaceChild))
                 .append(String.format("%s\n", source.getParentGroupExpressions().stream()
-                        .filter(Objects::nonNull).collect(Collectors.toList())));
+                        .filter(Objects::nonNull).collect(Collectors.toList())))
+                .append(groupExpressions.values().stream().map(GroupExpression::toString)
+                        .reduce("", (a, b) -> a + b + '\n'));
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
