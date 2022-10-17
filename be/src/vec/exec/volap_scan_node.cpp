@@ -1658,10 +1658,16 @@ void VOlapScanNode::eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, b
                          << "] should return a const column but actually is "
                          << vexpr->get_const_col(expr_ctx)->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
-            constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
-            if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
-                *push_down = true;
-                _eos = true;
+            if (bool_column->size() == 1) {
+                constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
+                if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
+                    *push_down = true;
+                    _eos = true;
+                }
+            } else {
+                LOG(WARNING) << "Constant predicate in scan node should return a bool column with "
+                                "`size == 1` but actually is "
+                             << bool_column->size();
             }
         } else {
             LOG(WARNING) << "Expr[" << vexpr->debug_string()

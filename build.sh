@@ -267,7 +267,7 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
     USE_MEM_TRACKER='ON'
 fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
-    USE_JEMALLOC='OFF'
+    USE_JEMALLOC='ON'
 fi
 if [[ -z "${STRICT_MEMORY_USE}" ]]; then
     STRICT_MEMORY_USE='OFF'

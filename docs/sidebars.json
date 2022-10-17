@@ -357,6 +357,7 @@
                                 "sql-manual/sql-functions/string-functions/lcase",
                                 "sql-manual/sql-functions/string-functions/upper",
                                 "sql-manual/sql-functions/string-functions/ucase",
+                                "sql-manual/sql-functions/string-functions/initcap",
                                 "sql-manual/sql-functions/string-functions/repeat",
                                 "sql-manual/sql-functions/string-functions/reverse",
                                 "sql-manual/sql-functions/string-functions/concat",
@@ -419,15 +420,18 @@
                                 "sql-manual/sql-functions/aggregate-functions/sum",
                                 "sql-manual/sql-functions/aggregate-functions/max_by",
                                 "sql-manual/sql-functions/aggregate-functions/bitmap_union",
+                                "sql-manual/sql-functions/aggregate-functions/group_bitmap_xor",
                                 "sql-manual/sql-functions/aggregate-functions/percentile_approx",
                                 "sql-manual/sql-functions/aggregate-functions/stddev",
                                 "sql-manual/sql-functions/aggregate-functions/group_concat",
                                 "sql-manual/sql-functions/aggregate-functions/collect_list",
                                 "sql-manual/sql-functions/aggregate-functions/min_by",
                                 "sql-manual/sql-functions/aggregate-functions/max",
+                                "sql-manual/sql-functions/aggregate-functions/any_value",
                                 "sql-manual/sql-functions/aggregate-functions/var_samp",
                                 "sql-manual/sql-functions/aggregate-functions/approx_count_distinct",
-                                "sql-manual/sql-functions/aggregate-functions/variance"
+                                "sql-manual/sql-functions/aggregate-functions/variance",
+                                "sql-manual/sql-functions/aggregate-functions/retention"
                             ]
                         },
                         {

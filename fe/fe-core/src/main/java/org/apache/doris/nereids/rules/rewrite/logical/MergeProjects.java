@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
  *                 scan
  */
 
-public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
+public class MergeProjects extends OneRewriteRuleFactory {
 
     private static class ExpressionReplacer extends DefaultExpressionRewriter<Map<Expression, Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
@@ -114,10 +114,10 @@ public class MergeConsecutiveProjects extends OneRewriteRuleFactory {
                     );
 
             projectExpressions = projectExpressions.stream()
-                    .map(e -> MergeConsecutiveProjects.ExpressionReplacer.INSTANCE.replace(e, childAliasMap))
+                    .map(e -> MergeProjects.ExpressionReplacer.INSTANCE.replace(e, childAliasMap))
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
             return new LogicalProject<>(projectExpressions, childProject.children().get(0));
-        }).toRule(RuleType.MERGE_CONSECUTIVE_PROJECTS);
+        }).toRule(RuleType.MERGE_PROJECTS);
     }
 }

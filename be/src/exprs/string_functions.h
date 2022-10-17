@@ -81,6 +81,8 @@ public:
                                       const doris_udf::StringVal& str);
     static doris_udf::StringVal upper(doris_udf::FunctionContext* context,
                                       const doris_udf::StringVal& str);
+    static doris_udf::StringVal initcap(doris_udf::FunctionContext* context,
+                                        const doris_udf::StringVal& str);
     static doris_udf::StringVal reverse(doris_udf::FunctionContext* context,
                                         const doris_udf::StringVal& str);
     static doris_udf::StringVal trim(doris_udf::FunctionContext* context,

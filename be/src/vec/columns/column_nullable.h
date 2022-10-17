@@ -214,6 +214,9 @@ public:
     }
     bool only_null() const override { return nested_column->is_dummy(); }
 
+    // used in schema change
+    void swap_nested_column(ColumnPtr& other) { ((ColumnPtr&)nested_column).swap(other); }
+
     /// Return the column that represents values.
     IColumn& get_nested_column() { return *nested_column; }
     const IColumn& get_nested_column() const { return *nested_column; }

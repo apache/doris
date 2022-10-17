@@ -41,6 +41,11 @@ std::string BetaRowset::segment_file_path(int segment_id) {
     if (is_local()) {
         return local_segment_path(_tablet_path, rowset_id(), segment_id);
     }
+#ifdef BE_TEST
+    if (!config::file_cache_type.empty()) {
+        return local_segment_path(_tablet_path, rowset_id(), segment_id);
+    }
+#endif
     return remote_segment_path(_rowset_meta->tablet_id(), rowset_id(), segment_id);
 }
 

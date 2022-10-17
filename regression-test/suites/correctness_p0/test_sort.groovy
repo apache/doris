@@ -53,4 +53,8 @@ suite("test_sort") {
     """
 
     sql "DROP TABLE test_sort_table"
+
+    qt_sql """
+        select b.k1, a.k1, b.k4, a.k4 from test_query_db.baseall a left join test_query_db.test b on a.k2 = b.k4  order by 1, 2, 3, 4;
+    """
 }

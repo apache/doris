@@ -43,7 +43,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
  *                   |
  *                 scan
  */
-public class MergeConsecutiveFilters extends OneRewriteRuleFactory {
+public class MergeFilters extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalFilter()).then(filter -> {
@@ -52,7 +52,7 @@ public class MergeConsecutiveFilters extends OneRewriteRuleFactory {
             Expression childPredicates = childFilter.getPredicates();
             Expression mergedPredicates = ExpressionUtils.and(predicates, childPredicates);
             return new LogicalFilter<>(mergedPredicates, childFilter.child());
-        }).toRule(RuleType.MERGE_CONSECUTIVE_FILTERS);
+        }).toRule(RuleType.MERGE_FILTERS);
     }
 
 }

@@ -478,6 +478,7 @@ terminal String
     KW_PLUGINS,
     KW_POLICY,
     KW_PRECEDING,
+    KW_PERCENT,
     KW_PROC,
     KW_PROCEDURE,
     KW_PROCESSLIST,
@@ -551,6 +552,7 @@ terminal String
     KW_SYSTEM,
     KW_TABLE,
     KW_TABLES,
+    KW_TABLESAMPLE,
     KW_TABLET,
     KW_TABLETS,
     KW_TASK,
@@ -675,6 +677,8 @@ nonterminal ArrayList<Expr> expr_pipe_list;
 nonterminal String select_alias, opt_table_alias, lock_alias;
 nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
+nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
+nonterminal TableSample opt_table_sample, table_sample;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
@@ -2729,6 +2733,11 @@ drop_stmt ::=
     | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
+    :}
+    /* statistics */
+    | KW_DROP KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
+    {:
+        RESULT = new DropTableStatsStmt(tbl, partitionNames);
     :}
     ;
 
@@ -4947,9 +4956,9 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_partition_names:partitionNames opt_table_alias:alias opt_common_hints:commonHints
+    table_name:name opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, partitionNames, commonHints);
+        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints);
     :}
     ;
 
@@ -4998,6 +5007,24 @@ opt_partition_names ::=
     :}
     ;
 
+opt_tablet_list ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | tablet_list:tabletList
+    {:
+        RESULT = tabletList;
+    :}
+    ;
+
+tablet_list ::=
+    KW_TABLET LPAREN integer_list:tabletIds RPAREN
+    {:
+        RESULT = Lists.newArrayList(tabletIds);
+    :}
+    ;
+
 partition_names ::=
     KW_PARTITION LPAREN ident_list:partitions RPAREN
     {:
@@ -5022,6 +5049,36 @@ partition_names ::=
     | KW_TEMPORARY KW_PARTITION ident:partName
     {:
         RESULT = new PartitionNames(true, Lists.newArrayList(partName));
+    :}
+    ;
+
+opt_table_sample ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | table_sample:tableSample
+    {:
+        RESULT = tableSample;
+    :}
+    ;
+
+table_sample ::=
+    KW_TABLESAMPLE LPAREN INTEGER_LITERAL:sampleValue KW_PERCENT RPAREN
+    {:
+        RESULT = new TableSample(true, sampleValue);
+    :}
+    | KW_TABLESAMPLE LPAREN INTEGER_LITERAL:sampleValue KW_ROWS RPAREN
+    {:
+        RESULT = new TableSample(false, sampleValue);
+    :}
+    | KW_TABLESAMPLE LPAREN INTEGER_LITERAL:sampleValue KW_PERCENT RPAREN KW_REPEATABLE INTEGER_LITERAL:seek
+    {:
+        RESULT = new TableSample(true, sampleValue, seek);
+    :}
+    | KW_TABLESAMPLE LPAREN INTEGER_LITERAL:sampleValue KW_ROWS RPAREN KW_REPEATABLE INTEGER_LITERAL:seek
+    {:
+        RESULT = new TableSample(false, sampleValue, seek);
     :}
     ;
 

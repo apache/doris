@@ -239,7 +239,7 @@ CONF_Int32(storage_page_cache_shard_size, "16");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-CONF_Bool(disable_storage_page_cache, "false");
+CONF_Bool(disable_storage_page_cache, "true");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -439,14 +439,20 @@ CONF_Bool(disable_mem_pools, "false");
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
 CONF_mString(chunk_reserved_bytes_limit, "10%");
-// 1024, The minimum chunk allocator size (in bytes)
-CONF_Int32(min_chunk_reserved_bytes, "1024");
+
+// Whether using chunk allocator to cache memory chunk
+CONF_Bool(disable_chunk_allocator, "true");
 // Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
 // For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-CONF_mBool(disable_chunk_allocator_in_vec, "false");
+CONF_mBool(disable_chunk_allocator_in_vec, "true");
+
+// Both MemPool and vectorized engine's podarray allocator, vectorized engine's arena will try to allocate memory as power of two.
+// But if the memory is very large then power of two is also very large. This config means if the allocated memory's size is larger
+// than this limit then all allocators will not use RoundUpToPowerOfTwo to allocate memory.
+CONF_mInt64(memory_linear_growth_threshold, "134217728"); // 128Mb
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -811,7 +817,7 @@ CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+CONF_mInt32(bloom_filter_predicate_check_row_num, "20480");
 
 CONF_Bool(enable_decimalv3, "false");
 
@@ -839,6 +845,7 @@ CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
 });
+CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 

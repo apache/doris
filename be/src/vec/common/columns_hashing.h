@@ -131,9 +131,6 @@ struct HashMethodSerialized
 
     void set_serialized_keys(const StringRef* keys_) { keys = keys_; }
 
-protected:
-    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
-
     ALWAYS_INLINE KeyHolderType get_key_holder(size_t row, Arena& pool) const {
         if constexpr (keys_pre_serialized) {
             return KeyHolderType {keys[row], pool};
@@ -142,6 +139,9 @@ protected:
                     serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
         }
     }
+
+protected:
+    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 };
 
 template <typename HashMethod>
