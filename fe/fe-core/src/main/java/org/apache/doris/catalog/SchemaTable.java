@@ -400,6 +400,7 @@ public class SchemaTable extends Table {
                                     .column("OLDEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())).build();
+
     private SchemaTableType schemaTableType;
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
