@@ -175,6 +175,9 @@ public:
     virtual bool update_profile(RuntimeProfile* profile) { return false; }
     // return rows merged count by iterator
     virtual uint64_t merged_rows() const { return 0; }
+
+    // return if it's an empty iterator
+    virtual bool empty() const { return false; }
 };
 
 } // namespace doris

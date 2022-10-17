@@ -162,6 +162,15 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
     _read_options.runtime_state = read_context->runtime_state;
+    if (read_context->read_orderby_key_limit > 0) {
+        size_t limit = read_context->read_orderby_key_limit;
+        if (read_context->predicates != nullptr) {
+            limit = limit * 2;
+        }
+        if (read_options.block_row_max > limit) {
+            read_options.block_row_max = limit;
+        }
+    }
 
     // load segments
     // use cache is true when do vertica compaction
@@ -178,9 +187,18 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return Status::Error<ROWSET_READER_INIT>();
         }
+        if (iter->empty()) {
+            continue;
+        }
         seg_iterators.push_back(std::move(iter));
     }
 
+    if (seg_iterators.empty() && read_context->is_vec) {
+        _empty = true;
+        return Status::OK();
+    }
+
+    std::vector<RowwiseIterator*> iterators;
     for (auto& owned_it : seg_iterators) {
         auto st = owned_it->init(_read_options);
         if (!st.ok()) {
@@ -223,6 +241,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    if (_empty) return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+    
     do {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {

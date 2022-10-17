@@ -22,6 +22,7 @@
 #include "olap/olap_common.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -42,6 +43,10 @@ struct RowsetReaderContext {
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
+    // limit of rows for read_orderby_key
+    size_t read_orderby_key_limit = 0;
+    // filter_block arguments
+    vectorized::VExprContext** filter_block_vconjunct_ctx_ptr = nullptr;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;

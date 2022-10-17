@@ -75,11 +75,15 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
+    _vcollect_iter.init(this, read_params.read_orderby_key, read_params.read_orderby_key_reverse);
+
     _reader_context.batch_size = _batch_size;
     _reader_context.is_vec = true;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     for (auto& rs_reader : rs_readers) {
-        RETURN_NOT_OK(rs_reader->init(&_reader_context));
+        if (read_params.read_orderby_key_limit == 0) {
+            RETURN_NOT_OK(rs_reader->init(&_reader_context));
+        }
         Status res = _vcollect_iter.add_child(rs_reader);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
@@ -91,8 +95,10 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     }
 
     RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
-    auto status = _vcollect_iter.current_row(&_next_row);
-    _eof = status.is<END_OF_FILE>();
+    if (_vcollect_iter.is_merge() && read_params.read_orderby_key_limit == 0) {
+        auto status = _vcollect_iter.current_row(&_next_row);
+        _eof = status.is<END_OF_FILE>();
+    }
 
     return Status::OK();
 }
