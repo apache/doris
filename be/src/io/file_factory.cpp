@@ -52,31 +52,34 @@ doris::Status doris::FileFactory::create_file_writer(
         break;
     }
     default:
-        return Status::InternalError("UnSupport File Writer Type: " + std::to_string(type));
+        return Status::InternalError("unsupported file writer type: {}", std::to_string(type));
     }
 
     return Status::OK();
 }
 
-doris::Status doris::FileFactory::_new_file_reader(
+// ============================
+// broker scan node/unique ptr
+doris::Status doris::FileFactory::create_file_reader(
         doris::TFileType::type type, doris::ExecEnv* env, RuntimeProfile* profile,
         const std::vector<TNetworkAddress>& broker_addresses,
-        const std::map<std::string, std::string>& properties, const TBrokerRangeDesc& range,
-        int64_t start_offset, FileReader*& file_reader) {
+        const std::map<std::string, std::string>& properties, const doris::TBrokerRangeDesc& range,
+        int64_t start_offset, std::unique_ptr<FileReader>& file_reader) {
+    FileReader* file_reader_ptr;
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        file_reader = new LocalFileReader(range.path, start_offset);
+        file_reader_ptr = new LocalFileReader(range.path, start_offset);
         break;
     }
     case TFileType::FILE_BROKER: {
-        file_reader = new BufferedReader(
+        file_reader_ptr = new BufferedReader(
                 profile,
                 new BrokerReader(env, broker_addresses, properties, range.path, start_offset,
                                  range.__isset.file_size ? range.file_size : 0));
         break;
     }
     case TFileType::FILE_S3: {
-        file_reader =
+        file_reader_ptr =
                 new BufferedReader(profile, new S3Reader(properties, range.path, start_offset));
         break;
     }
@@ -84,153 +87,63 @@ doris::Status doris::FileFactory::_new_file_reader(
         FileReader* hdfs_reader = nullptr;
         RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, start_offset,
                                                         &hdfs_reader));
-        file_reader = new BufferedReader(profile, hdfs_reader);
-        break;
-    }
-    default:
-        return Status::InternalError("UnSupport File Reader Type: " + std::to_string(type));
-    }
-
-    return Status::OK();
-}
-
-doris::Status doris::FileFactory::create_file_reader(
-        doris::TFileType::type type, doris::ExecEnv* env, RuntimeProfile* profile,
-        const std::vector<TNetworkAddress>& broker_addresses,
-        const std::map<std::string, std::string>& properties, const doris::TBrokerRangeDesc& range,
-        int64_t start_offset, std::unique_ptr<FileReader>& file_reader) {
-    if (type == TFileType::FILE_STREAM) {
-        return Status::InternalError("UnSupport UniquePtr For FileStream type");
-    }
-
-    FileReader* file_reader_ptr;
-    RETURN_IF_ERROR(_new_file_reader(type, env, profile, broker_addresses, properties, range,
-                                     start_offset, file_reader_ptr));
-    file_reader.reset(file_reader_ptr);
-
-    return Status::OK();
-}
-
-doris::Status doris::FileFactory::create_file_reader(
-        doris::TFileType::type type, doris::ExecEnv* env, RuntimeProfile* profile,
-        const std::vector<TNetworkAddress>& broker_addresses,
-        const std::map<std::string, std::string>& properties, const doris::TBrokerRangeDesc& range,
-        int64_t start_offset, std::shared_ptr<FileReader>& file_reader) {
-    if (type == TFileType::FILE_STREAM) {
-        file_reader = env->load_stream_mgr()->get(range.load_id);
-        if (!file_reader) {
-            VLOG_NOTICE << "unknown stream load id: " << UniqueId(range.load_id);
-            return Status::InternalError("unknown stream load id");
-        }
-    } else {
-        FileReader* file_reader_ptr;
-        RETURN_IF_ERROR(_new_file_reader(type, env, profile, broker_addresses, properties, range,
-                                         start_offset, file_reader_ptr));
-        file_reader.reset(file_reader_ptr);
-    }
-    return Status::OK();
-}
-
-doris::Status doris::FileFactory::_new_file_reader(doris::ExecEnv* env, RuntimeProfile* profile,
-                                                   const TFileScanRangeParams& params,
-                                                   const doris::TFileRangeDesc& range,
-                                                   FileReader*& file_reader_ptr) {
-    doris::TFileType::type type = params.file_type;
-
-    if (type == TFileType::FILE_STREAM) {
-        return Status::InternalError("UnSupport UniquePtr For FileStream type");
-    }
-
-    int64_t start_offset = range.start_offset;
-    switch (params.format_type) {
-    case TFileFormatType::FORMAT_CSV_PLAIN:
-    case TFileFormatType::FORMAT_CSV_GZ:
-    case TFileFormatType::FORMAT_CSV_BZ2:
-    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-    case TFileFormatType::FORMAT_CSV_LZOP:
-    case TFileFormatType::FORMAT_CSV_DEFLATE:
-        if (start_offset != 0) {
-            start_offset -= 1;
-        }
-        break;
-    default:
-        break;
-    }
-
-    switch (type) {
-    case TFileType::FILE_LOCAL: {
-        file_reader_ptr = new LocalFileReader(range.path, start_offset);
-        break;
-    }
-    case TFileType::FILE_S3: {
-        file_reader_ptr = new BufferedReader(
-                profile, new S3Reader(params.properties, range.path, start_offset));
-        break;
-    }
-    case TFileType::FILE_HDFS: {
-        FileReader* hdfs_reader = nullptr;
-        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(params.hdfs_params, range.path,
-                                                        start_offset, &hdfs_reader));
         file_reader_ptr = new BufferedReader(profile, hdfs_reader);
         break;
     }
     default:
-        return Status::InternalError("Unsupported File Reader Type: " + std::to_string(type));
+        return Status::InternalError("unsupported file reader type: " + std::to_string(type));
     }
-
-    return Status::OK();
-}
-
-doris::Status doris::FileFactory::create_file_reader(doris::ExecEnv* env, RuntimeProfile* profile,
-                                                     const TFileScanRangeParams& params,
-                                                     const doris::TFileRangeDesc& range,
-                                                     std::shared_ptr<FileReader>& file_reader) {
-    FileReader* file_reader_ptr;
-    RETURN_IF_ERROR(_new_file_reader(env, profile, params, range, file_reader_ptr));
     file_reader.reset(file_reader_ptr);
 
     return Status::OK();
 }
 
-doris::Status doris::FileFactory::create_file_reader(doris::ExecEnv* env, RuntimeProfile* profile,
-                                                     const TFileScanRangeParams& params,
-                                                     const doris::TFileRangeDesc& range,
-                                                     std::unique_ptr<FileReader>& file_reader) {
-    FileReader* file_reader_ptr;
-    RETURN_IF_ERROR(_new_file_reader(env, profile, params, range, file_reader_ptr));
-    file_reader.reset(file_reader_ptr);
-
-    return Status::OK();
-}
-
+// ============================
+// file scan node/unique ptr
 doris::Status doris::FileFactory::create_file_reader(RuntimeProfile* profile,
                                                      const TFileScanRangeParams& params,
-                                                     const TFileRangeDesc& range,
-                                                     std::unique_ptr<FileReader>& file_reader,
-                                                     int64_t buffer_size) {
-    doris::TFileType::type type = params.file_type;
+                                                     const std::string& path, int64_t start_offset,
+                                                     int64_t file_size, int64_t buffer_size,
+                                                     std::unique_ptr<FileReader>& file_reader) {
     FileReader* file_reader_ptr;
+    doris::TFileType::type type = params.file_type;
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        file_reader_ptr = new LocalFileReader(range.path, range.start_offset);
+        file_reader_ptr = new LocalFileReader(path, start_offset);
         break;
     }
     case TFileType::FILE_S3: {
-        file_reader_ptr = new S3Reader(params.properties, range.path, range.start_offset);
+        file_reader_ptr = new S3Reader(params.properties, path, start_offset);
         break;
     }
     case TFileType::FILE_HDFS: {
-        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(params.hdfs_params, range.path,
-                                                        range.start_offset, &file_reader_ptr));
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(params.hdfs_params, path, start_offset,
+                                                        &file_reader_ptr));
+        break;
+    }
+    case TFileType::FILE_BROKER: {
+        file_reader_ptr = new BrokerReader(ExecEnv::GetInstance(), params.broker_addresses,
+                                           params.properties, path, start_offset, file_size);
         break;
     }
     default:
-        return Status::InternalError("Unsupported File Reader Type: " + std::to_string(type));
+        return Status::InternalError("unsupported file reader type: {}", std::to_string(type));
     }
+
     if (buffer_size > 0) {
         file_reader.reset(new BufferedReader(profile, file_reader_ptr, buffer_size));
     } else {
         file_reader.reset(file_reader_ptr);
+    }
+    return Status::OK();
+}
+
+// file scan node/stream load pipe
+doris::Status doris::FileFactory::create_pipe_reader(const TUniqueId& load_id,
+                                                     std::shared_ptr<FileReader>& file_reader) {
+    file_reader = ExecEnv::GetInstance()->load_stream_mgr()->get(load_id);
+    if (!file_reader) {
+        return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
     return Status::OK();
 }

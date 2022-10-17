@@ -114,7 +114,8 @@ public class StorageBackend extends StorageDesc implements ParseNode {
         S3("Amazon S3 Simple Storage Service"),
         HDFS("Hadoop Distributed File System"),
         LOCAL("Local file system"),
-        OFS("Tencent CHDFS");
+        OFS("Tencent CHDFS"),
+        STREAM("Stream load pipe");
 
         private final String description;
 

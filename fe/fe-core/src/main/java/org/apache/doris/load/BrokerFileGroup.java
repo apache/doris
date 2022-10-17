@@ -39,6 +39,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
@@ -66,6 +67,7 @@ public class BrokerFileGroup implements Writable {
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
+    private TFileCompressType compressType = TFileCompressType.UNKNOWN;
     private boolean isNegative;
     private List<Long> partitionIds; // can be null, means no partition specified
     private List<String> filePaths;
@@ -217,6 +219,7 @@ public class BrokerFileGroup implements Writable {
                 throw new DdlException("File Format Type " + fileFormat + " is invalid.");
             }
         }
+        compressType = dataDescription.getCompressType();
         isNegative = dataDescription.isNegative();
 
         // FilePath
@@ -274,6 +277,10 @@ public class BrokerFileGroup implements Writable {
 
     public String getFileFormat() {
         return fileFormat;
+    }
+
+    public TFileCompressType getCompressType() {
+        return compressType;
     }
 
     public boolean isNegative() {
@@ -405,7 +412,7 @@ public class BrokerFileGroup implements Writable {
             // null means default: csv
             return false;
         }
-        return fileFormat.toLowerCase().equals("parquet") || fileFormat.toLowerCase().equals("orc");
+        return fileFormat.equalsIgnoreCase("parquet") || fileFormat.equalsIgnoreCase("orc");
     }
 
     @Override
