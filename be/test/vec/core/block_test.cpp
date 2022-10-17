@@ -64,7 +64,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
                                  sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc));
     ObjectPool object_pool;
     SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool);
+    schema_scanner.init(&param, &object_pool, TSchemaTableType::SCH_INVALID);
 
     auto tuple_desc = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc());
     RowDescriptor row_desc(tuple_desc, false);
