@@ -441,7 +441,6 @@ public:
         auto column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             column = nullable->get_nested_column_ptr();
-            res_map->get_data();
         }
         auto str_col = assert_cast<const ColumnString*>(column.get());
         const auto& offsets = str_col->get_offsets();
