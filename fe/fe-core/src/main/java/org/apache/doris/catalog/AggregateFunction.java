@@ -50,7 +50,8 @@ public class AggregateFunction extends Function {
             "dense_rank", "multi_distinct_count", "multi_distinct_sum", "hll_union_agg", "hll_union", "bitmap_union",
             "bitmap_intersect", "orthogonal_bitmap_intersect", "orthogonal_bitmap_intersect_count", "intersect_count",
             "orthogonal_bitmap_union_count", FunctionSet.COUNT, "approx_count_distinct", "ndv",
-            FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize", FunctionSet.WINDOW_FUNNEL);
+            FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize", FunctionSet.WINDOW_FUNNEL,
+            FunctionSet.RETENTION);
 
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx");
