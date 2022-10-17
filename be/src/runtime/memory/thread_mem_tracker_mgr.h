@@ -44,7 +44,8 @@ public:
     ThreadMemTrackerMgr() {}
 
     ~ThreadMemTrackerMgr() {
-        flush_untracked_mem<false>();
+        // exec env is not initialized when init(). and never consumed mem tracker once.
+        if (_limiter_tracker_raw != nullptr) flush_untracked_mem<false>();
         if (bthread_self() == 0) {
             DCHECK(_consumer_tracker_stack.empty());
             DCHECK(_limiter_tracker_stack.size() == 1)
