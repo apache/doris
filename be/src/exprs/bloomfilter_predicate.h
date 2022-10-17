@@ -92,12 +92,12 @@ private:
 // Only Used In RuntimeFilter
 class BloomFilterFuncBase {
 public:
-    BloomFilterFuncBase() : _inited(false), _retrieved(false) {}
+    BloomFilterFuncBase() : _inited(false), _async_called(false), _retrieved(false) {}
 
     virtual ~BloomFilterFuncBase() {
-        if (_inited && !_retrieved) {
+        if (_async_called && !_retrieved) {
             std::lock_guard<std::mutex> l(_lock);
-            if (_inited && !_retrieved) {
+            if (_async_called && !_retrieved) {
                 _thread_status.get_future().get();
             }
             _retrieved = true;
@@ -110,6 +110,7 @@ public:
     }
 
     Status wait_for_initialization() {
+        DCHECK(_async_called);
         if (_retrieved) {
             return Status::OK();
         }
@@ -134,6 +135,7 @@ public:
             this->_async_init_with_fixed_length(bloom_filter_length, thread_status_p);
         }).detach();
         _inited = true;
+        _async_called = true;
         return Status::OK();
     }
 
@@ -221,6 +223,7 @@ private:
     }
 
     bool _inited;
+    bool _async_called;
     bool _retrieved;
     std::mutex _lock;
     std::promise<Status> _thread_status;
