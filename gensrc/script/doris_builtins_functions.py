@@ -2153,7 +2153,7 @@ visible_functions = [
         '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE', '', '', 'vec', ''],
     [['repeat'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions6repeatEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', ''],
+        '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['lpad'], 'STRING', ['STRING', 'INT', 'STRING'],
             '_ZN5doris15StringFunctions4lpadEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
