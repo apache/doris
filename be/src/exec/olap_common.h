@@ -537,8 +537,8 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         CppType current = get_range_min_value();
 
         size_t range_size = get_convertible_fixed_value_size();
-        size_t step_size =
-                std::max((range_size + max_scan_key_num - 1) / max_scan_key_num, (size_t)1);
+        size_t step_size = std::max(
+                (range_size / max_scan_key_num) + (range_size % max_scan_key_num != 0), (size_t)1);
 
         if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
             current.set_type(TimeType::TIME_DATE);
