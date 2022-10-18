@@ -54,7 +54,7 @@ CONF_mInt64(tc_use_memory_min, "10737418240");
 // free memory rate.[0-100]
 CONF_mInt64(tc_free_memory_rate, "20");
 // tcmallc aggressive_memory_decommit
-CONF_mBool(tc_enable_aggressive_memory_decommit, "false");
+CONF_Bool(tc_enable_aggressive_memory_decommit, "false");
 
 // Bound on the total amount of bytes allocated to thread caches.
 // This bound is not strict, so it is possible for the cache to go over this bound
@@ -266,16 +266,6 @@ CONF_Bool(enable_base_compaction_idle_sched, "true");
 CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
 CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
-// config the cumulative compaction policy
-// Valid configs: num_based, size_based
-// num_based policy, the original version of cumulative compaction, cumulative version compaction once.
-// size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
-// lower write amplification, trading off read amplification and space amplification.
-CONF_mString(cumulative_compaction_policy, "size_based");
-CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "num_based";
-});
-
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
@@ -438,7 +428,7 @@ CONF_Bool(disable_mem_pools, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "10%");
+CONF_String(chunk_reserved_bytes_limit, "10%");
 
 // Whether using chunk allocator to cache memory chunk
 CONF_Bool(disable_chunk_allocator, "true");
@@ -814,6 +804,9 @@ CONF_mInt32(parquet_header_max_size_mb, "1");
 CONF_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 CONF_mInt32(parquet_column_max_buffer_mb, "8");
+
+// OrcReader
+CONF_mInt32(orc_natural_read_size_mb, "8");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.

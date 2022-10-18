@@ -428,7 +428,13 @@ public:
       */
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
-    virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+    /** Copies each element according offsets parameter.
+      * (i-th element should be copied counts[i] times.)
+      * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
+      * If `count_sz` is -1, `begin` must be 0.
+      */
+    virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                           size_t begin = 0, int count_sz = -1) const {
         LOG(FATAL) << "not support";
     };
 
