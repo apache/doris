@@ -70,7 +70,11 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status VScanner::_filter_output_block(Block* block) {
-    return VExprContext::filter_block(_vconjunct_ctx, block, _output_tuple_desc->slots().size());
+    auto old_rows = block->rows();
+    Status st =
+            VExprContext::filter_block(_vconjunct_ctx, block, _output_tuple_desc->slots().size());
+    _counter.num_rows_unselected += old_rows - block->rows();
+    return st;
 }
 
 Status VScanner::try_append_late_arrival_runtime_filter() {
@@ -116,8 +120,14 @@ Status VScanner::close(RuntimeState* state) {
 }
 
 void VScanner::_update_counters_before_close() {
-    if (!_state->enable_profile()) return;
+    LOG(INFO) << "cmy _update_counters_before_close: _counter.num_rows_filtered: "
+              << _counter.num_rows_filtered
+              << ", _counter.num_rows_unselected: " << _counter.num_rows_unselected;
+    if (!_state->enable_profile() && !_is_load) return;
     COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
+    // Update stats for load
+    _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
+    _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
 }
 
 } // namespace doris::vectorized
