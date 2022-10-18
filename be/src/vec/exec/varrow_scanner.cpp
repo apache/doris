@@ -153,7 +153,8 @@ Status VArrowScanner::_init_arrow_batch_if_necessary() {
 Status VArrowScanner::_init_src_block() {
     size_t batch_pos = 0;
     _src_block.clear();
-    for (auto i = 0; i < _num_of_columns_from_file; ++i) {
+    auto _num_of_columns = std::min(_num_of_columns_from_file, _batch->num_columns());
+    for (auto i = 0; i < _num_of_columns; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
         if (slot_desc == nullptr) {
             continue;
