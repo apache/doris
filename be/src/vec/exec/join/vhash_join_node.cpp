@@ -1038,10 +1038,6 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         probe_rows = _probe_block.rows();
         if (probe_rows != 0) {
             COUNTER_UPDATE(_probe_rows_counter, probe_rows);
-            if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-                _probe_column_convert_to_null = _convert_block_to_null(_probe_block);
-            }
-
             int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
             _probe_columns.resize(probe_expr_ctxs_sz);
 
@@ -1075,6 +1071,9 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                     _hash_table_variants);
 
             RETURN_IF_ERROR(st);
+            if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+                _probe_column_convert_to_null = _convert_block_to_null(_probe_block);
+            }
         }
     }
 
@@ -1378,9 +1377,6 @@ bool HashJoinNode::_need_null_map(Block& block, const std::vector<int>& res_col_
 
 Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uint8_t offset) {
     SCOPED_TIMER(_build_table_timer);
-    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _convert_block_to_null(block);
-    }
     size_t rows = block.rows();
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
@@ -1436,6 +1432,9 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
             make_bool_variant(_build_unique), make_bool_variant(has_runtime_filter),
             make_bool_variant(_need_null_map_for_build));
 
+    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+        _convert_block_to_null(block);
+    }
     return st;
 }
 
