@@ -46,7 +46,12 @@ SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num)
           _column_num(column_num),
           _tuple_desc(nullptr) {}
 
-SchemaScanner::~SchemaScanner() {}
+SchemaScanner::~SchemaScanner() {
+    if (_is_create_columns == true && _columns != nullptr) {
+        delete[] _columns;
+        _columns = nullptr;
+    }
+}
 
 Status SchemaScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -135,7 +140,8 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
 Status SchemaScanner::create_columns(const std::vector<TSchemaTableStructure>* table_structure,
                                      ObjectPool* pool) {
     _column_num = table_structure->size();
-    _columns = pool->add(new ColumnDesc[_column_num]);
+    _columns = new ColumnDesc[_column_num];
+    _is_create_columns = true;
     for (size_t idx = 0; idx < table_structure->size(); ++idx) {
         _columns[idx].name = table_structure->at(idx).column_name.c_str();
         _columns[idx].type = thrift_to_type(table_structure->at(idx).type);

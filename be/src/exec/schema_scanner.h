@@ -97,6 +97,10 @@ protected:
     int _column_num;
     TupleDescriptor* _tuple_desc;
 
+    // _is_create_columns means if ColumnDesc is created from FE.
+    // `_columns` should be deleted if _is_create_columns = true.
+    bool _is_create_columns = false;
+
     static DorisServer* _s_doris_server;
 };
 
