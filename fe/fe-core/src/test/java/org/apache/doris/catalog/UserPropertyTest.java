@@ -107,6 +107,7 @@ public class UserPropertyTest {
         properties.add(Pair.of("max_qUERY_instances", "3000"));
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
         properties.add(Pair.of("cpu_resource_limit", "2"));
+        properties.add(Pair.of("query_timeout", "500"));
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
@@ -118,6 +119,7 @@ public class UserPropertyTest {
         Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
         Assert.assertEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
         Assert.assertEquals(2, userProperty.getCpuResourceLimit());
+        Assert.assertEquals(500, userProperty.getQueryTimeout());
 
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();
@@ -141,6 +143,8 @@ public class UserPropertyTest {
                 Assert.assertEquals("rule1,rule2", value);
             } else if (key.equalsIgnoreCase("cpu_resource_limit")) {
                 Assert.assertEquals("2", value);
+            } else if (key.equalsIgnoreCase("query_timeout")) {
+                Assert.assertEquals("500", value);
             }
         }
 

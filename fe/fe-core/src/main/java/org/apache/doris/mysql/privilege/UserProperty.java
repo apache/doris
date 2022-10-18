@@ -63,6 +63,7 @@ public class UserProperty implements Writable {
     private static final String PROP_SQL_BLOCK_RULES = "sql_block_rules";
     private static final String PROP_CPU_RESOURCE_LIMIT = "cpu_resource_limit";
     private static final String PROP_EXEC_MEM_LIMIT = "exec_mem_limit";
+    private static final String PROP_USER_QUERY_TIMEOUT = "query_timeout";
     // advanced properties end
 
     private static final String PROP_LOAD_CLUSTER = "load_cluster";
@@ -108,6 +109,7 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_CPU_RESOURCE_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE_TAGS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -128,6 +130,10 @@ public class UserProperty implements Writable {
 
     public long getMaxConn() {
         return this.commonProperties.getMaxConn();
+    }
+
+    public long getQueryTimeout() {
+        return this.commonProperties.getQueryTimeout();
     }
 
     public long getMaxQueryInstances() {
@@ -176,6 +182,7 @@ public class UserProperty implements Writable {
         int cpuResourceLimit = this.commonProperties.getCpuResourceLimit();
         Set<Tag> resourceTags = this.commonProperties.getResourceTags();
         long execMemLimit = this.commonProperties.getExecMemLimit();
+        long queryTimeout = this.commonProperties.getQueryTimeout();
 
         UserResource newResource = resource.getCopiedUserResource();
         String newDefaultLoadCluster = defaultLoadCluster;
@@ -314,6 +321,15 @@ public class UserProperty implements Writable {
             } else if (keyArr[0].equalsIgnoreCase(PROP_EXEC_MEM_LIMIT)) {
                 // set property "exec_mem_limit" = "2147483648";
                 execMemLimit = getLongProperty(key, value, keyArr, PROP_EXEC_MEM_LIMIT);
+            } else if (keyArr[0].equalsIgnoreCase(PROP_USER_QUERY_TIMEOUT)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " format error");
+                }
+                try {
+                    queryTimeout = Long.parseLong(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_USER_QUERY_TIMEOUT + " is not number");
+                }
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
@@ -326,6 +342,7 @@ public class UserProperty implements Writable {
         this.commonProperties.setCpuResourceLimit(cpuResourceLimit);
         this.commonProperties.setResourceTags(resourceTags);
         this.commonProperties.setExecMemLimit(execMemLimit);
+        this.commonProperties.setQueryTimeout(queryTimeout);
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -451,6 +468,9 @@ public class UserProperty implements Writable {
 
         // exec mem limit
         result.add(Lists.newArrayList(PROP_EXEC_MEM_LIMIT, String.valueOf(commonProperties.getExecMemLimit())));
+
+        // timeout limit
+        result.add(Lists.newArrayList(PROP_USER_QUERY_TIMEOUT, String.valueOf(commonProperties.getQueryTimeout())));
 
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));

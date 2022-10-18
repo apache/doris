@@ -146,6 +146,12 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+    private long userQueryTimeout;
+
+    public void setUserQueryTimeoutMap(long queryTimeout) {
+        this.userQueryTimeout = queryTimeout;
+    }
+
     public SessionContext getSessionContext() {
         return sessionContext;
     }
@@ -556,6 +562,11 @@ public class ConnectContext {
                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
                 // Only kill
+                killFlag = true;
+            } else if (delta > userQueryTimeout * 1000) {
+                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
+                        getMysqlChannel().getRemoteHostPortString(), qualifiedUser);
+
                 killFlag = true;
             }
         }

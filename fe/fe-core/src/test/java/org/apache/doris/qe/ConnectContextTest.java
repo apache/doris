@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.thrift.TUniqueId;
 
 import mockit.Expectations;
@@ -43,6 +44,10 @@ public class ConnectContextTest {
     private Env env;
     @Mocked
     private ConnectScheduler connectScheduler;
+    @Mocked
+    private PaloAuth paloAuth;
+    @Mocked
+    private String qualifiedUser;
 
     @Before
     public void setUp() throws Exception {
@@ -162,6 +167,13 @@ public class ConnectContextTest {
         // Timeout
         ctx.setStartTime();
         now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000 + 1;
+        ctx.setExecutor(executor);
+        ctx.checkTimeout(now);
+        Assert.assertTrue(ctx.isKilled());
+
+        // user query timeout
+        ctx.setStartTime();
+        now = ctx.getStartTime() + paloAuth.getQueryTimeout(qualifiedUser) * 1000 + 1;
         ctx.setExecutor(executor);
         ctx.checkTimeout(now);
         Assert.assertTrue(ctx.isKilled());
