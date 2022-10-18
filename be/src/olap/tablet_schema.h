@@ -23,6 +23,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
+#include "olap/inverted_index_parser.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
 
@@ -55,6 +56,10 @@ public:
     bool is_nullable() const { return _is_nullable; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
+    bool has_inverted_index() const { return _has_inverted_index; }
+    InvertedIndexParserType get_inverted_index_parser_type() const {
+        return _inverted_index_parser_type;
+    }
     bool is_length_variable_type() const {
         return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
                _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
@@ -107,6 +112,9 @@ private:
     bool _is_bf_column = false;
 
     bool _has_bitmap_index = false;
+    bool _has_inverted_index = false;
+    InvertedIndexParserType _inverted_index_parser_type
+        {InvertedIndexParserType::PARSER_NOT_SET};
     bool _visible = true;
 
     TabletColumn* _parent = nullptr;

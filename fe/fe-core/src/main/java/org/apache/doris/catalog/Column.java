@@ -684,6 +684,12 @@ public class Column implements Writable {
                 if (tColumn.getColumnName().equals(columns.get(0))) {
                     tColumn.setHasBitmapIndex(true);
                 }
+            } else if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                List<String> columns = index.getColumns();
+                if (tColumn.getColumnName().equals(columns.get(0))) {
+                    tColumn.setHasInvertedIndex(true);
+                    tColumn.setInvertedIndexParser(index.getInvertedIndexParser());
+                }
             }
         }
         Set<String> bfColumns = olapTable.getCopiedBfColumns();

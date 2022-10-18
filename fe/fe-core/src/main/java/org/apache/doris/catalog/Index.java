@@ -30,7 +30,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
@@ -43,13 +45,17 @@ public class Index implements Writable {
     private List<String> columns;
     @SerializedName(value = "indexType")
     private IndexDef.IndexType indexType;
+    @SerializedName(value = "properties")
+    private Map<String, String> properties;
     @SerializedName(value = "comment")
     private String comment;
 
-    public Index(String indexName, List<String> columns, IndexDef.IndexType indexType, String comment) {
+    public Index(String indexName, List<String> columns, IndexDef.IndexType indexType,
+                 Map<String, String> properties, String comment) {
         this.indexName = indexName;
         this.columns = columns;
         this.indexType = indexType;
+        this.properties = properties;
         this.comment = comment;
     }
 
@@ -57,6 +63,7 @@ public class Index implements Writable {
         this.indexName = null;
         this.columns = null;
         this.indexType = null;
+        this.properties = null;
         this.comment = null;
     }
 
@@ -84,6 +91,18 @@ public class Index implements Writable {
         this.indexType = indexType;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    public String getInvertedIndexParser() {
+        return properties == null ? "" : properties.get("parser");
+    }
+
     public String getComment() {
         return comment;
     }
@@ -108,7 +127,7 @@ public class Index implements Writable {
     }
 
     public Index clone() {
-        return new Index(indexName, new ArrayList<>(columns), indexType, comment);
+        return new Index(indexName, new ArrayList<>(columns), indexType, new HashMap<>(properties), comment);
     }
 
     @Override
@@ -133,6 +152,19 @@ public class Index implements Writable {
         if (indexType != null) {
             sb.append(" USING ").append(indexType.toString());
         }
+        if (properties != null && properties.size() > 0) {
+            sb.append(" PROPERTIES(");
+            first = true;
+            for (Map.Entry<String, String> e : properties.entrySet()) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(", ");
+                }
+                sb.append("\"").append(e.getKey()).append("\"=").append("\"").append(e.getValue()).append("\"");
+            }
+            sb.append(")");
+        }
         if (comment != null) {
             sb.append(" COMMENT '" + comment + "'");
         }
@@ -144,6 +176,9 @@ public class Index implements Writable {
         tIndex.setIndexName(indexName);
         tIndex.setColumns(columns);
         tIndex.setIndexType(TIndexType.valueOf(indexType.toString()));
+        if (properties != null) {
+            tIndex.setProperties(properties);
+        }
         if (columns != null) {
             tIndex.setComment(comment);
         }
