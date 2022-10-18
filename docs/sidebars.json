@@ -178,7 +178,8 @@
                         "ecosystem/external-table/hudi-external-table",
                         "ecosystem/external-table/iceberg-of-doris",
                         "ecosystem/external-table/odbc-of-doris",
-                        "ecosystem/external-table/hive-of-doris"
+                        "ecosystem/external-table/hive-of-doris",
+                        "ecosystem/external-table/multi-catalog"
                     ]
                 },
                 "ecosystem/spark-doris-connector",
