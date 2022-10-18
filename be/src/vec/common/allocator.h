@@ -41,6 +41,8 @@
 
 #if !defined(__APPLE__) && !defined(__FreeBSD__)
 #include <malloc.h>
+#else
+#define _DARWIN_C_SOURCE
 #endif
 
 #include <sys/mman.h>

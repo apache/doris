@@ -166,7 +166,11 @@ struct ArrayAggregateImpl {
             execute_type<Int128>(res, type, data, offsets) ||
             execute_type<Float32>(res, type, data, offsets) ||
             execute_type<Float64>(res, type, data, offsets) ||
-            execute_type<Decimal128>(res, type, data, offsets)) {
+            execute_type<Decimal128>(res, type, data, offsets) ||
+            execute_type<Date>(res, type, data, offsets) ||
+            execute_type<DateTime>(res, type, data, offsets) ||
+            execute_type<DateV2>(res, type, data, offsets) ||
+            execute_type<DateTimeV2>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         } else {

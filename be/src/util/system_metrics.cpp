@@ -799,25 +799,25 @@ void SystemMetrics::_update_proc_metrics() {
         char* start_pos = nullptr;
         start_pos = strstr(_line_ptr, "intr ");
         if (start_pos) {
-            sscanf(start_pos, "intr %lu", &inter);
+            sscanf(start_pos, "intr %" PRIu64, &inter);
             _proc_metrics->proc_interrupt->set_value(inter);
         }
 
         start_pos = strstr(_line_ptr, "ctxt ");
         if (start_pos) {
-            sscanf(start_pos, "ctxt %lu", &ctxt);
+            sscanf(start_pos, "ctxt %" PRIu64, &ctxt);
             _proc_metrics->proc_ctxt_switch->set_value(ctxt);
         }
 
         start_pos = strstr(_line_ptr, "procs_running ");
         if (start_pos) {
-            sscanf(start_pos, "procs_running %lu", &procs_r);
+            sscanf(start_pos, "procs_running %" PRIu64, &procs_r);
             _proc_metrics->proc_procs_running->set_value(procs_r);
         }
 
         start_pos = strstr(_line_ptr, "procs_blocked ");
         if (start_pos) {
-            sscanf(start_pos, "procs_blocked %lu", &procs_b);
+            sscanf(start_pos, "procs_blocked %" PRIu64, &procs_b);
             _proc_metrics->proc_procs_blocked->set_value(procs_b);
         }
     }
@@ -847,7 +847,7 @@ void SystemMetrics::get_metrics_from_proc_vmstat() {
     while (getline(&_line_ptr, &_line_buf_size, fp) > 0) {
         uint64_t value;
         char name[64];
-        int num = sscanf(_line_ptr, "%s %lu", name, &value);
+        int num = sscanf(_line_ptr, "%s %" PRIu64, name, &value);
         if (num < 2) {
             continue;
         }

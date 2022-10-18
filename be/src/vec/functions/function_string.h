@@ -17,12 +17,20 @@
 
 #pragma once
 
+#ifndef USE_LIBCPP
+#include <memory_resource>
+#define PMR std::pmr
+#else
+#include <boost/container/pmr/monotonic_buffer_resource.hpp>
+#include <boost/container/pmr/vector.hpp>
+#define PMR boost::container::pmr
+#endif
+
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
 #include <cstdint>
-#include <memory_resource>
 #include <string_view>
 
 #include "exprs/math_functions.h"
@@ -160,10 +168,10 @@ private:
         res_chars.reserve(chars.size());
 
         std::array<std::byte, 128 * 1024> buf;
-        std::pmr::monotonic_buffer_resource pool {buf.data(), buf.size()};
-        std::pmr::vector<size_t> index {&pool};
+        PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
+        PMR::vector<size_t> index {&pool};
 
-        std::pmr::vector<std::pair<const unsigned char*, int>> strs(&pool);
+        PMR::vector<std::pair<const unsigned char*, int>> strs(&pool);
         strs.resize(size);
         auto* __restrict data_ptr = chars.data();
         auto* __restrict offset_ptr = offsets.data();
@@ -758,51 +766,100 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        return make_nullable(std::make_shared<DataTypeString>());
     }
     bool use_default_implementation_for_constants() const override { return true; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 2);
         auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create();
 
         ColumnPtr argument_ptr[2];
         argument_ptr[0] =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        argument_ptr[1] =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        argument_ptr[1] = block.get_by_position(arguments[1]).column;
 
         if (auto* col1 = check_and_get_column<ColumnString>(*argument_ptr[0])) {
             if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
-                              res->get_chars(), res->get_offsets());
-                block.replace_by_position(result, std::move(res));
+                              res->get_chars(), res->get_offsets(), null_map->get_data());
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res), std::move(null_map)));
+                return Status::OK();
+            } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
+                DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
+                int repeat = col2_const->get_int(0);
+                if (repeat <= 0) {
+                    null_map->get_data().resize_fill(input_rows_count, 0);
+                    res->insert_many_defaults(input_rows_count);
+                } else {
+                    vector_const(col1->get_chars(), col1->get_offsets(), repeat, res->get_chars(),
+                                 res->get_offsets(), null_map->get_data());
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
             }
         }
 
-        return Status::RuntimeError("not support {}", get_name());
+        return Status::RuntimeError("repeat function get error param: {}, {}",
+                                    argument_ptr[0]->get_name(), argument_ptr[1]->get_name());
     }
 
     void vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                        const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets) {
+                       ColumnString::Offsets& res_offsets, ColumnUInt8::Container& null_map) {
         size_t input_row_size = offsets.size();
-        //
+
         fmt::memory_buffer buffer;
         res_offsets.resize(input_row_size);
+        null_map.resize_fill(input_row_size, 0);
         for (ssize_t i = 0; i < input_row_size; ++i) {
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int size = offsets[i] - offsets[i - 1];
+            size_t size = offsets[i] - offsets[i - 1];
             int repeat = repeats[i];
-            // assert size * repeat won't exceed
-            DCHECK_LE(static_cast<int64_t>(size) * repeat, std::numeric_limits<int32_t>::max());
-            for (int i = 0; i < repeat; ++i) {
-                buffer.append(raw_str, raw_str + size);
+
+            if (repeat <= 0) {
+                StringOP::push_empty_string(i, res_data, res_offsets);
+            } else if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+            } else {
+                for (int j = 0; j < repeat; ++j) {
+                    buffer.append(raw_str, raw_str + size);
+                }
+                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
+                                            res_data, res_offsets);
             }
-            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
-                                        res_offsets);
+        }
+    }
+
+    // TODO: 1. use pmr::vector<char> replace fmt_buffer may speed up the code
+    //       2. abstract the `vector_vector` and `vector_const`
+    //       3. rethink we should use `DEFAULT_MAX_STRING_SIZE` to bigger here
+    void vector_const(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                      int repeat, ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
+                      ColumnUInt8::Container& null_map) {
+        size_t input_row_size = offsets.size();
+
+        fmt::memory_buffer buffer;
+        res_offsets.resize(input_row_size);
+        null_map.resize_fill(input_row_size, 0);
+        for (ssize_t i = 0; i < input_row_size; ++i) {
+            buffer.clear();
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t size = offsets[i] - offsets[i - 1];
+
+            if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+            } else {
+                for (int j = 0; j < repeat; ++j) {
+                    buffer.append(raw_str, raw_str + size);
+                }
+                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
+                                            res_data, res_offsets);
+            }
         }
     }
 };

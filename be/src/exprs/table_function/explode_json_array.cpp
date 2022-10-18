@@ -77,9 +77,9 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 } else if (v.IsInt()) {
                     wbytes = sprintf(tmp_buf, "%d", v.GetInt());
                 } else if (v.IsUint64()) {
-                    wbytes = sprintf(tmp_buf, "%lu", v.GetUint64());
+                    wbytes = sprintf(tmp_buf, "%" PRIu64, v.GetUint64());
                 } else if (v.IsInt64()) {
-                    wbytes = sprintf(tmp_buf, "%ld", v.GetInt64());
+                    wbytes = sprintf(tmp_buf, "%" PRId64, v.GetInt64());
                 } else {
                     wbytes = sprintf(tmp_buf, "%f", v.GetDouble());
                 }

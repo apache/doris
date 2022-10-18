@@ -47,7 +47,7 @@ private:
     Status _line_split_to_values(const Slice& line);
     Status _split_line(const Slice& line);
     // Reader
-    std::shared_ptr<FileReader> _cur_file_reader;
+    std::unique_ptr<FileReader> _cur_file_reader;
     LineReader* _cur_line_reader;
     bool _cur_line_reader_eof;
 

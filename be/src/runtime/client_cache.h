@@ -267,8 +267,8 @@ private:
     // since service type is multiple, we should set thrift server type here for be thrift client
     ThriftServer::ServerType get_thrift_server_type() {
         auto& thrift_server_type = config::thrift_server_type_of_fe;
-        transform(thrift_server_type.begin(), thrift_server_type.end(), thrift_server_type.begin(),
-                  toupper);
+        std::transform(thrift_server_type.begin(), thrift_server_type.end(),
+                       thrift_server_type.begin(), [](auto c) { return std::toupper(c); });
         if (strcmp(typeid(T).name(), "N5doris21FrontendServiceClientE") == 0 &&
             thrift_server_type == "THREADED_SELECTOR") {
             return ThriftServer::ServerType::NON_BLOCKING;

@@ -132,4 +132,422 @@ suite("test_stream_load", "p0") {
     sql "sync"
     rowCount = sql "select count(1) from ${tableName}"
     assertEquals(3, rowCount[0][0])
+
+    // test load_nullable_to_not_nullable
+    def tableName2 = "load_nullable_to_not_nullable"
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """
+    CREATE TABLE `${tableName2}` (
+        k1 int(32) NOT NULL,
+        k2 smallint NOT NULL,
+        k3 int NOT NULL,
+        k4 bigint NOT NULL,
+        k5 decimal(9, 3) NOT NULL,
+        k6 char(5) NOT NULL,
+        k10 date NOT NULL,
+        k11 datetime NOT NULL,
+        k7 varchar(20) NOT NULL,
+        k8 double max NOT NULL,
+        k9 float sum NOT NULL )
+    AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k7)
+    PARTITION BY RANGE(k2) (
+        PARTITION partition_a VALUES LESS THAN MAXVALUE
+    )
+    DISTRIBUTED BY HASH(k1, k2, k5)
+    BUCKETS 3
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
+    """
+
+    streamLoad {
+        table "${tableName2}"
+
+        set 'column_separator', '\t'
+        set 'columns', 'col,k1=year(col),k2=month(col),k3=month(col),k4=day(col),k5=7.7,k6="a",k10=date(col),k11=FROM_UNIXTIME(2019,"%Y-%m-%dT%H:%i:%s"),k7="k7",k8=month(col),k9=day(col)'
+
+        file 'test_time.data'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(1, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    order_qt_sql1 " SELECT * FROM ${tableName2}"
+
+    // test common case
+    def tableName3 = "test_all"
+    def tableName4 = "test_less_col"
+    def tableName5 = "test_bitmap_and_hll"
+    def tableName6 = "test_unique_key"
+    def tableName7 = "test_unique_key_with_delete"
+    sql """ DROP TABLE IF EXISTS ${tableName3} """
+    sql """ DROP TABLE IF EXISTS ${tableName4} """
+    sql """ DROP TABLE IF EXISTS ${tableName5} """
+    sql """ DROP TABLE IF EXISTS ${tableName6} """
+    sql """ DROP TABLE IF EXISTS ${tableName7} """
+    sql """
+    CREATE TABLE ${tableName3} (
+      `k1` int(11) NULL,
+      `k2` tinyint(4) NULL,
+      `k3` smallint(6) NULL,
+      `k4` bigint(20) NULL,
+      `k5` largeint(40) NULL,
+      `k6` float NULL,
+      `k7` double NULL,
+      `k8` decimal(9, 0) NULL,
+      `k9` char(10) NULL,
+      `k10` varchar(1024) NULL,
+      `k11` text NULL,
+      `k12` date NULL,
+      `k13` datetime NULL
+    ) ENGINE=OLAP
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE ${tableName4} (
+      `k1` int(11) NULL,
+      `k2` tinyint(4) NULL,
+      `k3` smallint(6) NULL,
+      `k4` bigint(20) NULL,
+      `k5` largeint(40) NULL
+    ) ENGINE=OLAP
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE ${tableName5} (
+      `k1` int(11) NULL,
+      `k2` tinyint(4) NULL,
+      `v1` bitmap bitmap_union,
+      `v2` hll hll_union
+    ) ENGINE=OLAP
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE ${tableName6} (
+      `k1` int(11) NULL,
+      `k2` tinyint(4) NULL,
+      `v1` varchar(1024)
+    ) ENGINE=OLAP
+    UNIQUE KEY(k1, k2)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE ${tableName7} (
+      `k1` int(11) NULL,
+      `k2` tinyint(4) NULL,
+      `v1` varchar(1024)
+    ) ENGINE=OLAP
+    UNIQUE KEY(k1, k2)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "function_column.sequence_type" = "int",
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    // load all columns
+    streamLoad {
+        table "${tableName3}"
+
+        set 'column_separator', ','
+
+        file 'all_types.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2500, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_all11 "SELECT count(*) FROM ${tableName3}" // 2500
+    order_qt_all12 "SELECT count(*) FROM ${tableName3} where k1 <= 10"  // 11
+    sql """truncate table ${tableName3}"""
+    sql """sync"""
+
+    // load part of columns
+    streamLoad {
+        table "${tableName3}"
+
+        set 'column_separator', ','
+        set 'columns', 'k1, k2'
+
+        file 'all_types.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberLoadedRows)
+        }
+    }
+
+    // load with skip 2 columns, with gzip
+    streamLoad {
+        table "${tableName3}"
+
+        set 'column_separator', ','
+        set 'columns', 'k1, k2, k3, k4, tmp1, tmp2, k7, k8, k9, k10, k11, k12, k13'
+        set 'compress_type', 'gz'
+
+        file 'all_types.csv.gz'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2500, json.NumberTotalRows)
+            assertEquals(2500, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all21 "SELECT count(*) FROM ${tableName3}" // 2500
+    order_qt_all22 "SELECT count(*) FROM ${tableName3} where k1 is null"  // 0
+    order_qt_all23 "SELECT count(*) FROM ${tableName3} where k5 is null"  // 2500
+    order_qt_all24 "SELECT count(*) FROM ${tableName3} where k6 is null"  // 2500
+    sql """truncate table ${tableName3}"""
+    sql """sync"""
+
+    // load with column mapping and where predicate
+    streamLoad {
+        table "${tableName3}"
+
+        set 'column_separator', ','
+        set 'columns', 'k1, k2, k3, k4, tmp5, k6, tmpk7, k8, k9, k10, k11, k12, k13, k7=tmpk7+1'
+        set 'where', 'k1 <= 10'
+
+        file 'all_types.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2500, json.NumberTotalRows)
+            assertEquals(11, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(2489, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all31 "SELECT count(*) FROM ${tableName3}" // 11
+    order_qt_all32 "SELECT count(*) FROM ${tableName3} where k7 >= 7"  // 11
+    order_qt_all33 "SELECT count(*) FROM ${tableName3} where k5 is null"  // 11
+    sql """truncate table ${tableName3}"""
+    sql """sync"""
+
+    // load without strict_mode
+    streamLoad {
+        table "${tableName3}"
+
+        set 'column_separator', ','
+        set 'columns', 'tmpk1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k1=k13'
+
+        file 'all_types.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2500, json.NumberTotalRows)
+            assertEquals(2500, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all41 "SELECT count(*) FROM ${tableName3} where k1 is null" // 2500
+    sql """truncate table ${tableName3}"""
+    sql """sync"""
+
+    // load with strict_mode false and max_filter_ratio
+    streamLoad {
+        table "${tableName4}"
+
+        set 'column_separator', ','
+        set 'columns', 'k1, k2, k3, k4, tmpk5, tmpk6, tmpk7, tmpk8, tmpk9, tmpk10, tmpk11, tmpk12, k5'
+        set 'max_filter_ratio', '1'
+        set 'strict_mode', 'true'
+
+        file 'all_types.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2500, json.NumberTotalRows)
+            assertEquals(0, json.NumberLoadedRows)
+            assertEquals(2500, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all51 "SELECT count(*) FROM ${tableName4}" // 0
+    sql """truncate table ${tableName4}"""
+    sql """sync"""
+
+    // load with strict_mode true and max_filter_ratio
+    streamLoad {
+        table "${tableName4}"
+
+        set 'column_separator', ','
+        set 'columns', 'k1, k2, k3, k4, tmpk5, tmpk6, tmpk7, tmpk8, tmpk9, tmpk10, tmpk11, tmpk12, k5'
+        set 'max_filter_ratio', '0'
+        set 'strict_mode', 'true'
+
+        file 'all_types.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberLoadedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all61 "SELECT count(*) FROM ${tableName4}" // 0
+    sql """truncate table ${tableName4}"""
+    sql """sync"""
+
+    // load bitmap and hll with bzip2
+    streamLoad {
+        table "${tableName5}"
+
+        set 'column_separator', ','
+        set 'columns', 'k1, k2, tmp1, tmp2, v1=to_bitmap(tmp1), v2=hll_hash(tmp2)'
+        set 'compress_type', 'bz2'
+
+        file 'bitmap_hll.csv.bz2'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(1025, json.NumberTotalRows)
+            assertEquals(1025, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all71 "SELECT k1, k2, bitmap_union_count(v1), HLL_UNION_AGG(v2) FROM ${tableName5} group by k1, k2" // 1,2,1025,1028
+    sql """truncate table ${tableName5}"""
+    sql """sync"""
+
+    // load unique key
+    streamLoad {
+        table "${tableName6}"
+
+        set 'column_separator', ','
+        set 'compress_type', 'lz4'
+
+        file 'unique_key.csv.lz4'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(8001, json.NumberTotalRows)
+            assertEquals(8001, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all81 "SELECT count(*) from ${tableName6}" // 2
+    sql """truncate table ${tableName6}"""
+    sql """sync"""
+
+    // load unique key with delete and sequence
+    streamLoad {
+        table "${tableName7}"
+
+        set 'column_separator', ','
+        set 'columns', 'k1,k2,v1,del,seq'
+        set 'delete', 'del=1'
+        set 'merge_type', 'merge'
+        set 'function_column.sequence_col', 'seq'
+
+        file 'unique_key_with_delete.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(6, json.NumberTotalRows)
+            assertEquals(6, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all91 "SELECT count(*) from ${tableName7}" // 2
+    sql """truncate table ${tableName7}"""
+    sql """sync"""
+
 }

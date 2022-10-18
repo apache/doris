@@ -69,7 +69,8 @@ public:
                                                         &_s_tcmalloc_thread_bytes);
         _s_allocator_cache_mem = _s_tcmalloc_pageheap_free_bytes + _s_tcmalloc_central_bytes +
                                  _s_tcmalloc_transfer_bytes + _s_tcmalloc_thread_bytes;
-        _s_allocator_cache_mem_str = PrettyPrinter::print(_s_allocator_cache_mem, TUnit::BYTES);
+        _s_allocator_cache_mem_str =
+                PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
         _s_virtual_memory_used = _s_allocator_physical_mem + _s_pageheap_unmapped_bytes;
         _s_proc_mem_no_allocator_cache =
                 PerfCounters::get_vm_rss() - static_cast<int64_t>(_s_allocator_cache_mem);

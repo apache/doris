@@ -57,7 +57,11 @@ if ! ${PYTHON} --version; then
 fi
 
 if [[ -z "${DORIS_TOOLCHAIN}" ]]; then
-    DORIS_TOOLCHAIN=gcc
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        DORIS_TOOLCHAIN=clang
+    else
+        DORIS_TOOLCHAIN=gcc
+    fi
 fi
 
 if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
@@ -158,6 +162,13 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
         exit 1
     fi
     export MVN_CMD
+fi
+
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    if ! command -v libtoolize &>/dev/null && command -v glibtoolize &>/dev/null; then
+        shopt -s expand_aliases
+        alias libtoolize='glibtoolize'
+    fi
 fi
 
 CMAKE_CMD='cmake'
