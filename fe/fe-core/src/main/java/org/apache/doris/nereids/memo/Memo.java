@@ -36,6 +36,7 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -349,16 +350,15 @@ public class Memo {
             }
         }
         Set<GroupExpression> s = ImmutableSet.copyOf(needReplaceChild);
-        Set<GroupExpression> set = source.getParentGroupExpressions().stream().filter(
+        Set<GroupExpression> s1 = source.getParentGroupExpressions().stream().filter(
                 e -> e.getOwnerGroup() != null && !e.getOwnerGroup().equals(destination)
         ).collect(Collectors.toSet());
         Set<GroupExpression> diff = Sets.newHashSet(s);
-        s.removeAll(set);
-        set.removeAll(diff);
-        s.addAll(set);
-        if (!s.isEmpty()) {
-            NereidsPlanner.builder.append(s).append('\n');
-        }
+        diff.removeAll(s1);
+        s1.removeAll(s);
+        // diff = A-B, s1 = B-A
+        NereidsPlanner.builder.append(diff).append('\n').append(s1.stream().filter(Objects::nonNull)
+                .collect(Collectors.toSet())).append('\n');
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
