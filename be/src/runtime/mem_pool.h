@@ -231,16 +231,17 @@ private:
         // I refers to https://github.com/mcgov/asan_alignment_example.
 
         ChunkInfo& info = chunks_[current_chunk_idx_];
-        int64_t aligned_allocated_bytes = BitUtil::RoundUpToMultiplyOfFactor(
-                info.allocated_bytes + DEFAULT_PADDING_SIZE, alignment);
-        if (aligned_allocated_bytes + size + DEFAULT_PADDING_SIZE <= info.chunk.size) {
+        int64_t aligned_allocated_bytes =
+                BitUtil::RoundUpToMultiplyOfFactor(info.allocated_bytes, alignment);
+        auto size_with_padding = size + DEFAULT_PADDING_SIZE;
+        if (aligned_allocated_bytes + size_with_padding <= info.chunk.size) {
             // Ensure the requested alignment is respected.
             int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
             uint8_t* result = info.chunk.data + aligned_allocated_bytes;
-            ASAN_UNPOISON_MEMORY_REGION(result, size);
-            DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
-            info.allocated_bytes += padding + size;
-            total_allocated_bytes_ += padding + size;
+            ASAN_UNPOISON_MEMORY_REGION(result, size_with_padding);
+            DCHECK_LE(info.allocated_bytes + size_with_padding, info.chunk.size);
+            info.allocated_bytes += padding + size_with_padding;
+            total_allocated_bytes_ += padding + size_with_padding;
             DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
             return result;
         }
