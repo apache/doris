@@ -28,6 +28,7 @@ import org.apache.doris.statistics.util.InternalQuery;
 import org.apache.doris.statistics.util.InternalQueryResult;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.InternalSqlTemplate;
+import org.apache.doris.statistics.util.InternalSqlTemplate.QueryType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -40,7 +41,9 @@ import java.util.Map;
  * The results of the query will be returned as @StatisticsTaskResult.
  */
 public class SQLStatisticsTask extends StatisticsTask {
-    private String statement;
+    protected QueryType queryType = QueryType.FULL;
+
+    protected String statement;
 
     public SQLStatisticsTask(long jobId, List<StatisticsDesc> statsDescs) {
         super(jobId, statsDescs);
@@ -55,6 +58,7 @@ public class SQLStatisticsTask extends StatisticsTask {
             statement = constructQuery(statsDesc);
             TaskResult taskResult = executeQuery(statsDesc);
             taskResults.add(taskResult);
+            LOG.info("Collected statistics successfully by SQL: {}", statement);
         }
 
         return new StatisticsTaskResult(taskResults);
@@ -63,6 +67,7 @@ public class SQLStatisticsTask extends StatisticsTask {
     protected String constructQuery(StatisticsDesc statsDesc) throws DdlException,
             InvalidFormatException {
         Map<String, String> params = getQueryParams(statsDesc);
+
         List<StatsType> statsTypes = statsDesc.getStatsTypes();
         StatsType type = statsTypes.get(0);
 
@@ -72,20 +77,20 @@ public class SQLStatisticsTask extends StatisticsTask {
 
         switch (type) {
             case ROW_COUNT:
-                return nonPartitioned ? InternalSqlTemplate.buildStatsRowCountSql(params)
-                        : InternalSqlTemplate.buildStatsPartitionRowCountSql(params);
+                return nonPartitioned ? InternalSqlTemplate.buildStatsRowCountSql(params, queryType)
+                        : InternalSqlTemplate.buildStatsPartitionRowCountSql(params, queryType);
             case NUM_NULLS:
-                return nonPartitioned ? InternalSqlTemplate.buildStatsNumNullsSql(params)
-                        : InternalSqlTemplate.buildStatsPartitionNumNullsSql(params);
+                return nonPartitioned ? InternalSqlTemplate.buildStatsNumNullsSql(params, queryType)
+                        : InternalSqlTemplate.buildStatsPartitionNumNullsSql(params, queryType);
             case MAX_SIZE:
             case AVG_SIZE:
-                return nonPartitioned ? InternalSqlTemplate.buildStatsMaxAvgSizeSql(params)
-                        : InternalSqlTemplate.buildStatsPartitionMaxAvgSizeSql(params);
+                return nonPartitioned ? InternalSqlTemplate.buildStatsMaxAvgSizeSql(params, queryType)
+                        : InternalSqlTemplate.buildStatsPartitionMaxAvgSizeSql(params, queryType);
             case NDV:
             case MAX_VALUE:
             case MIN_VALUE:
-                return nonPartitioned ? InternalSqlTemplate.buildStatsMinMaxNdvValueSql(params)
-                        : InternalSqlTemplate.buildStatsPartitionMinMaxNdvValueSql(params);
+                return nonPartitioned ? InternalSqlTemplate.buildStatsMinMaxNdvValueSql(params, queryType)
+                        : InternalSqlTemplate.buildStatsPartitionMinMaxNdvValueSql(params, queryType);
             case DATA_SIZE:
             default:
                 throw new DdlException("Unsupported statistics type: " + type);
@@ -122,7 +127,7 @@ public class SQLStatisticsTask extends StatisticsTask {
                 + statement + " queryResult: " + queryResult);
     }
 
-    private Map<String, String> getQueryParams(StatisticsDesc statsDesc) throws DdlException {
+    protected Map<String, String> getQueryParams(StatisticsDesc statsDesc) throws DdlException {
         StatsCategory category = statsDesc.getStatsCategory();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(category.getDbId());
         Table table = db.getTableOrDdlException(category.getTableId());
@@ -131,6 +136,7 @@ public class SQLStatisticsTask extends StatisticsTask {
         params.put(InternalSqlTemplate.TABLE, table.getName());
         params.put(InternalSqlTemplate.PARTITION, category.getPartitionName());
         params.put(InternalSqlTemplate.COLUMN, category.getColumnName());
+
         return params;
     }
 }
