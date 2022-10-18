@@ -38,7 +38,7 @@ import java.util.Map;
 /**
  * Eliminate out join.
  */
-public class EliminateOutJoin extends OneRewriteRuleFactory {
+public class EliminateOuterJoin extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
@@ -59,7 +59,7 @@ public class EliminateOutJoin extends OneRewriteRuleFactory {
                     } else {
                         return filter.withChildren(join.withJoinType(newJoinType));
                     }
-                }).toRule(RuleType.ELIMINATE_OUT_JOIN);
+                }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
     }
 
     private JoinType tryEliminateOuterJoin(JoinType joinType, boolean canFilterLeftNull, boolean canFilterRightNull) {

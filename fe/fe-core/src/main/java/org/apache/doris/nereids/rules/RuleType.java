@@ -106,7 +106,7 @@ public enum RuleType {
     // Eliminate plan
     ELIMINATE_LIMIT(RuleTypeClass.REWRITE),
     ELIMINATE_FILTER(RuleTypeClass.REWRITE),
-    ELIMINATE_OUT_JOIN(RuleTypeClass.REWRITE),
+    ELIMINATE_OUTER_JOIN(RuleTypeClass.REWRITE),
 
     FIND_HASH_CONDITION_FOR_JOIN(RuleTypeClass.REWRITE),
     MATERIALIZED_INDEX_AGG_SCAN(RuleTypeClass.REWRITE),
