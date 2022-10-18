@@ -348,8 +348,7 @@ public class Memo {
         List<GroupExpression> list = source.getParentGroupExpressions().stream().filter(
                 e -> e.getOwnerGroup() != null && !e.getOwnerGroup().equals(destination)
         ).collect(Collectors.toList());
-        NereidsPlanner.builder.append(needReplaceChild)
-                .append(list);
+        NereidsPlanner.builder.append(needReplaceChild).append("\n").append(list).append("\n");
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
