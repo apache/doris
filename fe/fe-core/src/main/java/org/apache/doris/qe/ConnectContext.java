@@ -148,7 +148,7 @@ public class ConnectContext {
 
     private long userQueryTimeout;
 
-    public void setUserQueryTimeoutMap(long queryTimeout) {
+    public void setUserQueryTimeout(long queryTimeout) {
         this.userQueryTimeout = queryTimeout;
     }
 
@@ -557,17 +557,23 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
-            if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
-                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+            if (userQueryTimeout > 0) {
+                // user set query_timeout property
+                if (delta > userQueryTimeout * 1000) {
+                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
+                            getMysqlChannel().getRemoteHostPortString(), userQueryTimeout);
 
-                // Only kill
-                killFlag = true;
-            } else if (delta > userQueryTimeout * 1000) {
-                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), qualifiedUser);
+                    killFlag = true;
+                }
+            } else {
+                // default use session query_timeout
+                if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
+                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
+                            getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
-                killFlag = true;
+                    // Only kill
+                    killFlag = true;
+                }
             }
         }
         if (killFlag) {

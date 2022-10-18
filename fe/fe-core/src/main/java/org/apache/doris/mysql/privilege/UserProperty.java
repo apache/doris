@@ -469,7 +469,7 @@ public class UserProperty implements Writable {
         // exec mem limit
         result.add(Lists.newArrayList(PROP_EXEC_MEM_LIMIT, String.valueOf(commonProperties.getExecMemLimit())));
 
-        // timeout limit
+        // query timeout
         result.add(Lists.newArrayList(PROP_USER_QUERY_TIMEOUT, String.valueOf(commonProperties.getQueryTimeout())));
 
         // resource tag

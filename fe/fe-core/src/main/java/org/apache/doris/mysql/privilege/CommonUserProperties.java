@@ -52,7 +52,7 @@ public class CommonUserProperties implements Writable {
     private long execMemLimit = -1;
 
     @SerializedName("queryTimeout")
-    private long queryTimeout = 300;
+    private long queryTimeout = -1;
 
     private String[] sqlBlockRulesSplit = {};
 
