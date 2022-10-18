@@ -157,10 +157,15 @@ public class JoinEstimation {
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
             rowCount = rightStats.getRowCount();
         } else if (joinType == JoinType.INNER_JOIN) {
-            for (Expression joinConjunct : join.getHashJoinConjuncts()) {
-                double tmpRowCount = estimateInnerJoin2(join,
-                        (EqualTo) joinConjunct, leftStats, rightStats);
-                rowCount = Math.min(rowCount, tmpRowCount);
+            if (join.getHashJoinConjuncts().isEmpty()) {
+                //TODO: consider other join conjuncts
+                rowCount = leftStats.getRowCount() * rightStats.getRowCount();
+            } else {
+                for (Expression joinConjunct : join.getHashJoinConjuncts()) {
+                    double tmpRowCount = estimateInnerJoin2(join,
+                            (EqualTo) joinConjunct, leftStats, rightStats);
+                    rowCount = Math.min(rowCount, tmpRowCount);
+                }
             }
         } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
             rowCount = leftStats.getRowCount();

@@ -606,6 +606,9 @@ public class Memo {
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
             builder.append(group.toString()).append("\n");
+            //for (GroupExpression groupExpression : group.getLogicalExpressions()) {
+            //    builder.append("  ").append(groupExpression.toString()).append("\n");
+            //}
             for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
                 builder.append("  ").append(groupExpression.toString()).append("\n");
             }
