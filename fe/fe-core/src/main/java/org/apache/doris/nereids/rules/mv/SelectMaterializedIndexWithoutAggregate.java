@@ -46,9 +46,6 @@ import java.util.stream.Collectors;
  * {@link SelectMaterializedIndexWithoutAggregate}.
  * Besides, these two rules should run in isolated batches, thus when enter this rule, it's guaranteed that there is
  * no aggregation on top of the scan.
- * <p>
- * TODO: optimize queries with aggregate not on top of scan directly, e.g., aggregate -> join -> scan
- *   to use materialized index.
  */
 public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMaterializedIndexRule
         implements RewriteRuleFactory {
