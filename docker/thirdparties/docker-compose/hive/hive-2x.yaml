@@ -29,9 +29,7 @@ services:
       - "50070"
       - "${FS_PORT}"
     ports:
-    #  - ${FS_PORT}:8020
     - target: ${FS_PORT}
-      host_ip: 127.0.0.1
       published: ${FS_PORT}
       protocol: tcp
       mode: host
