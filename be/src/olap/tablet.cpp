@@ -125,8 +125,7 @@ Status Tablet::_init_once_action() {
 #ifdef BE_TEST
     // init cumulative compaction policy by type
     _cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                    _cumulative_compaction_type);
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
 #endif
 
     RowsetVector rowset_vec;
