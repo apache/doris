@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
@@ -51,6 +52,7 @@ import org.apache.spark.sql.functions;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import static org.apache.spark.sql.functions.lit;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.LongAccumulator;
 import org.apache.spark.util.SerializableConfiguration;
@@ -620,6 +622,38 @@ public final class SparkDpp implements java.io.Serializable {
         if (fileGroup.columnsFromPath != null) {
             srcColumnsWithColumnsFromPath.addAll(fileGroup.columnsFromPath);
         }
+
+        if (fileGroup.fileFormat.equalsIgnoreCase("parquet")) {
+            // parquet had its own schema, just use it; perhaps we could add some validation in future.
+            Dataset<Row> dataFrame = spark.read().parquet(fileUrl);
+            if (!CollectionUtils.isEmpty(columnValueFromPath)) {
+                for (int k = 0; k < columnValueFromPath.size(); k++) {
+                    dataFrame = dataFrame.withColumn(fileGroup.columnsFromPath.get(k), lit(columnValueFromPath.get(k)));
+                }
+            }
+            return dataFrame;
+        }
+
+        if (fileGroup.fileFormat.equalsIgnoreCase("orc")) {
+            // orc had its own schema, but lacks of columns names, we should fix it.
+            Dataset<Row> df = spark.read().orc(fileUrl);
+            List<StructField> fields = new ArrayList<>();
+            int i = 0;
+            for (StructField field : df.schema().fields()) {
+                // user StringType to load source data
+                fields.add(DataTypes.createStructField(srcColumnsWithColumnsFromPath.get(i), field.dataType(),
+                    field.nullable()));
+                ++i;
+            }
+            Dataset<Row> dataFrame  = spark.createDataFrame(df.toJavaRDD(), DataTypes.createStructType(fields));
+            if (!CollectionUtils.isEmpty(columnValueFromPath)) {
+                for (int k = 0; k < columnValueFromPath.size(); k++) {
+                    dataFrame = dataFrame.withColumn(fileGroup.columnsFromPath.get(k), lit(columnValueFromPath.get(k)));
+                }
+            }
+            return dataFrame;
+        }
+
         StructType srcSchema = createScrSchema(srcColumnsWithColumnsFromPath);
         JavaRDD<String> sourceDataRdd = spark.read().textFile(fileUrl).toJavaRDD();
         int columnSize = dataSrcColumns.size();
