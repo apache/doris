@@ -152,7 +152,6 @@ public class NereidsPlanner extends Planner {
 
         // cost-based optimize and explore plan space
         optimize();
-        NereidsPlanner.builder.append(cascadesContext.getMemo().checkParentExpressionInGroup());
 
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
 
