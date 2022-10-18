@@ -39,8 +39,8 @@ class EliminateOuterTest implements PatternMatchSupported {
     @Test
     void testEliminateLeft() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))  // t1.id = t2.id
-                .filter(new GreaterThan(scan2.getOutput().get(1), Literal.of(1)))
+                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .filter(new GreaterThan(scan2.getOutput().get(0), Literal.of(1)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -55,8 +55,8 @@ class EliminateOuterTest implements PatternMatchSupported {
     @Test
     void testEliminateRight() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(1, 1))  // t1.id = t2.id
-                .filter(new GreaterThan(scan1.getOutput().get(1), Literal.of(1)))
+                .hashJoinUsing(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .filter(new GreaterThan(scan1.getOutput().get(0), Literal.of(1)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -71,10 +71,10 @@ class EliminateOuterTest implements PatternMatchSupported {
     @Test
     void testEliminateBoth() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.FULL_OUTER_JOIN, Pair.of(1, 1))  // t1.id = t2.id
+                .hashJoinUsing(scan2, JoinType.FULL_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
                 .filter(new And(
-                        new GreaterThan(scan2.getOutput().get(1), Literal.of(1)),
-                        new GreaterThan(scan1.getOutput().get(1), Literal.of(1))))
+                        new GreaterThan(scan2.getOutput().get(0), Literal.of(1)),
+                        new GreaterThan(scan1.getOutput().get(0), Literal.of(1))))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

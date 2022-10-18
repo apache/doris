@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContex
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -31,12 +30,10 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Eliminate out join.
@@ -45,20 +42,15 @@ public class EliminateOutJoin extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalJoin())
-                .when(filter -> filter.child().getJoinType().isOuterJoin())
-                .then(filter -> {
+        return logicalFilter(
+                    logicalJoin().when(join -> join.getJoinType().isOuterJoin())
+                ).then(filter -> {
                     LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
-                    List<Expression> leftPredicates = Lists.newArrayList();
-                    List<Expression> rightPredicates = Lists.newArrayList();
-                    for (Expression predicate : ExpressionUtils.extractConjunction(filter.getPredicates())) {
-                        if (allCoveredBy(predicate, join.left().getOutputSet())) {
-                            leftPredicates.add(predicate);
-                        }
-                        if (allCoveredBy(predicate, join.right().getOutputSet())) {
-                            rightPredicates.add(predicate);
-                        }
-                    }
+                    List<Expression> conjuncts = filter.getConjuncts();
+                    List<Expression> leftPredicates = ExpressionUtils.extractCoveredConjunction(conjuncts,
+                            join.left().getOutputSet());
+                    List<Expression> rightPredicates = ExpressionUtils.extractCoveredConjunction(conjuncts,
+                            join.right().getOutputSet());
                     boolean canFilterLeftNull = canFilterNull(leftPredicates);
                     boolean canFilterRightNull = canFilterNull(rightPredicates);
                     JoinType newJoinType = buildNewJoinType(join.getJoinType(), canFilterLeftNull, canFilterRightNull);
@@ -101,9 +93,5 @@ public class EliminateOutJoin extends OneRewriteRuleFactory {
             }
         }
         return false;
-    }
-
-    private boolean allCoveredBy(Expression predicate, Set<Slot> inputSlotSet) {
-        return inputSlotSet.containsAll(predicate.getInputSlots());
     }
 }
