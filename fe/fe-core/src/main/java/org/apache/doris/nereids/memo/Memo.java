@@ -29,12 +29,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -345,10 +347,14 @@ public class Memo {
                 needReplaceChild.add(groupExpression);
             }
         }
-        List<GroupExpression> list = source.getParentGroupExpressions().stream().filter(
+        Set<GroupExpression> s = ImmutableSet.copyOf(needReplaceChild);
+        Set<GroupExpression> set = source.getParentGroupExpressions().stream().filter(
                 e -> e.getOwnerGroup() != null && !e.getOwnerGroup().equals(destination)
-        ).collect(Collectors.toList());
-        NereidsPlanner.builder.append(needReplaceChild).append("\n").append(list).append("\n");
+        ).collect(Collectors.toSet());
+        if (!s.equals(set)) {
+            NereidsPlanner.builder.append(s).append('\n')
+                    .append(set).append('\n');
+        }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
