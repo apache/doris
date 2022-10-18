@@ -18,9 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -35,9 +33,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -49,7 +45,11 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private final Group root;
+    private Group root;
+
+    // FOR TEST ONLY
+    public Memo() {
+    }
 
     public Memo(Plan plan) {
         root = init(plan);
@@ -329,32 +329,27 @@ public class Memo {
      * @param destination destination group
      * @return merged group
      */
-    private Group mergeGroup(Group source, Group destination) {
+    public Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
             return source;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        groupExpressions.values().forEach(groupExpression -> {
+        for (GroupExpression groupExpression : groupExpressions.values()) {
             if (groupExpression.children().contains(source)) {
                 if (groupExpression.getOwnerGroup().equals(destination)) {
                     // cycle, we should not merge
-                    return;
+                    return null;
                 }
                 needReplaceChild.add(groupExpression);
             }
-        });
-        NereidsPlanner.builder.append(String.format("%s\n", needReplaceChild))
-                .append(String.format("%s\n", source.getParentGroupExpressions().stream()
-                        .filter(Objects::nonNull).collect(Collectors.toList())))
-                .append(groupExpressions.values().stream().map(GroupExpression::toString)
-                        .reduce("", (a, b) -> a + b + '\n'));
+        }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
             // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
-                    groupExpression.setChild(i, destination);
+                    children.set(i, destination);
                 }
             }
             GroupExpression that = groupExpressions.get(groupExpression);

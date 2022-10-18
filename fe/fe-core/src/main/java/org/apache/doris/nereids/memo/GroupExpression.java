@@ -230,11 +230,21 @@ public class GroupExpression {
     public String toString() {
         StringBuilder builder = new StringBuilder();
         builder.append(ownerGroup.getGroupId()).append("(plan=").append(plan).append(") children=[");
+        if (ownerGroup == null) {
+            builder.append("OWNER GROUP IS NULL[]");
+        } else {
+            builder.append(ownerGroup.getGroupId())
+                    .append("(plan=" + plan.toString() + ") children=[");
+        }
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");
         }
         builder.append("] stats=");
-        builder.append(ownerGroup.getStatistics());
+        if (ownerGroup != null) {
+            builder.append(ownerGroup.getStatistics());
+        } else {
+            builder.append("NULL");
+        }
         return builder.toString();
     }
 

@@ -61,10 +61,7 @@ public class DeriveStatsJob extends Job {
             pushJob(new DeriveStatsJob(this));
             for (Group child : groupExpression.children()) {
                 if (!child.getLogicalExpressions().isEmpty()) {
-                    GroupExpression childGroupExpr = child.getLogicalExpressions().get(0);
-                    if (!childGroupExpr.isStatDerived()) {
-                        pushJob(new DeriveStatsJob(childGroupExpr, context));
-                    }
+                    pushJob(new DeriveStatsJob(child.getLogicalExpressions().get(0), context));
                 }
             }
         } else {
