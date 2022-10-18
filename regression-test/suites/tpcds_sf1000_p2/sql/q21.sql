@@ -19,4 +19,5 @@ FROM
    GROUP BY w_warehouse_name, i_item_id
 )  x
 WHERE ((CASE WHEN (inv_before > 0) THEN (CAST(inv_after AS DECIMAL(7,2)) / inv_before) ELSE null END) BETWEEN (CAST('2.00' AS DECIMAL) / CAST('3.00' AS DECIMAL)) AND (CAST('3.00' AS DECIMAL) / CAST('2.00' AS DECIMAL)))
+ORDER BY w_warehouse_name ASC, i_item_id ASC
 LIMIT 100
