@@ -387,7 +387,7 @@ struct NullOrEmptyImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeUInt8>()}; }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count, bool flag) {
+                          size_t result, size_t input_rows_count, bool reverse) {
         auto res_map = ColumnUInt8::create(input_rows_count, 0);
 
         auto column = block.get_by_position(arguments[0]).column;
@@ -399,16 +399,13 @@ struct NullOrEmptyImpl {
         const auto& offsets = str_col->get_offsets();
 
         auto& res_map_data = res_map->get_data();
-        if (flag) {
+        for (int i = 0; i < input_rows_count; ++i) {
+            int size = offsets[i] - offsets[i - 1];
+            res_map_data[i] |= (size == 0);
+        }
+        if (reverse) {
             for (int i = 0; i < input_rows_count; ++i) {
-                int size = offsets[i] - offsets[i - 1];
-                res_map_data[i] |= (size == 0);
                 res_map_data[i] = !res_map_data[i];
-            }
-        } else {
-            for (int i = 0; i < input_rows_count; ++i) {
-                int size = offsets[i] - offsets[i - 1];
-                res_map_data[i] |= (size == 0);
             }
         }
 
