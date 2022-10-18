@@ -140,7 +140,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             case DUP_KEYS:
                 // Set pre-aggregation to `on` to keep consistency with legacy logic.
                 return scan.withMaterializedIndexSelected(PreAggStatus.on(),
-                        filterAndOrder(scan.getTable().getVisibleIndex().stream(), scan, requiredScanOutputSupplier.get(),
+                        filterAndOrder(scan.getTable().getVisibleIndex().stream(), scan,
+                                requiredScanOutputSupplier.get(),
                                 predicatesSupplier.get()));
             default:
                 throw new RuntimeException("Not supported keys type: " + scan.getTable().getKeysType());
