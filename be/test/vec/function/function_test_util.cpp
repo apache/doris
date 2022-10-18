@@ -26,7 +26,7 @@ namespace doris::vectorized {
 int64_t str_to_date_time(std::string datetime_str, bool data_time) {
     VecDateTimeValue v;
     v.from_date_str(datetime_str.c_str(), datetime_str.size());
-    if (data_time) { //bool data_time only to simplifly means data_time or data to cast, just use in time-functions uint test
+    if (data_time) { //bool data_time only to simplify means data_time or data to cast, just use in time-functions uint test
         v.to_datetime();
     } else {
         v.cast_to_date();

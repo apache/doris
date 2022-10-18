@@ -337,7 +337,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
 // UnionIterator will read data from input iterator one by one.
 class UnionIterator : public RowwiseIterator {
 public:
-    // Iterators' ownership it transfered to this class.
+    // Iterators' ownership it transferred to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators any more.
     UnionIterator(std::vector<RowwiseIterator*>& v) : _origin_iters(v.begin(), v.end()) {}

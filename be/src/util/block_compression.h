@@ -36,7 +36,7 @@ namespace doris {
 //
 
 // max compression reuse buffer size
-// if max_compress_len is bigger than this, donot use faststring in context
+// if max_compress_len is bigger than this, don't use faststring in context
 const static int MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE = 1024 * 1024 * 8;
 class BlockCompressionCodec {
 public:
