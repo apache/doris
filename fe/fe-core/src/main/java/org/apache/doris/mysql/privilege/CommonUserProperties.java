@@ -51,6 +51,9 @@ public class CommonUserProperties implements Writable {
     @SerializedName("execMemLimit")
     private long execMemLimit = -1;
 
+    @SerializedName("queryTimeout")
+    private long queryTimeout = 300;
+
     private String[] sqlBlockRulesSplit = {};
 
     long getMaxConn() {
@@ -109,6 +112,14 @@ public class CommonUserProperties implements Writable {
 
     public void setExecMemLimit(long execMemLimit) {
         this.execMemLimit = execMemLimit;
+    }
+
+    public long getQueryTimeout() {
+        return queryTimeout;
+    }
+
+    public void setQueryTimeout(long timeout) {
+        this.queryTimeout = timeout;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {
