@@ -19,25 +19,11 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 /**
- * Register CTE, includes checking columnAliases, checking CTE name, analyzing each CTE and store the
- * analyzed logicalPlan of CTE's query in CTEContext;
- * A LogicalProject node will be added to the root of the origin logicalPlan if there exist columnAliases.
- * Node LogicalCTE will be eliminated after registering.
+ * check if there exists semantic errors of unused (and, obviously, non-analyzed) CTEs
  */
-public class RegisterCTE extends OneAnalysisRuleFactory {
+public class CheckUnusedCTE {
 
-    @Override
-    public Rule build() {
-        return logicalCTE().thenApply(ctx -> {
-            LogicalCTE<GroupPlan> logicalCTE = ctx.root;
-            ctx.statementContext.getCteContext().register(logicalCTE.getWithClauses());
-            return (LogicalPlan) logicalCTE.child();
-        }).toRule(RuleType.REGISTER_CTE);
-    }
 
 }

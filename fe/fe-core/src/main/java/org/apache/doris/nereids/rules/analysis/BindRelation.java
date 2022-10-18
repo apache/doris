@@ -37,7 +37,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Rule to bind relations in query plan.
@@ -79,10 +78,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getStatementContext().getCteContext();
         if (cteContext.containsCTE(nameParts)) {
+            CTEScope innerScope = cteContext.findScope(nameParts);
+            CTEScope outerScope = cteContext.getCurrentScope();
+            cteContext.setCurrentScope(innerScope);
+
             LogicalPlan originPlan = cteContext.findCTEPlan(nameParts, cascadesContext.getStatementContext());
             CascadesContext childContext = new Memo(originPlan)
                     .newCascadesContext(cascadesContext.getStatementContext());
             childContext.newAnalyzer().analyze();
+
+            cteContext.setCurrentScope(outerScope);
             return new LogicalSubQueryAlias<>(nameParts, childContext.getMemo().copyOut(false));
         }
 

@@ -111,6 +111,7 @@ public class RegisterCTETest extends TestWithFeService {
                         + "SELECT *\n"
                         + "FROM cte1");
         } catch (Exception e) {
+            System.out.println(e);
             Assertions.assertTrue(e instanceof AnalysisException);
             Assertions.assertTrue(e.getMessage().contains("Duplicated CTE column alias"));
         }
@@ -128,6 +129,7 @@ public class RegisterCTETest extends TestWithFeService {
                         + "SELECT *\n"
                         + "FROM cte1");
         } catch (Exception e) {
+            System.out.println(e);
             Assertions.assertTrue(e instanceof AnalysisException);
             Assertions.assertTrue(e.getMessage().contains("The number of column labels must be "
                     + "smaller or equal to the number of returned columns"));
