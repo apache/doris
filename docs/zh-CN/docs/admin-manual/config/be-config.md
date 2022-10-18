@@ -347,14 +347,6 @@ BaseCompaction触发条件之一：Singleton文件大小限制，100MB
 
 如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
 
-### `cumulative_compaction_policy`
-
-* 类型：string
-* 描述：配置 cumulative compaction 阶段的合并策略，目前实现了两种合并策略，num_based和size_based
-* 默认值：size_based
-
-详细说明，ordinary，是最初版本的cumulative compaction合并策略，做一次cumulative compaction之后直接base compaction流程。size_based，通用策略是ordinary策略的优化版本，仅当rowset的磁盘体积在相同数量级时才进行版本合并。合并之后满足条件的rowset进行晋升到base compaction阶段。能够做到在大量小批量导入的情况下：降低base compact的写入放大率，并在读取放大率和空间放大率之间进行权衡，同时减少了文件版本的数据。
-
 ### `cumulative_size_based_promotion_size_mbytes`
 
 * 类型：int64
