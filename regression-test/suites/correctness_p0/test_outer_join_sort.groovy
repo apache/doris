@@ -92,6 +92,26 @@ suite("test_outer_join_sort") {
         order by subq_0.`c3`;
     """
 
+    qt_select """
+        select
+        case
+            when outerjoin_C.a is  NULL then subq_0.`c1`
+            else subq_0.`c2`
+        end as c0
+        from
+        (
+            select
+            1 as c0,
+            version() as c1,
+            a as c2
+            from
+            test_test_outer_join_sort_outerjoin_A
+        ) as subq_0
+        right join outerjoin_C on (subq_0.`c0` = outerjoin_C.a)
+        order by
+        subq_0.`c1`;
+    """
+
     sql """
         drop table if exists test_test_outer_join_sort_outerjoin_A;
     """
