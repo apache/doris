@@ -332,8 +332,9 @@ ColumnPtr ColumnJsonb::replicate(const Offsets& replicate_offsets) const {
     return res;
 }
 
-void ColumnJsonb::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
-    size_t col_size = size();
+void ColumnJsonb::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                            size_t begin, int count_sz) const {
+    size_t col_size = count_sz < 0 ? size() : count_sz;
     if (0 == col_size) return;
 
     auto& res = reinterpret_cast<ColumnJsonb&>(column);
@@ -343,10 +344,12 @@ void ColumnJsonb::replicate(const uint32_t* counts, size_t target_size, IColumn&
     res_chars.reserve(chars.size() / col_size * target_size);
     res_offsets.reserve(target_size);
 
-    Offset prev_json_offset = 0;
+    size_t base = begin > 0 ? offset_at(begin - 1) : 0;
+    Offset prev_json_offset = 0 + base;
     Offset current_new_offset = 0;
 
-    for (size_t i = 0; i < col_size; ++i) {
+    size_t end = begin + col_size;
+    for (size_t i = begin; i < end; ++i) {
         size_t size_to_replicate = counts[i];
         size_t json_size = offsets[i] - prev_json_offset;
 

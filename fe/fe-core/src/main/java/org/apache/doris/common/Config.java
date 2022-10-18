@@ -577,7 +577,7 @@ public class Config extends ConfigBase {
      * Default stream load and streaming mini load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int stream_load_default_timeout_second = 600; // 600s
+    public static int stream_load_default_timeout_second = 86400 * 3; // 3days
 
     /**
      * Default stream load pre-commit status timeout
@@ -807,7 +807,7 @@ public class Config extends ConfigBase {
      * Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int alter_table_timeout_second = 86400; // 1day
+    public static int alter_table_timeout_second = 86400 * 30; // 1month
     /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.

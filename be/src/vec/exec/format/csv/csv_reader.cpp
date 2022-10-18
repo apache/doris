@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vcsv_reader.h"
+#include "csv_reader.h"
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/internal_service.pb.h>
@@ -35,24 +35,32 @@
 namespace doris::vectorized {
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader)
+                     const std::vector<SlotDescriptor*>& file_slot_descs)
         : _state(state),
           _profile(profile),
           _counter(counter),
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
-          _file_reader(file_reader),
           _line_reader(nullptr),
           _line_reader_eof(false),
           _text_converter(nullptr),
           _decompressor(nullptr),
           _skip_lines(0) {
     _file_format_type = _params.format_type;
+    _file_compress_type = _params.compress_type;
     _size = _range.size;
 
-    //means first range
-    if (_range.start_offset == 0 && _params.__isset.file_attributes &&
+    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+    _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
+}
+
+CsvReader::~CsvReader() {}
+
+Status CsvReader::init_reader() {
+    // set the skip lines and start offset
+    int64_t start_offset = _range.start_offset;
+    if (start_offset == 0 && _params.__isset.file_attributes &&
         _params.file_attributes.__isset.header_type &&
         _params.file_attributes.header_type.size() > 0) {
         std::string header_type = to_lower(_params.file_attributes.header_type);
@@ -61,52 +69,43 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
         } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
             _skip_lines = 2;
         }
-    }
-
-    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
-    _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
-}
-
-CsvReader::~CsvReader() {
-    if (_decompressor != nullptr) {
-        delete _decompressor;
-        _decompressor = nullptr;
-    }
-    if (_file_reader != nullptr) {
-        delete _file_reader;
-        _file_reader = nullptr;
-    }
-}
-
-Status CsvReader::init_reader() {
-    // get column_separator and line_delimiter
-    if (_params.__isset.file_attributes && _params.file_attributes.__isset.text_params &&
-        _params.file_attributes.text_params.__isset.column_separator) {
-        _value_separator = _params.file_attributes.text_params.column_separator;
-        _value_separator_length = _value_separator.size();
-    } else {
-        return Status::InternalError("Can not find column_separator");
-    }
-    if (_params.__isset.file_attributes && _params.file_attributes.__isset.text_params &&
-        _params.file_attributes.text_params.__isset.line_delimiter) {
-        _line_delimiter = _params.file_attributes.text_params.line_delimiter;
-        _line_delimiter_length = _line_delimiter.size();
-    } else {
-        return Status::InternalError("Can not find line_delimiter");
-    }
-
-    if (_range.start_offset != 0) {
-        if (_file_format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
+    } else if (start_offset != 0) {
+        if (_file_format_type != TFileFormatType::FORMAT_CSV_PLAIN ||
+            (_file_compress_type != TFileCompressType::UNKNOWN &&
+             _file_compress_type != TFileCompressType::PLAIN)) {
             return Status::InternalError("For now we do not support split compressed file");
         }
+        start_offset -= 1;
         _size += 1;
         // not first range will always skip one line
         _skip_lines = 1;
     }
 
+    // create and open file reader
+    FileReader* real_reader = nullptr;
+    if (_params.file_type == TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, _file_reader_s));
+        real_reader = _file_reader_s.get();
+    } else {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, _params, _range.path, start_offset, _range.file_size, 0, _file_reader));
+        real_reader = _file_reader.get();
+    }
+    RETURN_IF_ERROR(real_reader->open());
+    if (real_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
+        _params.file_type != TFileType::FILE_BROKER) {
+        return Status::EndOfFile("Empty File");
+    }
+
+    // get column_separator and line_delimiter
+    _value_separator = _params.file_attributes.text_params.column_separator;
+    _value_separator_length = _value_separator.size();
+    _line_delimiter = _params.file_attributes.text_params.line_delimiter;
+    _line_delimiter_length = _line_delimiter.size();
+
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
-    RETURN_IF_ERROR(_create_decompressor(_file_format_type));
+    RETURN_IF_ERROR(_create_decompressor());
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -115,8 +114,8 @@ Status CsvReader::init_reader() {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new PlainTextLineReader(_profile, _file_reader, _decompressor, _size,
-                                                   _line_delimiter, _line_delimiter_length));
+        _line_reader.reset(new PlainTextLineReader(_profile, real_reader, _decompressor.get(),
+                                                   _size, _line_delimiter, _line_delimiter_length));
 
         break;
     default:
@@ -173,33 +172,58 @@ Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     return Status::OK();
 }
 
-Status CsvReader::_create_decompressor(TFileFormatType::type type) {
+Status CsvReader::_create_decompressor() {
     CompressType compress_type;
-    switch (type) {
-    case TFileFormatType::FORMAT_CSV_PLAIN:
-        compress_type = CompressType::UNCOMPRESSED;
-        break;
-    case TFileFormatType::FORMAT_CSV_GZ:
-        compress_type = CompressType::GZIP;
-        break;
-    case TFileFormatType::FORMAT_CSV_BZ2:
-        compress_type = CompressType::BZIP2;
-        break;
-    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-        compress_type = CompressType::LZ4FRAME;
-        break;
-    case TFileFormatType::FORMAT_CSV_LZOP:
-        compress_type = CompressType::LZOP;
-        break;
-    case TFileFormatType::FORMAT_CSV_DEFLATE:
-        compress_type = CompressType::DEFLATE;
-        break;
-    default: {
-        return Status::InternalError(
-                "Unknown format type, cannot inference compress type in csv reader, type={}", type);
+    if (_file_compress_type != TFileCompressType::UNKNOWN) {
+        switch (_file_compress_type) {
+        case TFileCompressType::PLAIN:
+            compress_type = CompressType::UNCOMPRESSED;
+            break;
+        case TFileCompressType::GZ:
+            compress_type = CompressType::GZIP;
+            break;
+        case TFileCompressType::LZO:
+            compress_type = CompressType::LZOP;
+            break;
+        case TFileCompressType::BZ2:
+            compress_type = CompressType::BZIP2;
+            break;
+        case TFileCompressType::LZ4FRAME:
+            compress_type = CompressType::LZ4FRAME;
+            break;
+        case TFileCompressType::DEFLATE:
+            compress_type = CompressType::DEFLATE;
+            break;
+        default:
+            return Status::InternalError("unknown compress type: {}", _file_compress_type);
+        }
+    } else {
+        switch (_file_format_type) {
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+            compress_type = CompressType::UNCOMPRESSED;
+            break;
+        case TFileFormatType::FORMAT_CSV_GZ:
+            compress_type = CompressType::GZIP;
+            break;
+        case TFileFormatType::FORMAT_CSV_BZ2:
+            compress_type = CompressType::BZIP2;
+            break;
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+            compress_type = CompressType::LZ4FRAME;
+            break;
+        case TFileFormatType::FORMAT_CSV_LZOP:
+            compress_type = CompressType::LZOP;
+            break;
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+            compress_type = CompressType::DEFLATE;
+            break;
+        default:
+            return Status::InternalError("unknown format type: {}", _file_format_type);
+        }
     }
-    }
-    RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, &_decompressor));
+    Decompressor* decompressor;
+    RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, &decompressor));
+    _decompressor.reset(decompressor);
 
     return Status::OK();
 }
@@ -248,16 +272,17 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 
     _split_line(line);
 
-    // if actual column number in csv file is less than _file_slot_descs.size()
+    // if actual column number in csv file is not equal to _file_slot_descs.size()
     // then filter this line.
-    if (_split_values.size() < _file_slot_descs.size()) {
+    if (_split_values.size() != _file_slot_descs.size()) {
+        std::string cmp_str =
+                _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                 [&]() -> std::string { return std::string(line.data, line.size); },
                 [&]() -> std::string {
                     fmt::memory_buffer error_msg;
-                    fmt::format_to(
-                            error_msg, "{}",
-                            "actual column number in csv file is less than schema column number.");
+                    fmt::format_to(error_msg, "{} {} {}", "actual column number in csv file is ",
+                                   cmp_str, " schema column number.");
                     fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
                                    _split_values.size(), _value_separator);
                     fmt::format_to(error_msg, "line delimiter: [{}], schema column number: {}; ",

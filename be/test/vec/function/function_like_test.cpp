@@ -60,10 +60,6 @@ TEST(FunctionLikeTest, like) {
         check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
                                             const_pattern_dataset);
     }
-
-    // pattern is not constant value
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-    check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionLikeTest, regexp) {
@@ -100,10 +96,6 @@ TEST(FunctionLikeTest, regexp) {
         check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
                                             const_pattern_dataset);
     }
-
-    // pattern is not constant value
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-    check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionLikeTest, regexp_extract) {
@@ -143,10 +135,6 @@ TEST(FunctionLikeTest, regexp_extract) {
         check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                              const_pattern_dataset);
     }
-
-    // pattern is not constant value
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::Int64};
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionLikeTest, regexp_replace) {
@@ -177,10 +165,6 @@ TEST(FunctionLikeTest, regexp_replace) {
         check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                              const_pattern_dataset);
     }
-
-    // pattern is not constant value
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
 } // namespace doris::vectorized

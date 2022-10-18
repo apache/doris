@@ -71,39 +71,47 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
-static TFileFormatType::type parse_format(const std::string& format_str,
-                                          const std::string& compress_type) {
+static void parse_format(const std::string& format_str, const std::string& compress_type_str,
+                         TFileFormatType::type* format_type,
+                         TFileCompressType::type* compress_type) {
     if (format_str.empty()) {
-        return parse_format("CSV", compress_type);
+        parse_format("CSV", compress_type_str, format_type, compress_type);
+        return;
     }
-    TFileFormatType::type format_type = TFileFormatType::FORMAT_UNKNOWN;
+    *compress_type = TFileCompressType::PLAIN;
+    *format_type = TFileFormatType::FORMAT_UNKNOWN;
     if (iequal(format_str, "CSV")) {
-        if (compress_type.empty()) {
-            format_type = TFileFormatType::FORMAT_CSV_PLAIN;
-        }
-        if (iequal(compress_type, "GZ")) {
-            format_type = TFileFormatType::FORMAT_CSV_GZ;
-        } else if (iequal(compress_type, "LZO")) {
-            format_type = TFileFormatType::FORMAT_CSV_LZO;
-        } else if (iequal(compress_type, "BZ2")) {
-            format_type = TFileFormatType::FORMAT_CSV_BZ2;
-        } else if (iequal(compress_type, "LZ4FRAME")) {
-            format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
-        } else if (iequal(compress_type, "LZOP")) {
-            format_type = TFileFormatType::FORMAT_CSV_LZOP;
-        } else if (iequal(compress_type, "DEFLATE")) {
-            format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
+        if (compress_type_str.empty()) {
+            *format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+        } else if (iequal(compress_type_str, "GZ")) {
+            *format_type = TFileFormatType::FORMAT_CSV_GZ;
+            *compress_type = TFileCompressType::GZ;
+        } else if (iequal(compress_type_str, "LZO")) {
+            *format_type = TFileFormatType::FORMAT_CSV_LZO;
+            *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "BZ2")) {
+            *format_type = TFileFormatType::FORMAT_CSV_BZ2;
+            *compress_type = TFileCompressType::BZ2;
+        } else if (iequal(compress_type_str, "LZ4")) {
+            *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
+            *compress_type = TFileCompressType::LZ4FRAME;
+        } else if (iequal(compress_type_str, "LZOP")) {
+            *format_type = TFileFormatType::FORMAT_CSV_LZOP;
+            *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "DEFLATE")) {
+            *format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
+            *compress_type = TFileCompressType::DEFLATE;
         }
     } else if (iequal(format_str, "JSON")) {
-        if (compress_type.empty()) {
-            format_type = TFileFormatType::FORMAT_JSON;
+        if (compress_type_str.empty()) {
+            *format_type = TFileFormatType::FORMAT_JSON;
         }
     } else if (iequal(format_str, "PARQUET")) {
-        format_type = TFileFormatType::FORMAT_PARQUET;
+        *format_type = TFileFormatType::FORMAT_PARQUET;
     } else if (iequal(format_str, "ORC")) {
-        format_type = TFileFormatType::FORMAT_ORC;
+        *format_type = TFileFormatType::FORMAT_ORC;
     }
-    return format_type;
+    return;
 }
 
 static bool is_format_support_streaming(TFileFormatType::type format) {
@@ -275,7 +283,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         //treat as CSV
         format_str = BeConsts::CSV;
     }
-    ctx->format = parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE));
+    parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
+                 &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
         return Status::InternalError("unknown data format, format={}",
                                      http_req->header(HTTP_FORMAT_KEY));
@@ -387,6 +396,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.formatType = ctx->format;
+    request.__set_compress_type(ctx->compress_type);
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {

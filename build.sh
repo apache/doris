@@ -249,7 +249,11 @@ if [[ -z "${WITH_MYSQL}" ]]; then
     WITH_MYSQL='OFF'
 fi
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    GLIBC_COMPATIBILITY='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        GLIBC_COMPATIBILITY='ON'
+    else
+        GLIBC_COMPATIBILITY='OFF'
+    fi
 fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
@@ -258,16 +262,28 @@ if [[ -z "${WITH_LZO}" ]]; then
     WITH_LZO='OFF'
 fi
 if [[ -z "${USE_LIBCPP}" ]]; then
-    USE_LIBCPP='OFF'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
 fi
 if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
 fi
 if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    USE_MEM_TRACKER='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_MEM_TRACKER='ON'
+    else
+        USE_MEM_TRACKER='OFF'
+    fi
 fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
-    USE_JEMALLOC='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_JEMALLOC='ON'
+    else
+        USE_JEMALLOC='OFF'
+    fi
 fi
 if [[ -z "${STRICT_MEMORY_USE}" ]]; then
     STRICT_MEMORY_USE='OFF'
@@ -474,6 +490,10 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
+
+    # Fix Killed: 9 error on MacOS (arm64).
+    # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
+    rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
     cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
 
     # make a soft link palo_be point to doris_be, for forward compatibility

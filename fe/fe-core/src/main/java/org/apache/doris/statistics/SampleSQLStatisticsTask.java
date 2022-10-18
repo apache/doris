@@ -18,19 +18,32 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.statistics.util.InternalSqlTemplate;
+import org.apache.doris.statistics.util.InternalSqlTemplate.QueryType;
 
 import java.util.List;
+import java.util.Map;
 
-/*
-The @SampleSQLStatisticsTask is also a statistical task that executes a query
-and uses the query result as a statistical value (same as @SQLStatisticsTask).
-The only difference from the SQLStatisticsTask is that the query is a sampling table query.
+/**
+ * The @SampleSQLStatisticsTask is also a statistical task that executes a query
+ * and uses the query result as a statistical value (same as @SQLStatisticsTask).
+ * The only difference from the SQLStatisticsTask is that the query is a sampling table query.
  */
 public class SampleSQLStatisticsTask extends SQLStatisticsTask {
-    private float samplePercentage = Config.cbo_default_sample_percentage;
+    // TODO(wzt): If the job configuration has percentage value, obtain from the job,
+    //  if not, use the default value.
+    private int samplePercentage = Config.cbo_default_sample_percentage;
 
     public SampleSQLStatisticsTask(long jobId, List<StatisticsDesc> statsDescs) {
-        // TODO(wzt): implement sql sampling to collect statistics
         super(jobId, statsDescs);
+        queryType = QueryType.SAMPLE;
+    }
+
+    @Override
+    protected Map<String, String> getQueryParams(StatisticsDesc statsDesc) throws DdlException {
+        Map<String, String> params = super.getQueryParams(statsDesc);
+        params.put(InternalSqlTemplate.PERCENT, String.valueOf(samplePercentage));
+        return params;
     }
 }

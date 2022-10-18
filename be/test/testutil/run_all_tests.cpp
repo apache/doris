@@ -30,9 +30,12 @@
 int main(int argc, char** argv) {
     std::shared_ptr<doris::MemTrackerLimiter> process_mem_tracker =
             std::make_shared<doris::MemTrackerLimiter>(-1, "Process");
-    std::shared_ptr<doris::MemTrackerLimiter> _orphan_mem_tracker =
+    std::shared_ptr<doris::MemTrackerLimiter> orphan_mem_tracker =
             std::make_shared<doris::MemTrackerLimiter>(-1, "Orphan", process_mem_tracker);
-    doris::ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, _orphan_mem_tracker);
+    std::shared_ptr<doris::MemTrackerLimiter> bthread_mem_tracker =
+            std::make_shared<doris::MemTrackerLimiter>(-1, "Bthread", orphan_mem_tracker);
+    doris::ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, orphan_mem_tracker,
+                                                          bthread_mem_tracker);
     doris::thread_context()->_thread_mem_tracker_mgr->init();
     doris::TabletSchemaCache::create_global_schema_cache();
     doris::StoragePageCache::create_global_cache(1 << 30, 10);

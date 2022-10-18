@@ -94,7 +94,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
-#ifndef BE_TEST
+#if !defined(BE_TEST) && !defined(__APPLE__)
     // Add subscriber here and register listeners
     TopicListener* user_resource_listener = new UserResourceListener(exec_env, master_info);
     LOG(INFO) << "Register user resource listener";

@@ -202,9 +202,9 @@ Status NewFileArrowScanner::_open_next_reader() {
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
-
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
-                                                        range, file_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _params, range.path,
+                                                        range.start_offset, range.file_size, 0,
+                                                        file_reader));
         RETURN_IF_ERROR(file_reader->open());
         if (file_reader->size() == 0) {
             file_reader->close();

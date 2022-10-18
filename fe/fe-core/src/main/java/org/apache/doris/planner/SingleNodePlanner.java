@@ -1940,7 +1940,7 @@ public class SingleNodePlanner {
                         "TableValuedFunctionScanNode", ((TableValuedFunctionRef) tblRef).getTableFunction());
                 break;
             case HMS_EXTERNAL_TABLE:
-                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HMS_FILE_SCAN_NODE");
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);

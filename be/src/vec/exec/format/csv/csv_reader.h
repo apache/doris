@@ -33,7 +33,7 @@ class CsvReader : public GenericReader {
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader);
+              const std::vector<SlotDescriptor*>& file_slot_descs);
     ~CsvReader() override;
 
     Status init_reader();
@@ -42,7 +42,7 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
 
 private:
-    Status _create_decompressor(TFileFormatType::type type);
+    Status _create_decompressor();
     Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
@@ -58,13 +58,18 @@ private:
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
-    FileReader* _file_reader;
+    // _file_reader_s is for stream load pipe reader,
+    // and _file_reader is for other file reader.
+    // TODO: refactor this to use only shared_ptr or unique_ptr
+    std::unique_ptr<FileReader> _file_reader;
+    std::shared_ptr<FileReader> _file_reader_s;
     std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;
     std::unique_ptr<TextConverter> _text_converter;
-    Decompressor* _decompressor;
+    std::unique_ptr<Decompressor> _decompressor;
 
     TFileFormatType::type _file_format_type;
+    TFileCompressType::type _file_compress_type;
     int64_t _size;
     // When we fetch range start from 0, header_type="csv_with_names" skip first line
     // When we fetch range start from 0, header_type="csv_with_names_and_types" skip first two line

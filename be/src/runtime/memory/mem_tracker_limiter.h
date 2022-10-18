@@ -129,6 +129,12 @@ public:
     void enable_print_log_usage() { _print_log_usage = true; }
     void enable_reset_zero() { _reset_zero = true; }
 
+    void reset_zero() {
+        ExecEnv::GetInstance()->orphan_mem_tracker_raw()->cache_consume_local(
+                _consumption->current_value());
+        cache_consume_local(-_consumption->current_value());
+    }
+
     // Logs the usage of this tracker limiter and optionally its children (recursively).
     // If 'logged_consumption' is non-nullptr, sets the consumption value logged.
     // 'max_recursive_depth' specifies the maximum number of levels of children

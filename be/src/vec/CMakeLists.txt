@@ -20,6 +20,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 set(VEC_FILES
+  aggregate_functions/aggregate_function_retention.cpp
   aggregate_functions/aggregate_function_window_funnel.cpp
   aggregate_functions/aggregate_function_avg.cpp
   aggregate_functions/aggregate_function_collect.cpp
@@ -260,7 +261,8 @@ set(VEC_FILES
   exec/scan/new_jdbc_scan_node.cpp
   exec/scan/new_es_scanner.cpp
   exec/scan/new_es_scan_node.cpp
-  exec/format/csv/vcsv_reader.cpp
+  exec/format/csv/csv_reader.cpp
+  exec/format/orc/vorc_reader.cpp
   )
 
 add_library(Vec STATIC

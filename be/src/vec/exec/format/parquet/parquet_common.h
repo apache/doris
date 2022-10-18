@@ -33,6 +33,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/format_common.h"
 
 namespace doris::vectorized {
 
@@ -63,30 +64,6 @@ struct ParquetInt96 {
     static const uint32_t JULIAN_EPOCH_OFFSET_DAYS;
     static const uint64_t MICROS_IN_DAY;
     static const uint64_t NANOS_PER_MICROSECOND;
-};
-
-struct DecimalScaleParams {
-    enum ScaleType {
-        NOT_INIT,
-        NO_SCALE,
-        SCALE_UP,
-        SCALE_DOWN,
-    };
-    ScaleType scale_type = ScaleType::NOT_INIT;
-    int32_t scale_factor = 1;
-
-    template <typename DecimalPrimitiveType>
-    static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
-        if constexpr (std::is_same_v<DecimalPrimitiveType, Int32>) {
-            return common::exp10_i32(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int64>) {
-            return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128>) {
-            return common::exp10_i128(n);
-        } else {
-            return DecimalPrimitiveType(1);
-        }
-    }
 };
 
 struct DecodeParams {
