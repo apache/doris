@@ -24,7 +24,7 @@ if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
 fi
 
 echo "hadoop fs -mkdir /user/doris/"
-hadoop fs -mkdir /user/doris/
+hadoop fs -mkdir -p /user/doris/
 echo "hadoop fs -put /mnt/scripts/tpch1.db /user/doris/"
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
 echo "hive -f /mnt/scripts/create.hql"

@@ -825,6 +825,7 @@ order by
         String hms_port = context.config.otherConfigs.get("hms_port")
         set_be_config.call()
 
+        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
         sql """drop catalog if exists hive"""
         sql """
             create catalog hive properties (
