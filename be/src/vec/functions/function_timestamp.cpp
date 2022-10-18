@@ -581,6 +581,8 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return true; }
 
+    bool use_default_implementation_for_constants() const override { return true; }
+
     size_t get_number_of_arguments() const override { return 1; }
 
     bool is_variadic() const override { return true; }
@@ -588,12 +590,9 @@ public:
     // input DateTime and Date, return Date
     // input DateTimeV2 and DateV2, return DateV2
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
+                      std::is_same_v<DateType, DataTypeDate>) {
             return make_nullable(std::make_shared<DataTypeDate>());
-        } else if constexpr (std::is_same_v<DateType, DataTypeDate>) {
-            return make_nullable(std::make_shared<DataTypeDate>());
-        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-            return make_nullable(std::make_shared<DataTypeDateV2>());
         } else {
             return make_nullable(std::make_shared<DataTypeDateV2>());
         }
@@ -649,18 +648,6 @@ struct LastDayImpl {
                     input_rows_count, null_map->get_data(), data_col->get_data(),
                     static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
                             ->get_data());
-        } else {
-            // neither DateTime nor DateTimeV2/DateV2, return null
-            if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
-                res_column = ColumnInt64::create(input_rows_count);
-            } else {
-                res_column = ColumnVector<UInt32>::create(input_rows_count);
-            }
-
-            null_map = ColumnUInt8::create(input_rows_count, 1);
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
-            return Status::OK();
         }
 
         block.replace_by_position(
