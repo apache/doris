@@ -32,7 +32,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -323,6 +322,11 @@ public class Memo {
         return CopyInResult.of(true, groupExpression);
     }
 
+    private String trans(GroupExpression g) {
+        return String.format("this is %s children is %s", g.getClass(), g.children().stream()
+                .map(Group::getClass).collect(Collectors.toList()));
+    }
+
     /**
      * Merge two groups.
      * 1. find all group expression which has source as child
@@ -352,12 +356,9 @@ public class Memo {
         Set<GroupExpression> s1 = source.getParentGroupExpressions().stream().filter(
                 e -> e.getOwnerGroup() != null && !e.getOwnerGroup().equals(destination)
         ).collect(Collectors.toSet());
-        Set<GroupExpression> diff = Sets.newHashSet(s);
-        diff.removeAll(s1);
-        s1.removeAll(s);
-        // diff = A-B, s1 = B-A
-        NereidsPlanner.builder.append(diff).append('\n').append(s1.stream().filter(e -> e.getOwnerGroup() != null)
-                .collect(Collectors.toSet())).append('\n');
+        s.removeAll(s1);
+        // s = A-B
+        NereidsPlanner.builder.append(s.stream().map(this::trans).collect(Collectors.toList())).append('\n');
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
