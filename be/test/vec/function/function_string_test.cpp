@@ -168,6 +168,7 @@ TEST(function_string_test, function_string_repeat_test) {
                         {{std::string("hel lo"), 2}, std::string("hel lohel lo")},
                         {{std::string("hello word"), -1}, std::string("")},
                         {{std::string(""), 1}, std::string("")},
+                        {{std::string("134"), 1073741825}, Null()}, // bigger than 1GB
                         {{std::string("HELLO,!^%"), 2}, std::string("HELLO,!^%HELLO,!^%")},
                         {{std::string("你"), 2}, std::string("你你")}};
     check_function<DataTypeString, true>(func_name, input_types, data_set);
