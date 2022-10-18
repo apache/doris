@@ -173,6 +173,7 @@ public class ConnectContextTest {
 
         // user query timeout
         ctx.setStartTime();
+        ctx.setUserQueryTimeout(1);
         now = ctx.getStartTime() + paloAuth.getQueryTimeout(qualifiedUser) * 1000 + 1;
         ctx.setExecutor(executor);
         ctx.checkTimeout(now);
