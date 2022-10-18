@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
-// import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
@@ -60,7 +60,7 @@ public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(JoinCommute.ZIG_ZAG)
             .add(InnerJoinLAsscom.INSTANCE)
-            // .add(InnerJoinLAsscomProject.INSTANCE)
+            .add(InnerJoinLAsscomProject.INSTANCE)
             .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
