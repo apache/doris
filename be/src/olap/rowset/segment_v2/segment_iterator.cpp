@@ -1080,13 +1080,9 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
-            if (column_desc->type() == OLAP_FIELD_TYPE_ARRAY) {
+            if (_is_pred_column[cid]) {
                 _current_return_columns[cid] =
-                        Schema::get_data_type_ptr(*column_desc)->create_column();
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
-            } else if (_is_pred_column[cid]) {
-                _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
-                        column_desc->type(), column_desc->is_nullable());
+                        Schema::get_predicate_column_nullable_ptr(*column_desc);
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
