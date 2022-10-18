@@ -77,6 +77,8 @@ public class ScalarType extends Type {
 
     // Hive, mysql, sql server standard.
     public static final int MAX_PRECISION = 38;
+    public static final int MAX_DECIMALV2_PRECISION = 27;
+    public static final int MAX_DECIMALV2_SCALE = 9;
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;

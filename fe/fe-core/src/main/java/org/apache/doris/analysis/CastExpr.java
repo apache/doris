@@ -284,6 +284,11 @@ public class CastExpr extends Expr {
         noOp = Type.matchExactType(childType, type);
 
         if (noOp) {
+            // For decimalv2, we do not perform an actual cast between different precision/scale. Instead, we just
+            // set the target type as the child's type.
+            if (type.isDecimalV2() && childType.isDecimalV2()) {
+                getChild(0).setType(type);
+            }
             return;
         }
 
