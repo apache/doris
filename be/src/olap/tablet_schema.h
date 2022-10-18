@@ -21,9 +21,9 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
-#include "olap/inverted_index_parser.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
 
@@ -113,8 +113,7 @@ private:
 
     bool _has_bitmap_index = false;
     bool _has_inverted_index = false;
-    InvertedIndexParserType _inverted_index_parser_type
-        {InvertedIndexParserType::PARSER_NOT_SET};
+    InvertedIndexParserType _inverted_index_parser_type {InvertedIndexParserType::PARSER_NOT_SET};
     bool _visible = true;
 
     TabletColumn* _parent = nullptr;

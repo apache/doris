@@ -16,13 +16,13 @@
 // under the License.
 
 #include "olap/inverted_index_parser.h"
+
 #include "util/string_util.h"
 
 namespace doris {
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type) {
-    switch (parser_type)
-    {
+    switch (parser_type) {
     case InvertedIndexParserType::PARSER_NOT_SET:
         return INVERTED_INDEX_PARSER_NOT_SET;
     case InvertedIndexParserType::PARSER_NONE:
@@ -57,7 +57,8 @@ InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::st
     return InvertedIndexParserType::PARSER_UNKNOWN;
 }
 
-std::string get_parser_string_from_properties(const std::map<std::string, std::string>& properties) {
+std::string get_parser_string_from_properties(
+        const std::map<std::string, std::string>& properties) {
     if (properties.find(INVERTED_INDEX_PARSER_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_KEY);
     } else {

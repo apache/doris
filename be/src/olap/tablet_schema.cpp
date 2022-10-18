@@ -20,8 +20,8 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "gen_cpp/descriptors.pb.h"
-#include "olap/utils.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/utils.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -403,8 +403,8 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _has_inverted_index = false;
     }
     if (column.has_inverted_index_parser()) {
-        _inverted_index_parser_type = get_inverted_index_parser_type_from_string(
-                column.inverted_index_parser());
+        _inverted_index_parser_type =
+                get_inverted_index_parser_type_from_string(column.inverted_index_parser());
     }
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());

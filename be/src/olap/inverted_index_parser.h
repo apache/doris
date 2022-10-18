@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <string>
 #include <map>
+#include <string>
 
 namespace doris {
 

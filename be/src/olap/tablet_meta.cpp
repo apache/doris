@@ -168,9 +168,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                     DCHECK_EQ(index.columns.size(), 1);
                     if (iequal(tcolumn.column_name, index.columns[0])) {
                         column->set_has_inverted_index(true);
-                        column->set_inverted_index_parser(index.__isset.properties ?
-                            get_parser_string_from_properties(index.properties) :
-                            INVERTED_INDEX_PARSER_NOT_SET);
+                        column->set_inverted_index_parser(
+                                index.__isset.properties
+                                        ? get_parser_string_from_properties(index.properties)
+                                        : INVERTED_INDEX_PARSER_NOT_SET);
                         break;
                     }
                 }
