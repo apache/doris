@@ -999,7 +999,7 @@ public class ScalarType extends Type {
         }
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
-            return DECIMALV2;
+            return MAX_DECIMALV2_TYPE;
         }
 
         PrimitiveType smallerType =
@@ -1020,6 +1020,9 @@ public class ScalarType extends Type {
             result = compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
         }
         Preconditions.checkNotNull(result);
+        if (result == PrimitiveType.DECIMALV2) {
+            return Type.MAX_DECIMALV2_TYPE;
+        }
         return createType(result);
     }
 

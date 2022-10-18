@@ -541,7 +541,7 @@ public abstract class Type {
             case DOUBLE:
                 return DOUBLE;
             case DECIMALV2:
-                return DECIMALV2;
+                return MAX_DECIMALV2_TYPE;
             case DECIMAL32:
                 return DECIMAL32;
             case DECIMAL64:
