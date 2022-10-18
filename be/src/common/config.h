@@ -54,7 +54,7 @@ CONF_mInt64(tc_use_memory_min, "10737418240");
 // free memory rate.[0-100]
 CONF_mInt64(tc_free_memory_rate, "20");
 // tcmallc aggressive_memory_decommit
-CONF_mBool(tc_enable_aggressive_memory_decommit, "false");
+CONF_Bool(tc_enable_aggressive_memory_decommit, "false");
 
 // Bound on the total amount of bytes allocated to thread caches.
 // This bound is not strict, so it is possible for the cache to go over this bound
@@ -428,7 +428,7 @@ CONF_Bool(disable_mem_pools, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "10%");
+CONF_String(chunk_reserved_bytes_limit, "10%");
 
 // Whether using chunk allocator to cache memory chunk
 CONF_Bool(disable_chunk_allocator, "true");
