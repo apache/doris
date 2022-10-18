@@ -17,12 +17,12 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
@@ -52,7 +52,6 @@ import org.apache.spark.sql.functions;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import static org.apache.spark.sql.functions.lit;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.LongAccumulator;
 import org.apache.spark.util.SerializableConfiguration;
@@ -77,7 +76,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
-
 // This class is a Spark-based data preprocessing program,
 // which will make use of the distributed compute framework of spark to
 // do ETL job/sort/preaggregate jobs in spark job
@@ -89,6 +87,7 @@ import java.util.Set;
 // 2. repartition data by using doris data model(partition and bucket)
 // 3. process aggregation if needed
 // 4. write data to parquet file
+
 public final class SparkDpp implements java.io.Serializable {
     private static final Logger LOG = LoggerFactory.getLogger(SparkDpp.class);
 
@@ -213,7 +212,6 @@ public final class SparkDpp implements java.io.Serializable {
                             LOG.warn("invalid row:" + pair);
                             continue;
                         }
-
 
                         String curBucketKey = keyColumns.get(0).toString();
                         List<Object> columnObjects = new ArrayList<>();
@@ -628,7 +626,8 @@ public final class SparkDpp implements java.io.Serializable {
             Dataset<Row> dataFrame = spark.read().parquet(fileUrl);
             if (!CollectionUtils.isEmpty(columnValueFromPath)) {
                 for (int k = 0; k < columnValueFromPath.size(); k++) {
-                    dataFrame = dataFrame.withColumn(fileGroup.columnsFromPath.get(k), lit(columnValueFromPath.get(k)));
+                    dataFrame = dataFrame.withColumn(
+                        fileGroup.columnsFromPath.get(k), functions.lit(columnValueFromPath.get(k)));
                 }
             }
             return dataFrame;
@@ -642,13 +641,14 @@ public final class SparkDpp implements java.io.Serializable {
             for (StructField field : df.schema().fields()) {
                 // user StringType to load source data
                 fields.add(DataTypes.createStructField(srcColumnsWithColumnsFromPath.get(i), field.dataType(),
-                    field.nullable()));
+                        field.nullable()));
                 ++i;
             }
-            Dataset<Row> dataFrame  = spark.createDataFrame(df.toJavaRDD(), DataTypes.createStructType(fields));
+            Dataset<Row> dataFrame = spark.createDataFrame(df.toJavaRDD(), DataTypes.createStructType(fields));
             if (!CollectionUtils.isEmpty(columnValueFromPath)) {
                 for (int k = 0; k < columnValueFromPath.size(); k++) {
-                    dataFrame = dataFrame.withColumn(fileGroup.columnsFromPath.get(k), lit(columnValueFromPath.get(k)));
+                    dataFrame = dataFrame.withColumn(
+                        fileGroup.columnsFromPath.get(k), functions.lit(columnValueFromPath.get(k)));
                 }
             }
             return dataFrame;
