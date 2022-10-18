@@ -330,11 +330,6 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
     auto& mcol = mutable_block.mutable_columns();
     int current_offset = 0;
 
-    constexpr auto need_to_set_visited = JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
-                                         JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
-                                         JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
-                                         JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
-
     constexpr auto is_right_semi_anti_join = JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
                                              JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN;
 
@@ -377,7 +372,9 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                     // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
                     if (mapped.get_row_count() == 1) {
-                        if constexpr (need_to_set_visited) mapped.visited = true;
+                        if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+                            mapped.visited = true;
+                        }
 
                         if constexpr (!is_right_semi_anti_join) {
                             if (LIKELY(current_offset < _build_block_rows.size())) {
@@ -401,7 +398,9 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                                 }
                                 ++current_offset;
                             }
-                            if constexpr (need_to_set_visited) it->visited = true;
+                        }
+                        if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+                            mapped.visited = true;
                         }
                     }
                 } else {
@@ -463,232 +462,242 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
 
     using KeyGetter = typename HashTableType::State;
     using Mapped = typename HashTableType::Mapped;
-    KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
+    if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+        KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
-    int right_col_idx = _join_node->_left_table_data_types.size();
-    int right_col_len = _join_node->_right_table_data_types.size();
+        int right_col_idx = _join_node->_left_table_data_types.size();
+        int right_col_len = _join_node->_right_table_data_types.size();
 
-    auto& mcol = mutable_block.mutable_columns();
-    // use in right join to change visited state after
-    // exec the vother join conjunt
-    std::vector<bool*> visited_map;
-    visited_map.reserve(1.2 * _batch_size);
+        auto& mcol = mutable_block.mutable_columns();
+        // use in right join to change visited state after
+        // exec the vother join conjunt
+        std::vector<bool*> visited_map;
+        visited_map.reserve(1.2 * _batch_size);
 
-    std::vector<bool> same_to_prev;
-    same_to_prev.reserve(1.2 * _batch_size);
+        std::vector<bool> same_to_prev;
+        same_to_prev.reserve(1.2 * _batch_size);
 
-    int current_offset = 0;
+        int current_offset = 0;
 
-    bool all_match_one = true;
-    int last_probe_index = probe_index;
-    while (probe_index < probe_rows) {
-        // ignore null rows
-        if constexpr (ignore_null) {
-            if ((*null_map)[probe_index]) {
-                _items_counts[probe_index++] = (uint32_t)0;
-                continue;
-            }
-        }
-
-        auto last_offset = current_offset;
-        auto find_result =
-                (*null_map)[probe_index]
-                        ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                       _arena)) {nullptr, false}
-                        : key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena);
-        if (probe_index + PREFETCH_STEP < probe_rows)
-            key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                               probe_index + PREFETCH_STEP, _arena);
-        if (find_result.is_found()) {
-            auto& mapped = find_result.get_mapped();
-            auto origin_offset = current_offset;
-            // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
-            // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-            if (mapped.get_row_count() == 1) {
-                if (LIKELY(current_offset < _build_block_rows.size())) {
-                    _build_block_offsets[current_offset] = mapped.block_offset;
-                    _build_block_rows[current_offset] = mapped.row_num;
-                } else {
-                    _build_block_offsets.emplace_back(mapped.block_offset);
-                    _build_block_rows.emplace_back(mapped.row_num);
+        bool all_match_one = true;
+        int last_probe_index = probe_index;
+        while (probe_index < probe_rows) {
+            // ignore null rows
+            if constexpr (ignore_null) {
+                if ((*null_map)[probe_index]) {
+                    _items_counts[probe_index++] = (uint32_t)0;
+                    continue;
                 }
-                ++current_offset;
-                visited_map.emplace_back(&mapped.visited);
-            } else {
-                for (auto it = mapped.begin(); it.ok(); ++it) {
+            }
+
+            auto last_offset = current_offset;
+            auto find_result =
+                    (*null_map)[probe_index]
+                            ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
+                                                           _arena)) {nullptr, false}
+                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena);
+            if (probe_index + PREFETCH_STEP < probe_rows)
+                key_getter.template prefetch<true>(hash_table_ctx.hash_table,
+                                                   probe_index + PREFETCH_STEP, _arena);
+            if (find_result.is_found()) {
+                auto& mapped = find_result.get_mapped();
+                auto origin_offset = current_offset;
+                // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
+                // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
+                if (mapped.get_row_count() == 1) {
                     if (LIKELY(current_offset < _build_block_rows.size())) {
-                        _build_block_offsets[current_offset] = it->block_offset;
-                        _build_block_rows[current_offset] = it->row_num;
+                        _build_block_offsets[current_offset] = mapped.block_offset;
+                        _build_block_rows[current_offset] = mapped.row_num;
                     } else {
-                        _build_block_offsets.emplace_back(it->block_offset);
-                        _build_block_rows.emplace_back(it->row_num);
+                        _build_block_offsets.emplace_back(mapped.block_offset);
+                        _build_block_rows.emplace_back(mapped.row_num);
                     }
                     ++current_offset;
-                    visited_map.emplace_back(&it->visited);
-                }
-            }
-            same_to_prev.emplace_back(false);
-            for (int i = 0; i < current_offset - origin_offset - 1; ++i) {
-                same_to_prev.emplace_back(true);
-            }
-        } else if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
-                             JoinOpType::value == TJoinOp::FULL_OUTER_JOIN ||
-                             JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
-            same_to_prev.emplace_back(false);
-            visited_map.emplace_back(nullptr);
-            // only full outer / left outer need insert the data of right table
-            // left anti use -1 use a default value
-            if (LIKELY(current_offset < _build_block_rows.size())) {
-                _build_block_offsets[current_offset] = -1;
-                _build_block_rows[current_offset] = -1;
-            } else {
-                _build_block_offsets.emplace_back(-1);
-                _build_block_rows.emplace_back(-1);
-            }
-            ++current_offset;
-        } else {
-            // other join, no nothing
-        }
-
-        uint32_t count = (uint32_t)(current_offset - last_offset);
-        _items_counts[probe_index++] = count;
-        all_match_one &= (count == 1);
-        if (current_offset >= _batch_size && !all_match_one) {
-            break;
-        }
-    }
-
-    {
-        SCOPED_TIMER(_build_side_output_timer);
-        build_side_output_column<true>(mcol, right_col_idx, right_col_len,
-                                       _join_node->_right_output_slot_flags, current_offset);
-    }
-    {
-        SCOPED_TIMER(_probe_side_output_timer);
-        probe_side_output_column<true>(mcol, _join_node->_left_output_slot_flags, current_offset,
-                                       last_probe_index, probe_index - last_probe_index,
-                                       all_match_one);
-    }
-    output_block->swap(mutable_block.to_block());
-
-    // dispose the other join conjunt exec
-    if (output_block->rows()) {
-        int result_column_id = -1;
-        int orig_columns = output_block->columns();
-        (*_join_node->_vother_join_conjunct_ptr)->execute(output_block, &result_column_id);
-
-        auto column = output_block->get_by_position(result_column_id).column;
-        if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
-                      JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
-            auto new_filter_column = ColumnVector<UInt8>::create();
-            auto& filter_map = new_filter_column->get_data();
-
-            auto null_map_column = ColumnVector<UInt8>::create(column->size(), 0);
-            auto* __restrict null_map_data = null_map_column->get_data().data();
-
-            for (int i = 0; i < column->size(); ++i) {
-                auto join_hit = visited_map[i] != nullptr;
-                auto other_hit = column->get_bool(i);
-
-                if (!other_hit) {
-                    for (size_t j = 0; j < right_col_len; ++j) {
-                        typeid_cast<ColumnNullable*>(
-                                std::move(*output_block->get_by_position(j + right_col_idx).column)
-                                        .assume_mutable()
-                                        .get())
-                                ->get_null_map_data()[i] = true;
+                    visited_map.emplace_back(&mapped.visited);
+                } else {
+                    for (auto it = mapped.begin(); it.ok(); ++it) {
+                        if (LIKELY(current_offset < _build_block_rows.size())) {
+                            _build_block_offsets[current_offset] = it->block_offset;
+                            _build_block_rows[current_offset] = it->row_num;
+                        } else {
+                            _build_block_offsets.emplace_back(it->block_offset);
+                            _build_block_rows.emplace_back(it->row_num);
+                        }
+                        ++current_offset;
+                        visited_map.emplace_back(&mapped.visited);
                     }
                 }
-                null_map_data[i] = !join_hit || !other_hit;
-
-                if (join_hit) {
-                    *visited_map[i] |= other_hit;
-                    filter_map.push_back(other_hit || !same_to_prev[i] ||
-                                         (!column->get_bool(i - 1) && filter_map.back()));
-                    // Here to keep only hit join conjunt and other join conjunt is true need to be output.
-                    // if not, only some key must keep one row will output will null right table column
-                    if (same_to_prev[i] && filter_map.back() && !column->get_bool(i - 1))
-                        filter_map[i - 1] = false;
+                same_to_prev.emplace_back(false);
+                for (int i = 0; i < current_offset - origin_offset - 1; ++i) {
+                    same_to_prev.emplace_back(true);
+                }
+            } else if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
+                                 JoinOpType::value == TJoinOp::FULL_OUTER_JOIN ||
+                                 JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
+                same_to_prev.emplace_back(false);
+                visited_map.emplace_back(nullptr);
+                // only full outer / left outer need insert the data of right table
+                // left anti use -1 use a default value
+                if (LIKELY(current_offset < _build_block_rows.size())) {
+                    _build_block_offsets[current_offset] = -1;
+                    _build_block_rows[current_offset] = -1;
                 } else {
-                    filter_map.push_back(true);
+                    _build_block_offsets.emplace_back(-1);
+                    _build_block_rows.emplace_back(-1);
                 }
+                ++current_offset;
+            } else {
+                // other join, no nothing
             }
 
-            for (int i = 0; i < column->size(); ++i) {
-                if (filter_map[i]) {
-                    _tuple_is_null_right_flags.emplace_back(null_map_data[i]);
-                }
+            uint32_t count = (uint32_t)(current_offset - last_offset);
+            _items_counts[probe_index++] = count;
+            all_match_one &= (count == 1);
+            if (current_offset >= _batch_size && !all_match_one) {
+                break;
             }
-            output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
-        } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
-            auto new_filter_column = ColumnVector<UInt8>::create();
-            auto& filter_map = new_filter_column->get_data();
-
-            if (!column->empty()) filter_map.emplace_back(column->get_bool(0));
-            for (int i = 1; i < column->size(); ++i) {
-                if (column->get_bool(i) || (same_to_prev[i] && filter_map[i - 1])) {
-                    // Only last same element is true, output last one
-                    filter_map.push_back(true);
-                    filter_map[i - 1] = !same_to_prev[i] && filter_map[i - 1];
-                } else {
-                    filter_map.push_back(false);
-                }
-            }
-
-            output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
-        } else if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
-            auto new_filter_column = ColumnVector<UInt8>::create();
-            auto& filter_map = new_filter_column->get_data();
-
-            if (!column->empty()) filter_map.emplace_back(column->get_bool(0) && visited_map[0]);
-            for (int i = 1; i < column->size(); ++i) {
-                if ((visited_map[i] && column->get_bool(i)) ||
-                    (same_to_prev[i] && filter_map[i - 1])) {
-                    filter_map.push_back(true);
-                    filter_map[i - 1] = !same_to_prev[i] && filter_map[i - 1];
-                } else {
-                    filter_map.push_back(false);
-                }
-            }
-
-            // Same to the semi join, but change the last value to opposite value
-            for (int i = 1; i < same_to_prev.size(); ++i) {
-                if (!same_to_prev[i]) filter_map[i - 1] = !filter_map[i - 1];
-            }
-            filter_map[same_to_prev.size() - 1] = !filter_map[same_to_prev.size() - 1];
-
-            output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
-        } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
-                             JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
-            for (int i = 0; i < column->size(); ++i) {
-                DCHECK(visited_map[i]);
-                *visited_map[i] |= column->get_bool(i);
-            }
-        } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
-            auto filter_size = 0;
-            for (int i = 0; i < column->size(); ++i) {
-                DCHECK(visited_map[i]);
-                auto result = column->get_bool(i);
-                *visited_map[i] |= result;
-                filter_size += result;
-            }
-            _tuple_is_null_left_flags.resize_fill(filter_size, 0);
-        } else {
-            // inner join do nothing
         }
 
-        if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
-                      JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
-            output_block->clear();
-        } else {
-            if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN ||
-                          JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN)
-                orig_columns = right_col_idx;
-            Block::filter_block(output_block, result_column_id, orig_columns);
+        {
+            SCOPED_TIMER(_build_side_output_timer);
+            build_side_output_column<true>(mcol, right_col_idx, right_col_len,
+                                           _join_node->_right_output_slot_flags, current_offset);
         }
+        {
+            SCOPED_TIMER(_probe_side_output_timer);
+            probe_side_output_column<true>(mcol, _join_node->_left_output_slot_flags,
+                                           current_offset, last_probe_index,
+                                           probe_index - last_probe_index, all_match_one);
+        }
+        output_block->swap(mutable_block.to_block());
+
+        // dispose the other join conjunt exec
+        if (output_block->rows()) {
+            int result_column_id = -1;
+            int orig_columns = output_block->columns();
+            (*_join_node->_vother_join_conjunct_ptr)->execute(output_block, &result_column_id);
+
+            auto column = output_block->get_by_position(result_column_id).column;
+            if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
+                          JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
+                auto new_filter_column = ColumnVector<UInt8>::create();
+                auto& filter_map = new_filter_column->get_data();
+
+                auto null_map_column = ColumnVector<UInt8>::create(column->size(), 0);
+                auto* __restrict null_map_data = null_map_column->get_data().data();
+
+                for (int i = 0; i < column->size(); ++i) {
+                    auto join_hit = visited_map[i] != nullptr;
+                    auto other_hit = column->get_bool(i);
+
+                    if (!other_hit) {
+                        for (size_t j = 0; j < right_col_len; ++j) {
+                            typeid_cast<ColumnNullable*>(
+                                    std::move(*output_block->get_by_position(j + right_col_idx)
+                                                       .column)
+                                            .assume_mutable()
+                                            .get())
+                                    ->get_null_map_data()[i] = true;
+                        }
+                    }
+                    null_map_data[i] = !join_hit || !other_hit;
+
+                    if (join_hit) {
+                        *visited_map[i] |= other_hit;
+                        filter_map.push_back(other_hit || !same_to_prev[i] ||
+                                             (!column->get_bool(i - 1) && filter_map.back()));
+                        // Here to keep only hit join conjunt and other join conjunt is true need to be output.
+                        // if not, only some key must keep one row will output will null right table column
+                        if (same_to_prev[i] && filter_map.back() && !column->get_bool(i - 1))
+                            filter_map[i - 1] = false;
+                    } else {
+                        filter_map.push_back(true);
+                    }
+                }
+
+                for (int i = 0; i < column->size(); ++i) {
+                    if (filter_map[i]) {
+                        _tuple_is_null_right_flags.emplace_back(null_map_data[i]);
+                    }
+                }
+                output_block->get_by_position(result_column_id).column =
+                        std::move(new_filter_column);
+            } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
+                auto new_filter_column = ColumnVector<UInt8>::create();
+                auto& filter_map = new_filter_column->get_data();
+
+                if (!column->empty()) filter_map.emplace_back(column->get_bool(0));
+                for (int i = 1; i < column->size(); ++i) {
+                    if (column->get_bool(i) || (same_to_prev[i] && filter_map[i - 1])) {
+                        // Only last same element is true, output last one
+                        filter_map.push_back(true);
+                        filter_map[i - 1] = !same_to_prev[i] && filter_map[i - 1];
+                    } else {
+                        filter_map.push_back(false);
+                    }
+                }
+
+                output_block->get_by_position(result_column_id).column =
+                        std::move(new_filter_column);
+            } else if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
+                auto new_filter_column = ColumnVector<UInt8>::create();
+                auto& filter_map = new_filter_column->get_data();
+
+                if (!column->empty())
+                    filter_map.emplace_back(column->get_bool(0) && visited_map[0]);
+                for (int i = 1; i < column->size(); ++i) {
+                    if ((visited_map[i] && column->get_bool(i)) ||
+                        (same_to_prev[i] && filter_map[i - 1])) {
+                        filter_map.push_back(true);
+                        filter_map[i - 1] = !same_to_prev[i] && filter_map[i - 1];
+                    } else {
+                        filter_map.push_back(false);
+                    }
+                }
+
+                // Same to the semi join, but change the last value to opposite value
+                for (int i = 1; i < same_to_prev.size(); ++i) {
+                    if (!same_to_prev[i]) filter_map[i - 1] = !filter_map[i - 1];
+                }
+                filter_map[same_to_prev.size() - 1] = !filter_map[same_to_prev.size() - 1];
+
+                output_block->get_by_position(result_column_id).column =
+                        std::move(new_filter_column);
+            } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
+                                 JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
+                for (int i = 0; i < column->size(); ++i) {
+                    DCHECK(visited_map[i]);
+                    *visited_map[i] |= column->get_bool(i);
+                }
+            } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
+                auto filter_size = 0;
+                for (int i = 0; i < column->size(); ++i) {
+                    DCHECK(visited_map[i]);
+                    auto result = column->get_bool(i);
+                    *visited_map[i] |= result;
+                    filter_size += result;
+                }
+                _tuple_is_null_left_flags.resize_fill(filter_size, 0);
+            } else {
+                // inner join do nothing
+            }
+
+            if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
+                          JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
+                output_block->clear();
+            } else {
+                if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN ||
+                              JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN)
+                    orig_columns = right_col_idx;
+                Block::filter_block(output_block, result_column_id, orig_columns);
+            }
+        }
+
+        return Status::OK();
+    } else {
+        LOG(FATAL) << "Invalid RowRefList";
+        return Status::InvalidArgument("Invalid RowRefList");
     }
-
-    return Status::OK();
 }
 
 template <class JoinOpType, bool ignore_null>
@@ -696,57 +705,69 @@ template <typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType, ignore_null>::process_data_in_hashtable(
         HashTableType& hash_table_ctx, MutableBlock& mutable_block, Block* output_block,
         bool* eos) {
-    hash_table_ctx.init_once();
-    auto& mcol = mutable_block.mutable_columns();
+    using Mapped = typename HashTableType::Mapped;
+    if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+        hash_table_ctx.init_once();
+        auto& mcol = mutable_block.mutable_columns();
 
-    bool right_semi_anti_without_other =
-            _join_node->_is_right_semi_anti && !_join_node->_have_other_join_conjunct;
-    int right_col_idx =
-            right_semi_anti_without_other ? 0 : _join_node->_left_table_data_types.size();
-    int right_col_len = _join_node->_right_table_data_types.size();
+        bool right_semi_anti_without_other =
+                _join_node->_is_right_semi_anti && !_join_node->_have_other_join_conjunct;
+        int right_col_idx =
+                right_semi_anti_without_other ? 0 : _join_node->_left_table_data_types.size();
+        int right_col_len = _join_node->_right_table_data_types.size();
 
-    auto& iter = hash_table_ctx.iter;
-    auto block_size = 0;
+        auto& iter = hash_table_ctx.iter;
+        auto block_size = 0;
 
-    auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
-        block_size++;
-        for (size_t j = 0; j < right_col_len; ++j) {
-            auto& column = *_build_blocks[offset].get_by_position(j).column;
-            mcol[j + right_col_idx]->insert_from(column, row_num);
-        }
-    };
+        auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
+            block_size++;
+            for (size_t j = 0; j < right_col_len; ++j) {
+                auto& column = *_build_blocks[offset].get_by_position(j).column;
+                mcol[j + right_col_idx]->insert_from(column, row_num);
+            }
+        };
 
-    for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
-        auto& mapped = iter->get_second();
-        for (auto it = mapped.begin(); it.ok(); ++it) {
-            if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN) {
-                if (it->visited) insert_from_hash_table(it->block_offset, it->row_num);
+        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
+            auto& mapped = iter->get_second();
+            if (mapped.visited) {
+                for (auto it = mapped.begin(); it.ok(); ++it) {
+                    if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN) {
+                        insert_from_hash_table(it->block_offset, it->row_num);
+                    }
+                }
             } else {
-                if (!it->visited) insert_from_hash_table(it->block_offset, it->row_num);
+                for (auto it = mapped.begin(); it.ok(); ++it) {
+                    if constexpr (JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
+                        insert_from_hash_table(it->block_offset, it->row_num);
+                    }
+                }
             }
         }
-    }
 
-    // just resize the left table column in case with other conjunct to make block size is not zero
-    if (_join_node->_is_right_semi_anti && _join_node->_have_other_join_conjunct) {
-        auto target_size = mcol[right_col_idx]->size();
-        for (int i = 0; i < right_col_idx; ++i) {
-            mcol[i]->resize(target_size);
+        // just resize the left table column in case with other conjunct to make block size is not zero
+        if (_join_node->_is_right_semi_anti && _join_node->_have_other_join_conjunct) {
+            auto target_size = mcol[right_col_idx]->size();
+            for (int i = 0; i < right_col_idx; ++i) {
+                mcol[i]->resize(target_size);
+            }
         }
-    }
 
-    // right outer join / full join need insert data of left table
-    if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
-                  JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
-        for (int i = 0; i < right_col_idx; ++i) {
-            assert_cast<ColumnNullable*>(mcol[i].get())->insert_many_defaults(block_size);
+        // right outer join / full join need insert data of left table
+        if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
+                      JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
+            for (int i = 0; i < right_col_idx; ++i) {
+                assert_cast<ColumnNullable*>(mcol[i].get())->insert_many_defaults(block_size);
+            }
+            _tuple_is_null_left_flags.resize_fill(block_size, 1);
         }
-        _tuple_is_null_left_flags.resize_fill(block_size, 1);
-    }
-    *eos = iter == hash_table_ctx.hash_table.end();
+        *eos = iter == hash_table_ctx.hash_table.end();
 
-    output_block->swap(mutable_block.to_block(right_semi_anti_without_other ? right_col_idx : 0));
-    return Status::OK();
+        output_block->swap(mutable_block.to_block(right_semi_anti_without_other ? right_col_idx : 0));
+        return Status::OK();
+    } else {
+        LOG(FATAL) << "Invalid RowRefList";
+        return Status::InvalidArgument("Invalid RowRefList");
+    }
 }
 
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -1371,105 +1392,126 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
 }
 
 void HashJoinNode::_hash_table_init() {
-    if (_build_expr_ctxs.size() == 1 && !_build_not_ignore_null[0]) {
-        // Single column optimization
-        switch (_build_expr_ctxs[0]->root()->result_type()) {
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            _hash_table_variants.emplace<I8HashTableContext>();
-            break;
-        case TYPE_SMALLINT:
-            _hash_table_variants.emplace<I16HashTableContext>();
-            break;
-        case TYPE_INT:
-        case TYPE_FLOAT:
-        case TYPE_DATEV2:
-            _hash_table_variants.emplace<I32HashTableContext>();
-            break;
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-        case TYPE_DATETIME:
-        case TYPE_DATE:
-        case TYPE_DATETIMEV2:
-            _hash_table_variants.emplace<I64HashTableContext>();
-            break;
-        case TYPE_LARGEINT:
-        case TYPE_DECIMALV2:
-        case TYPE_DECIMAL32:
-        case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128: {
-            DataTypePtr& type_ptr = _build_expr_ctxs[0]->root()->data_type();
-            TypeIndex idx = _build_expr_ctxs[0]->root()->is_nullable()
-                                    ? assert_cast<const DataTypeNullable&>(*type_ptr)
-                                              .get_nested_type()
-                                              ->get_type_id()
-                                    : type_ptr->get_type_id();
-            WhichDataType which(idx);
-            if (which.is_decimal32()) {
-                _hash_table_variants.emplace<I32HashTableContext>();
-            } else if (which.is_decimal64()) {
-                _hash_table_variants.emplace<I64HashTableContext>();
-            } else {
-                _hash_table_variants.emplace<I128HashTableContext>();
-            }
-            break;
-        }
-        default:
-            _hash_table_variants.emplace<SerializedHashTableContext>();
-        }
-        return;
-    }
+    std::visit(
+            [&](auto&& join_op_variants, auto have_other_join_conjunct) {
+                using JoinOpType = std::decay_t<decltype(join_op_variants)>;
+                using RowRefListType =
+                        std::conditional_t<JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
+                                                   JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
+                                                   JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
+                                                   JoinOpType::value == TJoinOp::FULL_OUTER_JOIN ||
+                                                   have_other_join_conjunct,
+                                           RowRefListWithFlag, RowRefList>;
+                if (_build_expr_ctxs.size() == 1 && !_build_not_ignore_null[0]) {
+                    // Single column optimization
+                    switch (_build_expr_ctxs[0]->root()->result_type()) {
+                    case TYPE_BOOLEAN:
+                    case TYPE_TINYINT:
+                        _hash_table_variants.emplace<I8HashTableContext<RowRefListType>>();
+                        break;
+                    case TYPE_SMALLINT:
+                        _hash_table_variants.emplace<I16HashTableContext<RowRefListType>>();
+                        break;
+                    case TYPE_INT:
+                    case TYPE_FLOAT:
+                    case TYPE_DATEV2:
+                        _hash_table_variants.emplace<I32HashTableContext<RowRefListType>>();
+                        break;
+                    case TYPE_BIGINT:
+                    case TYPE_DOUBLE:
+                    case TYPE_DATETIME:
+                    case TYPE_DATE:
+                    case TYPE_DATETIMEV2:
+                        _hash_table_variants.emplace<I64HashTableContext<RowRefListType>>();
+                        break;
+                    case TYPE_LARGEINT:
+                    case TYPE_DECIMALV2:
+                    case TYPE_DECIMAL32:
+                    case TYPE_DECIMAL64:
+                    case TYPE_DECIMAL128: {
+                        DataTypePtr& type_ptr = _build_expr_ctxs[0]->root()->data_type();
+                        TypeIndex idx = _build_expr_ctxs[0]->root()->is_nullable()
+                                                ? assert_cast<const DataTypeNullable&>(*type_ptr)
+                                                          .get_nested_type()
+                                                          ->get_type_id()
+                                                : type_ptr->get_type_id();
+                        WhichDataType which(idx);
+                        if (which.is_decimal32()) {
+                            _hash_table_variants.emplace<I32HashTableContext<RowRefListType>>();
+                        } else if (which.is_decimal64()) {
+                            _hash_table_variants.emplace<I64HashTableContext<RowRefListType>>();
+                        } else {
+                            _hash_table_variants.emplace<I128HashTableContext<RowRefListType>>();
+                        }
+                        break;
+                    }
+                    default:
+                        _hash_table_variants.emplace<SerializedHashTableContext<RowRefListType>>();
+                    }
+                    return;
+                }
 
-    bool use_fixed_key = true;
-    bool has_null = false;
-    int key_byte_size = 0;
+                bool use_fixed_key = true;
+                bool has_null = false;
+                int key_byte_size = 0;
 
-    _probe_key_sz.resize(_probe_expr_ctxs.size());
-    _build_key_sz.resize(_build_expr_ctxs.size());
+                _probe_key_sz.resize(_probe_expr_ctxs.size());
+                _build_key_sz.resize(_build_expr_ctxs.size());
 
-    for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
-        const auto vexpr = _build_expr_ctxs[i]->root();
-        const auto& data_type = vexpr->data_type();
+                for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
+                    const auto vexpr = _build_expr_ctxs[i]->root();
+                    const auto& data_type = vexpr->data_type();
 
-        if (!data_type->have_maximum_size_of_value()) {
-            use_fixed_key = false;
-            break;
-        }
+                    if (!data_type->have_maximum_size_of_value()) {
+                        use_fixed_key = false;
+                        break;
+                    }
 
-        auto is_null = data_type->is_nullable();
-        has_null |= is_null;
-        _build_key_sz[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-        _probe_key_sz[i] = _build_key_sz[i];
-        key_byte_size += _probe_key_sz[i];
-    }
+                    auto is_null = data_type->is_nullable();
+                    has_null |= is_null;
+                    _build_key_sz[i] =
+                            data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
+                    _probe_key_sz[i] = _build_key_sz[i];
+                    key_byte_size += _probe_key_sz[i];
+                }
 
-    if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size > sizeof(UInt256)) {
-        use_fixed_key = false;
-    }
+                if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size >
+                    sizeof(UInt256)) {
+                    use_fixed_key = false;
+                }
 
-    if (use_fixed_key) {
-        // TODO: may we should support uint256 in the future
-        if (has_null) {
-            if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
-                _hash_table_variants.emplace<I64FixedKeyHashTableContext<true>>();
-            } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                       sizeof(UInt128)) {
-                _hash_table_variants.emplace<I128FixedKeyHashTableContext<true>>();
-            } else {
-                _hash_table_variants.emplace<I256FixedKeyHashTableContext<true>>();
-            }
-        } else {
-            if (key_byte_size <= sizeof(UInt64)) {
-                _hash_table_variants.emplace<I64FixedKeyHashTableContext<false>>();
-            } else if (key_byte_size <= sizeof(UInt128)) {
-                _hash_table_variants.emplace<I128FixedKeyHashTableContext<false>>();
-            } else {
-                _hash_table_variants.emplace<I256FixedKeyHashTableContext<false>>();
-            }
-        }
-    } else {
-        _hash_table_variants.emplace<SerializedHashTableContext>();
-    }
+                if (use_fixed_key) {
+                    // TODO: may we should support uint256 in the future
+                    if (has_null) {
+                        if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <=
+                            sizeof(UInt64)) {
+                            _hash_table_variants
+                                    .emplace<I64FixedKeyHashTableContext<true, RowRefListType>>();
+                        } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
+                                   sizeof(UInt128)) {
+                            _hash_table_variants
+                                    .emplace<I128FixedKeyHashTableContext<true, RowRefListType>>();
+                        } else {
+                            _hash_table_variants
+                                    .emplace<I256FixedKeyHashTableContext<true, RowRefListType>>();
+                        }
+                    } else {
+                        if (key_byte_size <= sizeof(UInt64)) {
+                            _hash_table_variants
+                                    .emplace<I64FixedKeyHashTableContext<false, RowRefListType>>();
+                        } else if (key_byte_size <= sizeof(UInt128)) {
+                            _hash_table_variants
+                                    .emplace<I128FixedKeyHashTableContext<false, RowRefListType>>();
+                        } else {
+                            _hash_table_variants
+                                    .emplace<I256FixedKeyHashTableContext<false, RowRefListType>>();
+                        }
+                    }
+                } else {
+                    _hash_table_variants.emplace<SerializedHashTableContext<RowRefListType>>();
+                }
+            },
+            _join_op_variants, make_bool_variant(_have_other_join_conjunct));
 }
 
 void HashJoinNode::_process_hashtable_ctx_variants_init(RuntimeState* state) {

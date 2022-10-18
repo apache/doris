@@ -150,16 +150,16 @@ void VSetOperationNode::hash_table_init() {
         switch (_child_expr_lists[0][0]->root()->result_type()) {
         case TYPE_BOOLEAN:
         case TYPE_TINYINT:
-            _hash_table_variants.emplace<I8HashTableContext>();
+            _hash_table_variants.emplace<I8HashTableContext<RowRefListWithFlag>>();
             break;
         case TYPE_SMALLINT:
-            _hash_table_variants.emplace<I16HashTableContext>();
+            _hash_table_variants.emplace<I16HashTableContext<RowRefListWithFlag>>();
             break;
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
         case TYPE_DECIMAL32:
-            _hash_table_variants.emplace<I32HashTableContext>();
+            _hash_table_variants.emplace<I32HashTableContext<RowRefListWithFlag>>();
             break;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
@@ -167,15 +167,15 @@ void VSetOperationNode::hash_table_init() {
         case TYPE_DATE:
         case TYPE_DECIMAL64:
         case TYPE_DATETIMEV2:
-            _hash_table_variants.emplace<I64HashTableContext>();
+            _hash_table_variants.emplace<I64HashTableContext<RowRefListWithFlag>>();
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL128:
-            _hash_table_variants.emplace<I128HashTableContext>();
+            _hash_table_variants.emplace<I128HashTableContext<RowRefListWithFlag>>();
             break;
         default:
-            _hash_table_variants.emplace<SerializedHashTableContext>();
+            _hash_table_variants.emplace<SerializedHashTableContext<RowRefListWithFlag>>();
         }
         return;
     }
@@ -208,24 +208,30 @@ void VSetOperationNode::hash_table_init() {
     if (use_fixed_key) {
         if (has_null) {
             if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
-                _hash_table_variants.emplace<I64FixedKeyHashTableContext<true>>();
+                _hash_table_variants
+                        .emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlag>>();
             } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                        sizeof(UInt128)) {
-                _hash_table_variants.emplace<I128FixedKeyHashTableContext<true>>();
+                _hash_table_variants
+                        .emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlag>>();
             } else {
-                _hash_table_variants.emplace<I256FixedKeyHashTableContext<true>>();
+                _hash_table_variants
+                        .emplace<I256FixedKeyHashTableContext<true, RowRefListWithFlag>>();
             }
         } else {
             if (key_byte_size <= sizeof(UInt64)) {
-                _hash_table_variants.emplace<I64FixedKeyHashTableContext<false>>();
+                _hash_table_variants
+                        .emplace<I64FixedKeyHashTableContext<false, RowRefListWithFlag>>();
             } else if (key_byte_size <= sizeof(UInt128)) {
-                _hash_table_variants.emplace<I128FixedKeyHashTableContext<false>>();
+                _hash_table_variants
+                        .emplace<I128FixedKeyHashTableContext<false, RowRefListWithFlag>>();
             } else {
-                _hash_table_variants.emplace<I256FixedKeyHashTableContext<false>>();
+                _hash_table_variants
+                        .emplace<I256FixedKeyHashTableContext<false, RowRefListWithFlag>>();
             }
         }
     } else {
-        _hash_table_variants.emplace<SerializedHashTableContext>();
+        _hash_table_variants.emplace<SerializedHashTableContext<RowRefListWithFlag>>();
     }
 }
 

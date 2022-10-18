@@ -32,8 +32,9 @@
 namespace doris {
 namespace vectorized {
 
+template <typename RowRefListType>
 struct SerializedHashTableContext {
-    using Mapped = RowRefList;
+    using Mapped = RowRefListType;
     using HashTable = HashMap<StringRef, Mapped>;
     using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
     using Iter = typename HashTable::iterator;
@@ -61,9 +62,9 @@ struct IsSerializedHashTableContextTraits<ColumnsHashing::HashMethodSerialized<V
 };
 
 // T should be UInt32 UInt64 UInt128
-template <class T>
+template <class T, typename RowRefListType>
 struct PrimaryTypeHashTableContext {
-    using Mapped = RowRefList;
+    using Mapped = RowRefListType;
     using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
     using State =
             ColumnsHashing::HashMethodOneNumber<typename HashTable::value_type, Mapped, T, false>;
@@ -82,14 +83,20 @@ struct PrimaryTypeHashTableContext {
 };
 
 // TODO: use FixedHashTable instead of HashTable
-using I8HashTableContext = PrimaryTypeHashTableContext<UInt8>;
-using I16HashTableContext = PrimaryTypeHashTableContext<UInt16>;
-using I32HashTableContext = PrimaryTypeHashTableContext<UInt32>;
-using I64HashTableContext = PrimaryTypeHashTableContext<UInt64>;
-using I128HashTableContext = PrimaryTypeHashTableContext<UInt128>;
-using I256HashTableContext = PrimaryTypeHashTableContext<UInt256>;
+template <typename RowRefListType>
+using I8HashTableContext = PrimaryTypeHashTableContext<UInt8, RowRefListType>;
+template <typename RowRefListType>
+using I16HashTableContext = PrimaryTypeHashTableContext<UInt16, RowRefListType>;
+template <typename RowRefListType>
+using I32HashTableContext = PrimaryTypeHashTableContext<UInt32, RowRefListType>;
+template <typename RowRefListType>
+using I64HashTableContext = PrimaryTypeHashTableContext<UInt64, RowRefListType>;
+template <typename RowRefListType>
+using I128HashTableContext = PrimaryTypeHashTableContext<UInt128, RowRefListType>;
+template <typename RowRefListType>
+using I256HashTableContext = PrimaryTypeHashTableContext<UInt256, RowRefListType>;
 
-template <class T, bool has_null>
+template <class T, bool has_null, typename RowRefListType>
 struct FixedKeyHashTableContext {
     using Mapped = RowRefList;
     using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
@@ -109,22 +116,35 @@ struct FixedKeyHashTableContext {
     }
 };
 
-template <bool has_null>
-using I64FixedKeyHashTableContext = FixedKeyHashTableContext<UInt64, has_null>;
+template <bool has_null, typename RowRefListType>
+using I64FixedKeyHashTableContext = FixedKeyHashTableContext<UInt64, has_null, RowRefListType>;
 
-template <bool has_null>
-using I128FixedKeyHashTableContext = FixedKeyHashTableContext<UInt128, has_null>;
+template <bool has_null, typename RowRefListType>
+using I128FixedKeyHashTableContext = FixedKeyHashTableContext<UInt128, has_null, RowRefListType>;
 
-template <bool has_null>
-using I256FixedKeyHashTableContext = FixedKeyHashTableContext<UInt256, has_null>;
+template <bool has_null, typename RowRefListType>
+using I256FixedKeyHashTableContext = FixedKeyHashTableContext<UInt256, has_null, RowRefListType>;
 
-using HashTableVariants =
-        std::variant<std::monostate, SerializedHashTableContext, I8HashTableContext,
-                     I16HashTableContext, I32HashTableContext, I64HashTableContext,
-                     I128HashTableContext, I256HashTableContext, I64FixedKeyHashTableContext<true>,
-                     I64FixedKeyHashTableContext<false>, I128FixedKeyHashTableContext<true>,
-                     I128FixedKeyHashTableContext<false>, I256FixedKeyHashTableContext<true>,
-                     I256FixedKeyHashTableContext<false>>;
+using HashTableVariants = std::variant<
+        std::monostate, SerializedHashTableContext<RowRefList>, I8HashTableContext<RowRefList>,
+        I16HashTableContext<RowRefList>, I32HashTableContext<RowRefList>,
+        I64HashTableContext<RowRefList>, I128HashTableContext<RowRefList>,
+        I256HashTableContext<RowRefList>, I64FixedKeyHashTableContext<true, RowRefList>,
+        I64FixedKeyHashTableContext<false, RowRefList>,
+        I128FixedKeyHashTableContext<true, RowRefList>,
+        I128FixedKeyHashTableContext<false, RowRefList>,
+        I256FixedKeyHashTableContext<true, RowRefList>,
+        I256FixedKeyHashTableContext<false, RowRefList>,
+        SerializedHashTableContext<RowRefListWithFlag>, I8HashTableContext<RowRefListWithFlag>,
+        I16HashTableContext<RowRefListWithFlag>, I32HashTableContext<RowRefListWithFlag>,
+        I64HashTableContext<RowRefListWithFlag>, I128HashTableContext<RowRefListWithFlag>,
+        I256HashTableContext<RowRefListWithFlag>,
+        I64FixedKeyHashTableContext<true, RowRefListWithFlag>,
+        I64FixedKeyHashTableContext<false, RowRefListWithFlag>,
+        I128FixedKeyHashTableContext<true, RowRefListWithFlag>,
+        I128FixedKeyHashTableContext<false, RowRefListWithFlag>,
+        I256FixedKeyHashTableContext<true, RowRefListWithFlag>,
+        I256FixedKeyHashTableContext<false, RowRefListWithFlag>>;
 
 using JoinOpVariants =
         std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
