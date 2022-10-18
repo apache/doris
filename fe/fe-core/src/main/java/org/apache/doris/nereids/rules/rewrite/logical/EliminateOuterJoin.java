@@ -53,7 +53,8 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                             join.right().getOutputSet());
                     boolean canFilterLeftNull = canFilterNull(leftPredicates);
                     boolean canFilterRightNull = canFilterNull(rightPredicates);
-                    JoinType newJoinType = tryEliminateOuterJoin(join.getJoinType(), canFilterLeftNull, canFilterRightNull);
+                    JoinType newJoinType = tryEliminateOuterJoin(join.getJoinType(), canFilterLeftNull,
+                            canFilterRightNull);
                     if (newJoinType == join.getJoinType()) {
                         return filter;
                     } else {
