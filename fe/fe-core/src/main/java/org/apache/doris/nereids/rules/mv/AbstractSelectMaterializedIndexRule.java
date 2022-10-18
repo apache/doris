@@ -55,8 +55,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
      * 2. find matching key prefix most.
      * 3. sort by row count, column count and index id.
      */
-    protected List<Long> select(
-            Stream<MaterializedIndex> inputCandidates,
+    protected List<Long> filterAndOrder(
+            Stream<MaterializedIndex> candidates,
             LogicalOlapScan scan,
             Set<Slot> requiredScanOutput,
             List<Expression> predicates) {
@@ -74,7 +74,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 .collect(Collectors.toSet());
 
         // 1. filter index contains all the required columns by column name.
-        List<MaterializedIndex> containAllRequiredColumns = inputCandidates
+        List<MaterializedIndex> containAllRequiredColumns = candidates
                 .filter(index -> table.getSchemaByIndexId(index.getId(), true)
                         .stream()
                         .map(Column::getName)

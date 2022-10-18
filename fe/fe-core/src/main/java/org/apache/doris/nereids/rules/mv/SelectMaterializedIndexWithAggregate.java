@@ -76,7 +76,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // Aggregate(Scan)
                 logicalAggregate(logicalOlapScan().when(LogicalOlapScan::shouldSelectIndex)).then(agg -> {
                     LogicalOlapScan scan = agg.child();
-                    Pair<PreAggStatus, List<Long>> result = selectCandidateIndexIds(
+                    Pair<PreAggStatus, List<Long>> result = select(
                             scan,
                             agg.getInputSlots(),
                             ImmutableList.of(),
@@ -98,7 +98,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     .addAll(filter.getInputSlots())
                                     .build();
 
-                            Pair<PreAggStatus, List<Long>> result = selectCandidateIndexIds(
+                            Pair<PreAggStatus, List<Long>> result = select(
                                     scan,
                                     requiredSlots,
                                     filter.getConjuncts(),
@@ -116,7 +116,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         .then(agg -> {
                             LogicalProject<LogicalOlapScan> project = agg.child();
                             LogicalOlapScan scan = project.child();
-                            Pair<PreAggStatus, List<Long>> result = selectCandidateIndexIds(
+                            Pair<PreAggStatus, List<Long>> result = select(
                                     scan,
                                     project.getInputSlots(),
                                     ImmutableList.of(),
@@ -141,7 +141,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             Set<Slot> requiredSlots = Stream.concat(
                                     project.getInputSlots().stream(), filter.getInputSlots().stream())
                                     .collect(Collectors.toSet());
-                            Pair<PreAggStatus, List<Long>> result = selectCandidateIndexIds(
+                            Pair<PreAggStatus, List<Long>> result = select(
                                     scan,
                                     requiredSlots,
                                     filter.getConjuncts(),
@@ -161,7 +161,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             LogicalFilter<LogicalProject<LogicalOlapScan>> filter = agg.child();
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
-                            Pair<PreAggStatus, List<Long>> result = selectCandidateIndexIds(
+                            Pair<PreAggStatus, List<Long>> result = select(
                                     scan,
                                     project.getInputSlots(),
                                     ImmutableList.of(),
@@ -181,15 +181,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     ///////////////////////////////////////////////////////////////////////////
 
     /**
-     * Select candidate materialized index ids.
+     * Select materialized index ids.
      * <p>
-     * 0. turn off pre agg, checking input aggregate functions and group by expressions and pushdown predicates.
-     * <p>
-     * 1. index contains all the required output slots.
-     * 2. match the most prefix index if pushdown predicates present.
-     * 3. sort the result matching materialized index ids.
+     * 1. find candidate indexes by pre-agg status: checking input aggregate functions and group by expressions
+     * and pushdown predicates.
+     * 2. filter and order the candidate indexes.
      */
-    private Pair<PreAggStatus, List<Long>> selectCandidateIndexIds(
+    private Pair<PreAggStatus, List<Long>> select(
             LogicalOlapScan scan,
             Set<Slot> requiredScanOutput,
             List<Expression> predicates,
@@ -237,7 +235,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 throw new RuntimeException("Not supported keys type: " + table.getKeysType());
         }
 
-        List<Long> sortedIndexId = select(checkPreAggResult, scan, requiredScanOutput, predicates);
+        List<Long> sortedIndexId = filterAndOrder(checkPreAggResult, scan, requiredScanOutput, predicates);
         return Pair.of(preAggStatus, sortedIndexId);
     }
 

@@ -63,7 +63,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
                             return project.withChildren(filter.withChildren(
-                                    selectIndex(scan, project::getInputSlots, filter::getConjuncts)));
+                                    select(scan, project::getInputSlots, filter::getConjuncts)));
                         }).toRule(RuleType.MATERIALIZED_INDEX_PROJECT_FILTER_SCAN),
 
                 // project with filter that cannot be pushdown.
@@ -73,7 +73,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
                             return filter.withChildren(project.withChildren(
-                                    selectIndex(scan, project::getInputSlots, ImmutableList::of)
+                                    select(scan, project::getInputSlots, ImmutableList::of)
                             ));
                         }).toRule(RuleType.MATERIALIZED_INDEX_FILTER_PROJECT_SCAN),
 
@@ -82,7 +82,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 logicalFilter(logicalOlapScan().whenNot(LogicalOlapScan::isIndexSelected))
                         .then(filter -> {
                             LogicalOlapScan scan = filter.child();
-                            return filter.withChildren(selectIndex(scan, ImmutableSet::of, filter::getConjuncts));
+                            return filter.withChildren(select(scan, ImmutableSet::of, filter::getConjuncts));
                         })
                         .toRule(RuleType.MATERIALIZED_INDEX_FILTER_SCAN),
 
@@ -92,14 +92,14 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                         .then(project -> {
                             LogicalOlapScan scan = project.child();
                             return project.withChildren(
-                                    selectIndex(scan, project::getInputSlots, ImmutableList::of));
+                                    select(scan, project::getInputSlots, ImmutableList::of));
                         })
                         .toRule(RuleType.MATERIALIZED_INDEX_PROJECT_SCAN),
 
                 // only scan.
                 logicalOlapScan()
                         .whenNot(LogicalOlapScan::isIndexSelected)
-                        .then(scan -> selectIndex(scan, scan::getOutputSet, ImmutableList::of))
+                        .then(scan -> select(scan, scan::getOutputSet, ImmutableList::of))
                         .toRule(RuleType.MATERIALIZED_INDEX_SCAN)
         );
     }
@@ -112,7 +112,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
      * @param predicatesSupplier Supplier to get pushdown predicates.
      * @return Result scan node.
      */
-    private LogicalOlapScan selectIndex(
+    private LogicalOlapScan select(
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
             Supplier<List<Expression>> predicatesSupplier) {
@@ -134,13 +134,13 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                     return scan.withMaterializedIndexSelected(preAgg, ImmutableList.of(baseIndexId));
                 } else {
                     return scan.withMaterializedIndexSelected(preAgg,
-                            select(candidates.stream(), scan, requiredScanOutputSupplier.get(),
+                            filterAndOrder(candidates.stream(), scan, requiredScanOutputSupplier.get(),
                                     predicatesSupplier.get()));
                 }
             case DUP_KEYS:
                 // Set pre-aggregation to `on` to keep consistency with legacy logic.
                 return scan.withMaterializedIndexSelected(PreAggStatus.on(),
-                        select(scan.getTable().getVisibleIndex().stream(), scan, requiredScanOutputSupplier.get(),
+                        filterAndOrder(scan.getTable().getVisibleIndex().stream(), scan, requiredScanOutputSupplier.get(),
                                 predicatesSupplier.get()));
             default:
                 throw new RuntimeException("Not supported keys type: " + scan.getTable().getKeysType());
