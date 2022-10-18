@@ -174,12 +174,12 @@
                     "type": "category",
                     "label": "Expansion table",
                     "items": [
+                        "ecosystem/external-table/multi-catalog",
                         "ecosystem/external-table/doris-on-es",
                         "ecosystem/external-table/hudi-external-table",
                         "ecosystem/external-table/iceberg-of-doris",
                         "ecosystem/external-table/odbc-of-doris",
-                        "ecosystem/external-table/hive-of-doris",
-                        "ecosystem/external-table/multi-catalog"
+                        "ecosystem/external-table/hive-of-doris"
                     ]
                 },
                 "ecosystem/spark-doris-connector",
