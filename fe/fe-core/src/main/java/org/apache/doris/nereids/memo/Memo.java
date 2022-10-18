@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -351,9 +352,12 @@ public class Memo {
         Set<GroupExpression> set = source.getParentGroupExpressions().stream().filter(
                 e -> e.getOwnerGroup() != null && !e.getOwnerGroup().equals(destination)
         ).collect(Collectors.toSet());
-        if (!s.equals(set)) {
-            NereidsPlanner.builder.append(s).append('\n')
-                    .append(set).append('\n');
+        Set<GroupExpression> diff = Sets.newHashSet(s);
+        s.removeAll(set);
+        set.removeAll(diff);
+        s.addAll(set);
+        if (!s.isEmpty()) {
+            NereidsPlanner.builder.append(s).append('\n');
         }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
