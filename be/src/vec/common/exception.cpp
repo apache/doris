@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <type_traits>
 #include <typeinfo>
 
 namespace doris::vectorized {
@@ -107,8 +108,13 @@ void AbstractException::rethrow() const {
 std::string errnoToString(int code, int e) {
     const size_t buf_size = 128;
     char buf[buf_size];
-    return "errno: " + std::to_string(e) +
-           ", strerror: " + std::string(strerror_r(e, buf, sizeof(buf)));
+    auto result = strerror_r(e, buf, sizeof(buf));
+    if constexpr (std::is_same_v<decltype(result), char*>) {
+        return "errno: " + std::to_string(e) +
+               ", strerror: " + std::string(reinterpret_cast<char*>(result));
+    } else {
+        return "errno: " + std::to_string(e) + ", strerror: " + std::string(buf);
+    }
 }
 
 void throwFromErrno(const std::string& s, int code, int e) {
