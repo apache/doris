@@ -320,9 +320,11 @@ struct ConvertImplGenericFromString {
                     check_and_get_column<StringColumnType>(&col_from)) {
             auto col_to = data_type_to->create_column();
 
-            //IColumn & col_to = *res;
             size_t size = col_from.size();
             col_to->reserve(size);
+
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
 
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
@@ -332,9 +334,16 @@ struct ConvertImplGenericFromString {
                     continue;
                 }
                 ReadBuffer read_buffer((char*)(val.data), val.size);
-                RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
+                Status st = data_type_to->from_string(read_buffer, col_to);
+                // if parsing failed, will return null
+                (*vec_null_map_to)[i] = !st.ok();
+                if (!st.ok()) {
+                    col_to->insert_default();
+                }
             }
-            block.replace_by_position(result, std::move(col_to));
+            // block.replace_by_position(result, std::move(col_to));
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
             return Status::RuntimeError(
                     "Illegal column {} of first argument of conversion function from string",
@@ -870,8 +879,9 @@ struct ConvertThroughParsing {
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             UInt32 scale = additions;
             col_to = ColVecTo::create(size, scale);
-        } else
+        } else {
             col_to = ColVecTo::create(size);
+        }
 
         typename ColVecTo::Container& vec_to = col_to->get_data();
 

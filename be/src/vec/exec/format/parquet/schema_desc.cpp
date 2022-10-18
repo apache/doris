@@ -164,7 +164,7 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
         type = convert_to_doris_type(physical_schema.converted_type);
     }
     // use physical type instead
-    if (type.type ==INVALID_TYPE) {
+    if (type.type == INVALID_TYPE) {
         switch (physical_schema.type) {
         case tparquet::Type::BOOLEAN:
             type.type = TYPE_BOOLEAN;
