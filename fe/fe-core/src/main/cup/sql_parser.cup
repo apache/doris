@@ -263,6 +263,7 @@ terminal String
     KW_BEGIN,
     KW_BETWEEN,
     KW_BIGINT,
+    KW_BIN,
     KW_BINLOG,
     KW_BITMAP,
     KW_BITMAP_UNION,
@@ -336,7 +337,6 @@ terminal String
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
-    KW_DROPPED,
     KW_DUPLICATE,
     KW_DYNAMIC,
     KW_ELSE,
@@ -480,6 +480,7 @@ terminal String
     KW_POLICY,
     KW_PRECEDING,
     KW_PERCENT,
+    KW_RECYCLE,
     KW_PROC,
     KW_PROCEDURE,
     KW_PROCESSLIST,
@@ -675,7 +676,7 @@ nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
-nonterminal String select_alias, opt_table_alias, lock_alias;
+nonterminal String select_alias, opt_table_alias, lock_alias, opt_alias;
 nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
@@ -2749,15 +2750,15 @@ drop_stmt ::=
 
 // Recover statement
 recover_stmt ::=
-    KW_RECOVER KW_DATABASE ident:dbName opt_id:dbId opt_table_alias:alias
+    KW_RECOVER KW_DATABASE ident:dbName opt_id:dbId opt_alias:alias
     {:
         RESULT = new RecoverDbStmt(dbName, dbId, alias);
     :}
-    | KW_RECOVER KW_TABLE table_name:dbTblName opt_id:tableId opt_table_alias:alias
+    | KW_RECOVER KW_TABLE table_name:dbTblName opt_id:tableId opt_alias:alias
     {:
         RESULT = new RecoverTableStmt(dbTblName, tableId, alias);
     :}
-    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_table_alias:alias KW_FROM table_name:dbTblName
+    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName
     {:
         RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias);
     :}
@@ -3625,9 +3626,9 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
     :}
-    | KW_DROPPED opt_wild_where
+    | KW_CATALOG KW_RECYCLE KW_BIN opt_wild_where
     {:
-        RESULT = new ShowDroppedStmt(parser.where);
+        RESULT = new ShowCatalogRecycleBinStmt(parser.where);
     :}
     ;
 
@@ -4995,6 +4996,17 @@ opt_common_hints ::=
     |
     {:
         RESULT = null;
+    :}
+    ;
+
+opt_alias ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_AS ident:alias
+    {:
+        RESULT = alias;
     :}
     ;
 
@@ -6698,7 +6710,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_CATALOGS:id
     {: RESULT = id; :}
-    | KW_DROPPED:id
+    | KW_RECYCLE:id
     {: RESULT = id; :}
     ;
 

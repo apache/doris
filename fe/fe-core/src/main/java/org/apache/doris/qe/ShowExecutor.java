@@ -32,6 +32,7 @@ import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
+import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
@@ -47,7 +48,6 @@ import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
-import org.apache.doris.analysis.ShowDroppedStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
@@ -373,8 +373,8 @@ public class ShowExecutor {
             handleShowAnalyze();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
-        } else if (stmt instanceof ShowDroppedStmt) {
-            handleShowDropped();
+        } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
+            handleShowCatalogRecycleBin();
         } else {
             handleEmtpy();
         }
@@ -2383,8 +2383,8 @@ public class ShowExecutor {
         }
     }
 
-    private void handleShowDropped() throws AnalysisException {
-        ShowDroppedStmt showStmt = (ShowDroppedStmt) stmt;
+    private void handleShowCatalogRecycleBin() throws AnalysisException {
+        ShowCatalogRecycleBinStmt showStmt = (ShowCatalogRecycleBinStmt) stmt;
 
         Predicate<String> predicate = showStmt.getNamePredicate();
         List<List<String>> infos = Env.getCurrentRecycleBin().getInfo().stream()

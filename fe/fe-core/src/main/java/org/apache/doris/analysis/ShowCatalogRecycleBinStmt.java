@@ -30,7 +30,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.function.Predicate;
 
-public class ShowDroppedStmt extends ShowStmt {
+public class ShowCatalogRecycleBinStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Type").add("Name").add("DbId").add("TableId").add("PartitionId").add("DropTime")
             .build();
@@ -39,7 +39,7 @@ public class ShowDroppedStmt extends ShowStmt {
     private String nameValue;
     private boolean isAccurateMatch;
 
-    public ShowDroppedStmt(Expr where) {
+    public ShowCatalogRecycleBinStmt(Expr where) {
         this.where = where;
     }
 
@@ -114,7 +114,7 @@ public class ShowDroppedStmt extends ShowStmt {
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        builder.append("SHOW DROPPED");
+        builder.append("SHOW CATALOG RECYCLE BIN");
 
         builder.append(where.toSql());
         return builder.toString();
