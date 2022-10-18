@@ -236,7 +236,8 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
@@ -348,16 +349,17 @@ ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const
 }
 
 template <typename T>
-void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size,
-                                     IColumn& column) const {
-    size_t size = data.size();
+void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                                     size_t begin, int count_sz) const {
+    size_t size = count_sz < 0 ? data.size() : count_sz;
     if (0 == size) return;
 
     auto& res = reinterpret_cast<ColumnComplexType<T>&>(column);
     typename Self::Container& res_data = res.get_data();
     res_data.reserve(target_size);
 
-    for (size_t i = 0; i < size; ++i) {
+    size_t end = size + begin;
+    for (size_t i = begin; i < end; ++i) {
         size_t size_to_replicate = counts[i];
         for (size_t j = 0; j < size_to_replicate; ++j) {
             res_data.push_back(data[i]);
