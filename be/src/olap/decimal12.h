@@ -81,9 +81,9 @@ struct decimal12_t {
         char buf[128] = {'\0'};
 
         if (integer < 0 || fraction < 0) {
-            snprintf(buf, sizeof(buf), "-%lu.%09u", std::abs(integer), std::abs(fraction));
+            snprintf(buf, sizeof(buf), "-%" PRIu64 ".%09u", std::abs(integer), std::abs(fraction));
         } else {
-            snprintf(buf, sizeof(buf), "%lu.%09u", std::abs(integer), std::abs(fraction));
+            snprintf(buf, sizeof(buf), "%" PRIu64 ".%09u", std::abs(integer), std::abs(fraction));
         }
 
         return std::string(buf);
@@ -115,7 +115,7 @@ struct decimal12_t {
                 int32_t f = 0;
                 sscanf(value_string, ".%9d", &f);
             } else {
-                sscanf(value_string, "%18ld.%9d", &i, &f);
+                sscanf(value_string, "%18" PRId64 ".%9d", &i, &f);
             }
             integer = i;
             fraction = f;

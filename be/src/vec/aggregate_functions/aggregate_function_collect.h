@@ -84,7 +84,7 @@ struct AggregateFunctionCollectSetData<StringRef> {
         }
     }
     void read(BufferReadable& buf) {
-        size_t rows;
+        UInt64 rows;
         read_var_uint(rows, buf);
 
         StringRef ref;
@@ -121,7 +121,7 @@ struct AggregateFunctionCollectListData {
         buf.write(data.raw_data(), data.size() * sizeof(ElementType));
     }
     void read(BufferReadable& buf) {
-        size_t rows = 0;
+        UInt64 rows = 0;
         read_var_uint(rows, buf);
         data.resize(rows);
         buf.read(reinterpret_cast<char*>(data.data()), rows * sizeof(ElementType));
@@ -161,13 +161,13 @@ struct AggregateFunctionCollectListData<StringRef> {
 
     void read(BufferReadable& buf) {
         auto& col = assert_cast<ColVecType&>(*data);
-        size_t offs_size = 0;
+        UInt64 offs_size = 0;
         read_var_uint(offs_size, buf);
         col.get_offsets().resize(offs_size);
         buf.read(reinterpret_cast<char*>(col.get_offsets().data()),
                  offs_size * sizeof(IColumn::Offset));
 
-        size_t chars_size = 0;
+        UInt64 chars_size = 0;
         read_var_uint(chars_size, buf);
         col.get_chars().resize(chars_size);
         buf.read(reinterpret_cast<char*>(col.get_chars().data()), chars_size);
