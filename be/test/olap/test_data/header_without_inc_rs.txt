@@ -19,7 +19,8 @@
                 "is_nullable": false,
                 "length": 8,
                 "index_length": 8,
-                "visible": true
+                "visible": true,
+                "inverted_index_parser": "not_set"
             },
             {
                 "unique_id": 1,
@@ -31,7 +32,8 @@
                 "default_value": "MA==",
                 "length": 16387,
                 "index_length": 16,
-                "visible": true
+                "visible": true,
+                "inverted_index_parser": "not_set"
             },
             {
                 "unique_id": 2,
@@ -42,7 +44,8 @@
                 "is_nullable": false,
                 "length": 4,
                 "index_length": 4,
-                "visible": true
+                "visible": true,
+                "inverted_index_parser": "not_set"
             }
         ],
         "num_short_key_columns": 1,
