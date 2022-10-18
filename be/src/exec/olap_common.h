@@ -975,7 +975,6 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
             _end_scan_keys.emplace_back();
             _end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
                     range.get_range_max_value(), range.scale()));
-
         } else {
             for (int i = 0; i < _begin_scan_keys.size(); ++i) {
                 _begin_scan_keys[i].add_value(cast_to_string<primitive_type, CppType>(
@@ -988,6 +987,8 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                         range.get_range_max_value(), range.scale()));
             }
         }
+        _begin_include = range.is_begin_include();
+        _end_include = range.is_end_include();
     }
 
     return Status::OK();
