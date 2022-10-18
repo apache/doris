@@ -634,17 +634,7 @@ public final class SparkDpp implements java.io.Serializable {
         }
 
         if (fileGroup.fileFormat.equalsIgnoreCase("orc")) {
-            // orc had its own schema, but lacks of columns names, we should fix it.
-            Dataset<Row> df = spark.read().orc(fileUrl);
-            List<StructField> fields = new ArrayList<>();
-            int i = 0;
-            for (StructField field : df.schema().fields()) {
-                // user StringType to load source data
-                fields.add(DataTypes.createStructField(srcColumnsWithColumnsFromPath.get(i), field.dataType(),
-                        field.nullable()));
-                ++i;
-            }
-            Dataset<Row> dataFrame = spark.createDataFrame(df.toJavaRDD(), DataTypes.createStructType(fields));
+            Dataset<Row> dataFrame = spark.read().orc(fileUrl);
             if (!CollectionUtils.isEmpty(columnValueFromPath)) {
                 for (int k = 0; k < columnValueFromPath.size(); k++) {
                     dataFrame = dataFrame.withColumn(
