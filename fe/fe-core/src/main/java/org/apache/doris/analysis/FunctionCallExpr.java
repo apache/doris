@@ -128,6 +128,10 @@ public class FunctionCallExpr extends Expr {
         isTableFnCall = tableFnCall;
     }
 
+    public void setFnName(FunctionName fnName) {
+        this.fnName = fnName;
+    }
+
     public Function getFn() {
         return fn;
     }

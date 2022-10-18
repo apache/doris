@@ -619,7 +619,8 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
             if (!_schema_mapping[i].materialized_function.empty()) {
                 bool (*_do_materialized_transform)(RowCursor*, RowCursor*, const TabletColumn&, int,
                                                    int, MemPool*) = nullptr;
-                if (_schema_mapping[i].materialized_function == "to_bitmap") {
+                if (_schema_mapping[i].materialized_function == "to_bitmap" ||
+                    _schema_mapping[i].materialized_function == "to_bitmap_with_check") {
                     _do_materialized_transform = to_bitmap;
                 } else if (_schema_mapping[i].materialized_function == "hll_hash") {
                     _do_materialized_transform = hll_hash;

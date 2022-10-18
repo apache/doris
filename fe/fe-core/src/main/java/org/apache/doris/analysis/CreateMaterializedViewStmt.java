@@ -211,6 +211,20 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         throw new AnalysisException(
                                 "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
                     }
+
+                    // for bitmap_union(to_bitmap(column)) function, we should check value is not negative in vectorized
+                    // schema_change mode, so we should rewrite the function to bitmap_union(to_bitmap_with_check(column))
+                    if (functionName.equalsIgnoreCase("bitmap_union")) {
+                        if (functionCallExpr.getChildren().size() == 1 && functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
+                            Expr child = functionCallExpr.getChild(0);
+                            FunctionCallExpr childFunctionCallExpr = (FunctionCallExpr) child;
+                            if (childFunctionCallExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap")) {
+                                String db = childFunctionCallExpr.getFnName().getDb();
+                                FunctionName toBitmapWithCheck = new FunctionName(db, "to_bitmap_with_check");
+                                childFunctionCallExpr.setFnName(toBitmapWithCheck);
+                            }
+                        }
+                    }
                 }
                 // check duplicate column
                 List<SlotRef> slots = new ArrayList<>();
