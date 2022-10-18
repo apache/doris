@@ -59,7 +59,6 @@ import java.util.stream.Collectors;
 public class NereidsPlanner extends Planner {
     public static StringBuilder builder = new StringBuilder();
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
-
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private List<ScanNode> scanNodeList = null;
@@ -87,6 +86,7 @@ public class NereidsPlanner extends Planner {
                 FileOutputStream fs = new FileOutputStream("/mnt/disk1/mch/projects/doris/fe.log");
                 fs.write(builder.toString().getBytes(StandardCharsets.UTF_8));
                 fs.close();
+                builder = new StringBuilder();
             } catch (Exception e) {
                 e.printStackTrace();
             }
