@@ -569,11 +569,4 @@ public class Memo {
         }
         return builder.toString();
     }
-
-    public boolean checkParentExpressionInGroup() {
-        return groupExpressions.values().stream().map(expr -> Pair.of(expr, expr.children()))
-                .allMatch(pair -> pair.second.stream().allMatch(
-                        group -> group.getParentGroupExpressions().contains(pair.first)
-                ));
-    }
 }
