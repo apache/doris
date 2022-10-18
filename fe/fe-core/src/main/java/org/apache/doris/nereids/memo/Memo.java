@@ -34,6 +34,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -343,6 +344,10 @@ public class Memo {
                 needReplaceChild.add(groupExpression);
             }
         }
+        List<GroupExpression> list = source.getParentGroupExpressions().stream().filter(
+                e -> e.getOwnerGroup() != null && !e.getOwnerGroup().equals(destination)
+        ).collect(Collectors.toList());
+        Preconditions.checkArgument(list.equals(needReplaceChild));
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
