@@ -36,7 +36,6 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -357,7 +356,7 @@ public class Memo {
         diff.removeAll(s1);
         s1.removeAll(s);
         // diff = A-B, s1 = B-A
-        NereidsPlanner.builder.append(diff).append('\n').append(s1.stream().filter(Objects::nonNull)
+        NereidsPlanner.builder.append(diff).append('\n').append(s1.stream().filter(e -> e.getOwnerGroup() != null)
                 .collect(Collectors.toSet())).append('\n');
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
