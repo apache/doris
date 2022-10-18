@@ -57,6 +57,9 @@ public class RefreshDbStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        if (Strings.isNullOrEmpty(catalogName)) {
+            catalogName = ConnectContext.get().getCurrentCatalog().getName();
+        }
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }

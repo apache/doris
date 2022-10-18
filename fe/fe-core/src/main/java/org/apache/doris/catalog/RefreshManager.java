@@ -22,12 +22,12 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 
 import org.apache.logging.log4j.LogManager;
@@ -108,15 +108,15 @@ public class RefreshManager {
     }
 
     private void refreshExternalCtlDb(String dbName, CatalogIf catalog) throws DdlException {
-        if (!(catalog instanceof HMSExternalCatalog)) {
-            throw new DdlException("Only support refresh HMSExternalCatalog Database");
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support refresh ExternalCatalog Database");
         }
 
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
             throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
         }
-        ((HMSExternalDatabase) db).setUnInitialized();
+        ((ExternalDatabase) db).setUnInitialized();
     }
 
     private void refreshInternalCtlIcebergTable(RefreshTableStmt stmt, Env env) throws UserException {
@@ -143,8 +143,8 @@ public class RefreshManager {
     }
 
     private void refreshExternalCtlTable(String dbName, String tableName, CatalogIf catalog) throws DdlException {
-        if (!(catalog instanceof HMSExternalCatalog)) {
-            throw new DdlException("Only support refresh HMSExternalCatalog Tables");
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support refresh ExternalCatalog Tables");
         }
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
@@ -155,6 +155,6 @@ public class RefreshManager {
         if (table == null) {
             throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
         }
-        ((HMSExternalTable) table).setUnInitialized();
+        ((ExternalTable) table).setUnInitialized();
     }
 }

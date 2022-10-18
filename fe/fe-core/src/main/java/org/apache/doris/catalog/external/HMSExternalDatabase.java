@@ -43,7 +43,6 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     // Cache of table name to table id.
     private Map<String, Long> tableNameToId = Maps.newConcurrentMap();
     private Map<Long, HMSExternalTable> idToTbl = Maps.newHashMap();
-    private boolean initialized = false;
 
     /**
      * Create HMS external database.
@@ -70,7 +69,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
             Map<Long, HMSExternalTable> tmpIdToTbl = Maps.newHashMap();
             for (String tableName : tableNames) {
                 long tblId;
-                if (tableNameToId != null && tableNameToId.containsKey(tableName)) {
+                if (tableNameToId.containsKey(tableName)) {
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     HMSExternalTable table = idToTbl.get(tblId);
@@ -86,10 +85,6 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
             tableNameToId = tmpTableNameToId;
             idToTbl = tmpIdToTbl;
         }
-    }
-
-    public synchronized void setUnInitialized() {
-        this.initialized = false;
     }
 
     @Override
