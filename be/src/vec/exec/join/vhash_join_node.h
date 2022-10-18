@@ -98,7 +98,7 @@ using I256HashTableContext = PrimaryTypeHashTableContext<UInt256, RowRefListType
 
 template <class T, bool has_null, typename RowRefListType>
 struct FixedKeyHashTableContext {
-    using Mapped = RowRefList;
+    using Mapped = RowRefListType;
     using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
     using State = ColumnsHashing::HashMethodKeysFixed<typename HashTable::value_type, T, Mapped,
                                                       has_null, false>;
