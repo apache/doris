@@ -57,10 +57,12 @@ DORIS_HOME="$(
 )"
 export DORIS_HOME
 
-MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
-if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-    echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
-    exit 1
+if [[ "$(uname -s)" != 'Darwin' ]]; then
+    MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
+    if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
+        echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
+        exit 1
+    fi
 fi
 
 # add libs to CLASSPATH
@@ -206,13 +208,20 @@ export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {
-    total_mem_mb=$(free -m | grep Mem | awk '{print $2}')
+    local total_mem_mb
+    local mem_limit_str
+
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        total_mem_mb="$(free -m | grep Mem | awk '{print $2}')"
+    else
+        total_mem_mb="$(($(sysctl -a hw.memsize | awk '{print $NF}') / 1024))"
+    fi
     mem_limit_str=$(grep ^mem_limit "${DORIS_HOME}"/conf/be.conf)
-    digits_unit=${mem_limit_str##*=}
+    local digits_unit=${mem_limit_str##*=}
     digits_unit="${digits_unit#"${digits_unit%%[![:space:]]*}"}"
     digits_unit="${digits_unit%"${digits_unit##*[![:space:]]}"}"
-    digits=${digits_unit%%[^[:digit:]]*}
-    unit=${digits_unit##*[[:digit:] ]}
+    local digits=${digits_unit%%[^[:digit:]]*}
+    local unit=${digits_unit##*[[:digit:] ]}
 
     mem_limit_mb=0
     case ${unit} in

@@ -20,6 +20,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#include <cinttypes>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -789,7 +790,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
         int128_t value = reinterpret_cast<const PackedInt128*>(src)->value;
         if (value >= std::numeric_limits<int64_t>::min() &&
             value <= std::numeric_limits<int64_t>::max()) {
-            snprintf(buf, sizeof(buf), "%ld", (int64_t)value);
+            snprintf(buf, sizeof(buf), "%" PRId64, (int64_t)value);
         } else {
             char* current = buf;
             uint128_t abs_value = value;

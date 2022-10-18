@@ -103,10 +103,10 @@ SNAPPY_SOURCE=snappy-1.1.8
 SNAPPY_MD5SUM="70e48cba7fecf289153d009791c9977f"
 
 # gperftools
-GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/archive/gperftools-2.9.1.tar.gz"
-GPERFTOOLS_NAME=gperftools-2.9.1.tar.gz
-GPERFTOOLS_SOURCE=gperftools-gperftools-2.9.1
-GPERFTOOLS_MD5SUM="e340f1b247ff512119a2db98c1538dc1"
+GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
+GPERFTOOLS_NAME=gperftools-2.10.tar.gz
+GPERFTOOLS_SOURCE=gperftools-2.10
+GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
 
 # zlib
 ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
@@ -492,3 +492,20 @@ export TP_ARCHIVES=(
     'SSE2NEON'
     'XXHASH'
 )
+
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    #binutils
+    BINUTILS_DOWNLOAD='https://mirrors.aliyun.com/gnu/binutils/binutils-2.39.tar.gz'
+    BINUTILS_NAME=binutils-2.39.tar.gz
+    BINUTILS_SOURCE=binutils-2.39
+    BINUTILS_MD5SUM='ab6825df57514ec172331e988f55fc10'
+
+    #gettext
+    GETTEXT_DOWNLOAD='https://mirrors.aliyun.com/gnu/gettext/gettext-0.21.tar.gz'
+    GETTEXT_NAME='gettext-0.21.tar.gz'
+    GETTEXT_SOURCE='gettext-0.21'
+    GETTEXT_MD5SUM='28b1cd4c94a74428723ed966c38cf479'
+
+    read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} BINUTILS GETTEXT"
+    export TP_ARCHIVES
+fi
