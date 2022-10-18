@@ -351,14 +351,6 @@ Similar to `base_compaction_trace_threshold`.
 
 If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 
-### `cumulative_compaction_policy`
-
-* Type: string
-* Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
-* Default value: size_based
-
-In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satisfies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
-
 ### `cumulative_size_based_promotion_size_mbytes`
 
 * Type: int64
