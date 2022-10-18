@@ -117,8 +117,6 @@ void VSetOperationNode::refresh_hash_table() {
                         auto iter_end = arg.hash_table.end();
                         while (iter != iter_end) {
                             auto& mapped = iter->get_second();
-                            auto it = mapped.begin();
-
                             if constexpr (keep_matched) { //intersected
                                 if (mapped.visited) {
                                     mapped.visited = false;

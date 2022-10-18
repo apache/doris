@@ -112,7 +112,6 @@ private:
 
 /// Single linked list of references to rows. Used for ALL JOINs (non-unique JOINs)
 struct RowRefList : RowRef {
-
     RowRefList() {}
     RowRefList(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
 
