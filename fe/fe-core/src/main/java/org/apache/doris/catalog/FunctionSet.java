@@ -847,6 +847,7 @@ public class FunctionSet<T> {
                     .build();
 
     public static final String TO_BITMAP = "to_bitmap";
+    public static final String TO_BITMAP_WITH_CHECK = "to_bitmap_with_check";
     public static final String BITMAP_UNION = "bitmap_union";
     public static final String BITMAP_UNION_COUNT = "bitmap_union_count";
     public static final String BITMAP_UNION_INT = "bitmap_union_int";

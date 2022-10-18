@@ -470,7 +470,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                             CastExpr castExpr = new CastExpr(new TypeDef(Type.VARCHAR), baseSlotRef);
                             List<Expr> params = Lists.newArrayList();
                             params.add(castExpr);
-                            FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.TO_BITMAP, params);
+                            FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.TO_BITMAP_WITH_CHECK, params);
                             result.put(mvColumnBuilder(functionName, baseColumnName), defineExpr);
                         } else {
                             result.put(baseColumnName, null);
