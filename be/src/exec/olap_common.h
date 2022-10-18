@@ -254,6 +254,8 @@ public:
         _contain_null = contain_null;
     };
 
+    int precision() const { return _precision; }
+
     int scale() const { return _scale; }
 
     static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
