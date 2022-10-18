@@ -441,6 +441,7 @@ public:
         auto column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             column = nullable->get_nested_column_ptr();
+            VectorizedUtils::update_null_map(res_map->get_data(), nullable->get_null_map_data());
         }
         auto str_col = assert_cast<const ColumnString*>(column.get());
         const auto& offsets = str_col->get_offsets();
@@ -448,7 +449,8 @@ public:
         auto& res_map_data = res_map->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
             int size = offsets[i] - offsets[i - 1];
-            res_map_data[i] |= (size != 0);
+            res_map_data[i] |= (size == 0);
+            res_map_data[i] = !res_map_data[i];
         }
 
         block.replace_by_position(result, std::move(res_map));
