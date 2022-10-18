@@ -69,6 +69,8 @@ bool k_doris_exit = false;
 
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
+        !defined(USE_JEMALLOC)
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(10))) {
         size_t used_size = 0;
         size_t free_size = 0;
@@ -85,6 +87,7 @@ void Daemon::tcmalloc_gc_thread() {
             }
         }
     }
+#endif
 }
 
 void Daemon::memory_maintenance_thread() {

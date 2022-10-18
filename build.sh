@@ -229,6 +229,9 @@ fi
 if [[ -z ${USE_MEM_TRACKER} ]]; then
     USE_MEM_TRACKER=ON
 fi
+if [[ -z "${USE_JEMALLOC}" ]]; then
+    USE_JEMALLOC='OFF'
+fi
 if [[ -z ${STRICT_MEMORY_USE} ]]; then
     STRICT_MEMORY_USE=ON
 fi
@@ -251,6 +254,7 @@ echo "Get params:
     USE_LLD             -- $USE_LLD
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
     USE_MEM_TRACKER     -- $USE_MEM_TRACKER
+    USE_JEMALLOC        -- ${USE_JEMALLOC}
     STRICT_MEMORY_USE   -- $STRICT_MEMORY_USE
 "
 
@@ -289,6 +293,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_LLD=${USE_LLD} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_MEM_TRACKER=${USE_MEM_TRACKER} \
+            -DUSE_JEMALLOC="${USE_JEMALLOC}" \
             -DSTRICT_MEMORY_USE=${STRICT_MEMORY_USE} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../

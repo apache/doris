@@ -204,7 +204,7 @@ static ThreadContext* thread_context() {
         return bthread_context;
     } else {
         return thread_context_ptr._ptr;
-    // }
+    }
 }
 
 class AttachTask {

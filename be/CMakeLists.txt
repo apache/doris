@@ -426,6 +426,12 @@ if (USE_MEM_TRACKER)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_MEM_TRACKER")
 endif()
 
+# Compile with jemalloc.
+# Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc 
+if (USE_JEMALLOC)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
+endif()
+
 # STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
 # when the cluster memory is limited.
 # TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,
@@ -657,18 +663,24 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -lresolv
 )
 
+if (USE_JEMALLOC)
+    set(MALLOCLIB jemalloc)
+else ()
+    set(MALLOCLIB tcmalloc)
+endif()
+
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(ASAN_LIBS -static-libasan)
     set(LSAN_LIBS -static-liblsan)
-    set(UBSAN_LIBS -static-libubsan tcmalloc)
+    set(UBSAN_LIBS -static-libubsan ${MALLOCLIB})
     set(TSAN_LIBS -static-libtsan)
 else ()
-    set(UBSAN_LIBS -rtlib=compiler-rt tcmalloc)
+    set(UBSAN_LIBS -rtlib=compiler-rt ${MALLOCLIB})
 endif ()
 
-# Add sanitize static link flags or tcmalloc
+# Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} tcmalloc)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")

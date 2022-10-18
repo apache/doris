@@ -314,7 +314,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
     // not backed by physical pages and do not contribute towards memory consumption.
     if (doris::config::tc_enable_aggressive_memory_decommit) {
@@ -457,16 +458,16 @@ int main(int argc, char** argv) {
         __lsan_do_leak_check();
 #endif
         doris::PerfCounters::refresh_proc_status();
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
+        !defined(USE_JEMALLOC)
         doris::MemInfo::refresh_allocator_mem();
-#endif
         int64_t allocator_cache_mem_diff =
                 doris::MemInfo::allocator_cache_mem() -
                 doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consumption();
         doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consume(
                 allocator_cache_mem_diff);
         CONSUME_THREAD_MEM_TRACKER(allocator_cache_mem_diff);
-
+#endif
         // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         // The process tracker print log usage interval is 1s to avoid a large number of tasks being
