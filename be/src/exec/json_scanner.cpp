@@ -36,6 +36,8 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : BaseScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           _cur_file_reader(nullptr),
+          _cur_file_reader_s(nullptr),
+          _real_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_json_reader(nullptr),
           _cur_reader_eof(false),
@@ -61,7 +63,7 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool*
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
-        if (!_cur_file_reader || _cur_reader_eof) {
+        if (!_real_reader || _cur_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
             // If there isn't any more reader, break this
             if (_scanner_eof) {
@@ -127,11 +129,17 @@ Status JsonScanner::open_file_reader() {
         _read_json_by_line = range.read_json_by_line;
     }
 
-    RETURN_IF_ERROR(FileFactory::create_file_reader(range.file_type, _state->exec_env(), _profile,
-                                                    _broker_addresses, _params.properties, range,
-                                                    start_offset, _cur_file_reader));
+    if (range.file_type == TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(range.load_id, _cur_file_reader_s));
+        _real_reader = _cur_file_reader_s.get();
+    } else {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                range.file_type, _state->exec_env(), _profile, _broker_addresses,
+                _params.properties, range, start_offset, _cur_file_reader));
+        _real_reader = _cur_file_reader.get();
+    }
     _cur_reader_eof = false;
-    return _cur_file_reader->open();
+    return _real_reader->open();
 }
 
 Status JsonScanner::open_line_reader() {
@@ -148,7 +156,7 @@ Status JsonScanner::open_line_reader() {
     } else {
         _skip_next_line = false;
     }
-    _cur_line_reader = new PlainTextLineReader(_profile, _cur_file_reader.get(), nullptr, size,
+    _cur_line_reader = new PlainTextLineReader(_profile, _real_reader, nullptr, size,
                                                _line_delimiter, _line_delimiter_length);
     _cur_reader_eof = false;
     return Status::OK();
@@ -173,9 +181,8 @@ Status JsonScanner::open_json_reader() {
                 new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
                                fuzzy_parse, &_scanner_eof, nullptr, _cur_line_reader);
     } else {
-        _cur_json_reader =
-                new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
-                               fuzzy_parse, &_scanner_eof, _cur_file_reader.get());
+        _cur_json_reader = new JsonReader(_state, _counter, _profile, strip_outer_array,
+                                          num_as_string, fuzzy_parse, &_scanner_eof, _real_reader);
     }
 
     RETURN_IF_ERROR(_cur_json_reader->init(jsonpath, json_root));
@@ -247,6 +254,9 @@ JsonReader::JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProf
           _strip_outer_array(strip_outer_array),
           _num_as_string(num_as_string),
           _fuzzy_parse(fuzzy_parse),
+          _value_allocator(_value_buffer, sizeof(_value_buffer)),
+          _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
+          _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _json_doc(nullptr),
           _scanner_eof(scanner_eof) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
@@ -343,6 +353,8 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
         return Status::OK();
     }
 
+    // clear memory here.
+    _origin_json_doc.GetAllocator().Clear();
     bool has_parse_error = false;
     // parse jsondata to JsonDoc
 
@@ -478,10 +490,10 @@ Status JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator val
             wbytes = sprintf((char*)tmp_buf, "%d", value->GetInt());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else if (value->IsUint64()) {
-            wbytes = sprintf((char*)tmp_buf, "%lu", value->GetUint64());
+            wbytes = sprintf((char*)tmp_buf, "%" PRIu64, value->GetUint64());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else if (value->IsInt64()) {
-            wbytes = sprintf((char*)tmp_buf, "%ld", value->GetInt64());
+            wbytes = sprintf((char*)tmp_buf, "%" PRId64, value->GetInt64());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else {
             wbytes = sprintf((char*)tmp_buf, "%f", value->GetDouble());

@@ -206,7 +206,23 @@ public abstract class LoadScanNode extends ScanNode {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
                 expr.analyze(analyzer);
             }
-            expr = castToSlot(destSlotDesc, expr);
+
+            PrimitiveType dstType = destSlotDesc.getType().getPrimitiveType();
+            PrimitiveType srcType = expr.getType().getPrimitiveType();
+            if (dstType == PrimitiveType.JSONB
+                    && (srcType == PrimitiveType.VARCHAR || srcType == PrimitiveType.STRING)) {
+                List<Expr> args = Lists.newArrayList();
+                args.add(expr);
+                String nullable = "notnull";
+                if (destSlotDesc.getIsNullable() || expr.isNullable()) {
+                    nullable = "nullable";
+                }
+                String name = "jsonb_parse_" + nullable + "_error_to_invalid";
+                expr = new FunctionCallExpr(name, args);
+                expr.analyze(analyzer);
+            } else {
+                expr = castToSlot(destSlotDesc, expr);
+            }
             params.putToExprOfDestSlot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
         params.setDestSidToSrcSidWithoutTrans(destSidToSrcSidWithoutTrans);

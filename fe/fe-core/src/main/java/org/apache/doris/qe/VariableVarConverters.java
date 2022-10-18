@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Maps;
+import org.apache.commons.lang.StringUtils;
 
 import java.util.Map;
 
@@ -45,6 +46,8 @@ public class VariableVarConverters {
         converters.put(SessionVariable.SQL_MODE, sqlModeConverter);
         RuntimeFilterTypeConverter runtimeFilterTypeConverter = new RuntimeFilterTypeConverter();
         converters.put(SessionVariable.RUNTIME_FILTER_TYPE, runtimeFilterTypeConverter);
+        ValidatePasswordPolicyConverter validatePasswordPolicyConverter = new ValidatePasswordPolicyConverter();
+        converters.put(GlobalVariable.VALIDATE_PASSWORD_POLICY, validatePasswordPolicyConverter);
     }
 
     public static Boolean hasConverter(String varName) {
@@ -90,6 +93,37 @@ public class VariableVarConverters {
         @Override
         public String decode(Long value) throws DdlException {
             return RuntimeFilterTypeHelper.decode(value);
+        }
+    }
+
+    public static class ValidatePasswordPolicyConverter implements VariableVarConverterI {
+        @Override
+        public Long encode(String value) throws DdlException {
+            if (StringUtils.isNumeric(value)) {
+                long val = Long.valueOf(value);
+                if (val != GlobalVariable.VALIDATE_PASSWORD_POLICY_DISABLED
+                        && val != GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG) {
+                    throw new DdlException("Invalid validate_password_policy value: " + value);
+                }
+                return val;
+            } else if (value.equalsIgnoreCase("NONE")) {
+                return 0L;
+            } else if (value.equalsIgnoreCase("STRONG")) {
+                return 2L;
+            } else {
+                throw new DdlException("Invalid validate_password_policy value: " + value);
+            }
+        }
+
+        @Override
+        public String decode(Long value) throws DdlException {
+            if (value == GlobalVariable.VALIDATE_PASSWORD_POLICY_DISABLED) {
+                return "NONE";
+            } else if (value == GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG) {
+                return "STRONG";
+            } else {
+                throw new DdlException("Invalid validate_password_policy value: " + value);
+            }
         }
     }
 }

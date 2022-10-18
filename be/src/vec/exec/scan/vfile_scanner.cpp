@@ -30,6 +30,8 @@
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "vec/exec/format/csv/csv_reader.h"
+#include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/functions/simple_function_factory.h"
@@ -37,9 +39,8 @@
 namespace doris::vectorized {
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                           const TFileScanRange& scan_range, MemTracker* tracker,
-                           RuntimeProfile* profile)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, tracker),
+                           const TFileScanRange& scan_range, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _params(scan_range.params),
           _ranges(scan_range.ranges),
           _next_range(0),
@@ -47,12 +48,15 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _cur_reader_eof(false),
           _mem_pool(std::make_unique<MemPool>()),
           _profile(profile),
-          _strict_mode(false) {}
+          _strict_mode(false) {
+    if (scan_range.params.__isset.strict_mode) {
+        _strict_mode = scan_range.params.strict_mode;
+    }
+}
 
 Status VFileScanner::prepare(
         VExprContext** vconjunct_ctx_ptr,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     _colname_to_value_range = colname_to_value_range;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
@@ -159,11 +163,11 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     } while (true);
 
     // Update filtered rows and unselected rows for load, reset counter.
-    {
-        state->update_num_rows_load_filtered(_counter.num_rows_filtered);
-        state->update_num_rows_load_unselected(_counter.num_rows_unselected);
-        _reset_counter();
-    }
+    // {
+    //     state->update_num_rows_load_filtered(_counter.num_rows_filtered);
+    //     state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    //     _reset_counter();
+    // }
 
     return Status::OK();
 }
@@ -448,7 +452,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                     "filter column"));
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
     _counter.num_rows_filtered += rows - block->rows();
-
     return Status::OK();
 }
 
@@ -462,22 +465,8 @@ Status VFileScanner::_get_next_reader() {
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
 
-        // 1. create file reader
-        // TODO: Each format requires its own FileReader to achieve a special access mode,
-        //  so create the FileReader inner the format.
-        std::unique_ptr<FileReader> file_reader;
-        if (_params.format_type != TFileFormatType::FORMAT_PARQUET) {
-            RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
-                                                            range, file_reader));
-            RETURN_IF_ERROR(file_reader->open());
-            if (file_reader->size() == 0) {
-                file_reader->close();
-                continue;
-            }
-        }
-
-        // 2. create reader for specific format
-        // TODO: add csv, json, avro
+        // create reader for specific format
+        // TODO: add json, avro
         Status init_status;
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
@@ -489,12 +478,21 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            _cur_reader.reset(new ORCReaderWrap(_state, _file_slot_descs, file_reader.release(),
-                                                _num_of_columns_from_file, range.start_offset,
-                                                range.size, false));
-            init_status =
-                    ((ORCReaderWrap*)(_cur_reader.get()))
-                            ->init_reader(_real_tuple_desc, _conjunct_ctxs, _state->timezone());
+            _cur_reader.reset(new OrcReader(_profile, _params, range, _file_col_names,
+                                            _state->query_options().batch_size,
+                                            _state->timezone()));
+            init_status = ((OrcReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
+            break;
+        }
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE: {
+            _cur_reader.reset(
+                    new CsvReader(_state, _profile, &_counter, _params, range, _file_slot_descs));
+            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         default:

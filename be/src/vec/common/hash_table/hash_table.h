@@ -428,8 +428,6 @@ class HashTable : private boost::noncopyable,
                                              Cell> /// empty base optimization
 {
 protected:
-    friend class const_iterator;
-    friend class iterator;
     friend class Reader;
 
     template <typename, typename, typename, typename, typename, typename, size_t>
@@ -908,6 +906,26 @@ public:
         __builtin_prefetch(&buf[place_value]);
     }
 
+    template <bool READ>
+    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
+    }
+
+    template <bool READ, typename KeyHolder>
+    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        const auto& key = key_holder_get_key(key_holder);
+        auto hash_value = hash(key);
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
+    }
+
     /// Reinsert node pointed to by iterator
     void ALWAYS_INLINE reinsert(iterator& it, size_t hash_value) {
         reinsert(*it.get_ptr(), hash_value);
@@ -954,6 +972,12 @@ public:
         const auto& key = key_holder_get_key(key_holder);
         if (!emplace_if_zero(key, it, inserted, hash_value))
             emplace_non_zero(key_holder, it, inserted, hash_value);
+    }
+
+    template <typename KeyHolder>
+    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                               bool& inserted) {
+        emplace(key_holder, it, inserted, hash_value);
     }
 
     template <typename KeyHolder, typename Func>
@@ -1031,7 +1055,7 @@ public:
         this->clear_get_has_zero();
         m_size = 0;
 
-        size_t new_size = 0;
+        doris::vectorized::UInt64 new_size = 0;
         doris::vectorized::read_var_uint(new_size, rb);
 
         free();

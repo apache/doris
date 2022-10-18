@@ -46,6 +46,20 @@ public:
 
     const VExpr* get_impl() const override { return _impl; }
 
+    // if filter rate less than this, bloom filter will set always true
+    constexpr static double EXPECTED_FILTER_RATE = 0.4;
+
+    static void calculate_filter(int64_t filter_rows, int64_t scan_rows, bool& has_calculate,
+                                 bool& always_true) {
+        if ((!has_calculate) && (scan_rows > config::bloom_filter_predicate_check_row_num)) {
+            if (filter_rows / (scan_rows * 1.0) <
+                vectorized::VRuntimeFilterWrapper::EXPECTED_FILTER_RATE) {
+                always_true = true;
+            }
+            has_calculate = true;
+        }
+    }
+
 private:
     VExpr* _impl;
 
@@ -55,10 +69,6 @@ private:
     std::atomic<int64_t> _scan_rows;
 
     bool _has_calculate_filter = false;
-    // loop size must be power of 2
-    constexpr static int64_t THRESHOLD_TO_CALCULATE_RATE = 8192;
-    // if filter rate less than this, bloom filter will set always true
-    constexpr static double EXPECTED_FILTER_RATE = 0.2;
 
     std::string _expr_name;
 };

@@ -119,16 +119,19 @@ public:
 
     std::shared_ptr<MemTrackerLimiter> process_mem_tracker() { return _process_mem_tracker; }
     void set_global_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& process_tracker,
-                                const std::shared_ptr<MemTrackerLimiter>& orphan_tracker) {
+                                const std::shared_ptr<MemTrackerLimiter>& orphan_tracker,
+                                const std::shared_ptr<MemTrackerLimiter>& bthread_mem_tracker) {
         _process_mem_tracker = process_tracker;
         _orphan_mem_tracker = orphan_tracker;
         _orphan_mem_tracker_raw = orphan_tracker.get();
+        _bthread_mem_tracker = bthread_mem_tracker;
     }
     std::shared_ptr<MemTracker> allocator_cache_mem_tracker() {
         return _allocator_cache_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
+    std::shared_ptr<MemTrackerLimiter> bthread_mem_tracker() { return _bthread_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
     MemTrackerTaskPool* task_pool_mem_tracker_registry() { return _task_pool_mem_tracker_registry; }
@@ -145,12 +148,8 @@ public:
     ThreadPoolToken* get_serial_download_cache_thread_token() {
         return _serial_download_cache_thread_token.get();
     }
-    void init_download_cache_buf() {
-        std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
-        memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
-        _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
-                std::move(download_cache_buf);
-    }
+    void init_download_cache_buf();
+    void init_download_cache_required_components();
     char* get_download_cache_buf(ThreadPoolToken* token) {
         if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
             return nullptr;
@@ -227,6 +226,8 @@ private:
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
+    // Bthread default mem tracker
+    std::shared_ptr<MemTrackerLimiter> _bthread_mem_tracker;
     // The ancestor for all querys tracker.
     std::shared_ptr<MemTrackerLimiter> _query_pool_mem_tracker;
     // The ancestor for all load tracker.

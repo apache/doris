@@ -84,6 +84,7 @@ suite("test_load_json_null_to_nullable", "p0") {
 
         load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
+        sql "sync"
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
 
@@ -99,6 +100,7 @@ suite("test_load_json_null_to_nullable", "p0") {
 
         load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
+        sql "sync"
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
 

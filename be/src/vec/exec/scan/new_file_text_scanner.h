@@ -29,8 +29,8 @@ namespace doris::vectorized {
 class NewFileTextScanner : public NewFileScanner {
 public:
     NewFileTextScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                       const TFileScanRange& scan_range, MemTracker* tracker,
-                       RuntimeProfile* profile, const std::vector<TExpr>& pre_filter_texprs);
+                       const TFileScanRange& scan_range, RuntimeProfile* profile,
+                       const std::vector<TExpr>& pre_filter_texprs);
 
     Status open(RuntimeState* state) override;
 
@@ -47,7 +47,7 @@ private:
     Status _line_split_to_values(const Slice& line);
     Status _split_line(const Slice& line);
     // Reader
-    std::shared_ptr<FileReader> _cur_file_reader;
+    std::unique_ptr<FileReader> _cur_file_reader;
     LineReader* _cur_line_reader;
     bool _cur_line_reader_eof;
 

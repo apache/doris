@@ -124,7 +124,11 @@ public:
 
     size_t size() const { return _size; }
     T* access() const {
+#ifdef __APPLE__
+        size_t cpu_id = 0;
+#else
         size_t cpu_id = sched_getcpu();
+#endif
         if (cpu_id >= _size) {
             cpu_id &= _size - 1;
         }

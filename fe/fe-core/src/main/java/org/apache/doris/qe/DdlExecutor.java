@@ -41,6 +41,7 @@ import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.AlterTableStmt;
+import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.BackupStmt;
@@ -83,6 +84,7 @@ import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
+import org.apache.doris.analysis.DropTableStatsStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
@@ -336,6 +338,10 @@ public class DdlExecutor {
             env.refreshMaterializedView((RefreshMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
             env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterUserStmt) {
+            env.getAuth().alterUser((AlterUserStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropTableStatsStmt) {
+            env.getStatisticsManager().dropStats((DropTableStatsStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

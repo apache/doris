@@ -37,6 +37,5 @@ protected:
 private:
     std::string _table_name;
     TOdbcScanNode _odbc_scan_node;
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
 };
 } // namespace doris::vectorized

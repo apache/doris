@@ -25,17 +25,18 @@
 #include <sstream>
 #include <valarray>
 
+#include "common/config.h"
 #include "runtime/datetime_value.h"
 #include "util/timezone_utils.h"
 
 namespace doris::vectorized {
 
-static int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+static constexpr int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", NULL};
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
-static const char* s_ab_day_name[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", NULL};
+static const char* s_ab_day_name[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", nullptr};
 
 uint8_t mysql_week_mode(uint32_t mode) {
     mode &= 7;
@@ -1668,6 +1669,67 @@ void VecDateTimeValue::set_time(uint32_t year, uint32_t month, uint32_t day, uin
     _second = second;
 }
 
+template <TimeUnit unit>
+bool VecDateTimeValue::datetime_trunc() {
+    if (!is_valid_date()) {
+        return false;
+    }
+    switch (unit) {
+    case SECOND: {
+        break;
+    }
+    case MINUTE: {
+        _second = 0;
+        break;
+    }
+    case HOUR: {
+        _second = 0;
+        _minute = 0;
+        break;
+    }
+    case DAY: {
+        _second = 0;
+        _minute = 0;
+        _hour = 0;
+        break;
+    }
+    case MONTH: {
+        _second = 0;
+        _minute = 0;
+        _hour = 0;
+        _day = 1;
+        break;
+    }
+    case QUARTER: {
+        _second = 0;
+        _minute = 0;
+        _hour = 0;
+        _day = 1;
+        if (_month <= 3) {
+            _month = 1;
+        } else if (_month <= 6) {
+            _month = 4;
+        } else if (_month <= 9) {
+            _month = 7;
+        } else {
+            _month = 10;
+        }
+        break;
+    }
+    case YEAR: {
+        _second = 0;
+        _minute = 0;
+        _hour = 0;
+        _day = 1;
+        _month = 1;
+        break;
+    }
+    default:
+        return false;
+    }
+    return true;
+}
+
 template <typename T>
 void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type) {
     if constexpr (std::is_same_v<T, DateV2ValueType>) {
@@ -2596,6 +2658,78 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
 }
 
 template <typename T>
+template <TimeUnit unit>
+bool DateV2Value<T>::datetime_trunc() {
+    if constexpr (is_datetime) {
+        if (!is_valid_date()) {
+            return false;
+        }
+        switch (unit) {
+        case SECOND: {
+            date_v2_value_.microsecond_ = 0;
+            break;
+        }
+        case MINUTE: {
+            date_v2_value_.microsecond_ = 0;
+            date_v2_value_.second_ = 0;
+            break;
+        }
+        case HOUR: {
+            date_v2_value_.microsecond_ = 0;
+            date_v2_value_.second_ = 0;
+            date_v2_value_.minute_ = 0;
+            break;
+        }
+        case DAY: {
+            date_v2_value_.microsecond_ = 0;
+            date_v2_value_.second_ = 0;
+            date_v2_value_.minute_ = 0;
+            date_v2_value_.hour_ = 0;
+            break;
+        }
+        case MONTH: {
+            date_v2_value_.microsecond_ = 0;
+            date_v2_value_.second_ = 0;
+            date_v2_value_.minute_ = 0;
+            date_v2_value_.hour_ = 0;
+            date_v2_value_.day_ = 1;
+            break;
+        }
+        case QUARTER: {
+            date_v2_value_.microsecond_ = 0;
+            date_v2_value_.second_ = 0;
+            date_v2_value_.minute_ = 0;
+            date_v2_value_.hour_ = 0;
+            date_v2_value_.day_ = 1;
+            if (date_v2_value_.month_ <= 3) {
+                date_v2_value_.month_ = 1;
+            } else if (date_v2_value_.month_ <= 6) {
+                date_v2_value_.month_ = 4;
+            } else if (date_v2_value_.month_ <= 9) {
+                date_v2_value_.month_ = 7;
+            } else {
+                date_v2_value_.month_ = 10;
+            }
+            break;
+        }
+        case YEAR: {
+            date_v2_value_.microsecond_ = 0;
+            date_v2_value_.second_ = 0;
+            date_v2_value_.minute_ = 0;
+            date_v2_value_.hour_ = 0;
+            date_v2_value_.day_ = 1;
+            date_v2_value_.month_ = 1;
+            break;
+        }
+        default:
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+template <typename T>
 bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const std::string& timezone) const {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
@@ -3265,5 +3399,32 @@ template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUAR
         const TimeInterval& interval);
 template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK>(
         const TimeInterval& interval);
+
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::SECOND>();
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::MINUTE>();
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::HOUR>();
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::DAY>();
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::MONTH>();
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::YEAR>();
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::QUARTER>();
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::WEEK>();
+
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::HOUR>();
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::DAY>();
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::MONTH>();
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
+
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::HOUR>();
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::DAY>();
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MONTH>();
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
 
 } // namespace doris::vectorized

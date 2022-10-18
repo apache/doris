@@ -114,7 +114,7 @@ if [[ "$#" != 1 ]]; then
 fi
 
 CMAKE_BUILD_TYPE="${BUILD_TYPE:-ASAN}"
-CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
+CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
@@ -135,7 +135,19 @@ if [[ ! -d "${CMAKE_BUILD_DIR}" ]]; then
 fi
 
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    GLIBC_COMPATIBILITY='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        GLIBC_COMPATIBILITY='ON'
+    else
+        GLIBC_COMPATIBILITY='OFF'
+    fi
+fi
+
+if [[ -z "${USE_LIBCPP}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
 fi
 
 if [[ -z "${USE_DWARF}" ]]; then
@@ -153,6 +165,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
+    -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
     -DWITH_MYSQL=OFF \

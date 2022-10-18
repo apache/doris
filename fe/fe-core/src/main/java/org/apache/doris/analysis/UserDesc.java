@@ -20,28 +20,34 @@ package org.apache.doris.analysis;
 // Description of user in SQL statement
 public class UserDesc {
     private UserIdentity userIdent;
-    private String password;
-    private boolean isPlain;
+    private PassVar passVar;
+    private boolean hasPassword = true;
 
     public UserDesc(UserIdentity userIdent) {
-        this(userIdent, "", false);
+        this(userIdent, new PassVar("", false));
+        hasPassword = false;
     }
 
-    public UserDesc(UserIdentity userIdent, String password, boolean isPlain) {
+    public UserDesc(UserIdentity userIdent, PassVar passVar) {
         this.userIdent = userIdent;
-        this.password = password;
-        this.isPlain = isPlain;
+        this.passVar = passVar;
+    }
+
+    // For unit test only
+    public UserDesc(UserIdentity userIdent, String text, boolean isPlain) {
+        this.userIdent = userIdent;
+        this.passVar = new PassVar(text, isPlain);
     }
 
     public UserIdentity getUserIdent() {
         return userIdent;
     }
 
-    public String getPassword() {
-        return password;
+    public PassVar getPassVar() {
+        return passVar;
     }
 
-    public boolean isPlain() {
-        return isPlain;
+    public boolean hasPassword() {
+        return hasPassword;
     }
 }

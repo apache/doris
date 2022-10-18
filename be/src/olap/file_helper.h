@@ -95,8 +95,11 @@ private:
 
     int _fd;
     off_t _wr_length;
-    const int64_t _cache_threshold = 1 << 19;
     std::string _file_name;
+
+#ifndef __APPLE__
+    const int64_t _cache_threshold = 1 << 19;
+#endif
 };
 
 class FileHandlerWithBuf {

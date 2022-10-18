@@ -67,6 +67,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
@@ -357,5 +360,17 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitUnboundStar(UnboundStar unboundStar, C context) {
         return visitNamedExpression(unboundStar, context);
+    }
+
+    public R visitYear(Year year, C context) {
+        return visitBoundFunction(year, context);
+    }
+
+    public R visitWeekOfYear(WeekOfYear weekOfYear, C context) {
+        return visitBoundFunction(weekOfYear, context);
+    }
+
+    public R visitSubstring(Substring substring, C context) {
+        return visitBoundFunction(substring, context);
     }
 }

@@ -28,9 +28,9 @@ namespace doris::vectorized {
 
 NewFileArrowScanner::NewFileArrowScanner(RuntimeState* state, NewFileScanNode* parent,
                                          int64_t limit, const TFileScanRange& scan_range,
-                                         MemTracker* tracker, RuntimeProfile* profile,
+                                         RuntimeProfile* profile,
                                          const std::vector<TExpr>& pre_filter_texprs)
-        : NewFileScanner(state, parent, limit, scan_range, tracker, profile, pre_filter_texprs),
+        : NewFileScanner(state, parent, limit, scan_range, profile, pre_filter_texprs),
           _cur_file_reader(nullptr),
           _cur_file_eof(false),
           _batch(nullptr),
@@ -39,7 +39,6 @@ NewFileArrowScanner::NewFileArrowScanner(RuntimeState* state, NewFileScanNode* p
 Status NewFileArrowScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(NewFileScanner::open(state));
     // SCOPED_TIMER(_parent->_reader_init_timer);
-    // SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     // _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
     return Status::OK();
@@ -203,9 +202,9 @@ Status NewFileArrowScanner::_open_next_reader() {
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
-
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params,
-                                                        range, file_reader));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _params, range.path,
+                                                        range.start_offset, range.file_size, 0,
+                                                        file_reader));
         RETURN_IF_ERROR(file_reader->open());
         if (file_reader->size() == 0) {
             file_reader->close();
@@ -239,10 +238,9 @@ Status NewFileArrowScanner::_open_next_reader() {
 
 NewFileParquetScanner::NewFileParquetScanner(RuntimeState* state, NewFileScanNode* parent,
                                              int64_t limit, const TFileScanRange& scan_range,
-                                             MemTracker* tracker, RuntimeProfile* profile,
+                                             RuntimeProfile* profile,
                                              const std::vector<TExpr>& pre_filter_texprs)
-        : NewFileArrowScanner(state, parent, limit, scan_range, tracker, profile,
-                              pre_filter_texprs) {
+        : NewFileArrowScanner(state, parent, limit, scan_range, profile, pre_filter_texprs) {
     //        _init_profiles(profile);
 }
 
@@ -254,11 +252,9 @@ ArrowReaderWrap* NewFileParquetScanner::_new_arrow_reader(
 }
 
 NewFileORCScanner::NewFileORCScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                                     const TFileScanRange& scan_range, MemTracker* tracker,
-                                     RuntimeProfile* profile,
+                                     const TFileScanRange& scan_range, RuntimeProfile* profile,
                                      const std::vector<TExpr>& pre_filter_texprs)
-        : NewFileArrowScanner(state, parent, limit, scan_range, tracker, profile,
-                              pre_filter_texprs) {}
+        : NewFileArrowScanner(state, parent, limit, scan_range, profile, pre_filter_texprs) {}
 
 ArrowReaderWrap* NewFileORCScanner::_new_arrow_reader(
         const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader,

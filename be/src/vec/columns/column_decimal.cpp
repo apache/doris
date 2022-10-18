@@ -164,9 +164,18 @@ template <typename T>
 void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
                                                 const uint8_t* __restrict null_data) const {
     auto s = size();
-    for (int i = 0; i < s; i++) {
-        hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
-                                               hashes[i]);
+    if (null_data) {
+        for (int i = 0; i < s; i++) {
+            if (null_data[i] == 0) {
+                hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                       sizeof(T), hashes[i]);
+            }
+        }
+    } else {
+        for (int i = 0; i < s; i++) {
+            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                   sizeof(T), hashes[i]);
+        }
     }
 }
 
@@ -338,16 +347,17 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size,
-                                 IColumn& column) const {
-    size_t size = data.size();
+void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                                 size_t begin, int count_sz) const {
+    size_t size = count_sz < 0 ? data.size() : count_sz;
     if (0 == size) return;
 
     auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
     typename Self::Container& res_data = res.get_data();
     res_data.reserve(target_size);
 
-    for (size_t i = 0; i < size; ++i) {
+    size_t end = size + begin;
+    for (size_t i = begin; i < end; ++i) {
         res_data.add_num_element_without_reserve(data[i], counts[i]);
     }
 }

@@ -350,6 +350,27 @@ StringVal StringFunctions::upper(FunctionContext* context, const StringVal& str)
     return result;
 }
 
+StringVal StringFunctions::initcap(FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return StringVal::null();
+    }
+    StringVal result(context, str.len);
+
+    simd::VStringFunctions::to_lower(str.ptr, str.len, result.ptr);
+
+    bool need_capitalize = true;
+    for (int64_t i = 0; i < str.len; ++i) {
+        if (!::isalnum(result.ptr[i])) {
+            need_capitalize = true;
+        } else if (need_capitalize) {
+            result.ptr[i] = ::toupper(result.ptr[i]);
+            need_capitalize = false;
+        }
+    }
+
+    return result;
+}
+
 StringVal StringFunctions::reverse(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return StringVal::null();

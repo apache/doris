@@ -45,6 +45,31 @@ suite("aggregate") {
             )
         """
 
+    def tableName2 = "datetype2"
+
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName2} (
+                c_bigint bigint,
+                c_double double,
+                c_string string,
+                c_date date,
+                c_timestamp datetime,
+                c_date_1 datev2,
+                c_timestamp_1 datetimev2,
+                c_timestamp_2 datetimev2(3),
+                c_timestamp_3 datetimev2(6),
+                c_boolean boolean,
+                c_short_decimal decimal(5,2),
+                c_long_decimal decimal(27,9)
+            )
+            DUPLICATE KEY(c_bigint)
+            DISTRIBUTED BY HASH(c_bigint) BUCKETS 1
+            PROPERTIES (
+              "replication_num" = "1"
+            )
+        """
+
     streamLoad {
         // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
         // db 'regression_test'
@@ -78,6 +103,8 @@ suite("aggregate") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
+
+    sql "insert into ${tableName2} values (12, 12.25, 'String1', '1999-01-08', '1999-01-08 02:05:06', '1999-01-08', '1999-01-08 02:05:06.111111', null, '1999-01-08 02:05:06.111111', 'true', null, 12345678901234567890.0123456789);"
 
     sql " sync "
     qt_aggregate """ select max(upper(c_string)), min(upper(c_string)) from ${tableName} """
@@ -136,6 +163,10 @@ suite("aggregate") {
                     'again'
                     ELSE 'other' end
                  """
+    
+    qt_aggregate """ select any(c_bigint), any(c_double),any(c_string), any(c_date), any(c_timestamp),any_value(c_date_1), any(c_timestamp_1), 
+                 any_value(c_timestamp_2), any(c_timestamp_3) , any(c_boolean), any(c_short_decimal), any(c_long_decimal)from ${tableName2} """
+
 
     sql "use test_query_db"
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]

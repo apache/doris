@@ -36,7 +36,7 @@ struct MinusImpl {
 
     template <typename Result = DecimalV2Value>
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b) {
-        return a - b;
+        return DecimalV2Value(a.value() - b.value());
     }
 
     /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.

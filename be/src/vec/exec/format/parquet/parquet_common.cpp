@@ -134,6 +134,12 @@ Status FixLengthDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t leng
     }
     _has_dict = true;
     _dict = std::move(dict);
+    char* dict_item_address = reinterpret_cast<char*>(_dict.get());
+    _dict_items.resize(num_values);
+    for (size_t i = 0; i < num_values; ++i) {
+        _dict_items[i] = dict_item_address;
+        dict_item_address += _type_length;
+    }
     return Status::OK();
 }
 
@@ -262,12 +268,13 @@ Status ByteArrayDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t leng
                                   size_t num_values) {
     _has_dict = true;
     _dict = std::move(dict);
-    _dict_offsets.resize(num_values + 1);
+    _dict_items.reserve(num_values);
     uint32_t offset_cursor = 0;
+    char* dict_item_address = reinterpret_cast<char*>(_dict.get());
     for (int i = 0; i < num_values; ++i) {
         uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
         offset_cursor += 4;
-        _dict_offsets[i] = offset_cursor;
+        _dict_items.emplace_back(dict_item_address + offset_cursor, l);
         offset_cursor += l;
         if (offset_cursor > length) {
             return Status::Corruption("Wrong data length in dictionary");
@@ -276,7 +283,6 @@ Status ByteArrayDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t leng
     if (offset_cursor != length) {
         return Status::Corruption("Wrong dictionary data for byte array type");
     }
-    _dict_offsets[num_values] = offset_cursor + 4;
     return Status::OK();
 }
 
@@ -326,10 +332,7 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
         string_values.reserve(num_values);
         for (int i = 0; i < num_values; ++i) {
             if (_has_dict) {
-                uint32_t idx = _indexes[i];
-                uint32_t idx_cursor = _dict_offsets[idx];
-                char* buff_start = reinterpret_cast<char*>(_dict.get() + idx_cursor);
-                string_values.emplace_back(buff_start, _dict_offsets[idx + 1] - idx_cursor - 4);
+                string_values.emplace_back(_dict_items[_indexes[i]]);
             } else {
                 if (UNLIKELY(_offset + 4 > _data->size)) {
                     return Status::IOError("Can't read byte array length from plain decoder");
@@ -388,14 +391,27 @@ Status BoolPlainDecoder::skip_values(size_t num_values) {
 Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                        size_t num_values) {
     auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
-    auto origin_size = column_data.size();
-    column_data.resize(origin_size + num_values);
-    bool value;
-    for (int i = 0; i < num_values; ++i) {
-        if (UNLIKELY(!_decode_value(&value))) {
-            return Status::IOError("Can't read enough booleans in plain decoder");
+    int has_read = 0;
+    while (has_read < num_values) {
+        int loop_read =
+                std::min((int)num_values - has_read, num_unpacked_values_ - unpacked_value_idx_);
+        if (loop_read > 0) {
+            column_data.insert(unpacked_values_ + unpacked_value_idx_,
+                               unpacked_values_ + unpacked_value_idx_ + loop_read);
+            unpacked_value_idx_ += loop_read;
+            has_read += loop_read;
         }
-        column_data[origin_size + i] = (UInt8)value;
+        if (unpacked_value_idx_ == num_unpacked_values_) {
+            num_unpacked_values_ =
+                    bool_values_.UnpackBatch(1, UNPACKED_BUFFER_LEN, &unpacked_values_[0]);
+            unpacked_value_idx_ = 0;
+            if (num_unpacked_values_ == 0) {
+                break;
+            }
+        }
+    }
+    if (UNLIKELY(has_read < num_values)) {
+        return Status::IOError("Can't read enough booleans in plain decoder");
     }
     return Status::OK();
 }

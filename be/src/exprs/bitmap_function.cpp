@@ -104,7 +104,8 @@ void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& sr
     if (UNLIKELY(dst->ptr == nullptr)) {
         dst->is_null = false;
         dst->len = sizeof(BitmapValue);
-        dst->ptr = (uint8_t*)new BitmapValue((char*)src.ptr);
+        dst->ptr = (uint8_t*)new BitmapValue();
+        BitmapFunctions::bitmap_union(ctx, src, dst);
         return;
     }
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
@@ -113,6 +114,19 @@ void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& sr
         (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(src.ptr);
     } else {
         (*dst_bitmap) &= BitmapValue((char*)src.ptr);
+    }
+}
+
+void BitmapFunctions::group_bitmap_xor(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        (*dst_bitmap) ^= *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        (*dst_bitmap) ^= BitmapValue((char*)src.ptr);
     }
 }
 

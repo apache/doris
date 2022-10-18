@@ -47,16 +47,28 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_task_mem_tracker
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_query_mem_tracker(
         const std::string& query_id, int64_t mem_limit) {
-    return register_task_mem_tracker_impl(query_id, mem_limit,
-                                          fmt::format("Query#queryId={}", query_id),
+    return register_task_mem_tracker_impl(query_id, mem_limit, fmt::format("Query#Id={}", query_id),
+                                          ExecEnv::GetInstance()->query_pool_mem_tracker());
+}
+
+std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_query_scanner_mem_tracker(
+        const std::string& query_id) {
+    return register_task_mem_tracker_impl("Scanner#" + query_id, -1,
+                                          fmt::format("Scanner#Query#Id={}", query_id),
                                           ExecEnv::GetInstance()->query_pool_mem_tracker());
 }
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_load_mem_tracker(
         const std::string& load_id, int64_t mem_limit) {
     // In load, the query id of the fragment is executed, which is the same as the load id of the load channel.
-    return register_task_mem_tracker_impl(load_id, mem_limit,
-                                          fmt::format("Load#queryId={}", load_id),
+    return register_task_mem_tracker_impl(load_id, mem_limit, fmt::format("Load#Id={}", load_id),
+                                          ExecEnv::GetInstance()->load_pool_mem_tracker());
+}
+
+std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_load_scanner_mem_tracker(
+        const std::string& load_id) {
+    return register_task_mem_tracker_impl("Scanner#" + load_id, -1,
+                                          fmt::format("Scanner#Load#Id={}", load_id),
                                           ExecEnv::GetInstance()->load_pool_mem_tracker());
 }
 
@@ -96,6 +108,9 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
                     PrettyPrinter::print(it->second->consumption(), TUnit::BYTES),
                     PrettyPrinter::print(it->second->peak_consumption(), TUnit::BYTES));
             expired_task_ids.emplace_back(it->first);
+        } else if (config::memory_verbose_track) {
+            it->second->print_log_usage("query routine");
+            it->second->enable_print_log_usage();
         }
     }
     for (auto tid : expired_task_ids) {

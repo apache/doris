@@ -143,7 +143,7 @@ public class StreamLoadScanNode extends LoadScanNode {
         }
 
         if (params.getSrcSlotIds() == null) {
-            params.setSrcSlotIds(new java.util.ArrayList<java.lang.Integer>());
+            params.setSrcSlotIds(Lists.newArrayList());
         }
         Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */, exprsByName, analyzer, srcTupleDesc,
                 slotDescByName, params.getSrcSlotIds(), taskInfo.getFormatType(), taskInfo.getHiddenColumns(),

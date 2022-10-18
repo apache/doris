@@ -185,8 +185,10 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
                                      VScanner* scanner) {
     INIT_AND_SCOPE_REENTRANT_SPAN_IF(ctx->state()->enable_profile(), ctx->state()->get_tracer(),
                                      ctx->scan_span(), "VScanner::scan");
-    SCOPED_ATTACH_TASK(scanner->runtime_state());
-
+    SCOPED_ATTACH_TASK(scanner->runtime_state()->scanner_mem_tracker(),
+                       ThreadContext::query_to_task_type(scanner->runtime_state()->query_type()),
+                       print_id(scanner->runtime_state()->query_id()),
+                       scanner->runtime_state()->fragment_instance_id());
     Thread::set_self_name("_scanner_scan");
     scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter

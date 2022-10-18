@@ -73,6 +73,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
@@ -412,7 +413,18 @@ public class StmtExecutor implements ProfileWriter {
                         context.getTracer().spanBuilder("query analysis").setParent(Context.current()).startSpan();
                 try (Scope scope = queryAnalysisSpan.makeCurrent()) {
                     // analyze this query
-                    analyze(context.getSessionVariable().toThrift());
+                    try {
+                        analyze(context.getSessionVariable().toThrift());
+                    } catch (NereidsException e) {
+                        if (!context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                            LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                            throw e.getException();
+                        }
+                        // fall back to legacy planner
+                        LOG.info("fall back to legacy planner, because: {}", e.getMessage());
+                        parsedStmt = null;
+                        analyze(context.getSessionVariable().toThrift());
+                    }
                 } catch (Exception e) {
                     queryAnalysisSpan.recordException(e);
                     throw e;
@@ -589,7 +601,6 @@ public class StmtExecutor implements ProfileWriter {
 
     /**
      * get variables in stmt.
-     * TODO: only support select stmt now. need to support Nereids.
      *
      * @throws DdlException
      */
@@ -696,6 +707,9 @@ public class StmtExecutor implements ProfileWriter {
                 } catch (UserException e) {
                     throw e;
                 } catch (Exception e) {
+                    if (parsedStmt instanceof LogicalPlanAdapter) {
+                        throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage()));
+                    }
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());
                 } finally {

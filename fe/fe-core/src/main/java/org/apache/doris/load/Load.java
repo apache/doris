@@ -295,7 +295,7 @@ public class Load {
         // resource info
         if (ConnectContext.get() != null) {
             job.setResourceInfo(ConnectContext.get().toResourceCtx());
-            job.setExecMemLimit(ConnectContext.get().getSessionVariable().getLoadMemLimit());
+            job.setExecMemLimit(ConnectContext.get().getSessionVariable().getMaxExecMemByte());
         }
 
         // job properties

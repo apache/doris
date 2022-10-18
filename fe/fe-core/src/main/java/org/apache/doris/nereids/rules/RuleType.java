@@ -100,9 +100,9 @@ public enum RuleType {
     REWRITE_JOIN_EXPRESSION(RuleTypeClass.REWRITE),
     REORDER_JOIN(RuleTypeClass.REWRITE),
     // Merge Consecutive plan
-    MERGE_CONSECUTIVE_FILTERS(RuleTypeClass.REWRITE),
-    MERGE_CONSECUTIVE_PROJECTS(RuleTypeClass.REWRITE),
-    MERGE_CONSECUTIVE_LIMITS(RuleTypeClass.REWRITE),
+    MERGE_FILTERS(RuleTypeClass.REWRITE),
+    MERGE_PROJECTS(RuleTypeClass.REWRITE),
+    MERGE_LIMITS(RuleTypeClass.REWRITE),
     // Eliminate plan
     ELIMINATE_LIMIT(RuleTypeClass.REWRITE),
     ELIMINATE_FILTER(RuleTypeClass.REWRITE),

@@ -25,10 +25,9 @@
 namespace doris::vectorized {
 
 NewFileTextScanner::NewFileTextScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                                       const TFileScanRange& scan_range, MemTracker* tracker,
-                                       RuntimeProfile* profile,
+                                       const TFileScanRange& scan_range, RuntimeProfile* profile,
                                        const std::vector<TExpr>& pre_filter_texprs)
-        : NewFileScanner(state, parent, limit, scan_range, tracker, profile, pre_filter_texprs),
+        : NewFileScanner(state, parent, limit, scan_range, profile, pre_filter_texprs),
           _cur_file_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_line_reader_eof(false),
@@ -140,7 +139,8 @@ Status NewFileTextScanner::_open_next_reader() {
 
 Status NewFileTextScanner::_open_file_reader() {
     const TFileRangeDesc& range = _ranges[_next_range];
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_state->exec_env(), _profile, _params, range,
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _params, range.path,
+                                                    range.start_offset, range.file_size, 0,
                                                     _cur_file_reader));
     return _cur_file_reader->open();
 }

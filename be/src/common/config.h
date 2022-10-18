@@ -191,8 +191,6 @@ CONF_mInt32(max_pushdown_conditions_per_column, "1024");
 CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
-// push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
@@ -227,8 +225,6 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
-//file descriptors cache, by default, cache 32768 descriptors
-CONF_Int32(file_descriptor_cache_capacity, "32768");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
@@ -243,7 +239,7 @@ CONF_Int32(storage_page_cache_shard_size, "16");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-CONF_Bool(disable_storage_page_cache, "false");
+CONF_Bool(disable_storage_page_cache, "true");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -269,16 +265,6 @@ CONF_Bool(enable_base_compaction_idle_sched, "true");
 // dup key not compaction big files
 CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
 CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
-
-// config the cumulative compaction policy
-// Valid configs: num_based, size_based
-// num_based policy, the original version of cumulative compaction, cumulative version compaction once.
-// size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
-// lower write amplification, trading off read amplification and space amplification.
-CONF_mString(cumulative_compaction_policy, "size_based");
-CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "num_based";
-});
 
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
@@ -437,28 +423,26 @@ CONF_Int32(max_free_io_buffers, "128");
 // including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
-// Whether to allocate chunk using mmap. If you enable this, you'd better to
-// increase vm.max_map_count's value whose default value is 65530.
-// you can do it as root via "sysctl -w vm.max_map_count=262144" or
-// "echo 262144 > /proc/sys/vm/max_map_count"
-// NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
-// to a relative large number or the performance is very very bad.
-CONF_Bool(use_mmap_allocate_chunk, "false");
-
 // The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
 // defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
 CONF_mString(chunk_reserved_bytes_limit, "10%");
-// 1024, The minimum chunk allocator size (in bytes)
-CONF_Int32(min_chunk_reserved_bytes, "1024");
+
+// Whether using chunk allocator to cache memory chunk
+CONF_Bool(disable_chunk_allocator, "true");
 // Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
 // For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-CONF_mBool(disable_chunk_allocator_in_vec, "false");
+CONF_mBool(disable_chunk_allocator_in_vec, "true");
+
+// Both MemPool and vectorized engine's podarray allocator, vectorized engine's arena will try to allocate memory as power of two.
+// But if the memory is very large then power of two is also very large. This config means if the allocated memory's size is larger
+// than this limit then all allocators will not use RoundUpToPowerOfTwo to allocate memory.
+CONF_mInt64(memory_linear_growth_threshold, "134217728"); // 128Mb
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -729,11 +713,6 @@ CONF_mInt32(max_segment_num_per_rowset, "200");
 // The connection timeout when connecting to external table such as odbc table.
 CONF_mInt32(external_table_connect_timeout_sec, "30");
 
-// The capacity of lru cache in segment loader.
-// Althought it is called "segment cache", but it caches segments in rowset granularity.
-// So the value of this config should corresponding to the number of rowsets on this BE.
-CONF_mInt32(segment_cache_capacity, "1000000");
-
 // Global bitmap cache capacity for aggregation cache, size in bytes
 CONF_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 
@@ -826,9 +805,12 @@ CONF_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
+// OrcReader
+CONF_mInt32(orc_natural_read_size_mb, "8");
+
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+CONF_mInt32(bloom_filter_predicate_check_row_num, "20480");
 
 CONF_Bool(enable_decimalv3, "false");
 
@@ -856,6 +838,7 @@ CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
 });
+CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
@@ -886,6 +869,10 @@ CONF_mBool(enable_new_load_scan_node, "false");
 
 // Temp config. True to use new file scanner. Will remove after fully test.
 CONF_mBool(enable_new_file_scanner, "false");
+
+// Hide webserver page for safety.
+// Hide the be config page for webserver.
+CONF_Bool(hide_webserver_config_page, "false");
 
 #ifdef BE_TEST
 // test s3

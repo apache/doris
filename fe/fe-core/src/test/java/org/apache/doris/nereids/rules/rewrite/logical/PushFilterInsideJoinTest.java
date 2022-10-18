@@ -48,7 +48,7 @@ class PushFilterInsideJoinTest implements PatternMatchSupported {
                 .applyTopDown(PushFilterInsideJoin.INSTANCE)
                 .printlnTree()
                 .matchesFromRoot(
-                        logicalJoin().when(join -> join.getOtherJoinCondition().get().equals(predicates))
+                        logicalJoin().when(join -> join.getOtherJoinConjuncts().get(0).equals(predicates))
                 );
     }
 }

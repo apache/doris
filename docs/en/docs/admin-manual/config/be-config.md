@@ -351,14 +351,6 @@ Similar to `base_compaction_trace_threshold`.
 
 If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 
-### `cumulative_compaction_policy`
-
-* Type: string
-* Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
-* Default value: size_based
-
-In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satisfies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
-
 ### `cumulative_size_based_promotion_size_mbytes`
 
 * Type: int64
@@ -450,7 +442,7 @@ Cgroups assigned to doris
 ### `doris_max_scan_key_num`
 
 * Type: int
-* Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../../advanced/variables.md).
+* Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../../../advanced/variables).
 * Default value: 1024
 
 When the concurrency cannot be improved in high concurrency scenarios, try to reduce this value and observe the impact.
@@ -1033,13 +1025,6 @@ Default: 3
 
 Import the number of threads for processing NORMAL priority tasks
 
-### `push_write_mbytes_per_sec`
-
-+ Type: int32
-+ Description: Load data speed control, the default is 10MB per second. Applicable to all load methods.
-+ Unit: MB
-+ Default value: 10
-
 ### `query_scratch_dirs`
 
 + Type: string
@@ -1232,9 +1217,9 @@ Shard size of StoragePageCache, the value must be power of two. It's recommended
     * 1./home/disk1/doris.HDD, indicates that the storage medium is HDD;
     * 2./home/disk2/doris.SSD, indicates that the storage medium is SSD;
     * 3./home/disk2/doris, indicates that the storage medium is HDD by default
-    
+  
     eg.2: `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
-    
+  
     * 1./home/disk1/doris,medium:hdd，indicates that the storage medium is HDD;
     * 2./home/disk2/doris,medium:ssd，indicates that the storage medium is SSD;
 
@@ -1355,6 +1340,8 @@ Default: 300
 
 Update interval of tablet state cache, unit: second
 
+The RPC timeout for sending a Batch (1024 lines) during import. The default is 60 seconds. Since this RPC may involve writing multiple batches of memory, the RPC timeout may be caused by writing batches, so this timeout can be adjusted to reduce timeout errors (such as send batch fail errors). Also, if you increase the write_buffer_size configuration, you need to increase this parameter as well.
+
 ### `tablet_writer_ignore_eovercrowded`
 
 * Type: bool
@@ -1452,12 +1439,6 @@ Default: 1
 
 Maximum number of threads for uploading files
 
-### `use_mmap_allocate_chunk`
-
-Default: false
-
-Whether to use mmap to allocate blocks. If you enable this feature, it is best to increase the value of vm.max_map_count, its default value is 65530. You can use "sysctl -w vm.max_map_count=262144" or "echo 262144> /proc/sys/vm/" to operate max_map_count as root. When this setting is true, you must set chunk_reserved_bytes_limit to a relatively low Big number, otherwise the performance is very very bad
-
 ### `user_function_dir`
 
 ${DORIS_HOME}/lib/udf
@@ -1481,6 +1462,8 @@ Webserver default number of worker threads
 Default: 104857600
 
 The size of the buffer before flashing
+
+Imported data is first written to a memory block on the BE, and only written back to disk when this memory block reaches the threshold. The default size is 100MB. too small a threshold may result in a large number of small files on the BE. This threshold can be increased to reduce the number of files. However, too large a threshold may cause RPC timeouts
 
 ### `zone_map_row_num_threshold`
 

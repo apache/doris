@@ -26,14 +26,14 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 
 public class SetLdapPassVar extends SetVar {
-    private final String passwd;
+    private final PassVar passVar;
 
-    public SetLdapPassVar(String passwd) {
-        this.passwd = passwd;
+    public SetLdapPassVar(PassVar passVar) {
+        this.passVar = passVar;
     }
 
     public String getLdapPassword() {
-        return passwd;
+        return passVar.getText();
     }
 
     @Override
@@ -46,6 +46,11 @@ public class SetLdapPassVar extends SetVar {
                 && !ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(PaloAuth.ADMIN_USER)) {
             throw new AnalysisException("Only root and admin user can set ldap admin password.");
         }
+
+        if (!passVar.isPlain()) {
+            throw new AnalysisException("Only support set ldap password with plain text");
+        }
+        passVar.analyze();
     }
 
     @Override

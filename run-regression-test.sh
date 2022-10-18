@@ -151,6 +151,16 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
 fi
 
+# build jar needed by java-udf case
+JAVAUDF_JAR="${DORIS_HOME}/samples/doris-demo/java-udf-demo/target/java-udf-demo-jar-with-dependencies.jar"
+if ! test -f ${JAVAUDF_JAR:+${JAVAUDF_JAR}}; then
+    mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
+    cd "${DORIS_HOME}"/samples/doris-demo/java-udf-demo
+    "${MVN_CMD}" package
+    cp target/java-udf-demo-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
+    cd "${DORIS_HOME}"
+fi
+
 # check java home
 if [[ -z "${JAVA_HOME}" ]]; then
     echo "Error: JAVA_HOME is not set"

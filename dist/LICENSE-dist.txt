@@ -1560,7 +1560,7 @@ Other dependencies:
     * leveldb: 1.23 -- license/LICENSE-leveldb.txt
     * cyrus-sasl: 2.1.27 -- license/LICENSE-cyrus-sasl.txt
     * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
-    * zstd: 1.5.0 -- license/LICENSE-zstd.txt
+    * zstd: 1.5.2 -- license/LICENSE-zstd.txt
     * brotli: 1.0.9 -- license/LICENSE-brotli.txt
     * bitshuffle: 0.3.5 -- license/LICENSE-bigshuffle.txt
     * fmt: 7.1.3 -- license/LICENSE-fmt.txt

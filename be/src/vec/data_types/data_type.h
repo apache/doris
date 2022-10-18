@@ -279,6 +279,7 @@ struct WhichDataType {
     bool is_int() const {
         return is_int8() || is_int16() || is_int32() || is_int64() || is_int128();
     }
+    bool is_int_or_uint() const { return is_int() || is_uint(); }
     bool is_native_int() const { return is_int8() || is_int16() || is_int32() || is_int64(); }
 
     bool is_decimal32() const { return idx == TypeIndex::Decimal32; }

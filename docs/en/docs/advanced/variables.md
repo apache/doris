@@ -80,6 +80,9 @@ Variables that support both session-level and global-level setting include:
 Variables that support only global-level setting include:
 
 * `default_rowset_type`
+* `default_password_lifetime`
+* `password_history`
+* `validate_password_policy`
 
 At the same time, variable settings also support constant expressions. Such as:
 
@@ -269,14 +272,6 @@ Note that the comment must start with /*+ and can only follow the SELECT.
   
     Show Doris's license. No other effect.
 
-* `load_mem_limit`
-
-    Used to specify the memory limit of the load operation. The default is 2GB.
-
-    Broker Load, Stream Load and Routine Load use `load_mem_limit` by default; if the user specifies the task `exec_mem_limit` parameter when creating a load, the specified value is used.
-
-    The INSERT operation has two parts: query and import. The memory limit of the load part of INSERT is `load_mem_limit`, and the query part is limited to `exec_mem_limit`.
-    
 * `lower_case_table_names`
 
     Used to control whether the user table name is case-sensitive.
@@ -532,3 +527,25 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `skip_delete_predicate`
   For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.
+
+* `default_password_lifetime`
+
+	Default password expiration time. The default value is 0, which means no expiration. The unit is days. This parameter is only enabled if the user's password expiration property has a value of DEFAULT. like:
+
+   ````
+   CREATE USER user1 IDENTIFIED BY "12345" PASSWORD_EXPIRE DEFAULT;
+   ALTER USER user1 PASSWORD_EXPIRE DEFAULT;
+   ````
+
+* `password_history`
+
+	The default number of historical passwords. The default value is 0, which means no limit. This parameter is enabled only when the user's password history attribute is the DEFAULT value. like:
+
+   ````
+   CREATE USER user1 IDENTIFIED BY "12345" PASSWORD_HISTORY DEFAULT;
+   ALTER USER user1 PASSWORD_HISTORY DEFAULT;
+   ````
+
+* `validate_password_policy`
+
+	Password strength verification policy. Defaults to `NONE` or `0`, i.e. no verification. Can be set to `STRONG` or `2`. When set to `STRONG` or `2`, when setting a password via the `ALTER USER` or `SET PASSWORD` commands, the password must contain any of "uppercase letters", "lowercase letters", "numbers" and "special characters". 3 items, and the length must be greater than or equal to 8. Special characters include: `~!@#$%^&*()_+|<>,.?/:;'[]{}"`.

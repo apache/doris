@@ -52,10 +52,25 @@ suite("load_two_step") {
             }
         }
         sql 'sync'
-        for (int i = 1; i <= 5; i++) {
-            def loadRowCount = sql "select count(1) from ${tableName}"
-            logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
-            assertTrue(loadRowCount[0][0] == rows[1])
+        int flag = 1
+        while (flag < 30){
+            def tableVersion = sql "admin show replica status from ${tableName}"
+            logger.info(" ${tableName} version: ${tableVersion[0][3]}".toString())
+            if (tableVersion[0][3] > 1){
+                for (int i = 1; i <= 5; i++) {
+                    def loadRowCount = sql "select count(1) from ${tableName}"
+                    logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
+                    assertTrue(loadRowCount[0][0] == rows[1])
+                }
+                break
+            } else {
+                flag ++
+                sleep(1000)
+            }
+        }
+        if (flag >= 30){
+            logger.info("wait version timeout")
+            assertTrue(1 == 2)
         }
         sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_delete.sql""").text
         for (int i = 1; i <= 5; i++) {

@@ -71,10 +71,12 @@ public class StatisticsJobSchedulerTest {
         // Setup
         Column col1 = new Column("c1", PrimitiveType.STRING);
         Column col2 = new Column("c2", PrimitiveType.INT);
-        OlapTable tbl1 = new OlapTable(0L, "tbl1", Arrays.asList(col1, col2), KeysType.AGG_KEYS,
-                new PartitionInfo(), new HashDistributionInfo());
-        OlapTable tbl2 = new OlapTable(1L, "tbl2", Arrays.asList(col1, col2), KeysType.DUP_KEYS,
-                new PartitionInfo(), new HashDistributionInfo());
+
+        OlapTable tbl1 = new OlapTable(0L, "tbl1", Arrays.asList(col1, col2),
+                KeysType.AGG_KEYS, new PartitionInfo(), new HashDistributionInfo());
+        OlapTable tbl2 = new OlapTable(1L, "tbl2", Arrays.asList(col1, col2),
+                KeysType.DUP_KEYS, new PartitionInfo(), new HashDistributionInfo());
+
         Database database = new Database(0L, "db");
         database.createTable(tbl1);
         database.createTable(tbl2);
@@ -92,6 +94,13 @@ public class StatisticsJobSchedulerTest {
             @Mock
             public List<Long> getBackendIds(boolean needAlive) {
                 return Collections.singletonList(1L);
+            }
+        };
+
+        new MockUp<OlapTable>(OlapTable.class) {
+            @Mock
+            public long getDataSize() {
+                return 1L;
             }
         };
 

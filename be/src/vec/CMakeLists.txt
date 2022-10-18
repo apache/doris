@@ -20,6 +20,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 set(VEC_FILES
+  aggregate_functions/aggregate_function_retention.cpp
   aggregate_functions/aggregate_function_window_funnel.cpp
   aggregate_functions/aggregate_function_avg.cpp
   aggregate_functions/aggregate_function_collect.cpp
@@ -173,6 +174,7 @@ set(VEC_FILES
   functions/function_utility.cpp
   functions/comparison_equal_for_null.cpp
   functions/function_json.cpp
+  functions/function_jsonb.cpp
   functions/function_datetime_floor_ceil.cpp
   functions/functions_geo.cpp
   functions/hll_cardinality.cpp
@@ -225,6 +227,7 @@ set(VEC_FILES
   runtime/vfile_result_writer.cpp
   runtime/vpartition_info.cpp
   runtime/vparquet_writer.cpp
+  runtime/vorc_writer.cpp
   utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp
   exec/file_arrow_scanner.cpp
@@ -256,6 +259,10 @@ set(VEC_FILES
   exec/scan/new_odbc_scan_node.cpp
   exec/scan/new_jdbc_scanner.cpp
   exec/scan/new_jdbc_scan_node.cpp
+  exec/scan/new_es_scanner.cpp
+  exec/scan/new_es_scan_node.cpp
+  exec/format/csv/csv_reader.cpp
+  exec/format/orc/vorc_reader.cpp
   )
 
 add_library(Vec STATIC
