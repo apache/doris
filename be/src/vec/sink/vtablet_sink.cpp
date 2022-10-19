@@ -614,7 +614,11 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         const auto column_string =
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
 
-        size_t limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        size_t limit = config::string_type_length_soft_limit_bytes;
+        // when type.len is negative, std::min will return overflow value, so we need to check it
+        if (type.len > 0) {
+            limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        }
         for (size_t j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {
