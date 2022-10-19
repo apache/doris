@@ -176,6 +176,7 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
 }
 
 Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
+    DCHECK(!rb.eof());
     // only support one level now
     auto* array_column = assert_cast<ColumnArray*>(column);
     auto& offsets = array_column->get_offsets();

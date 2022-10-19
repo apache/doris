@@ -341,7 +341,6 @@ struct ConvertImplGenericFromString {
                     col_to->insert_default();
                 }
             }
-            // block.replace_by_position(result, std::move(col_to));
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
