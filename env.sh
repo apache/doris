@@ -33,6 +33,44 @@ if [[ -n "${OSTYPE}" ]]; then
     fi
 fi
 
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    if ! command -v brew &>/dev/null; then
+        echo "Error: Homebrew is missing. Please install it first due to we use Homebrew to manage the tools which are needed to build the project."
+        exit 1
+    fi
+    if [[ ! -f "${DORIS_HOME}/custom_env.sh" ]] ||
+        ! grep HOMEBREW_REPO_PREFIX "${DORIS_HOME}/custom_env.sh" &>/dev/null; then
+
+        cat >>"${DORIS_HOME}/custom_env.sh" <<EOF
+HOMEBREW_REPO_PREFIX="$(brew --repo)"
+CELLARS=(
+    automake
+    autoconf
+    libtool
+    pkg-config
+    coreutils
+    gnu-getopt
+    python
+    cmake
+    ninja
+    ccache
+    bison
+    byacc
+    gettext
+    wget
+    pcre
+    maven
+)
+for cellar in "\${CELLARS[@]}"; do
+    EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"
+done
+export PATH="\${EXPORT_CELLARS}:\${PATH}"
+
+export DORIS_BUILD_PYTHON_VERSION=python3
+EOF
+    fi
+fi
+
 # include custom environment variables
 if [[ -f "${DORIS_HOME}/custom_env.sh" ]]; then
     # shellcheck disable=1091
