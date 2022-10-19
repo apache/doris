@@ -230,10 +230,6 @@ set(VEC_FILES
   runtime/vorc_writer.cpp
   utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp
-  exec/file_arrow_scanner.cpp
-  exec/file_scanner.cpp
-  exec/file_scan_node.cpp
-  exec/file_text_scanner.cpp
   exec/format/parquet/vparquet_column_chunk_reader.cpp
   exec/format/parquet/vparquet_group_reader.cpp
   exec/format/parquet/vparquet_page_index.cpp
@@ -250,10 +246,7 @@ set(VEC_FILES
   exec/scan/scanner_scheduler.cpp
   exec/scan/new_olap_scan_node.cpp
   exec/scan/new_olap_scanner.cpp
-  exec/scan/new_file_arrow_scanner.cpp
   exec/scan/new_file_scan_node.cpp
-  exec/scan/new_file_scanner.cpp
-  exec/scan/new_file_text_scanner.cpp
   exec/scan/vfile_scanner.cpp
   exec/scan/new_odbc_scanner.cpp
   exec/scan/new_odbc_scan_node.cpp

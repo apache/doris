@@ -185,22 +185,18 @@ suite("test_broker_load", "p0") {
         String[][] backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] backend in backends) {
-            StringBuilder setConfigCommand = new StringBuilder();
-            setConfigCommand.append("curl -X POST http://")
-            setConfigCommand.append(backend[2])
-            setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
-            setConfigCommand.append("/api/update_config?")
-            String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=$flag"
-            logger.info(command1)
-            String command2 = setConfigCommand.toString() + "enable_new_file_scanner=$flag"
-            logger.info(command2)
-            def process1 = command1.execute()
-            int code = process1.waitFor()
-            assertEquals(code, 0)
-            def process2 = command2.execute()
-            code = process1.waitFor()
-            assertEquals(code, 0)
+            // No need to set this config anymore, but leave this code sample here
+            // StringBuilder setConfigCommand = new StringBuilder();
+            // setConfigCommand.append("curl -X POST http://")
+            // setConfigCommand.append(backend[2])
+            // setConfigCommand.append(":")
+            // setConfigCommand.append(backend[5])
+            // setConfigCommand.append("/api/update_config?")
+            // String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=$flag"
+            // logger.info(command1)
+            // def process1 = command1.execute()
+            // int code = process1.waitFor()
+            // assertEquals(code, 0)
         }
     }
 
