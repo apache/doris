@@ -201,6 +201,10 @@ public class Function implements Writable {
         location = loc;
     }
 
+    public void setName(FunctionName name) {
+        this.name = name;
+    }
+
     public TFunctionBinaryType getBinaryType() {
         return binaryType;
     }
