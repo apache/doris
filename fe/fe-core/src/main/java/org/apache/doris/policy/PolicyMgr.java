@@ -279,21 +279,25 @@ public class PolicyMgr implements Writable {
                 checkedPolicy = rowPolicy;
         }
         final Policy finalCheckedPolicy = checkedPolicy;
-        List<Policy> policies = typeToPolicyMap.getOrDefault(showStmt.getType(), new ArrayList<>()).stream()
-                .filter(p -> p.matchPolicy(finalCheckedPolicy)).collect(Collectors.toList());
-        for (Policy policy : policies) {
-            if (policy.isInvalid()) {
-                continue;
-            }
+        readLock();
+        try {
+            List<Policy> policies = typeToPolicyMap.getOrDefault(showStmt.getType(), new ArrayList<>()).stream().filter(p -> p.matchPolicy(finalCheckedPolicy)).collect(Collectors.toList());
+            for (Policy policy : policies) {
+                if (policy.isInvalid()) {
+                    continue;
+                }
 
-            if (policy instanceof StoragePolicy && ((StoragePolicy) policy).getStorageResource() == null) {
-                // default storage policy not init.
-                continue;
-            }
+                if (policy instanceof StoragePolicy && ((StoragePolicy) policy).getStorageResource() == null) {
+                    // default storage policy not init.
+                    continue;
+                }
 
-            rows.add(policy.getShowInfo());
+                rows.add(policy.getShowInfo());
+            }
+            return new ShowResultSet(showStmt.getMetaData(), rows);
+        } finally {
+            readUnlock();
         }
-        return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     /**
