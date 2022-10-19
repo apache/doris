@@ -162,7 +162,8 @@ public:
     size_t allocated_bytes() const override;
     void protect() override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
@@ -213,6 +214,9 @@ public:
         return null_map->size_of_value_if_fixed() + nested_column->size_of_value_if_fixed();
     }
     bool only_null() const override { return nested_column->is_dummy(); }
+
+    // used in schema change
+    void swap_nested_column(ColumnPtr& other) { ((ColumnPtr&)nested_column).swap(other); }
 
     /// Return the column that represents values.
     IColumn& get_nested_column() { return *nested_column; }

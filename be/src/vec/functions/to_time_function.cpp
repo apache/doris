@@ -23,94 +23,47 @@
 
 namespace doris::vectorized {
 
-using FunctionYear =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<VecDateTimeValue, Int64>>;
-using FunctionYearV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToYearImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionQuarter =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<VecDateTimeValue, Int64>>;
-using FunctionQuarterV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToQuarterImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionMonth =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<VecDateTimeValue, Int64>>;
-using FunctionMonthV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToMonthImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionDay =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<VecDateTimeValue, Int64>>;
-using FunctionDayV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToDayImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionWeek =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<VecDateTimeValue, Int64>>;
-using FunctionWeekV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToWeekOneArgImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionHour =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<VecDateTimeValue, Int64>>;
-using FunctionHourV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToHourImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionMinute =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<VecDateTimeValue, Int64>>;
-using FunctionMinuteV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToMinuteImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionSecond =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<VecDateTimeValue, Int64>>;
-using FunctionSecondV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToSecondImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionToDays =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<VecDateTimeValue, Int64>>;
-using FunctionToDaysV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToDaysImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionToDate =
-        FunctionDateOrDateTimeToSomething<DataTypeDateTime, ToDateImpl<VecDateTimeValue, Int64>>;
-using FunctionToDateV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeDateV2,
-                                          ToDateImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionDate =
-        FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl<VecDateTimeValue, Int64>>;
-using FunctionDateV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeDateV2,
-                                          DateImpl<DateV2Value<DateV2ValueType>, UInt32>>;
+using FunctionYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<Int64>>;
+using FunctionYearV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<UInt32>>;
+using FunctionQuarter = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<Int64>>;
+using FunctionQuarterV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<UInt32>>;
+using FunctionMonth = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<Int64>>;
+using FunctionMonthV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<UInt32>>;
+using FunctionDay = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<Int64>>;
+using FunctionDayV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<UInt32>>;
+using FunctionWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<Int64>>;
+using FunctionWeekV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt32>>;
+using FunctionHour = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<Int64>>;
+using FunctionHourV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<UInt32>>;
+using FunctionMinute = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<Int64>>;
+using FunctionMinuteV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<UInt32>>;
+using FunctionSecond = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<Int64>>;
+using FunctionSecondV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<UInt32>>;
+using FunctionToDays = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<Int64>>;
+using FunctionToDaysV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt32>>;
+using FunctionToDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, ToDateImpl<Int64>>;
+using FunctionToDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt32>>;
+using FunctionDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl<Int64>>;
+using FunctionDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<UInt32>>;
 
-using FunctionDateTimeV2Year =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToYearImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+using FunctionDateTimeV2Year = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<UInt64>>;
 using FunctionDateTimeV2Quarter =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToQuarterImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<UInt64>>;
 using FunctionDateTimeV2Month =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToMonthImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
-using FunctionDateTimeV2Day =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToDayImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
-using FunctionDateTimeV2Week = FunctionDateOrDateTimeToSomething<
-        DataTypeInt32, ToWeekOneArgImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
-using FunctionDateTimeV2Hour =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToHourImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<UInt64>>;
+using FunctionDateTimeV2Day = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<UInt64>>;
+using FunctionDateTimeV2Week =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt64>>;
+using FunctionDateTimeV2Hour = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<UInt64>>;
 using FunctionDateTimeV2Minute =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToMinuteImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<UInt64>>;
 using FunctionDateTimeV2Second =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToSecondImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<UInt64>>;
 using FunctionDateTimeV2ToDays =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToDaysImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt64>>;
 using FunctionDateTimeV2ToDate =
-        FunctionDateOrDateTimeToSomething<DataTypeDateV2,
-                                          ToDateImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
-using FunctionDateTimeV2Date =
-        FunctionDateOrDateTimeToSomething<DataTypeDateV2,
-                                          DateImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt64>>;
+using FunctionDateTimeV2Date = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<UInt64>>;
 
 using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<Int64>>;
 

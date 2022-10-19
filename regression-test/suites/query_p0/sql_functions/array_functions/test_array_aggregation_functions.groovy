@@ -44,13 +44,13 @@ suite("test_array_aggregation_functions") {
             "storage_format" = "V2"
             )
         """
-    sql """ INSERT INTO ${tableName} VALUES(1, [1, 2, 3], [100, 101], [1000, 1001], [2147483648, 2147483649], [9223372036854775808], [0.0, 9.999999], [1.0, 1.5], [100.0001, 100.0005], ['2022-08-31', '2022-09-01'], ['2022-08-31', '2022-09-01']) """
+    sql """ INSERT INTO ${tableName} VALUES(1, [1, 2, 3], [100, 101], [1000, 1001], [2147483648, 2147483649], [9223372036854775808], [0.0, 9.999999], [1.0, 1.5], [100.0001, 100.0005], ['2022-10-15', '2022-08-31', '2022-09-01'], ['2022-10-15 10:30:00', '2022-08-31 12:00:00', '2022-09-01 09:00:00']) """
     sql """ INSERT INTO ${tableName} VALUES(2, [1, 2, 3, NULL, 3, 2, 1], NULL, NULL, NULL, NULL, NULL, [127, 128.1], [NULL, 4.023], NULL, NULL) """
     sql """ INSERT INTO ${tableName} VALUES(3, [-1, 0, 1], [-32767, -32768], [-50000, -2147483647], [-9223372036854775808, 0], [-117341182548128045443221445, 170141183460469231731687303715884105727], [-9.999999, 9.999999], [-1.0, 0.0, 1.0], [-128.0001, 127.0001], NULL, NULL) """
     sql """ INSERT INTO ${tableName} VALUES(4, [], [], [], [], [], [], [], [], [], NULL) """
 
-    qt_select "SELECT k1, array_min(a1), array_min(a2), array_min(a3), array_min(a4), array_min(a5), array_min(a6), array_min(a7), array_min(a8) from ${tableName} order by k1"
-    qt_select "SELECT k1, array_max(a1), array_max(a2), array_max(a3), array_max(a4), array_max(a5), array_max(a6), array_max(a7), array_max(a8) from ${tableName} order by k1"
+    qt_select "SELECT k1, array_min(a1), array_min(a2), array_min(a3), array_min(a4), array_min(a5), array_min(a6), array_min(a7), array_min(a8), array_min(a9), array_min(a10) from ${tableName} order by k1"
+    qt_select "SELECT k1, array_max(a1), array_max(a2), array_max(a3), array_max(a4), array_max(a5), array_max(a6), array_max(a7), array_max(a8), array_max(a9), array_max(a10) from ${tableName} order by k1"
     qt_select "SELECT k1, array_avg(a1), array_avg(a2), array_avg(a3), array_avg(a4), array_avg(a5), array_avg(a6), array_avg(a7), array_avg(a8) from ${tableName} order by k1"
     qt_select "SELECT k1, array_sum(a1), array_sum(a2), array_sum(a3), array_sum(a4), array_sum(a5), array_sum(a6), array_sum(a7), array_sum(a8) from ${tableName} order by k1"
     qt_select "SELECT k1, array_product(a1), array_product(a2), array_product(a3), array_product(a4), array_product(a5), array_product(a6), array_product(a7), array_product(a8) from ${tableName} order by k1"

@@ -51,7 +51,6 @@ public class HMSExternalTable extends ExternalTable {
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
     private DLAType dlaType = DLAType.UNKNOWN;
-    private boolean initialized = false;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG

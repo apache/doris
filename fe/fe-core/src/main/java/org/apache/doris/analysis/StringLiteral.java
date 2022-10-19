@@ -191,6 +191,16 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
+    public boolean canConvertToDateV2(Type targetType) {
+        try {
+            Preconditions.checkArgument(targetType.isDateV2());
+            new DateLiteral(value, targetType);
+            return true;
+        } catch (AnalysisException e) {
+            return false;
+        }
+    }
+
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isNumericType()) {

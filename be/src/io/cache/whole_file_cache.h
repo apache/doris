@@ -45,8 +45,6 @@ public:
 
     const Path& cache_dir() const override { return _cache_dir; }
 
-    size_t cache_file_size() const override { return _cache_file_size; }
-
     io::FileReaderSPtr remote_file_reader() const override { return _remote_file_reader; }
 
     Status clean_timeout_cache() override;
@@ -60,12 +58,10 @@ private:
 
 private:
     Path _cache_dir;
-    size_t _cache_file_size;
     int64_t _alive_time_sec;
     io::FileReaderSPtr _remote_file_reader;
 
     std::shared_mutex _cache_lock;
-    int64_t _last_match_time;
     io::FileReaderSPtr _cache_file_reader;
 };
 

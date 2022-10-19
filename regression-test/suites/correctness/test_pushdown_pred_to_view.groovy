@@ -28,9 +28,11 @@ The bug is we cannot resolve v1.id in context of the expanded sql.
 The same resolve error occurs when re-analyze v2.
 */
  suite("test_pushdown_pred_to_view") {
-     sql """ DROP TABLE IF EXISTS T """
+     def tableName = "t_pushdown_pred_to_view";
+     def viewName = "v_pushdown_pred_to_view";
+     sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-         CREATE TABLE `T` (
+         CREATE TABLE ${tableName} (
              `id` int
          ) ENGINE=OLAP
          AGGREGATE KEY(`id`)
@@ -42,17 +44,19 @@ The same resolve error occurs when re-analyze v2.
              "storage_format" = "V2"
          );
      """
-     sql "drop view if exists V;"
+     sql "drop view if exists ${viewName};"
      sql """
-         create view V as select * from T where id > 0;
+         create view ${viewName} as select * from ${tableName} where id > 0;
      """
 
      sql """
-         insert into T values(1);
+         insert into ${tableName} values(1);
      """
 
      qt_sql """
-         select * from V as v1 join V as v2 on v1.id=v2.id and v1.id>0;
+         select * from ${viewName} as v1 join ${viewName} as v2 on v1.id=v2.id and v1.id>0;
      """
+     sql "DROP VIEW ${viewName}"
+     sql "DROP TABLE ${tableName}"
  }
 

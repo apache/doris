@@ -911,6 +911,7 @@ public class FunctionSet<T> {
                     .build();
 
     public static final String TO_BITMAP = "to_bitmap";
+    public static final String TO_BITMAP_WITH_CHECK = "to_bitmap_with_check";
     public static final String BITMAP_UNION = "bitmap_union";
     public static final String BITMAP_UNION_COUNT = "bitmap_union_count";
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
@@ -1390,6 +1391,8 @@ public class FunctionSet<T> {
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
 
+    public static final String RETENTION = "retention";
+
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1455,6 +1458,21 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
                 Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
                 Type.INT,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        // retention vectorization
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION,
+                Lists.newArrayList(Type.BOOLEAN),
+                Type.ARRAY,
                 Type.VARCHAR,
                 true,
                 "",
@@ -2340,6 +2358,25 @@ public class FunctionSet<T> {
                 true, false, true));
 
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_INTERSECT, Lists.newArrayList(Type.BITMAP),
+                Type.BITMAP, Type.BITMAP,
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin("group_bitmap_xor", Lists.newArrayList(Type.BITMAP),
+                Type.BITMAP, Type.VARCHAR,
+                "_ZN5doris15BitmapFunctions11bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16group_bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16group_bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, false, true));
+
+        // vec group_bitmap_xor
+        addBuiltin(AggregateFunction.createBuiltin("group_bitmap_xor", Lists.newArrayList(Type.BITMAP),
                 Type.BITMAP, Type.BITMAP,
                 "",
                 "",

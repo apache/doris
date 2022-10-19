@@ -163,7 +163,7 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
 // A DataSet with a constant column can only have one row of data
 template <typename ReturnType, bool nullable = false>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
-                      const DataSet& data_set) {
+                      const DataSet& data_set, bool expect_fail = false) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
@@ -234,16 +234,20 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->impl()->set_constant_cols(constant_cols);
-    RETURN_IF_ERROR(func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL));
+    func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL);
 
     block.insert({nullptr, return_type, "result"});
 
     auto result = block.columns() - 1;
-    RETURN_IF_ERROR(func->execute(fn_ctx, block, arguments, result, row_size));
+    if (expect_fail) {
+        RETURN_IF_ERROR(func->execute(fn_ctx, block, arguments, result, row_size));
+    } else {
+        func->execute(fn_ctx, block, arguments, result, row_size);
+    }
 
-    RETURN_IF_ERROR(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    RETURN_IF_ERROR(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
+    func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
@@ -256,13 +260,13 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 auto s = column->get_data_at(i);
                 if (expect_data.size() == 0) {
                     // zero size result means invalid
-                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 for row " << i;
+                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
                 } else {
                     // convert jsonb binary value to json string to compare with expected json text
                     JsonbToJson to_json;
                     doris::JsonbValue* val =
                             doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
-                    EXPECT_EQ(to_json.jsonb_to_string(val), expect_data) << " for row " << i;
+                    EXPECT_EQ(to_json.jsonb_to_string(val), expect_data) << " at row " << i;
                 }
             } else {
                 Field field;
@@ -273,20 +277,20 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
                 if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
                     const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
-                    EXPECT_EQ(expect_data.value, column_data.value);
+                    EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
-                    EXPECT_EQ(expect_data, column_data);
+                    EXPECT_EQ(expect_data, column_data) << " at row " << i;
                 } else {
                     const auto& column_data = field.get<typename ReturnType::FieldType>();
-                    EXPECT_EQ(expect_data, column_data);
+                    EXPECT_EQ(expect_data, column_data) << " at row " << i;
                 }
             }
         };
 
         if constexpr (nullable) {
             bool is_null = data_set[i].second.type() == typeid(Null);
-            EXPECT_EQ(is_null, column->is_null_at(i));
+            EXPECT_EQ(is_null, column->is_null_at(i)) << " at row " << i;
             if (!is_null) check_column_data();
         } else {
             check_column_data();

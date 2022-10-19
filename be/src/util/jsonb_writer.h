@@ -106,7 +106,8 @@ public:
     }
 
     uint32_t writeValue(const JsonbValue* value) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->write((char*)value, value->numPackedBytes());
             kvState_ = WS_Value;
             return value->size();

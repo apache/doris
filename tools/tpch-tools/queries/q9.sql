@@ -17,7 +17,7 @@
 
 -- Modified
 
-select/*+SET_VAR(exec_mem_limit=17179869184, parallel_fragment_exec_instance_num=4, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true, enable_remove_no_conjuncts_runtime_filter_policy=true, runtime_filter_wait_time_ms=10000) */
+select/*+SET_VAR(exec_mem_limit=37179869184, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true, enable_remove_no_conjuncts_runtime_filter_policy=true, runtime_filter_wait_time_ms=10000) */
     nation,
     o_year,
     sum(amount) as sum_profit

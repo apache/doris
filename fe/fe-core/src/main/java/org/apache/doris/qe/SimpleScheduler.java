@@ -126,6 +126,9 @@ public class SimpleScheduler {
     public static TNetworkAddress getHost(ImmutableMap<Long, Backend> backends,
                                           Reference<Long> backendIdRef)
             throws UserException {
+        if (backends.isEmpty()) {
+            throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
+        }
         long id = nextId.getAndIncrement() % backends.size();
         Map.Entry<Long, Backend> backendEntry = backends.entrySet().stream().skip(id).filter(
                 e -> isAvailable(e.getValue())).findFirst().orElse(null);

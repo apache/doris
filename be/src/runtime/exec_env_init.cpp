@@ -131,13 +131,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
 
-    ThreadPoolBuilder("DownloadCacheThreadPool")
-            .set_min_threads(config::download_cache_thread_pool_thread_num)
-            .set_max_threads(config::download_cache_thread_pool_thread_num)
-            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
-            .build(&_download_cache_thread_pool);
-    set_serial_download_cache_thread_token();
-    init_download_cache_buf();
+    init_download_cache_required_components();
 
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
@@ -199,16 +193,15 @@ Status ExecEnv::_init_mem_tracker() {
     if (global_memory_limit_bytes > MemInfo::physical_mem()) {
         LOG(WARNING) << "Memory limit "
                      << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
-                     << " exceeds physical memory of "
-                     << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES)
-                     << ". Using physical memory instead";
+                     << " exceeds physical memory, using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
     _process_mem_tracker =
             std::make_shared<MemTrackerLimiter>(global_memory_limit_bytes, "Process");
     _orphan_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Orphan", _process_mem_tracker);
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
-    thread_context()->_thread_mem_tracker_mgr->init_impl();
+    _bthread_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Bthread", _orphan_mem_tracker);
+    thread_context()->_thread_mem_tracker_mgr->init();
     thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -307,13 +300,6 @@ Status ExecEnv::_init_mem_tracker() {
     RETURN_IF_ERROR(_disk_io_mgr->init(global_memory_limit_bytes));
     RETURN_IF_ERROR(_tmp_file_mgr->init());
 
-    // 5. init chunk allocator
-    if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {
-        ss << "Config min_chunk_reserved_bytes must be a power-of-two: "
-           << config::min_chunk_reserved_bytes;
-        return Status::InternalError(ss.str());
-    }
-
     int64_t chunk_reserved_bytes_limit =
             ParseUtil::parse_mem_spec(config::chunk_reserved_bytes_limit, global_memory_limit_bytes,
                                       MemInfo::physical_mem(), &is_percent);
@@ -323,8 +309,8 @@ Status ExecEnv::_init_mem_tracker() {
            << config::chunk_reserved_bytes_limit;
         return Status::InternalError(ss.str());
     }
-    chunk_reserved_bytes_limit =
-            BitUtil::RoundDown(chunk_reserved_bytes_limit, config::min_chunk_reserved_bytes);
+    // Has to round to multiple of page size(4096 bytes), chunk allocator will also check this
+    chunk_reserved_bytes_limit = BitUtil::RoundDown(chunk_reserved_bytes_limit, 4096);
     ChunkAllocator::init_instance(chunk_reserved_bytes_limit);
     LOG(INFO) << "Chunk allocator memory limit: "
               << PrettyPrinter::print(chunk_reserved_bytes_limit, TUnit::BYTES)
@@ -336,6 +322,23 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
                                 int64_t clean_pages_limit) {
     DCHECK(_buffer_pool == nullptr);
     _buffer_pool = new BufferPool(min_page_size, capacity, clean_pages_limit);
+}
+
+void ExecEnv::init_download_cache_buf() {
+    std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
+    memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
+    _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
+            std::move(download_cache_buf);
+}
+
+void ExecEnv::init_download_cache_required_components() {
+    ThreadPoolBuilder("DownloadCacheThreadPool")
+            .set_min_threads(1)
+            .set_max_threads(config::download_cache_thread_pool_thread_num)
+            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
+            .build(&_download_cache_thread_pool);
+    set_serial_download_cache_thread_token();
+    init_download_cache_buf();
 }
 
 void ExecEnv::_register_metrics() {

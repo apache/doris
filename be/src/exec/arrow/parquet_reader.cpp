@@ -22,6 +22,7 @@
 #include <time.h>
 
 #include <algorithm>
+#include <cinttypes>
 #include <mutex>
 #include <thread>
 
@@ -286,7 +287,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int64_t value = int64_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%ld", value);
+                    wbytes = sprintf((char*)tmp_buf, "%" PRId64, value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -310,7 +311,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint64_t value = uint64_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%lu", value);
+                    wbytes = sprintf((char*)tmp_buf, "%" PRIu64, value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;

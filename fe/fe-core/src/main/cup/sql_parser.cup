@@ -1131,6 +1131,10 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshDbStmt(db);
     :}
+    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db
+    {:
+        RESULT = new RefreshDbStmt(ctl, db);
+    :}
     | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
     {:
         RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
@@ -2733,6 +2737,11 @@ drop_stmt ::=
     | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
+    :}
+    /* statistics */
+    | KW_DROP KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
+    {:
+        RESULT = new DropTableStatsStmt(tbl, partitionNames);
     :}
     ;
 

@@ -27,6 +27,11 @@ xian	100.0
 -- !select5 --
 3
 
+-- !group_bitmap_xor --
+20220201	10000
+20220202	10001
+20220203	10000,10001
+
 -- !select6 --
 beijing	3
 xian	3

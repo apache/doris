@@ -87,7 +87,12 @@ protected:
     int _line_delimiter_length;
 
     // Reader
-    std::shared_ptr<FileReader> _cur_file_reader;
+    // _cur_file_reader_s is for stream load pipe reader,
+    // and _cur_file_reader is for other file reader.
+    // TODO: refactor this to use only shared_ptr or unique_ptr
+    std::unique_ptr<FileReader> _cur_file_reader;
+    std::shared_ptr<FileReader> _cur_file_reader_s;
+    FileReader* _real_reader;
     LineReader* _cur_line_reader;
     JsonReader* _cur_json_reader;
     bool _cur_reader_eof;
@@ -178,7 +183,15 @@ protected:
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     std::vector<JsonPath> _parsed_json_root;
 
-    rapidjson::Document _origin_json_doc; // origin json document object from parsed json string
+    char _value_buffer[4 * 1024 * 1024];
+    char _parse_buffer[512 * 1024];
+
+    typedef rapidjson::GenericDocument<rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>,
+                                       rapidjson::MemoryPoolAllocator<>>
+            Document;
+    rapidjson::MemoryPoolAllocator<> _value_allocator;
+    rapidjson::MemoryPoolAllocator<> _parse_allocator;
+    Document _origin_json_doc;   // origin json document object from parsed json string
     rapidjson::Value* _json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
     std::unordered_map<std::string, int> _name_map;
 

@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.AlterTableStatsStmt;
+import org.apache.doris.analysis.DropTableStatsStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.TableName;
@@ -45,6 +46,7 @@ import org.apache.commons.lang3.math.NumberUtils;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class StatisticsManager {
 
@@ -56,6 +58,27 @@ public class StatisticsManager {
 
     public Statistics getStatistics() {
         return statistics;
+    }
+
+    /**
+     * Support for deleting table or partition statistics.
+     *
+     * @param stmt get table name and partition name from it.
+     */
+    public void dropStats(DropTableStatsStmt stmt) {
+        Map<Long, Set<String>> tblIdToPartition = stmt.getTblIdToPartition();
+
+        if (tblIdToPartition != null && !tblIdToPartition.isEmpty()) {
+            tblIdToPartition.forEach((tableId, partitions) -> {
+                if (partitions == null || partitions.isEmpty()) {
+                    statistics.dropTableStats(tableId);
+                } else {
+                    for (String partition : partitions) {
+                        statistics.dropPartitionStats(tableId, partition);
+                    }
+                }
+            });
+        }
     }
 
     /**
@@ -457,14 +480,6 @@ public class StatisticsManager {
 
         if (!Strings.isNullOrEmpty(result.getColumnName())) {
             validateColumn(table, result.getColumnName());
-        }
-
-        if (result.getCategory() == null) {
-            throw new AnalysisException("Category is null.");
-        }
-
-        if (result.getGranularity() == null) {
-            throw new AnalysisException("Granularity is null.");
         }
 
         Map<StatsType, String> statsTypeToValue = result.getStatsTypeToValue();

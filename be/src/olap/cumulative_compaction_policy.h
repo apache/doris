@@ -29,17 +29,8 @@ namespace doris {
 
 class Tablet;
 
-/// This CompactionPolicy enum is used to represent the type of compaction policy.
-/// Now it has two values, NUM_BASED_POLICY and SIZE_BASED_POLICY.
-/// NUM_BASED_POLICY means current compaction policy implemented by num based policy.
-/// SIZE_BASED_POLICY means current compaction policy implemented by size_based policy.
-enum CompactionPolicy {
-    NUM_BASED_POLICY = 0,
-    SIZE_BASED_POLICY = 1,
-};
-
-const static std::string CUMULATIVE_NUM_BASED_POLICY = "NUM_BASED";
 const static std::string CUMULATIVE_SIZE_BASED_POLICY = "SIZE_BASED";
+
 /// This class CumulativeCompactionPolicy is the base class of cumulative compaction policy.
 /// It defines the policy to do cumulative compaction. It has different derived classes, which implements
 /// concrete cumulative compaction algorithm. The policy is configured by conf::cumulative_compaction_policy.
@@ -113,52 +104,6 @@ public:
 
     /// Fetch cumulative policy name
     virtual std::string name() = 0;
-};
-
-/// Num based cumulative compaction policy implemention. Num based policy which derives CumulativeCompactionPolicy is early
-/// basic algorithm. This policy uses linear structure to compact rowsets. The cumulative rowsets compact only once and
-/// then the output will do base compaction. It can make segments of rowsets in order and compact small rowsets to a bigger one.
-class NumBasedCumulativeCompactionPolicy final : public CumulativeCompactionPolicy {
-public:
-    /// Constructor function of NumBasedCumulativeCompactionPolicy,
-    /// it needs tablet pointer to access tablet method.
-    /// param tablet, the shared pointer of tablet
-    NumBasedCumulativeCompactionPolicy() : CumulativeCompactionPolicy() {}
-
-    /// Destructor function of NumBasedCumulativeCompactionPolicy.
-    ~NumBasedCumulativeCompactionPolicy() {}
-
-    /// Num based cumulative compaction policy implements pick input rowsets function.
-    /// Its main policy is picking rowsets from candidate rowsets by comparing accumulative compaction_score and
-    /// max_cumulative_compaction_num_singleton_deltas or checking whether there is delete version rowset.
-    int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                           const int64_t max_compaction_score, const int64_t min_compaction_score,
-                           std::vector<RowsetSharedPtr>* input_rowsets,
-                           Version* last_delete_version, size_t* compaction_score) override;
-
-    /// Num based cumulative compaction policy implements update cumulative point function.
-    /// Its main policy is using the last input version to update the cumulative point. It aims that every rowsets only
-    /// do compact once.
-    void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-                                 RowsetSharedPtr _output_rowset,
-                                 Version& last_delete_version) override;
-
-    /// Num based cumulative compaction policy implements calculate cumulative point function.
-    /// When the first time the tablet does compact, this calculation is executed. Its main policy is to find first rowset
-    /// which is segments_overlapping type, it represent this rowset is not compacted and use this version as cumulative point.
-    void calculate_cumulative_point(Tablet* tablet,
-                                    const std::vector<RowsetMetaSharedPtr>& all_rowsets,
-                                    int64_t current_cumulative_point,
-                                    int64_t* cumulative_point) override;
-
-    /// Num based cumulative compaction policy implements calc cumulative compaction score function.
-    /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
-    void calc_cumulative_compaction_score(TabletState state,
-                                          const std::vector<RowsetMetaSharedPtr>& all_rowsets,
-                                          int64_t current_cumulative_point,
-                                          uint32_t* score) override;
-
-    std::string name() override { return CUMULATIVE_NUM_BASED_POLICY; }
 };
 
 /// SizeBased cumulative compaction policy implemention. SizeBased policy which derives CumulativeCompactionPolicy is a optimized
@@ -248,13 +193,7 @@ class CumulativeCompactionPolicyFactory {
 public:
     /// Static factory function. It can product different policy according to the `policy` parameter and use tablet ptr
     /// to construct the policy. Now it can product size based and num based policies.
-    static std::shared_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy(
-            std::string policy);
-
-private:
-    /// It is a static function to help to check the policy config and convert to CompactionPolicy enum variable
-    static void _parse_cumulative_compaction_policy(std::string policy,
-                                                    CompactionPolicy* policy_type);
+    static std::shared_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy();
 };
 
 } // namespace doris

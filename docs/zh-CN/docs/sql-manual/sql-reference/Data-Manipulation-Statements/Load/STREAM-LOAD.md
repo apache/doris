@@ -135,7 +135,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 21. send_batch_parallelism: 整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
 
 22. hidden_columns: 用于指定导入数据中包含的隐藏列，在Header中不包含columns时生效，多个hidden column用逗号分割。
-       ```
+      ```
            hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
            系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
        ```
@@ -166,11 +166,14 @@ ERRORS:
         可以通过以下语句查看导入错误详细信息：
 
        ```sql
-        SHOW LOAD WARNINGS ON 'url
+        SHOW LOAD WARNINGS ON 'url'
        ```
 
+    其中 url 为 ErrorURL 给出的 url。
 
-​        其中 url 为 ErrorURL 给出的 url。
+23: compress_type
+
+    指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
 
 ### Example
 

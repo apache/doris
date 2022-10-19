@@ -29,8 +29,14 @@ public:
     typedef typename std::pair<Key, Value> KeyValuePair;
     typedef typename std::list<KeyValuePair>::iterator ListIterator;
 
-    class Iterator : public std::iterator<std::input_iterator_tag, KeyValuePair> {
+    class Iterator {
     public:
+        using iterator_category = std::input_iterator_tag;
+        using value_type = KeyValuePair;
+        using difference_type = ptrdiff_t;
+        using pointer = KeyValuePair*;
+        using reference = KeyValuePair&;
+
         Iterator(typename std::unordered_map<Key, ListIterator>::iterator it) : _it(it) {}
 
         Iterator& operator++() {

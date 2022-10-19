@@ -17,6 +17,7 @@
 
 #include "vec/function/function_test_util.h"
 
+#include "runtime/jsonb_value.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -65,6 +66,10 @@ size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t 
     case TypeIndex::String:
         desc.type = doris_udf::FunctionContext::TYPE_STRING;
         type = std::make_shared<DataTypeString>();
+        return 1;
+    case TypeIndex::JSONB:
+        desc.type = doris_udf::FunctionContext::TYPE_JSONB;
+        type = std::make_shared<DataTypeJsonb>();
         return 1;
     case TypeIndex::BitMap:
         desc.type = doris_udf::FunctionContext::TYPE_OBJECT;
@@ -167,16 +172,45 @@ bool parse_ut_data_type(const std::vector<std::any>& input_types, ut_type::UTDat
     }
     return true;
 }
+
+template <typename Date, TypeIndex type_index = TypeIndex::Nothing>
+bool insert_date_cell(MutableColumnPtr& column, const std::string& format, const std::any& cell) {
+    auto datetime_str = std::any_cast<std::string>(cell);
+    Date v;
+    auto result = v.from_date_format_str(format.c_str(), format.size(), datetime_str.c_str(),
+                                         datetime_str.size());
+    if constexpr (type_index == TypeIndex::Date) {
+        v.cast_to_date();
+    } else if constexpr (type_index == TypeIndex::DateTime) {
+        v.to_datetime();
+    }
+    if (result) {
+        column->insert_data(reinterpret_cast<char*>(&v), 0);
+    } else if (column->is_nullable()) {
+        column->insert_data(nullptr, 0);
+    } else {
+        return false;
+    }
+    return true;
+}
+
 bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any& cell) {
     if (cell.type() == typeid(Null)) {
         column->insert_data(nullptr, 0);
         return true;
     }
 
+#define RETURN_IF_FALSE(x) \
+    if (UNLIKELY(!(x))) return false
+
     WhichDataType type(type_ptr);
     if (type.is_string()) {
         auto str = std::any_cast<ut_type::STRING>(cell);
         column->insert_data(str.c_str(), str.size());
+    } else if (type.is_json()) {
+        auto str = std::any_cast<ut_type::STRING>(cell);
+        JsonBinaryValue jsonb_val(str.c_str(), str.size());
+        column->insert_data(jsonb_val.value(), jsonb_val.size());
     } else if (type.idx == TypeIndex::BitMap) {
         BitmapValue* bitmap = std::any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));
@@ -206,34 +240,20 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any&
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_date_time()) {
         static std::string date_time_format("%Y-%m-%d %H:%i:%s");
-        auto datetime_str = std::any_cast<std::string>(cell);
-        VecDateTimeValue v;
-        v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
-                               datetime_str.c_str(), datetime_str.size());
-        v.to_datetime();
-        column->insert_data(reinterpret_cast<char*>(&v), 0);
+        RETURN_IF_FALSE((insert_date_cell<VecDateTimeValue, TypeIndex::DateTime>(
+                column, date_time_format, cell)));
     } else if (type.is_date()) {
         static std::string date_time_format("%Y-%m-%d");
-        auto datetime_str = std::any_cast<std::string>(cell);
-        VecDateTimeValue v;
-        v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
-                               datetime_str.c_str(), datetime_str.size());
-        v.cast_to_date();
-        column->insert_data(reinterpret_cast<char*>(&v), 0);
+        RETURN_IF_FALSE((insert_date_cell<VecDateTimeValue, TypeIndex::Date>(
+                column, date_time_format, cell)));
     } else if (type.is_date_v2()) {
         static std::string date_time_format("%Y-%m-%d");
-        auto datetime_str = std::any_cast<std::string>(cell);
-        DateV2Value<DateV2ValueType> v;
-        v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
-                               datetime_str.c_str(), datetime_str.size());
-        column->insert_data(reinterpret_cast<char*>(&v), 0);
+        RETURN_IF_FALSE(
+                (insert_date_cell<DateV2Value<DateV2ValueType>>(column, date_time_format, cell)));
     } else if (type.is_date_time_v2()) {
         static std::string date_time_format("%Y-%m-%d %H:%i:%s.%f");
-        auto datetime_str = std::any_cast<std::string>(cell);
-        DateV2Value<DateTimeV2ValueType> v;
-        v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
-                               datetime_str.c_str(), datetime_str.size());
-        column->insert_data(reinterpret_cast<char*>(&v), 0);
+        RETURN_IF_FALSE((insert_date_cell<DateV2Value<DateTimeV2ValueType>>(
+                column, date_time_format, cell)));
     } else if (type.is_array()) {
         auto v = std::any_cast<Array>(cell);
         column->insert(v);

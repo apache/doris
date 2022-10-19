@@ -136,10 +136,16 @@ Status BrokerScanner::open_file_reader() {
         }
     }
 
-    RETURN_IF_ERROR(FileFactory::create_file_reader(range.file_type, _state->exec_env(), _profile,
-                                                    _broker_addresses, _params.properties, range,
-                                                    start_offset, _cur_file_reader));
-    return _cur_file_reader->open();
+    if (range.file_type == TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(range.load_id, _cur_file_reader_s));
+        _real_reader = _cur_file_reader_s.get();
+    } else {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                range.file_type, _state->exec_env(), _profile, _broker_addresses,
+                _params.properties, range, start_offset, _cur_file_reader));
+        _real_reader = _cur_file_reader.get();
+    }
+    return _real_reader->open();
 }
 
 Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
@@ -215,12 +221,11 @@ Status BrokerScanner::open_line_reader() {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _cur_line_reader =
-                new PlainTextLineReader(_profile, _cur_file_reader.get(), _cur_decompressor, size,
-                                        _line_delimiter, _line_delimiter_length);
+        _cur_line_reader = new PlainTextLineReader(_profile, _real_reader, _cur_decompressor, size,
+                                                   _line_delimiter, _line_delimiter_length);
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _cur_line_reader = new PlainBinaryLineReader(_cur_file_reader.get());
+        _cur_line_reader = new PlainBinaryLineReader(_real_reader);
         break;
     default: {
         return Status::InternalError("Unknown format type, cannot init line reader, type={}",
