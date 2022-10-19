@@ -102,6 +102,10 @@ suite("test_string_function") {
     qt_sql "select null_or_empty(\"\");"
     qt_sql "select null_or_empty(\"a\");"
 
+    qt_sql "select not_null_or_empty(null);"
+    qt_sql "select not_null_or_empty(\"\");"
+    qt_sql "select not_null_or_empty(\"a\");"
+
     qt_sql "SELECT repeat(\"a\", 3);"
     qt_sql "SELECT repeat(\"a\", -1);"
     qt_sql "SELECT repeat(\"a\", 0);"

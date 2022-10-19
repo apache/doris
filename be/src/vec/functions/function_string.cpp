@@ -666,6 +666,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLeft>();
     factory.register_function<FunctionRight>();
     factory.register_function<FunctionNullOrEmpty>();
+    factory.register_function<FunctionNotNullOrEmpty>();
     factory.register_function<FunctionStringConcat>();
     factory.register_function<FunctionStringElt>();
     factory.register_function<FunctionStringConcatWs>();
