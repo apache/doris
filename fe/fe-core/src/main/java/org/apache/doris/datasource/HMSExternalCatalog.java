@@ -42,8 +42,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
     // Cache of db name to db id.
-    private Map<String, Long> dbNameToId;
-    private Map<Long, HMSExternalDatabase> idToDb;
+    private Map<String, Long> dbNameToId = Maps.newConcurrentMap();
+    private Map<Long, HMSExternalDatabase> idToDb = Maps.newConcurrentMap();
     protected HiveMetaStoreClient client;
 
     /**
@@ -62,9 +62,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     private void init() {
-        // Must set here. Because after replay from image, these 2 map will become null again.
-        dbNameToId = Maps.newConcurrentMap();
-        idToDb = Maps.newConcurrentMap();
+        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
+        Map<Long, HMSExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
         try {
@@ -84,10 +83,21 @@ public class HMSExternalCatalog extends ExternalCatalog {
             return;
         }
         for (String dbName : allDatabases) {
-            long dbId = Env.getCurrentEnv().getNextId();
-            dbNameToId.put(dbName, dbId);
-            idToDb.put(dbId, new HMSExternalDatabase(this, dbId, dbName));
+            long dbId;
+            if (dbNameToId.containsKey(dbName)) {
+                dbId = dbNameToId.get(dbName);
+                tmpDbNameToId.put(dbName, dbId);
+                HMSExternalDatabase db = idToDb.get(dbId);
+                db.setUnInitialized();
+                tmpIdToDb.put(dbId, db);
+            } else {
+                dbId = Env.getCurrentEnv().getNextId();
+                tmpDbNameToId.put(dbName, dbId);
+                tmpIdToDb.put(dbId, new HMSExternalDatabase(this, dbId, dbName));
+            }
         }
+        dbNameToId = tmpDbNameToId;
+        idToDb = tmpIdToDb;
     }
 
     /**
