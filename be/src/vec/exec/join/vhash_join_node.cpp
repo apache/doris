@@ -192,12 +192,17 @@ ProcessHashTableProbe<JoinOpType, ignore_null>::ProcessHashTableProbe(HashJoinNo
         : _join_node(join_node),
           _batch_size(batch_size),
           _build_blocks(join_node->_build_blocks),
-          _tuple_is_null_left_flags(
-                  join_node->_is_outer_join ? &(reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_left_flag_column)
-                          .get_data()) : nullptr),
+          _tuple_is_null_left_flags(join_node->_is_outer_join
+                                            ? &(reinterpret_cast<ColumnUInt8&>(
+                                                        *join_node->_tuple_is_null_left_flag_column)
+                                                        .get_data())
+                                            : nullptr),
           _tuple_is_null_right_flags(
-                  join_node->_is_outer_join ? &(reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_right_flag_column)
-                          .get_data()) : nullptr),
+                  join_node->_is_outer_join
+                          ? &(reinterpret_cast<ColumnUInt8&>(
+                                      *join_node->_tuple_is_null_right_flag_column)
+                                      .get_data())
+                          : nullptr),
           _rows_returned_counter(join_node->_rows_returned_counter),
           _search_hashtable_timer(join_node->_search_hashtable_timer),
           _build_side_output_timer(join_node->_build_side_output_timer),
