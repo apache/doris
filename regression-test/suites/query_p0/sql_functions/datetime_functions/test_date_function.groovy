@@ -242,9 +242,13 @@ suite("test_date_function") {
     // WEEKOFYEAR
     qt_sql """ select weekofyear('2008-02-20 00:00:00') """
 
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03"), ("9999-08-01 13:21:03"),("0-08-01 13:21:03")"""
+
     // YEAR
     qt_sql """ select year('1987-01-01') """
     qt_sql """ select year('2050-01-01') """
+    qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
 
     // YEARWEEK
     qt_sql """ select yearweek('2021-1-1') """
