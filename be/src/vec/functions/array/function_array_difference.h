@@ -19,11 +19,13 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -56,8 +58,10 @@ public:
             return_type = std::make_shared<DataTypeInt16>();
         } else if (which.is_uint16() || which.is_int16()) {
             return_type = std::make_shared<DataTypeInt32>();
-        } else if (which.is_uint32() || which.is_uint64() || which.is_int32() || which.is_int64()) {
+        } else if (which.is_uint32() || which.is_uint64() || which.is_int32()) {
             return_type = std::make_shared<DataTypeInt64>();
+        } else if (which.is_int64() || which.is_int128()) {
+            return_type = std::make_shared<DataTypeInt128>();
         } else if (which.is_float32() || which.is_float64()) {
             return_type = std::make_shared<DataTypeFloat64>();
         } else if (which.is_decimal()) {
@@ -113,9 +117,9 @@ private:
         } else {
             res_nested = ColVecResult::create();
         }
-
+        auto size = nested_column.size();
         typename ColVecResult::Container& res_values = res_nested->get_data();
-        res_values.resize(nested_column.size());
+        res_values.resize(size);
 
         size_t pos = 0;
         for (auto offset : offsets) {
@@ -123,7 +127,21 @@ private:
             pos = offset;
         }
         if (nested_null_map) {
-            return ColumnNullable::create(std::move(res_nested), std::move(nested_null_map));
+            auto null_map_col = ColumnUInt8::create(size, 0);
+            auto& null_map_col_data = null_map_col->get_data();
+            auto nested_colum_data = static_cast<const ColumnVector<UInt8>*>(nested_null_map.get());
+            VectorizedUtils::update_null_map(null_map_col_data, nested_colum_data->get_data());
+            for (size_t row = 0; row < offsets.size(); ++row) {
+                auto off = offsets[row - 1];
+                auto len = offsets[row] - off;
+                auto pos = len ? len - 1 : 0;
+                for (; pos > 0; --pos) {
+                    if (null_map_col_data[pos + off - 1]) {
+                        null_map_col_data[pos + off] = 1;
+                    }
+                }
+            }
+            return ColumnNullable::create(std::move(res_nested), std::move(null_map_col));
         } else {
             return res_nested;
         }
