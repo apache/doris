@@ -199,10 +199,10 @@ ProcessHashTableProbe<JoinOpType, ignore_null>::ProcessHashTableProbe(HashJoinNo
     if (join_node->_is_outer_join) {
         _tuple_is_null_left_flags =
                 &(reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_left_flag_column)
-                .get_data());
+                        .get_data());
         _tuple_is_null_right_flags =
                 &(reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_right_flag_column)
-                .get_data());
+                        .get_data());
     }
 }
 
