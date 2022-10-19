@@ -998,6 +998,10 @@ public class ScalarType extends Type {
             return INVALID;
         }
 
+        if (t1.isDecimalV2() && t2.isDecimalV2()) {
+            return getAssignmentCompatibleDecimalV2Type(t1, t2);
+        }
+
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             return MAX_DECIMALV2_TYPE;
         }
@@ -1024,6 +1028,13 @@ public class ScalarType extends Type {
             return Type.MAX_DECIMALV2_TYPE;
         }
         return createType(result);
+    }
+
+    public static ScalarType getAssignmentCompatibleDecimalV2Type(ScalarType t1, ScalarType t2) {
+        int targetPrecision = Math.max(t1.decimalPrecision(), t2.decimalPrecision());
+        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
+        return ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
+                targetPrecision, targetScale);
     }
 
     /**
