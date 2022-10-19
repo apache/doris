@@ -199,7 +199,8 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
     if (_try_to_wait_flushing()) {
         // `_try_to_wait_flushing()` returns true means other thread already
         // reduced the mem usage, and current thread do not need to reduce again.
-        LOG(INFO) << "Duplicate reduce mem usage on ";
+        LOG(INFO) << "Duplicate reduce mem usage on TabletsChannel, txn_id: " << _txn_id
+                  << ", index_id: " << _index_id;
         return Status::OK();
     }
 
