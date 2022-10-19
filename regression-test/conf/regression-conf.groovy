@@ -63,5 +63,5 @@ brokerName = "broker_name"
 
 // broker load test config
 enableBrokerLoad=true
-ak=""
-sk=""
+ak="AKIDpTrysVrwjGXXFhqnVyB8pGSO4UfbHgph"
+sk="dz4tRiiSs65pMdePvBAuOcaIlyua8SYN"

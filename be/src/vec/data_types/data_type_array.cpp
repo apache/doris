@@ -250,7 +250,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
             has_quota = true;
         }
 
-        // handle null, need to distinguish null and "null" 
+        // handle null, need to distinguish null and "null"
         if (!has_quota && tmp_len == 4 && strncmp(read_buffer.position(), "null", 4) == 0) {
             // insert null
             auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
