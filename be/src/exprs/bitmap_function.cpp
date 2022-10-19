@@ -104,7 +104,8 @@ void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& sr
     if (UNLIKELY(dst->ptr == nullptr)) {
         dst->is_null = false;
         dst->len = sizeof(BitmapValue);
-        dst->ptr = (uint8_t*)new BitmapValue((char*)src.ptr);
+        dst->ptr = (uint8_t*)new BitmapValue();
+        BitmapFunctions::bitmap_union(ctx, src, dst);
         return;
     }
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
