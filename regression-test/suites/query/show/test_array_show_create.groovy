@@ -20,9 +20,6 @@ suite("test_array_show_create", "query") {
     def testTable = "test_array_show_create"
     
     def create_test_table = {testTablex ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-        
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL COMMENT "",

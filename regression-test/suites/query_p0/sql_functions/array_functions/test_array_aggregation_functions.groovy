@@ -17,8 +17,6 @@
 
 suite("test_array_aggregation_functions") {
     def tableName = "tbl_test_array_aggregation_functions"
-    // open enable_array_type
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
     sql """ set enable_vectorized_engine = true """
 

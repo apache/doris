@@ -505,6 +505,7 @@ bool BaseScanner::check_array_format(std::vector<Slice>& split_values) {
         }
         const Slice& value = split_values[j];
         if (dest_slot_desc->type().is_array_type() && !is_null(value) && !is_array(value)) {
+            LOG(INFO) << "cmy check_array_format: " << dest_slot_desc->type().is_array_type() << ", " << !is_null(value) << ", " << !is_array(value);
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(value.data, value.size); },
                     [&]() -> std::string {

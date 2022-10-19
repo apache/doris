@@ -237,12 +237,6 @@ Status CsvReader::_fill_dest_columns(const Slice& line, std::vector<MutableColum
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(_check_array_format(_split_values, &is_success));
-    if (UNLIKELY(!is_success)) {
-        // If not success, which means we met an invalid row, filter this row and return.
-        return Status::OK();
-    }
-
     // if _split_values.size > _file_slot_descs.size()
     // we only take the first few columns
     for (int i = 0; i < _file_slot_descs.size(); ++i) {

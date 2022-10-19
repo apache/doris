@@ -22,8 +22,6 @@ suite("test_array_insert", "load") {
     def testTable02 = "tbl_test_array_insert02"
 
     def create_test_table = {testTablex, enable_vectorized_flag ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
         
         if (enable_vectorized_flag) {
             sql """ set enable_vectorized_engine = true """
@@ -57,8 +55,6 @@ suite("test_array_insert", "load") {
     }
     
     def create_test_table01 = {testTabley ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
         
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable01} (
@@ -102,9 +98,6 @@ suite("test_array_insert", "load") {
     }
 
     def create_test_table02 = {testTablez ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-        
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable02} (
               `k1` int(11) NULL,

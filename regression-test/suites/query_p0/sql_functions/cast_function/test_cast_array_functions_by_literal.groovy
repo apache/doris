@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_cast_array_functions_by_literal") {
-    // open enable_array_type
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
     sql """ set enable_vectorized_engine = true """
     test {

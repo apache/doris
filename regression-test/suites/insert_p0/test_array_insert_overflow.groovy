@@ -17,7 +17,6 @@
 
 suite("test_array_insert_overflow") {
     def testTable = "test_array_insert_overflow"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     sql """ set enable_vectorized_engine = true """
 
     sql """
