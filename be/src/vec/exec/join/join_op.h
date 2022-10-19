@@ -32,10 +32,15 @@ namespace doris::vectorized {
  *   RowRefListWithFlag           RowRefList                 RowRefWithFlag
  *                                                                 |
  *                                                         RowRefListWithFlags
+ *
  *  RowRef is a basic representation for a row which contains only row_num and block_offset.
+ *
  *  RowRefList is a list of many RowRefs. It used for join operations which doesn't need any flags to represent whether a row has already been visited.
+ *
  *  RowRefListWithFlag is a list of many RowRefs and an extra visited flag. It used for join operations which all RowRefs in a list has the same visited flag.
+ *
  *  RowRefWithFlag is a basic representation for a row with an extra visited flag.
+ *
  *  RowRefListWithFlags is a list of many RowRefWithFlags. This means each row will have different visited flags. It's used for join operation which has `other_conjuncts`.
  */
 struct RowRef {

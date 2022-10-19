@@ -34,6 +34,16 @@ namespace doris::vectorized {
 //  SQL hint to allow users to tune by hand.
 static constexpr int PREFETCH_STEP = 64;
 
+template Status HashJoinNode::_extract_join_column<true>(
+        Block&, COW<IColumn>::mutable_ptr<ColumnVector<unsigned char>>&,
+        std::vector<IColumn const*, std::allocator<IColumn const*>>&,
+        std::vector<int, std::allocator<int>> const&);
+
+template Status HashJoinNode::_extract_join_column<false>(
+        Block&, COW<IColumn>::mutable_ptr<ColumnVector<unsigned char>>&,
+        std::vector<IColumn const*, std::allocator<IColumn const*>>&,
+        std::vector<int, std::allocator<int>> const&);
+
 using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext>
 struct ProcessHashTableBuild {
@@ -709,7 +719,8 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::process_data_in_hashtable
         HashTableType& hash_table_ctx, MutableBlock& mutable_block, Block* output_block,
         bool* eos) {
     using Mapped = typename HashTableType::Mapped;
-    if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+    if constexpr (std::is_same_v<Mapped, RowRefListWithFlag> ||
+                  std::is_same_v<Mapped, RowRefListWithFlags>) {
         hash_table_ctx.init_once();
         auto& mcol = mutable_block.mutable_columns();
 
@@ -732,16 +743,26 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::process_data_in_hashtable
 
         for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
             auto& mapped = iter->get_second();
-            if (mapped.visited) {
-                for (auto it = mapped.begin(); it.ok(); ++it) {
-                    if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN) {
-                        insert_from_hash_table(it->block_offset, it->row_num);
+            if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+                if (mapped.visited) {
+                    for (auto it = mapped.begin(); it.ok(); ++it) {
+                        if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN) {
+                            insert_from_hash_table(it->block_offset, it->row_num);
+                        }
+                    }
+                } else {
+                    for (auto it = mapped.begin(); it.ok(); ++it) {
+                        if constexpr (JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
+                            insert_from_hash_table(it->block_offset, it->row_num);
+                        }
                     }
                 }
             } else {
                 for (auto it = mapped.begin(); it.ok(); ++it) {
-                    if constexpr (JoinOpType::value != TJoinOp::RIGHT_SEMI_JOIN) {
-                        insert_from_hash_table(it->block_offset, it->row_num);
+                    if constexpr (JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN) {
+                        if (it->visited) insert_from_hash_table(it->block_offset, it->row_num);
+                    } else {
+                        if (!it->visited) insert_from_hash_table(it->block_offset, it->row_num);
                     }
                 }
             }
@@ -860,9 +881,9 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _probe_column_disguise_null.reserve(eq_join_conjuncts.size());
 
     if (tnode.hash_join_node.__isset.vother_join_conjunct) {
-        _vother_join_conjunct_ptr.reset(new doris::vectorized::VExprContext*);
-        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(
-                _pool, tnode.hash_join_node.vother_join_conjunct, _vother_join_conjunct_ptr.get()));
+        _vother_join_conjunct_ptr.reset(new VExprContext*);
+        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, tnode.hash_join_node.vother_join_conjunct,
+                                                _vother_join_conjunct_ptr.get()));
 
         // If LEFT SEMI JOIN/LEFT ANTI JOIN with not equal predicate,
         // build table should not be deduplicated.
@@ -1612,7 +1633,7 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
     return Status::OK();
 }
 
-void HashJoinNode::_add_tuple_is_null_column(doris::vectorized::Block* block) {
+void HashJoinNode::_add_tuple_is_null_column(Block* block) {
     if (_is_outer_join) {
         auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
         auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
