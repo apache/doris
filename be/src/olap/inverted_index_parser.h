@@ -24,16 +24,14 @@ namespace doris {
 
 enum class InvertedIndexParserType {
     PARSER_UNKNOWN = 0,
-    PARSER_NOT_SET = 1,
-    PARSER_NONE = 2,
-    PARSER_STANDARD = 3,
-    PARSER_ENGLISH = 4,
-    PARSER_CHINESE = 5,
+    PARSER_NONE = 1,
+    PARSER_STANDARD = 2,
+    PARSER_ENGLISH = 3,
+    PARSER_CHINESE = 4,
 };
 
 const std::string INVERTED_INDEX_PARSER_KEY = "parser";
 const std::string INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
-const std::string INVERTED_INDEX_PARSER_NOT_SET = "not_set";
 const std::string INVERTED_INDEX_PARSER_NONE = "none";
 const std::string INVERTED_INDEX_PARSER_STANDARD = "standard";
 const std::string INVERTED_INDEX_PARSER_ENGLISH = "english";

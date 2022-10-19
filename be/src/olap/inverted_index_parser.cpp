@@ -23,8 +23,6 @@ namespace doris {
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type) {
     switch (parser_type) {
-    case InvertedIndexParserType::PARSER_NOT_SET:
-        return INVERTED_INDEX_PARSER_NOT_SET;
     case InvertedIndexParserType::PARSER_NONE:
         return INVERTED_INDEX_PARSER_NONE;
     case InvertedIndexParserType::PARSER_STANDARD:
@@ -42,9 +40,7 @@ std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_
 
 InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::string& parser_str) {
     auto parser_str_lower = to_lower(parser_str);
-    if (parser_str_lower == INVERTED_INDEX_PARSER_NOT_SET) {
-        return InvertedIndexParserType::PARSER_NOT_SET;
-    } else if (parser_str_lower == INVERTED_INDEX_PARSER_NONE) {
+    if (parser_str_lower == INVERTED_INDEX_PARSER_NONE) {
         return InvertedIndexParserType::PARSER_NONE;
     } else if (parser_str_lower == INVERTED_INDEX_PARSER_STANDARD) {
         return InvertedIndexParserType::PARSER_STANDARD;
@@ -62,7 +58,7 @@ std::string get_parser_string_from_properties(
     if (properties.find(INVERTED_INDEX_PARSER_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_KEY);
     } else {
-        return INVERTED_INDEX_PARSER_NOT_SET;
+        return INVERTED_INDEX_PARSER_NONE;
     }
 }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -100,10 +101,7 @@ public class Index implements Writable {
     }
 
     public String getInvertedIndexParser() {
-        if (properties == null || properties.get("parser") == null) {
-            return "not_set";
-        }
-        return properties.get("parser");
+        return InvertedIndexUtil.getInvertedIndexParser(properties);
     }
 
     public String getComment() {

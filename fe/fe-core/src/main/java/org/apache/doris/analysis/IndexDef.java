@@ -174,10 +174,8 @@ public class IndexDef {
                                 + " AGG_KEYS table. invalid column: " + indexColName);
             }
 
-            if (indexType == IndexType.INVERTED && !colType.isStringType()
-                    && properties != null && properties.get("parser") != null) {
-                throw new AnalysisException("inverted index with parser is not supported for column: "
-                    + indexColName + " of type " + colType);
+            if (indexType == IndexType.INVERTED) {
+                InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties);
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);

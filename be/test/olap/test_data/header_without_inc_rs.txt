@@ -20,7 +20,7 @@
                 "length": 8,
                 "index_length": 8,
                 "visible": true,
-                "inverted_index_parser": "not_set"
+                "inverted_index_parser": "unknown"
             },
             {
                 "unique_id": 1,
@@ -33,7 +33,7 @@
                 "length": 16387,
                 "index_length": 16,
                 "visible": true,
-                "inverted_index_parser": "not_set"
+                "inverted_index_parser": "unknown"
             },
             {
                 "unique_id": 2,
@@ -45,7 +45,7 @@
                 "length": 4,
                 "index_length": 4,
                 "visible": true,
-                "inverted_index_parser": "not_set"
+                "inverted_index_parser": "unknown"
             }
         ],
         "num_short_key_columns": 1,

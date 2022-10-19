@@ -171,7 +171,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                         column->set_inverted_index_parser(
                                 index.__isset.properties
                                         ? get_parser_string_from_properties(index.properties)
-                                        : INVERTED_INDEX_PARSER_NOT_SET);
+                                        : INVERTED_INDEX_PARSER_NONE);
                         break;
                     }
                 }
