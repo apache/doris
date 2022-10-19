@@ -39,4 +39,5 @@ suite("test_query_json_object", "query") {
     sql "insert into ${tableName} values(null);"
     sql "insert into ${tableName} values(1);"
     qt_sql "select json_object(\"k1\",k1) from ${tableName};"
+    sql "DROP TABLE ${tableName};"
 }
