@@ -104,7 +104,9 @@ public:
 
     int64_t memtable_consumption() const;
 
-    int64_t save_memtable_consumption_snapshot();
+    void save_mem_consumption_snapshot();
+
+    int64_t get_memtable_consumption_inflush() const;
 
     int64_t get_memtable_consumption_snapshot() const;
 
@@ -161,6 +163,9 @@ private:
     // use in vectorized load
     bool _is_vec;
 
+    // memory consumption snapshot for current delta_writer, only
+    // used for std::sort
+    int64_t _mem_consumption_snapshot = 0;
     // memory consumption snapshot for current memtable, only
     // used for std::sort
     int64_t _memtable_consumption_snapshot = 0;

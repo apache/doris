@@ -199,10 +199,11 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
     if (_try_to_wait_flushing()) {
         // `_try_to_wait_flushing()` returns true means other thread already
         // reduced the mem usage, and current thread do not need to reduce again.
+        LOG(INFO) << "Duplicate reduce mem usage on ";
         return Status::OK();
     }
 
-    std::vector<DeltaWriter*> writers_to_flush;
+    std::vector<DeltaWriter*> writers_to_wait_flush;
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_state == kFinished) {
@@ -214,8 +215,15 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         // Sort the DeltaWriters by mem consumption in descend order.
         std::vector<DeltaWriter*> writers;
         for (auto& it : _tablet_writers) {
-            it.second->save_memtable_consumption_snapshot();
+            it.second->save_mem_consumption_snapshot();
             writers.push_back(it.second);
+        }
+        int64_t total_memtable_consumption_in_flush = 0;
+        for (auto writer : writers) {
+            if (writer->get_memtable_consumption_inflush() > 0) {
+                writers_to_wait_flush.push_back(writer);
+                total_memtable_consumption_in_flush += writer->get_memtable_consumption_inflush();
+            }
         }
         std::sort(writers.begin(), writers.end(),
                   [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
@@ -235,48 +243,62 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         // the tablet that has not been flushed before will accumulate more data, thereby reducing the number of flushes.
 
         int64_t mem_to_flushed = _mem_tracker->consumption() / 3;
-        int counter = 0;
-        int64_t sum = 0;
-        for (auto writer : writers) {
-            if (writer->mem_consumption() <= 0) {
-                break;
+        if (total_memtable_consumption_in_flush < mem_to_flushed) {
+            mem_to_flushed -= total_memtable_consumption_in_flush;
+            int counter = 0;
+            int64_t sum = 0;
+            for (auto writer : writers) {
+                if (writer->mem_consumption() <= 0) {
+                    break;
+                }
+                ++counter;
+                sum += writer->mem_consumption();
+                if (sum > mem_to_flushed) {
+                    break;
+                }
             }
-            ++counter;
-            sum += writer->mem_consumption();
-            if (sum > mem_to_flushed) {
-                break;
+            std::ostringstream ss;
+            ss << "total size of memtables in flush: " << total_memtable_consumption_in_flush
+               << " will flush " << counter << " more memtables to reduce memory: " << sum;
+            if (counter > 0) {
+                ss << ", the size of smallest memtable to flush is "
+                   << writers[counter - 1]->get_memtable_consumption_snapshot() << " bytes";
             }
+            LOG(INFO) << ss.str();
+            google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
+                    response->mutable_tablet_errors();
+            // following loop flush memtable async, we'll do it with _lock
+            for (int i = 0; i < counter; i++) {
+                Status st = writers[i]->flush_memtable_and_wait(false);
+                if (!st.ok()) {
+                    auto err_msg = strings::Substitute(
+                            "tablet writer failed to reduce mem consumption by flushing memtable, "
+                            "tablet_id=$0, txn_id=$1, err=$2, errcode=$3, msg:$4",
+                            writers[i]->tablet_id(), _txn_id, st.code(), st.precise_code(),
+                            st.get_error_msg());
+                    LOG(WARNING) << err_msg;
+                    PTabletError* error = tablet_errors->Add();
+                    error->set_tablet_id(writers[i]->tablet_id());
+                    error->set_msg(err_msg);
+                    _broken_tablets.insert(writers[i]->tablet_id());
+                }
+            }
+            for (int i = 0; i < counter; i++) {
+                if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
+                    // skip broken tablets
+                    continue;
+                }
+                writers_to_wait_flush.push_back(writers[i]);
+            }
+            _reducing_mem_usage = true;
+        } else {
+            LOG(INFO) << "total size of memtables in flush is big enough: "
+                      << total_memtable_consumption_in_flush
+                      << " bytes, will not flush more memtables";
         }
-        VLOG_CRITICAL << "flush " << counter << " memtables to reduce memory: " << sum;
-        google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
-                response->mutable_tablet_errors();
-        // following loop flush memtable async, we'll do it with _lock
-        for (int i = 0; i < counter; i++) {
-            Status st = writers[i]->flush_memtable_and_wait(false);
-            if (!st.ok()) {
-                auto err_msg = strings::Substitute(
-                        "tablet writer failed to reduce mem consumption by flushing memtable, "
-                        "tablet_id=$0, txn_id=$1, err=$2, errcode=$3, msg:$4",
-                        writers[i]->tablet_id(), _txn_id, st.code(), st.precise_code(),
-                        st.get_error_msg());
-                LOG(WARNING) << err_msg;
-                PTabletError* error = tablet_errors->Add();
-                error->set_tablet_id(writers[i]->tablet_id());
-                error->set_msg(err_msg);
-                _broken_tablets.insert(writers[i]->tablet_id());
-            }
-        }
-        for (int i = 0; i < counter; i++) {
-            if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
-                // skip broken tablets
-                continue;
-            }
-            writers_to_flush.push_back(writers[i]);
-        }
-        _reducing_mem_usage = true;
     }
 
-    for (auto writer : writers_to_flush) {
+    for (auto writer : writers_to_wait_flush) {
         Status st = writer->wait_flush();
         if (!st.ok()) {
             return Status::InternalError(
