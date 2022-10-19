@@ -49,6 +49,7 @@ struct TColumnDesc {
   4: optional i32 columnPrecision
   5: optional i32 columnScale
   6: optional bool isAllowNull
+  7: optional string columnKey
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
