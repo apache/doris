@@ -100,6 +100,22 @@ public class RegisterCTETest extends TestWithFeService {
     }
 
     @Test
+    public void cte_test_5() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("  WITH cte1 AS (\n"
+                    + "  \tSELECT s_suppkey as sk\n"
+                    + "  \tFROM supplier\n"
+                    + "  \tWHERE s_suppkey < 5\n"
+                    + "), cte2 AS (\n"
+                    + "  \tSELECT sk\n"
+                    + "  \tFROM cte1\n"
+                    + "  \tWHERE sk < 3\n"
+                    + ")\n"
+                    + "  SELECT *\n"
+                    + "  FROM cte1, cte2\n");
+    }
+
+    @Test
     public void cte_exception_test_1() {
         try {
             PlanChecker.from(connectContext)

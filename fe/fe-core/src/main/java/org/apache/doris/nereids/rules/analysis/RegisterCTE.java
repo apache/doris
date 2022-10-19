@@ -75,6 +75,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
             LogicalPlan plan = withClause.extractQueryPlan();
             plan = (LogicalPlan) new CTEVisitor().inlineCTE(cteContext, plan);
             cteContext.putOriginPlan(cteName, plan);
+            System.out.println(plan.treeString());
 
             CascadesContext cascadesContext = new Memo(plan).newCascadesContext(statementContext);
             cascadesContext.newAnalyzer().analyze();
@@ -83,6 +84,8 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
             if (withClause.getColumnAliases().isPresent()) {
                 analyzedPlan = withColumnAliases(analyzedPlan, withClause, cteContext);
             }
+
+            System.out.println(analyzedPlan.treeString());
             cteContext.putAnalyzedPlan(cteName, analyzedPlan);
         }
     }

@@ -127,6 +127,7 @@ public class NereidsPlanner extends Planner {
 
         // resolve column, table and function
         analyze();
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
 
         // rule-based optimize
         rewrite();
