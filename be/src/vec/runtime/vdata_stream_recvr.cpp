@@ -53,7 +53,10 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
     }
 
     // _cur_batch must be replaced with the returned batch.
-    _current_block.reset();
+    {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        _current_block.reset();
+    }
     *next_block = nullptr;
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
