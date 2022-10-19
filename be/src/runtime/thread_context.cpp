@@ -39,10 +39,12 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
 #else
     if (ExecEnv::GetInstance()->new_process_mem_tracker() == nullptr) {
         std::shared_ptr<MemTrackerLimiter> process_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(-1, "Process");
-        std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Process");
+        std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker =
                 std::make_shared<MemTrackerLimiter>(-1, "Orphan", process_mem_tracker);
-        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, _orphan_mem_tracker);
+        std::shared_ptr<MemTrackerLimiter> bthread_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Bthread", orphan_mem_tracker);
+        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, orphan_mem_tracker, bthread_mem_tracker);
     }
     thread_context()->attach_task(type, task_id, fragment_instance_id, ExecEnv::GetInstance()->orphan_mem_tracker());
 #endif // BE_TEST
@@ -61,10 +63,12 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
 #else
     if (ExecEnv::GetInstance()->new_process_mem_tracker() == nullptr) {
         std::shared_ptr<MemTrackerLimiter> process_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(-1, "Process");
-        std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Process");
+        std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker =
                 std::make_shared<MemTrackerLimiter>(-1, "Orphan", process_mem_tracker);
-        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, _orphan_mem_tracker);
+        std::shared_ptr<MemTrackerLimiter> bthread_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Bthread", orphan_mem_tracker);
+        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, orphan_mem_tracker, bthread_mem_tracker);
     }
     thread_context()->attach_task(ThreadContext::TaskType::QUERY, "", TUniqueId(), ExecEnv::GetInstance()->orphan_mem_tracker());
 #endif // BE_TEST

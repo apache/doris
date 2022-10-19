@@ -160,9 +160,11 @@ inline void ThreadMemTrackerMgr::init_impl() {
     if (ExecEnv::GetInstance()->new_process_mem_tracker() == nullptr) {
         std::shared_ptr<MemTrackerLimiter> process_mem_tracker =
                 std::make_shared<MemTrackerLimiter>(-1, "Process");
-        std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker =
+        std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker =
                 std::make_shared<MemTrackerLimiter>(-1, "Orphan", process_mem_tracker);
-        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, _orphan_mem_tracker);
+        std::shared_ptr<MemTrackerLimiter> bthread_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Bthread", orphan_mem_tracker);
+        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, orphan_mem_tracker, bthread_mem_tracker);
     }
 #endif // BE_TEST
     _limiter_tracker_stack.push_back(ExecEnv::GetInstance()->orphan_mem_tracker());
