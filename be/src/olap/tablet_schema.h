@@ -113,7 +113,7 @@ private:
 
     bool _has_bitmap_index = false;
     bool _has_inverted_index = false;
-    InvertedIndexParserType _inverted_index_parser_type {InvertedIndexParserType::PARSER_NOT_SET};
+    InvertedIndexParserType _inverted_index_parser_type {InvertedIndexParserType::PARSER_UNKNOWN};
     bool _visible = true;
 
     TabletColumn* _parent = nullptr;

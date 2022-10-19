@@ -100,7 +100,10 @@ public class Index implements Writable {
     }
 
     public String getInvertedIndexParser() {
-        return properties == null ? "" : properties.get("parser");
+        if (properties == null || properties.get("parser") == null) {
+            return "not_set";
+        }
+        return properties.get("parser");
     }
 
     public String getComment() {
