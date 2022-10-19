@@ -663,36 +663,36 @@ struct LastDayImpl {
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                 const auto& cur_data = data_col[i];
                 auto ts_value = binary_cast<Int64, VecDateTimeValue>(cur_data);
-                int day = get_last_month_day(ts_value.year(), ts_value.month());
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
-                ts_value.set_type(TIME_DATE);
                 if (!ts_value.is_valid_date()) {
                     null_map[i] = 1;
                     continue;
                 }
+                int day = get_last_month_day(ts_value.year(), ts_value.month());
+                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
+                ts_value.set_type(TIME_DATE);
                 res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
 
             } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
                 const auto& cur_data = data_col[i];
                 auto ts_value = binary_cast<UInt32, DateValueType>(cur_data);
-                int day = get_last_month_day(ts_value.year(), ts_value.month());
-                ts_value.template set_time_unit<TimeUnit::DAY>(day);
                 if (!ts_value.is_valid_date()) {
                     null_map[i] = 1;
                     continue;
                 }
+                int day = get_last_month_day(ts_value.year(), ts_value.month());
+                ts_value.template set_time_unit<TimeUnit::DAY>(day);
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
 
             } else {
                 const auto& cur_data = data_col[i];
                 auto ts_value = binary_cast<UInt64, DateValueType>(cur_data);
-                int day = get_last_month_day(ts_value.year(), ts_value.month());
-                ts_value.template set_time_unit<TimeUnit::DAY>(day);
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 if (!ts_value.is_valid_date()) {
                     null_map[i] = 1;
                     continue;
                 }
+                int day = get_last_month_day(ts_value.year(), ts_value.month());
+                ts_value.template set_time_unit<TimeUnit::DAY>(day);
+                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
