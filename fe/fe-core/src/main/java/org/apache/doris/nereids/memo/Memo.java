@@ -323,8 +323,8 @@ public class Memo {
     }
 
     private String trans(GroupExpression g) {
-        return String.format("this is %s children is %s", g.getClass(), g.children().stream()
-                .map(Group::getClass).collect(Collectors.toList()));
+        return String.format("this is %s children is %s", g, g.children().stream()
+                .map(Group::toString).collect(Collectors.toList()));
     }
 
     /**
