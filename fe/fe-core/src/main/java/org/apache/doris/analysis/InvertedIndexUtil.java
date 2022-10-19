@@ -32,7 +32,7 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_CHINESE = "chinese";
 
     public static String getInvertedIndexParser(Map<String, String> properties) {
-        String parser = properties == null ? null : properties.get("INVERTED_INDEX_PARSER_KEY");
+        String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
         // default is "none" if not set
         return parser != null ? parser : INVERTED_INDEX_PARSER_NONE;
     }
@@ -45,12 +45,12 @@ public class InvertedIndexUtil {
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)
                         || parser.equals(INVERTED_INDEX_PARSER_ENGLISH)
                             || parser.equals(INVERTED_INDEX_PARSER_CHINESE))) {
-                throw new AnalysisException("INVERTED index parser is invalid for column: "
-                    + indexColName + " of type " + colType + " parser " + parser);
+                throw new AnalysisException("INVERTED index parser: " + parser
+                    + " is invalid for column: " + indexColName + " of type " + colType);
             }
         } else if (!parser.equals(INVERTED_INDEX_PARSER_NONE)) {
-            throw new AnalysisException("INVERTED index with parser is not supported for column: "
-                + indexColName + " of type " + colType);
+            throw new AnalysisException("INVERTED index with parser: " + parser
+                + " is not supported for column: " + indexColName + " of type " + colType);
         }
     }
 }
