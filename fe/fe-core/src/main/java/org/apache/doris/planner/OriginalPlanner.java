@@ -196,7 +196,7 @@ public class OriginalPlanner extends Planner {
 
         // check and set flag for topn detail query opt
         if (VectorizedUtil.isVectorized()) {
-            checkTopnOpt(singleNodePlan);
+            checkAndSetTopnOpt(singleNodePlan);
         }
 
         if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
@@ -443,7 +443,7 @@ public class OriginalPlanner extends Planner {
      * 2. limit > 0
      * 3. first expression of order by is a table column
      */
-    private void checkTopnOpt(PlanNode node) {
+    private void checkAndSetTopnOpt(PlanNode node) {
         if (node instanceof SortNode && node.getChildren().size() == 1) {
             SortNode sortNode = (SortNode) node;
             PlanNode child = sortNode.getChild(0);
