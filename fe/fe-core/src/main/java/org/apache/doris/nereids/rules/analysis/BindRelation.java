@@ -78,17 +78,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getStatementContext().getCteContext();
         if (cteContext.containsCTE(nameParts)) {
-            CTEScope innerScope = cteContext.findScope(nameParts);
-            CTEScope outerScope = cteContext.getCurrentScope();
-            cteContext.setCurrentScope(innerScope);
-
-            LogicalPlan originPlan = cteContext.findCTEPlan(nameParts, cascadesContext.getStatementContext());
-            CascadesContext childContext = new Memo(originPlan)
-                    .newCascadesContext(cascadesContext.getStatementContext());
-            childContext.newAnalyzer().analyze();
-
-            cteContext.setCurrentScope(outerScope);
-            return new LogicalSubQueryAlias<>(nameParts, childContext.getMemo().copyOut(false));
+            return new LogicalSubQueryAlias<>(nameParts, cteContext.findCTE(nameParts));
         }
 
         String dbName = cascadesContext.getConnectContext().getDatabase();

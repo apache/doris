@@ -17,11 +17,31 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Register CTE, includes checking columnAliases, checking CTE name, analyzing each CTE and store the
@@ -35,9 +55,111 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
     public Rule build() {
         return logicalCTE().thenApply(ctx -> {
             LogicalCTE<GroupPlan> logicalCTE = ctx.root;
-            ctx.statementContext.getCteContext().register(logicalCTE.getWithClauses());
+            register(logicalCTE.getWithClauses(), ctx.statementContext);
             return (LogicalPlan) logicalCTE.child();
         }).toRule(RuleType.REGISTER_CTE);
+    }
+
+    /**
+     * register and store CTEs in CTEContext
+     */
+    private void register(List<WithClause> withClauseList, StatementContext statementContext) {
+        CTEContext cteContext = statementContext.getCteContext();
+
+        for (WithClause withClause : withClauseList) {
+            String cteName = withClause.getName();
+            if (cteContext.containsCTE(cteName)) {
+                throw new AnalysisException("CTE name [" + cteName + "] cannot be used more than once.");
+            }
+
+            LogicalPlan plan = withClause.extractQueryPlan();
+            plan = (LogicalPlan) new CTEVisitor().inlineCTE(cteContext, plan);
+            cteContext.putOriginPlan(cteName, plan);
+
+            CascadesContext cascadesContext = new Memo(plan).newCascadesContext(statementContext);
+            cascadesContext.newAnalyzer().analyze();
+            LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
+
+            if (withClause.getColumnAliases().isPresent()) {
+                analyzedPlan = withColumnAliases(analyzedPlan, withClause, cteContext);
+            }
+            cteContext.putAnalyzedPlan(cteName, analyzedPlan);
+        }
+    }
+
+    /**
+     * deal with columnAliases of CTE
+     */
+    private LogicalPlan withColumnAliases(LogicalPlan analyzedPlan, WithClause withClause, CTEContext cteContext) {
+        List<Slot> outputSlots = analyzedPlan.getOutput();
+        List<String> columnAliases = withClause.getColumnAliases().get();
+
+        checkColumnAlias(withClause, outputSlots);
+
+        // if this CTE has columnAlias, we should add an extra LogicalProject to both its originPlan and analyzedPlan,
+        // which is used to store columnAlias
+
+        // projects for originPlan
+        List<NamedExpression> unboundProjects = IntStream.range(0, outputSlots.size())
+                .mapToObj(i -> i >= columnAliases.size()
+                    ? new UnboundSlot(outputSlots.get(i).getName())
+                    : new Alias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
+                .collect(Collectors.toList());
+
+        String name = withClause.getName();
+        LogicalPlan originPlan = cteContext.findCTE(name);
+        cteContext.putOriginPlan(name, new LogicalProject<>(unboundProjects, originPlan));
+
+        // projects for analyzedPlan
+        List<NamedExpression> boundedProjects = IntStream.range(0, outputSlots.size())
+                .mapToObj(i -> i >= columnAliases.size()
+                    ? outputSlots.get(i)
+                    : new Alias(outputSlots.get(i), columnAliases.get(i)))
+                .collect(Collectors.toList());
+        return new LogicalProject<>(boundedProjects, analyzedPlan);
+    }
+
+    /**
+     * check columnAliases' size and name
+     */
+    private void checkColumnAlias(WithClause withClause, List<Slot> outputSlots) {
+        List<String> columnAlias = withClause.getColumnAliases().get();
+        // if the size of columnAlias is smaller than outputSlots' size, we will replace the corresponding number
+        // of front slots with columnAlias.
+        if (columnAlias.size() > outputSlots.size()) {
+            throw new AnalysisException("WITH-clause '" + withClause.getName() + "' returns " + columnAlias.size()
+                + " columns, but " + outputSlots.size() + " labels were specified. The number of column labels must "
+                + "be smaller or equal to the number of returned columns.");
+        }
+
+        Set<String> names = new HashSet<>();
+        // column alias cannot be used more than once
+        columnAlias.stream().forEach(alias -> {
+            if (names.contains(alias.toLowerCase())) {
+                throw new AnalysisException("Duplicated CTE column alias: '" + alias.toLowerCase()
+                    + "' in CTE " + withClause.getName());
+            }
+            names.add(alias);
+        });
+    }
+
+    private class CTEVisitor extends DefaultPlanRewriter<CTEContext> {
+        @Override
+        public LogicalPlan visitUnboundRelation(UnboundRelation unboundRelation, CTEContext context) {
+            // confirm if it is a CTE
+            if (unboundRelation.getNameParts().size() != 1) {
+                return unboundRelation;
+            }
+            String name = unboundRelation.getTableName();
+            if (context.containsCTE(name)) {
+                return new LogicalSubQueryAlias<>(name, context.findCTE(name));
+            }
+            return unboundRelation;
+        }
+
+        public Plan inlineCTE(CTEContext cteContext, LogicalPlan ctePlan) {
+            return ctePlan.accept(this, cteContext);
+        }
     }
 
 }
