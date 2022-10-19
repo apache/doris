@@ -314,6 +314,7 @@ private:
     doris::vectorized::VExpr* _remaining_vconjunct_root;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
+    std::set<ColumnId> _not_apply_index_pred;
 
     std::shared_ptr<ColumnPredicate> _runtime_predicate {nullptr};
 
