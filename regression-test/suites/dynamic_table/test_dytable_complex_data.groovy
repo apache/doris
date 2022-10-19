@@ -19,7 +19,6 @@ suite("test_dynamic_table", "dynamic_table"){
     // prepare test table
 
     sql """ SET enable_vectorized_engine=true; """
-    sql """ set enable_array_type = true; """
 
     def load_json_data = {table_name, vec_flag, format_flag, read_flag, file_name, expect_success ->
         // load the json data

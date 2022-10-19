@@ -74,7 +74,7 @@ suite("test_dynamic_table", "dynamic_table"){
                     name varchar(50),
                     date datetime,
                     index id_idx(`id`) USING INVERTED COMMENT 'id index',
-                    index name_idx(`name`) USING INVERTED(SIMPLE) COMMENT 'name index',
+                    index name_idx(`name`) USING INVERTED PROPERTIES("parser"="english") COMMENT 'name index',
                     index date_idx(`date`) COMMENT 'date index',
                     ... 
                 )
