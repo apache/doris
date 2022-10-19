@@ -84,7 +84,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         for (String dbName : allDatabases) {
             long dbId;
-            if (dbNameToId.containsKey(dbName)) {
+            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
                 dbId = dbNameToId.get(dbName);
                 tmpDbNameToId.put(dbName, dbId);
                 HMSExternalDatabase db = idToDb.get(dbId);
