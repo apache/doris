@@ -192,8 +192,8 @@ class TestAction implements SuiteAction {
         return new ActionResult(result, ex, startTime, endTime, meta)
     }
 
-    void sql(String sql) {
-        if ((! sql.contains('SET_VAR')) && sql.containsIgnoreCase('select')) {
+    void sql(String sql, boolean setRandomParallel = true) {
+        if (setRandomParallel && (! sql.contains('SET_VAR')) && sql.containsIgnoreCase('select')) {
             def num = rd.nextInt(16)
             def replace_str = 'select /*+SET_VAR(parallel_fragment_exec_instance_num=' + num.toString() + ')*/'
             if(sql.contains('SELECT')) {

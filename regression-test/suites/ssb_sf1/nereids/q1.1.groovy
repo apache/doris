@@ -29,7 +29,16 @@ suite("ssb_sf1_q1_1_nereids") {
     sql 'set exec_mem_limit=2147483648*2'
 
     test {
-        sql(new File(context.file.parentFile, "../sql/q1.1.sql").text)
+        // sql(new File(context.file.parentFile, "../sql/q1.1.sql").text)
+        sql """SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/  
+        SUM(lo_extendedprice*lo_discount) AS
+        REVENUE
+        FROM  lineorder, date
+        WHERE  lo_orderdate = d_datekey
+        AND d_year = 1993
+        AND lo_discount BETWEEN 1 AND 3
+        AND lo_quantity < 25;
+        """
 
         resultFile(file = "../sql/q1.1.out", tag = "q1.1")
     }
