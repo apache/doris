@@ -110,6 +110,26 @@ suite('load') {
         }
         rowCount = sql "select count(*) from ${table}"
         assertEquals(table_rows, rowCount[0][0])
+
+        sql "truncate table lineorder_flat"
+        rowCount = sql "select count(*) from ${table}"
+        assertEquals(0, rowCount[0][0])
+        sql "set exec_mem_limit=8G"
+        sql """
+            INSERT INTO lineorder_flat 
+            SELECT LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, 
+                   LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, 
+                   LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, 
+                   LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, 
+                   C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, 
+                   S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, 
+                   P_BRAND, P_COLOR, P_TYPE, P_SIZE, P_CONTAINER 
+            FROM lineorder l
+                INNER JOIN customer c ON (c.c_custkey = l.lo_custkey) 
+                INNER JOIN supplier s ON (s.s_suppkey = l.lo_suppkey) 
+                INNER JOIN part p ON (p.p_partkey = l.lo_partkey);"""
+        rowCount = sql "select count(*) from ${table}"
+        assertEquals(table_rows, rowCount[0][0])
     }
 
 
