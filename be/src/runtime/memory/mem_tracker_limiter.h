@@ -80,7 +80,11 @@ public:
                             bytes >=
                     MemInfo::mem_limit() ||
             PerfCounters::get_vm_rss() + bytes >= MemInfo::hard_mem_limit()) {
-            return true;
+            if (config::enable_proc_meminfo_cancel_query) {
+                return true;
+            } else {
+                ExecEnv::GetInstance()->new_process_mem_tracker()->print_log_usage("sys_mem_exceed_limit_check");
+            }
         }
         return false;
     }
@@ -306,7 +310,7 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
         MemTrackerLimiter* tracker = _all_ancestors[i];
         // Process tracker does not participate in the process memory limit, process tracker consumption is virtual memory,
         // and there is a diff between the real physical memory value of the process. It is replaced by check_sys_mem_info.
-        if (tracker->limit() < 0 || tracker->label() == "Process") {
+        if (tracker->limit() < 0 || !config::enable_mem_tracker_cancel_query || tracker->label() == "Process") {
             tracker->_consumption->add(bytes); // No limit at this tracker.
         } else {
             if (!tracker->_consumption->try_add(bytes, tracker->limit())) {
@@ -326,10 +330,11 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
-    if (bytes <= 0 || !config::enable_cancel_query) return Status::OK();
+    if (bytes <= 0) return Status::OK();
     if (sys_mem_exceed_limit_check(bytes)) {
         return Status::MemoryLimitExceeded(limit_exceeded_errmsg_sys_str(bytes));
     }
+    if (!config::enable_mem_tracker_cancel_query) return Status::OK();
     int i;
     // Walk the tracker tree top-down.
     for (i = _limited_ancestors.size() - 1; i >= 0; --i) {

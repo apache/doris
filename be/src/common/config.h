@@ -632,7 +632,10 @@ CONF_Int16(mem_tracker_level, "0");
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 CONF_Bool(enable_tcmalloc_hook, "true");
 
-CONF_Bool(enable_cancel_query, "false");
+// Cancel query if the process physical memory recorded in `/proc/mem_info` exceeds the limit.
+CONF_Bool(enable_proc_meminfo_cancel_query, "false");
+// Cancel query if query mem tracker exceeds the limit.
+CONF_Bool(enable_mem_tracker_cancel_query, "false");
 
 // If true, switch TLS MemTracker to count more detailed memory,
 // including caches such as ExecNode operators and TabletManager.
