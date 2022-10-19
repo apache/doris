@@ -132,10 +132,8 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
-        // In some cases, query mem tracker does not exist in BE when transmit block, will get null pointer.
-        transmit_tracker = std::make_shared<MemTrackerLimiter>(
-                -1, fmt::format("QueryTransmit#queryId={}", query_id),
-                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id));
+        transmit_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
     } else {
         query_id = "unkown_transmit_data";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_data");
@@ -642,10 +640,8 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
-        // In some cases, query mem tracker does not exist in BE when transmit block, will get null pointer.
-        transmit_tracker = std::make_shared<MemTrackerLimiter>(
-                -1, fmt::format("QueryTransmit#queryId={}", query_id),
-                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id));
+        transmit_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
     } else {
         query_id = "unkown_transmit_block";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_block");

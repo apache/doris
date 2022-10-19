@@ -165,10 +165,6 @@ public:
         return msg.str();
     }
 
-    static std::string print_bytes(int64_t bytes) {
-        return PrettyPrinter::print(bytes, TUnit::BYTES);
-    }
-
 private:
     // The following func, for automatic memory tracking and limiting based on system memory allocation.
     friend class ThreadMemTrackerMgr;
