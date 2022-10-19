@@ -265,6 +265,7 @@ public class AggregationNode extends PlanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
+        aggInfo.updateMaterializedSlots();
         msg.node_type = TPlanNodeType.AGGREGATION_NODE;
         List<TExpr> aggregateFunctions = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
@@ -292,6 +293,7 @@ public class AggregationNode extends PlanNode {
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        aggInfo.updateMaterializedSlots();
         StringBuilder output = new StringBuilder();
         String nameDetail = getDisplayLabelDetail();
         if (nameDetail != null) {
@@ -304,7 +306,7 @@ public class AggregationNode extends PlanNode {
 
         if (aggInfo.getAggregateExprs() != null && aggInfo.getMaterializedAggregateExprs().size() > 0) {
             output.append(detailPrefix + "output: ").append(
-                    getExplainString(aggInfo.getAggregateExprs()) + "\n");
+                    getExplainString(aggInfo.getMaterializedAggregateExprs()) + "\n");
         }
         // TODO: group by can be very long. Break it into multiple lines
         output.append(detailPrefix + "group by: ").append(

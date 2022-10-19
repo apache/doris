@@ -29,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -104,6 +105,16 @@ public abstract class AggregateInfoBase {
         intermediateTupleDesc_ = createTupleDesc(analyzer, false);
         if (requiresIntermediateTuple(aggregateExprs_, groupingExprs_.size() == 0)) {
             outputTupleDesc_ = createTupleDesc(analyzer, true);
+            // save the output and intermediate slots info into global desc table
+            // after creaing the plan, we can call materializeIntermediateSlots method
+            // to set the materialized info to intermediate slots based on output slots.
+            ArrayList<SlotDescriptor> outputSlots = outputTupleDesc_.getSlots();
+            ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc_.getSlots();
+            HashMap<SlotDescriptor, SlotDescriptor> mapping = new HashMap<>();
+            for (int i = 0; i < outputSlots.size(); ++i) {
+                mapping.put(outputSlots.get(i), intermediateSlots.get(i));
+            }
+            analyzer.getDescTbl().addSlotMappingInfo(mapping);
         } else {
             outputTupleDesc_ = intermediateTupleDesc_;
         }
