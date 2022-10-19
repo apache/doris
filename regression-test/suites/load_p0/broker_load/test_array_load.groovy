@@ -271,7 +271,7 @@ suite("test_array_load", "p0") {
         qt_select "select * from ${testTable01} order by k1"
 
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable01}")
+        // try_sql("DROP TABLE IF EXISTS ${testTable01}")
     }
 
     // if 'enableHdfs' in regression-conf.groovy has been set to true,

@@ -484,7 +484,7 @@ public abstract class Type {
         } else if (t1.isArrayType() && t2.isArrayType()) {
             return ArrayType.canCastTo((ArrayType) t1, (ArrayType) t2);
         }
-        return t1.isNull() || t1.getPrimitiveType() == PrimitiveType.VARCHAR;
+        return t1.isNull() || t1.getPrimitiveType().isCharFamily();
     }
 
     /**
