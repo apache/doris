@@ -29,9 +29,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -352,7 +352,8 @@ public class Memo {
                 needReplaceChild.add(groupExpression);
             }
         }
-        Set<GroupExpression> s = ImmutableSet.copyOf(needReplaceChild);
+        Set<GroupExpression> s = Sets.newHashSet();
+        s.addAll(needReplaceChild);
         Set<GroupExpression> s1 = source.getParentGroupExpressions().stream().filter(
                 e -> e.getOwnerGroup() != null && !e.getOwnerGroup().equals(destination)
         ).collect(Collectors.toSet());
