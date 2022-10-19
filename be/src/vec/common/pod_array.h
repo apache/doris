@@ -229,7 +229,7 @@ public:
     template <typename... TAllocatorParams>
     void reserve(size_t n, TAllocatorParams&&... allocator_params) {
         if (n > capacity())
-            realloc(minimum_memory_for_elements(n),
+            realloc(round_up_to_power_of_two_or_zero(minimum_memory_for_elements(n)),
                     std::forward<TAllocatorParams>(allocator_params)...);
     }
 
