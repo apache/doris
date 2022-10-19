@@ -29,7 +29,9 @@ suite("test_array_functions") {
               `k2` ARRAY<int(11)> NOT NULL COMMENT "",
               `k3` ARRAY<VARCHAR(20)> NULL COMMENT "",
               `k4` ARRAY<int(11)> NULL COMMENT "",
-              `k5` ARRAY<CHAR(5)> NULL COMMENT ""
+              `k5` ARRAY<CHAR(5)> NULL COMMENT "",
+              `k6` ARRAY<date> NULL COMMENT "",
+              `k7` ARRAY<datetime> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -38,13 +40,13 @@ suite("test_array_functions") {
             "storage_format" = "V2"
             )
         """
-    sql """ INSERT INTO ${tableName} VALUES(1,[1,2,3],["a","b",""],[1,2],["hi"]) """
-    sql """ INSERT INTO ${tableName} VALUES(2,[4],NULL,[5],["hi2"]) """
-    sql """ INSERT INTO ${tableName} VALUES(3,[],[],NULL,["hi3"]) """
-    sql """ INSERT INTO ${tableName} VALUES(4,[1,2,3,4,5,4,3,2,1],[],[],NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(5,[],["a","b","c","d","c","b","a"],NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(6,[1,2,3,4,5,4,3,2,1],["a","b","c","d","c","b","a"],NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(7,[8,9,NULL,10,NULL],["f",NULL,"g",NULL,"h"],NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(1,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13"],["2015-03-13 12:36:38"]) """
+    sql """ INSERT INTO ${tableName} VALUES(2,[4],NULL,[5],["hi2"],NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(3,[],[],NULL,["hi3"],NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(4,[1,2,3,4,5,4,3,2,1],[],[],NULL,NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(5,[],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(6,[1,2,3,4,5,4,3,2,1],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(7,[8,9,NULL,10,NULL],["f",NULL,"g",NULL,"h"],NULL,NULL,NULL,NULL) """
 
     qt_select "SELECT k1, size(k2), size(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, cardinality(k2), cardinality(k3) FROM ${tableName} ORDER BY k1"
@@ -61,4 +63,5 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_join(k2, '_', 'null'), array_join(k3, '-', 'null') FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_contains(k5, 'hi') FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_contains(k5, 'hi222') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_contains(k6, null) from ${tableName} ORDER BY k1"
 }
