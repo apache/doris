@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -100,6 +101,10 @@ public:
         return init_with_fixed_length(filter_size);
     }
 
+    void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
+
+    Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
+
     Status init_with_fixed_length(int64_t bloom_filter_length) {
         if (_inited) {
             return Status::OK();
@@ -175,6 +180,7 @@ protected:
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited;
     std::mutex _lock;
+    int64_t _bloom_filter_length;
 };
 
 template <class T>

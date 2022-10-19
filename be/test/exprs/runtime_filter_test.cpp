@@ -20,6 +20,7 @@
 #include <array>
 #include <memory>
 
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
 #include "gen_cpp/Planner_types.h"
@@ -108,6 +109,11 @@ IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptio
                                            RuntimeFilterRole::PRODUCER, -1, &runtime_filter);
 
     EXPECT_TRUE(status.ok()) << status.to_string();
+
+    if (auto bf = runtime_filter->get_bloomfilter()) {
+        status = bf->wait_for_initialization();
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
 
     return status.ok() ? runtime_filter : nullptr;
 }

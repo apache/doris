@@ -353,7 +353,8 @@ private:
     MutableColumnPtr _tuple_is_null_left_flag_column;
     MutableColumnPtr _tuple_is_null_right_flag_column;
 
-    void _hash_table_build_thread(RuntimeState* state, std::promise<Status>* status);
+private:
+    void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status);
 
     Status _hash_table_build(RuntimeState* state);
 
@@ -395,6 +396,8 @@ private:
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
+
+    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 } // namespace vectorized
 } // namespace doris
