@@ -33,12 +33,15 @@ public final class CostEstimate {
     private final double cpuCost;
     private final double memoryCost;
     private final double networkCost;
+    //penalty for
+    // 1. right deep tree
+    // 2. right XXX join
+    private final double penalty;
 
-    private final double rightDeepPenaltiy;
     /**
      * Constructor of CostEstimate.
      */
-    public CostEstimate(double cpuCost, double memoryCost, double networkCost, double rightDeepPenaltiy) {
+    public CostEstimate(double cpuCost, double memoryCost, double networkCost, double penaltiy) {
         // TODO: fix stats
         if (cpuCost < 0) {
             cpuCost = 0;
@@ -55,7 +58,7 @@ public final class CostEstimate {
         this.cpuCost = cpuCost;
         this.memoryCost = memoryCost;
         this.networkCost = networkCost;
-        this.rightDeepPenaltiy = rightDeepPenaltiy;
+        this.penalty = penaltiy;
     }
 
     public static CostEstimate infinite() {
@@ -76,6 +79,10 @@ public final class CostEstimate {
 
     public double getNetworkCost() {
         return networkCost;
+    }
+
+    public double getPenalty() {
+        return penalty;
     }
 
     public static CostEstimate of(double cpuCost, double maxMemory, double networkCost, double rightDeepPenaltiy) {
@@ -115,7 +122,7 @@ public final class CostEstimate {
         sb.append((long) cpuCost)
                 .append("/").append((long) memoryCost)
                 .append("/").append((long) networkCost)
-                .append("/").append((long) rightDeepPenaltiy);
+                .append("/").append((long) penalty);
         return sb.toString();
     }
 }

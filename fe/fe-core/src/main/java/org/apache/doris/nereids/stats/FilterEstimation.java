@@ -47,10 +47,7 @@ import java.util.Map;
  * TODO: Should consider the distribution of data.
  */
 public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, EstimationContext> {
-
-    private static final double DEFAULT_SELECTIVITY = 0.1;
-
-    private static final double DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY = 1.0 / 3.0;
+    private static final double DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY = 0.8;
 
     private static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
 
@@ -76,7 +73,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
     @Override
     public StatsDeriveResult visit(Expression expr, EstimationContext context) {
-        return new StatsDeriveResult(inputStats).updateBySelectivity(DEFAULT_SELECTIVITY);
+        return new StatsDeriveResult(inputStats).updateBySelectivity(DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY);
     }
 
     @Override
@@ -349,7 +346,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
             maxOption = Math.max(optionStats.getMaxValue(), maxOption);
             minOption = Math.min(optionStats.getMinValue(), minOption);
         }
-        double selectivity = DEFAULT_SELECTIVITY;
+        double selectivity = DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY;
         double cmpExprMax = compareExprStats.getMaxValue();
         double cmpExprMin = compareExprStats.getMinValue();
         boolean hasOverlap = Math.max(cmpExprMin, minOption) <= Math.min(cmpExprMax, maxOption);
