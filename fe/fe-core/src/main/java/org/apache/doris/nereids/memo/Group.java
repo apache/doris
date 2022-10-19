@@ -124,6 +124,7 @@ public class Group {
             physicalExpressions.remove(groupExpression);
         }
         groupExpression.setOwnerGroup(null);
+        groupExpression.children().forEach(g -> g.removeGroupExpression(groupExpression));
         return groupExpression;
     }
 
