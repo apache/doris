@@ -155,7 +155,7 @@ fi
 JAVAUDF_JAR="${DORIS_HOME}/regression-test/java-udf-src/target/java-udf-case-jar-with-dependencies.jar"
 if ! test -f ${JAVAUDF_JAR:+${JAVAUDF_JAR}}; then
     mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
-    cd "${DORIS_HOME}"/samples/doris-demo/java-udf-src
+    cd "${DORIS_HOME}"/regression-test/java-udf-src
     "${MVN_CMD}" package
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
     cd "${DORIS_HOME}"
