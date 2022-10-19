@@ -614,6 +614,15 @@ public:
     virtual void set_datetime_type() { is_date_time = true; }
     virtual void set_decimalv2_type() { is_decimalv2 = true; }
 
+    void copy_date_types(const IColumn& col) {
+        if (col.is_date_type()) {
+            set_date_type();
+        }
+        if (col.is_datetime_type()) {
+            set_datetime_type();
+        }
+    }
+
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
