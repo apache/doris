@@ -229,6 +229,8 @@ public:
 
     const std::string& tablet_path() const { return _tablet_path; }
 
+    virtual std::string rowset_dir() { return _tablet_path; }
+
     static bool comparator(const RowsetSharedPtr& left, const RowsetSharedPtr& right) {
         return left->end_version() < right->end_version();
     }

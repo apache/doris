@@ -1661,6 +1661,18 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
                                     TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
                                     int64_t newest_write_timestamp,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
+    return create_rowset_writer(version, rowset_state, overlap, tablet_schema,
+                                oldest_write_timestamp, newest_write_timestamp, nullptr,
+                                "", rowset_writer);
+}
+
+Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
+                                    const SegmentsOverlapPB& overlap,
+                                    TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
+                                    int64_t newest_write_timestamp,
+                                    io::FileSystemPtr fs,
+                                    const io::ResourceId& resource_id,
+                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;
     context.version = version;
     context.rowset_state = rowset_state;
@@ -1669,6 +1681,8 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
     context.newest_write_timestamp = newest_write_timestamp;
     context.tablet_schema = tablet_schema;
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    context.fs = fs;
+    context.resource_id = resource_id;
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, rowset_writer);
 }
@@ -1705,6 +1719,11 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
         context.rowset_type = StorageEngine::instance()->default_rowset_type();
     }
     context.tablet_path = tablet_path();
+    if (context.fs != nullptr && context.fs->type() != io::FileSystemType::LOCAL) {
+        context.rowset_dir = BetaRowset::remote_tablet_path(tablet_id());
+    } else {
+        context.rowset_dir = tablet_path();
+    }
     context.data_dir = data_dir();
 }
 

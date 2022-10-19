@@ -55,6 +55,8 @@ public:
     static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
                                            int segment_id);
 
+    static std::string remote_tablet_path(int64_t tablet_id);
+
     static std::string local_cache_path(const std::string& tablet_path, const RowsetId& rowset_id,
                                         int segment_id);
 

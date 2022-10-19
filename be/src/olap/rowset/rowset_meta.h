@@ -82,7 +82,7 @@ public:
     }
 
     // This method may return nullptr.
-    io::FileSystem* fs() {
+    io::FileSystemPtr fs() {
         if (!_fs) {
             if (is_local()) {
                 return io::global_local_filesystem();
@@ -91,7 +91,7 @@ public:
                 LOG_IF(WARNING, !_fs) << "Cannot get file system: " << resource_id();
             }
         }
-        return _fs.get();
+        return _fs;
     }
 
     void set_fs(io::FileSystemPtr fs) { _fs = std::move(fs); }

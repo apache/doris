@@ -19,6 +19,7 @@
 
 #include <aws/core/utils/threading/Executor.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/CopyObjectRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
@@ -226,7 +227,24 @@ Status S3FileSystem::delete_directory(const Path& path) {
 }
 
 Status S3FileSystem::link_file(const Path& src, const Path& dest) {
-    return Status::NotSupported("not support");
+    auto client = get_client();
+    CHECK_S3_CLIENT(client);
+
+    Aws::S3::Model::CopyObjectRequest request;
+    auto src_key = get_key(src);
+    auto dest_key = get_key(dest);
+    request.WithBucket(_s3_conf.bucket).WithCopySource(_s3_conf.bucket + "/" + src_key)
+            .WithKey(dest_key).WithBucket(_s3_conf.bucket);
+    auto outcome = client->CopyObject(request);
+    if (!outcome.IsSuccess()) {
+        LOG(WARNING) << "CopyObject failed: " << outcome.GetError().GetMessage();
+        return Status::IOError("failed to copy object(endpoint={}, bucket={}, src={}, dest={}): {}",
+                               _s3_conf.endpoint, _s3_conf.bucket, src_key, dest_key,
+                               outcome.GetError().GetMessage());
+    }
+    LOG(INFO) << "CopyObject successfully. endpoint: " << _s3_conf.endpoint << ", bucket: "
+              << _s3_conf.bucket << ", " << src_key << " -> " << dest_key;
+    return Status::OK();
 }
 
 Status S3FileSystem::exists(const Path& path, bool* res) const {
