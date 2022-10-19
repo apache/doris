@@ -20,11 +20,11 @@
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
 
-jdbcUrl = "jdbc:mysql://127.0.0.1:9033/?"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "127.0.0.1:8033"
+feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -63,5 +63,5 @@ brokerName = "broker_name"
 
 // broker load test config
 enableBrokerLoad=true
-ak="AKIDpTrysVrwjGXXFhqnVyB8pGSO4UfbHgph"
-sk="dz4tRiiSs65pMdePvBAuOcaIlyua8SYN"
+ak=""
+sk=""
