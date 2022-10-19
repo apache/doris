@@ -234,6 +234,7 @@ Status VCollectIterator::topn_next(Block* block) {
     auto cloneBlock = tmp_block.clone_without_columns();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
 
+    // TODO include all orderby_key_columns
     size_t compare_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
 
     BlockRowposComparator row_pos_comparator(&mutable_block, compare_column_idx,
@@ -245,12 +246,6 @@ Status VCollectIterator::topn_next(Block* block) {
     }
 
     for (auto rs_reader : _rs_readers) {
-        // LOG(INFO) << "xk debug VCollectIterator " << this << " process rs_reader " << rs_reader.get()
-        //           << " version first=" << rs_reader->version().first << " second=" << rs_reader->version().second
-        //           << " newest_write_timestamp=" << rs_reader->newest_write_timestamp()
-        //           << " oldest_write_timestamp=" << rs_reader->oldest_write_timestamp()
-        //           << " creation_time=" << rs_reader->rowset()->creation_time();
-
         auto col_name = mutable_block.get_names()[compare_column_idx];
         auto col_type = mutable_block.get_datatype_by_position(compare_column_idx);
         auto type = remove_nullable(col_type)->get_type_id();
@@ -258,7 +253,7 @@ Status VCollectIterator::topn_next(Block* block) {
         // init will prune segment by _reader_context.conditions and _reader_context.runtime_conditions
         RETURN_NOT_OK(rs_reader->init(&_reader->_reader_context));
 
-        // read _topn_limit rows from first rs
+        // read _topn_limit rows from this rs
         size_t read_rows = 0;
         bool eof = false;
         while (read_rows < _topn_limit && !eof) {
@@ -271,7 +266,6 @@ Status VCollectIterator::topn_next(Block* block) {
                     return res;
                 }
             }
-
 
             // filter tmp_block
             RETURN_IF_ERROR(
@@ -291,8 +285,6 @@ Status VCollectIterator::topn_next(Block* block) {
                 // _is_reverse == true  last_row_pos is the pos of smallest row
                 // _is_reverse == false last_row_pos is biggest row
                 size_t last_row_pos = *sorted_row_pos.rbegin();
-                // size_t num_columns = 1; // TODO
-                // size_t compare_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
 
                 // find the how many rows tmp_block which is less than the last row in mutable_block
                 for (size_t i = 0; i < tmp_block.rows(); i++) {
@@ -349,7 +341,7 @@ Status VCollectIterator::topn_next(Block* block) {
                 sorted_row_pos.erase(first, sorted_row_pos.end());
             }
 
-            // TODO update min max
+            // update runtime_predicate
             if (changed && sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
@@ -366,13 +358,11 @@ Status VCollectIterator::topn_next(Block* block) {
         } // end of while (read_rows < _topn_limit && !eof)
     } // end of for (auto rs_reader : _rs_readers)
 
-    // TODO copy result_block to block
+    // copy result_block to block
+    // TODO only copy limit rows
     *block = mutable_block.to_block();
 
-    LOG(INFO) << "xk debug topn_next return " << block->rows() << " rows";
-
     _topn_eof = true;
-
     return Status::OK();
 }
 
