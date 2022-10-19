@@ -172,7 +172,7 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        if (Config.enable_new_load_scan_node) {
+        if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
             ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
             if (!Util.isCsvFormat(taskInfo.getFormatType())) {
                 throw new AnalysisException(
