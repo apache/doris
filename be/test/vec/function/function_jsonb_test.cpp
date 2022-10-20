@@ -1473,10 +1473,10 @@ TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
             {{{DOUBLE(6.18), STRING("Json")}, STRING("6.18")}});
     check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"(abcd)"), STRING("Json")}, STRING(R"("abcd")")}});
+            {{{STRING(R"(abcd)"), STRING("Json")}, STRING("")}}, true); // should fail
     check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"("abcd")"), STRING("Json")}, STRING(R"("\"abcd\"")")}});
+            {{{STRING(R"("abcd")"), STRING("Json")}, STRING(R"("abcd")")}});
 
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::String}},
@@ -1501,10 +1501,10 @@ TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
             {{{DOUBLE(6.18), STRING("Json")}, STRING("6.18")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"(abcd)"), STRING("Json")}, STRING(R"("abcd")")}});
+            {{{STRING(R"(abcd)"), STRING("Json")}, STRING("")}}, true); // should fail
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"("abcd")"), STRING("Json")}, STRING(R"("\"abcd\"")")}});
+            {{{STRING(R"("abcd")"), STRING("Json")}, STRING(R"("abcd")")}});
 }
 
 } // namespace doris::vectorized

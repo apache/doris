@@ -62,7 +62,9 @@ void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, si
 }
 
 Status DataTypeJsonb::from_string(ReadBuffer& rb, IColumn* column) const {
-    JsonBinaryValue value(rb.position(), rb.count());
+    JsonBinaryValue value;
+    RETURN_IF_ERROR(value.from_json_string(rb.position(), rb.count()));
+
     Field field = JsonbField(value.value(), value.size());
 
     auto* column_jsonb = static_cast<ColumnJsonb*>(column);

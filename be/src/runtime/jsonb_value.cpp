@@ -23,18 +23,18 @@
 
 namespace doris {
 
-JsonbErrType JsonBinaryValue::from_json_string(const char* s, int length) {
+Status JsonBinaryValue::from_json_string(const char* s, int length) {
     JsonbErrType error = JsonbErrType::E_NONE;
     if (!parser.parse(s, length)) {
         error = parser.getErrorCode();
-        ptr = nullptr;
-        len = 0;
-        return error;
+        return Status::InvalidArgument("json parse error: {} for value: {}",
+                JsonbErrMsg::getErrMsg(error), std::string_view(s, length));
     }
+
     ptr = parser.getWriter().getOutput()->getBuffer();
     len = (unsigned)parser.getWriter().getOutput()->getSize();
     DCHECK_LE(len, MAX_LENGTH);
-    return error;
+    return Status::OK();
 }
 
 std::string JsonBinaryValue::to_json_string() const {

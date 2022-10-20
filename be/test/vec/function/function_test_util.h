@@ -253,10 +253,12 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     block.insert({nullptr, return_type, "result"});
 
     auto result = block.columns() - 1;
+    auto st = func->execute(fn_ctx, block, arguments, result, row_size);
     if (expect_fail) {
-        RETURN_IF_ERROR(func->execute(fn_ctx, block, arguments, result, row_size));
+        EXPECT_NE(Status::OK(), st);
+        return st;
     } else {
-        func->execute(fn_ctx, block, arguments, result, row_size);
+        EXPECT_EQ(Status::OK(), st);
     }
 
     func->close(fn_ctx, FunctionContext::THREAD_LOCAL);

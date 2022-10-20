@@ -1480,11 +1480,6 @@ private:
     // use jsonb writer to create jsonb value
     WrapperType create_jsonb_wrapper(const DataTypePtr& from_type,
                                      const DataTypeJsonb& to_type) const {
-        /// Conversion from String through parsing.
-        // if (check_and_get_data_type<DataTypeString>(from_type.get())) {
-        //     return &ConvertImplGenericFromString<ColumnString>::execute;
-        // }
-
         switch (from_type->get_type_id()) {
         case TypeIndex::UInt8:
             return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
@@ -1498,6 +1493,8 @@ private:
             return &ConvertImplNumberToJsonb<ColumnInt64>::execute;
         case TypeIndex::Float64:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
+        case TypeIndex::String:
+            return &ConvertImplGenericFromString<ColumnString>::execute;
         default:
             return &ConvertImplGenericToJsonb::execute;
         }
