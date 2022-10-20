@@ -63,7 +63,7 @@ public:
     // Extract parameter value from url
     // Example for url:
     // http://doris.apache.org?k1=aa&k2=bb&k3=cc&test=dd#999
-    static std::string extract_url(const StringValue& url, const StringValue& name);
+    static StringValue extract_url(StringValue url, StringValue name);
 
 private:
     // Constants representing parts of a URL.
