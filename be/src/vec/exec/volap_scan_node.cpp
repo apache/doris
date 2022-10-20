@@ -699,8 +699,10 @@ Status VOlapScanNode::build_key_ranges_and_filters() {
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
+                    // pass temp_range to extend_scan_key, keep the range unchanged
+                    auto temp_range = range;
                     RETURN_IF_ERROR(
-                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                            _scan_keys.extend_scan_key(temp_range, _max_scan_key_num, &exact_range));
                     if (exact_range) {
                         _column_value_ranges.erase(iter->first);
                     }
