@@ -33,6 +33,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/format_common.h"
 
 namespace doris::vectorized {
 
@@ -63,30 +64,6 @@ struct ParquetInt96 {
     static const uint32_t JULIAN_EPOCH_OFFSET_DAYS;
     static const uint64_t MICROS_IN_DAY;
     static const uint64_t NANOS_PER_MICROSECOND;
-};
-
-struct DecimalScaleParams {
-    enum ScaleType {
-        NOT_INIT,
-        NO_SCALE,
-        SCALE_UP,
-        SCALE_DOWN,
-    };
-    ScaleType scale_type = ScaleType::NOT_INIT;
-    int32_t scale_factor = 1;
-
-    template <typename DecimalPrimitiveType>
-    static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
-        if constexpr (std::is_same_v<DecimalPrimitiveType, Int32>) {
-            return common::exp10_i32(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int64>) {
-            return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128>) {
-            return common::exp10_i128(n);
-        } else {
-            return DecimalPrimitiveType(1);
-        }
-    }
 };
 
 struct DecodeParams {
@@ -205,9 +182,8 @@ protected:
     Status _decode_primitive_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                      size_t num_values);
 
-#define _FIXED_GET_DATA_OFFSET(index)                                                 \
-    _has_dict ? reinterpret_cast<char*>(_dict.get() + _indexes[index] * _type_length) \
-              : _data->data + _offset
+#define _FIXED_GET_DATA_OFFSET(index) \
+    _has_dict ? _dict_items[_indexes[index]] : _data->data + _offset
 
 #define _FIXED_SHIFT_DATA_OFFSET() \
     if (!_has_dict) _offset += _type_length
@@ -216,6 +192,7 @@ protected:
     // For dictionary encoding
     bool _has_dict = false;
     std::unique_ptr<uint8_t[]> _dict = nullptr;
+    std::vector<char*> _dict_items;
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
     std::vector<uint32_t> _indexes;
 };
@@ -280,6 +257,7 @@ Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column, Type
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
     auto origin_size = column_data.size();
     column_data.resize(origin_size + num_values);
+    int64_t scale_to_micro = _decode_params->scale_to_nano_factor / 1000;
     for (int i = 0; i < num_values; i++) {
         char* buf_start = _FIXED_GET_DATA_OFFSET(i);
         int64_t& date_value = *reinterpret_cast<int64_t*>(buf_start);
@@ -287,8 +265,8 @@ Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column, Type
         v.from_unixtime(date_value / _decode_params->second_mask, *_decode_params->ctz);
         if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
             // nanoseconds will be ignored.
-            v.set_microsecond((date_value % _decode_params->second_mask) *
-                              _decode_params->scale_to_nano_factor / 1000);
+            v.set_microsecond((date_value % _decode_params->second_mask) * scale_to_micro);
+            // TODO: the precision of datetime v1
         }
         _FIXED_SHIFT_DATA_OFFSET();
     }
@@ -336,7 +314,7 @@ Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         value = BigEndian::ToHost128(value);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
@@ -361,7 +339,7 @@ Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_colum
         Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
@@ -393,7 +371,7 @@ protected:
     // For dictionary encoding
     bool _has_dict = false;
     std::unique_ptr<uint8_t[]> _dict = nullptr;
-    std::vector<uint32_t> _dict_offsets;
+    std::vector<StringRef> _dict_items;
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
     std::vector<uint32_t> _indexes;
 };
@@ -411,10 +389,9 @@ Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         char* buf_start;
         uint32_t length;
         if (_has_dict) {
-            uint32_t idx = _indexes[i];
-            uint32_t idx_cursor = _dict_offsets[idx];
-            buf_start = reinterpret_cast<char*>(_dict.get() + idx_cursor);
-            length = _dict_offsets[idx + 1] - idx_cursor - 4;
+            StringRef& slice = _dict_items[_indexes[i]];
+            buf_start = const_cast<char*>(slice.data);
+            length = (uint32_t)slice.size;
         } else {
             if (UNLIKELY(_offset + 4 > _data->size)) {
                 return Status::IOError("Can't read byte array length from plain decoder");
@@ -431,7 +408,7 @@ Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         value = BigEndian::ToHost128(value);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);

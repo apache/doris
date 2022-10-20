@@ -145,49 +145,58 @@ PROPERTIES (
 
 3.Create datax script
 
-```
+```json
 {
     "job": {
-        "setting": {
-            "speed": {
-                "channel": 1
-            },
-            "errorLimit": {
-                "record": 0,
-                "percentage": 0
-            }
-        },
         "content": [
             {
                 "reader": {
                     "name": "mysqlreader",
                     "parameter": {
-                        "username": "xxx",
-                        "password": "xxx",
-                        "column": ["id","order_code","line_code","remark","unit_no","unit_name","price"],
-                        "connection": [ { "table": [ "t_test" ], "jdbcUrl": [ "jdbc:mysql://10.10.10.1:33306/demo" ] } ] }
+                        "column": ["emp_no", "birth_date", "first_name","last_name","gender","hire_date"],
+                        "connection": [
+                            {
+                                "jdbcUrl": ["jdbc:mysql://localhost:3306/demo"],
+                                "table": ["employees_1"]
+                            }
+                        ],
+                        "username": "root",
+                        "password": "xxxxx",
+                        "where": ""
+                    }
                 },
                 "writer": {
                     "name": "doriswriter",
                     "parameter": {
-                        "feLoadUrl": ["127.0.0.1:8030","127.0.0.2:8030"],
-                        "beLoadUrl": ["127.0.0.3:8040","127.0.0.4:8040","127.0.0.5:8040"],
-                        "jdbcUrl": "jdbc:mysql://127.0.0.1:9030/",
-                        "database": "demo",
-                        "table": "ods_t_test",
-                        "column": ["id","order_code","line_code","remark","unit_no","unit_name","price"],
-                        "username": "xxx",
-                        "password": "xxx",
-                        "postSql": [],
-                        "preSql": [],
+                        "loadUrl": ["172.16.0.13:8030"],
                         "loadProps": {
                         },
-                        "maxBatchRows" : 300000,
-                        "maxBatchByteSize" : 20971520
+                        "column": ["emp_no", "birth_date", "first_name","last_name","gender","hire_date"],
+                        "username": "root",
+                        "password": "xxxxxx",
+                        "postSql": ["select count(1) from all_employees_info"],
+                        "preSql": [],
+                        "flushInterval":30000,
+                        "connection": [
+                          {
+                            "jdbcUrl": "jdbc:mysql://172.16.0.13:9030/demo",
+                            "selectedDatabase": "demo",
+                            "table": ["all_employees_info"]
+                          }
+                        ],
+                        "loadProps": {
+                            "format": "json",
+                            "strip_outer_array": true
+                        }
                     }
                 }
             }
-        ]
+        ],
+        "setting": {
+            "speed": {
+                "channel": "1"
+            }
+        }
     }
 }
 ```

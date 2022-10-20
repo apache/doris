@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
@@ -216,10 +217,11 @@ public class BaseController {
     protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo)
             throws UnauthorizedException {
         List<UserIdentity> currentUser = Lists.newArrayList();
-        if (!Env.getCurrentEnv().getAuth().checkPlainPassword(authInfo.fullUserName,
-                authInfo.remoteIp, authInfo.password, currentUser)) {
-            throw new UnauthorizedException("Access denied for "
-                    + authInfo.fullUserName + "@" + authInfo.remoteIp);
+        try {
+            Env.getCurrentEnv().getAuth().checkPlainPassword(authInfo.fullUserName,
+                    authInfo.remoteIp, authInfo.password, currentUser);
+        } catch (AuthenticationException e) {
+            throw new UnauthorizedException(e.formatErrMsg());
         }
         Preconditions.checkState(currentUser.size() == 1);
         return currentUser.get(0);

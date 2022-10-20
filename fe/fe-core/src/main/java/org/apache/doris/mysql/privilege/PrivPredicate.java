@@ -23,65 +23,65 @@ public class PrivPredicate {
 
     // user can 'see' this meta
     public static final PrivPredicate SHOW = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                            PaloPrivilege.SELECT_PRIV,
-                                                                            PaloPrivilege.LOAD_PRIV,
-                                                                            PaloPrivilege.ALTER_PRIV,
-                                                                            PaloPrivilege.CREATE_PRIV,
-                                                                            PaloPrivilege.DROP_PRIV,
-                                                                            PaloPrivilege.USAGE_PRIV),
-                                                              Operator.OR);
+                    PaloPrivilege.SELECT_PRIV,
+                    PaloPrivilege.LOAD_PRIV,
+                    PaloPrivilege.ALTER_PRIV,
+                    PaloPrivilege.CREATE_PRIV,
+                    PaloPrivilege.DROP_PRIV,
+                    PaloPrivilege.USAGE_PRIV),
+            Operator.OR);
     // create/drop/alter/show user
     public static final PrivPredicate GRANT = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                             PaloPrivilege.GRANT_PRIV),
-                                                               Operator.OR);
+                    PaloPrivilege.GRANT_PRIV),
+            Operator.OR);
     // admin user privs
     public static final PrivPredicate ADMIN = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV),
-                                                               Operator.OR);
+            Operator.OR);
 
     // load
     public static final PrivPredicate LOAD = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                            PaloPrivilege.LOAD_PRIV),
-                                                               Operator.OR);
+                    PaloPrivilege.LOAD_PRIV),
+            Operator.OR);
 
     // alter
     public static final PrivPredicate ALTER = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                            PaloPrivilege.ALTER_PRIV),
-                                                              Operator.OR);
+                    PaloPrivilege.ALTER_PRIV),
+            Operator.OR);
 
     // create
     public static final PrivPredicate CREATE = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                             PaloPrivilege.CREATE_PRIV),
-                                                               Operator.OR);
+                    PaloPrivilege.CREATE_PRIV),
+            Operator.OR);
 
     // drop
     public static final PrivPredicate DROP = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                              PaloPrivilege.DROP_PRIV),
-                                                                Operator.OR);
+                    PaloPrivilege.DROP_PRIV),
+            Operator.OR);
 
     // select
     public static final PrivPredicate SELECT = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                            PaloPrivilege.SELECT_PRIV),
-                                                              Operator.OR);
+                    PaloPrivilege.SELECT_PRIV),
+            Operator.OR);
 
     // operator
     public static final PrivPredicate OPERATOR = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.NODE_PRIV),
-                                                                  Operator.OR);
+            Operator.OR);
 
     // resource usage
     public static final PrivPredicate USAGE = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                             PaloPrivilege.USAGE_PRIV),
-                                                               Operator.OR);
+                    PaloPrivilege.USAGE_PRIV),
+            Operator.OR);
 
     // all
     public static final PrivPredicate ALL = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.NODE_PRIV,
-                                                                           PaloPrivilege.ADMIN_PRIV,
-                                                                           PaloPrivilege.SELECT_PRIV,
-                                                                           PaloPrivilege.LOAD_PRIV,
-                                                                           PaloPrivilege.ALTER_PRIV,
-                                                                           PaloPrivilege.CREATE_PRIV,
-                                                                           PaloPrivilege.DROP_PRIV,
-                                                                           PaloPrivilege.USAGE_PRIV),
-                                                             Operator.OR);
+                    PaloPrivilege.ADMIN_PRIV,
+                    PaloPrivilege.SELECT_PRIV,
+                    PaloPrivilege.LOAD_PRIV,
+                    PaloPrivilege.ALTER_PRIV,
+                    PaloPrivilege.CREATE_PRIV,
+                    PaloPrivilege.DROP_PRIV,
+                    PaloPrivilege.USAGE_PRIV),
+            Operator.OR);
 
     private PrivBitSet privs;
     private Operator op;

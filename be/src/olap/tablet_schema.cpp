@@ -32,7 +32,8 @@ namespace doris {
 
 FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     std::string upper_type_str = type_str;
-    std::transform(type_str.begin(), type_str.end(), upper_type_str.begin(), toupper);
+    std::transform(type_str.begin(), type_str.end(), upper_type_str.begin(),
+                   [](auto c) { return std::toupper(c); });
     FieldType type;
 
     if (0 == upper_type_str.compare("TINYINT")) {
@@ -109,7 +110,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
 
 FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::string& str) {
     std::string upper_str = str;
-    std::transform(str.begin(), str.end(), upper_str.begin(), toupper);
+    std::transform(str.begin(), str.end(), upper_str.begin(),
+                   [](auto c) { return std::toupper(c); });
     FieldAggregationMethod aggregation_type;
 
     if (0 == upper_str.compare("NONE")) {

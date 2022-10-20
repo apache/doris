@@ -239,6 +239,8 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
 
+    public static final short OP_ALTER_USER = 400;
+
     /**
      * Get opcode name by op code.
      **/

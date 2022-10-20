@@ -139,6 +139,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -648,8 +649,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 left = (left == null) ? right :
                         new LogicalJoin<>(
                                 JoinType.CROSS_JOIN,
-                                ImmutableList.of(),
-                                Optional.empty(),
+                                ExpressionUtils.EMPTY_CONDITION,
+                                ExpressionUtils.EMPTY_CONDITION,
                                 left,
                                 right);
                 left = withJoinRelations(left, relation);
@@ -707,9 +708,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private <T> List<T> visit(List<? extends ParserRuleContext> contexts, Class<T> clazz) {
         return contexts.stream()
-            .map(this::visit)
-            .map(clazz::cast)
-            .collect(ImmutableList.toImmutableList());
+                .map(this::visit)
+                .map(clazz::cast)
+                .collect(ImmutableList.toImmutableList());
     }
 
     private LogicalPlan plan(ParserRuleContext tree) {
@@ -829,15 +830,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
             // TODO: natural join, lateral join, using join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
-            Expression condition;
+            Optional<Expression> condition;
             if (joinCriteria == null) {
-                condition = null;
+                condition = Optional.empty();
             } else {
-                condition = getExpression(joinCriteria.booleanExpression());
+                condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
             }
 
-            last = new LogicalJoin<>(joinType, new ArrayList<Expression>(),
-                    Optional.ofNullable(condition), last, plan(join.relationPrimary()));
+            last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
+                    condition.map(ExpressionUtils::extractConjunction)
+                            .orElse(ExpressionUtils.EMPTY_CONDITION),
+                    last, plan(join.relationPrimary()));
         }
         return last;
     }

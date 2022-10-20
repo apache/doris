@@ -28,8 +28,7 @@
 namespace doris::vectorized {
 
 VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
-                           bool need_agg_finalize, const TPaloScanRange& scan_range,
-                           MemTracker* tracker)
+                           bool need_agg_finalize, const TPaloScanRange& scan_range)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -37,8 +36,7 @@ VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, b
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1),
-          _mem_tracker(tracker) {
+          _version(-1) {
     _tablet_schema = std::make_shared<TabletSchema>();
 }
 
@@ -47,7 +45,6 @@ Status VOlapScanner::prepare(
         const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader->set_batch_size(
@@ -119,7 +116,6 @@ Status VOlapScanner::prepare(
 
 Status VOlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
@@ -325,7 +321,6 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
 Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {

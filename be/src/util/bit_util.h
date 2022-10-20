@@ -20,7 +20,9 @@
 
 #pragma once
 
+#ifndef __APPLE__
 #include <endian.h>
+#endif
 
 #include "common/compiler_util.h"
 #include "gutil/bits.h"
@@ -42,6 +44,8 @@ public:
     static inline int64_t ceil(int64_t value, int64_t divisor) {
         return value / divisor + (value % divisor != 0);
     }
+
+    static inline size_t round_up_to_page_size(size_t s) { return (s + 4096 - 1) / 4096 * 4096; }
 
     // Returns 'value' rounded up to the nearest multiple of 'factor'
     static inline int64_t round_up(int64_t value, int64_t factor) {
@@ -304,8 +308,12 @@ public:
     }
 
     /// Returns 'value' rounded up to the nearest multiple of 'factor' when factor is
-    /// a power of two
-    static inline int64_t RoundUpToPowerOf2(int64_t value, int64_t factor) {
+    /// a power of two, for example
+    /// Factor has to be a power of two
+    /// factor = 16, value = 10 --> result = 16
+    /// factor = 16, value = 17 --> result = 32
+    /// factor = 16, value = 33 --> result = 48
+    static inline int64_t RoundUpToMultiplyOfFactor(int64_t value, int64_t factor) {
         DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
         return (value + (factor - 1)) & ~(factor - 1);
     }

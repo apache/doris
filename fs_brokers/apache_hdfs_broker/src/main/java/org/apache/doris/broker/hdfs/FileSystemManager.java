@@ -68,6 +68,7 @@ public class FileSystemManager {
     private static final String S3A_SCHEME = "s3a";
     private static final String KS3_SCHEME = "ks3";
     private static final String CHDFS_SCHEME = "ofs";
+    private static final String OBS_SCHEME = "obs";
 
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
@@ -97,6 +98,14 @@ public class FileSystemManager {
     private static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
     // This property is used like 'fs.hdfs.impl.disable.cache'
     private static final String FS_S3A_IMPL_DISABLE_CACHE = "fs.s3a.impl.disable.cache";
+
+    // arguments for obs
+    private static final String FS_OBS_ACCESS_KEY = "fs.obs.access.key";
+    private static final String FS_OBS_SECRET_KEY = "fs.obs.secret.key";
+    private static final String FS_OBS_ENDPOINT = "fs.obs.endpoint";
+    // This property is used like 'fs.hdfs.impl.disable.cache'
+    private static final String FS_OBS_IMPL_DISABLE_CACHE = "fs.obs.impl.disable.cache";
+    private static final String FS_OBS_IMPL = "fs.obs.impl";
 
     // arguments for ks3
     private static final String FS_KS3_ACCESS_KEY = "fs.ks3.AccessKey";
@@ -165,7 +174,9 @@ public class FileSystemManager {
             brokerFileSystem = getKS3FileSystem(path, properties);
         } else if (scheme.equals(CHDFS_SCHEME)) {
             brokerFileSystem = getChdfsFileSystem(path, properties);
-        }else {
+        } else if (scheme.equals(OBS_SCHEME)) {
+            brokerFileSystem = getOBSFileSystem(path, properties);
+        } else {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
                 "invalid path. scheme is not supported");
         }
@@ -406,6 +417,47 @@ public class FileSystemManager {
                 conf.set(FS_S3A_IMPL_DISABLE_CACHE, disableCache);
                 FileSystem s3AFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(s3AFileSystem);
+            }
+            return fileSystem;
+        } catch (Exception e) {
+            logger.error("errors while connect to " + path, e);
+            throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
+        } finally {
+            fileSystem.getLock().unlock();
+        }
+    }
+
+
+    /**
+     * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
+     * @param path
+     * @param properties
+     * @return
+     */
+    public BrokerFileSystem getOBSFileSystem(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        String accessKey = properties.getOrDefault(FS_OBS_ACCESS_KEY, "");
+        String secretKey = properties.getOrDefault(FS_OBS_SECRET_KEY, "");
+        String endpoint = properties.getOrDefault(FS_OBS_ENDPOINT, "");
+        String disableCache = properties.getOrDefault(FS_OBS_IMPL_DISABLE_CACHE, "true");
+        String host = OBS_SCHEME + "://" + endpoint + "/" + pathUri.getUri().getHost();
+        String obsUgi = accessKey + "," + secretKey;
+        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, obsUgi);
+        cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
+        fileSystem.getLock().lock();
+        try {
+            if (fileSystem.getDFSFileSystem() == null) {
+                logger.info("create file system for new path " + path);
+                // create a new filesystem
+                Configuration conf = new Configuration();
+                conf.set(FS_OBS_ACCESS_KEY, accessKey);
+                conf.set(FS_OBS_SECRET_KEY, secretKey);
+                conf.set(FS_OBS_ENDPOINT, endpoint);
+                conf.set(FS_OBS_IMPL, "org.apache.hadoop.fs.obs.OBSFileSystem");
+                conf.set(FS_OBS_IMPL_DISABLE_CACHE, disableCache);
+                FileSystem obsFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                fileSystem.setFileSystem(obsFileSystem);
             }
             return fileSystem;
         } catch (Exception e) {

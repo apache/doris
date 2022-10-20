@@ -217,4 +217,7 @@ public abstract class Literal extends Expression implements LeafExpression {
 
     public abstract LiteralExpr toLegacyLiteral();
 
+    public boolean isStringLiteral() {
+        return dataType.isStringType();
+    }
 }

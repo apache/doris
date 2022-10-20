@@ -66,7 +66,7 @@ Assume that the business has the following data table schema:
 If converted into a table-building statement, the following is done (omitting the Partition and Distribution information in the table-building statement)
 
 ```
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "user id",
     `date` DATE NOT NULL COMMENT "data import time",
@@ -254,7 +254,7 @@ In some multi-dimensional analysis scenarios, users are more concerned about how
 This is a typical user base information table. There is no aggregation requirement for this type of data, just the uniqueness of the primary key is guaranteed. (The primary key here is user_id + username). Then our statement is as follows:
 
 ```
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
 `user_id` LARGEINT NOT NULL COMMENT "user id",
 `username` VARCHAR (50) NOT NULL COMMENT "username",
@@ -288,7 +288,7 @@ This table structure is exactly the same as the following table structure descri
 And table-building statements:
 
 ```
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
 `user_id` LARGEINT NOT NULL COMMENT "user id",
 `username` VARCHAR (50) NOT NULL COMMENT "username",
@@ -320,7 +320,7 @@ In version 1.2, as a new feature, merge-on-write is disabled by default, and use
 Let's continue to use the previous table as an example, the create table statement:
 
 ```
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
 `user_id` LARGEINT NOT NULL COMMENT "user id",
 `username` VARCHAR (50) NOT NULL COMMENT "username",
@@ -375,7 +375,7 @@ In some multidimensional analysis scenarios, data has neither primary keys nor a
 
 The TABLE statement is as follows:
 ```
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
     `timestamp` DATETIME NOT NULL COMMENT "log time",
     `type` INT NOT NULL COMMENT "log type",
@@ -497,7 +497,7 @@ Another way is to **change the aggregation type of the count column above to REP
 
 ### Merge-on-write implementation of Unique model
 
-In Merge-on-write implementation, a delete-bitmap is added to each rowset during loading, to mark some data as overwritten or deleted. With the previous example, after the first batch of data is loaded, the status is as follows:
+In Merge-on-write implementation, there is no limitation of aggregation model. A new structure delete-bitmap is added to each rowset during loading, to mark some data as overwritten or deleted. With the previous example, after the first batch of data is loaded, the status is as follows:
 
 **batch 1**
 
@@ -533,7 +533,7 @@ In the test environment, the performance of the count(*) query in the merge-on-w
 
 Duplicate model has no limitation of aggregation model. Because the model does not involve aggregate semantics, when doing count (*) query, we can get the correct semantics by choosing a column of queries arbitrarily.
 
-### Key Columns
+## Key Columns
 For the Duplicate,Aggregate and Unique models,The key columns will be given when the table created, but it is actually different: For the Duplicate model, the key columns of the table can be regarded as just "sort columns", not an unique identifier. In aggregate type tables such as Aggregate and Unique models, the key columns are both "sort columns" and "unique identification columns", which were the real "key columns".
 
 ## Suggestions for Choosing Data Model
@@ -541,7 +541,7 @@ For the Duplicate,Aggregate and Unique models,The key columns will be given when
 Because the data model was established when the table was built, and **could not be modified. Therefore, it is very important to select an appropriate data model**.
 
 1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
-2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
+2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited.
    1. For users who have high performance requirements for aggregate queries, it is recommended to use the merge-on-write implementation added since version 1.2.
-   2. \[Note\] The Unique model only supports the entire row update. If the user needs unique key with partial update (such as loading multiple source tables into one doris table), you can consider using the Aggregate model, setting the aggregate type of the non-primary key columns to REPLACE_IF_NOT_NULL. For detail, please refer to [CREATE TABLE Manual](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
+   2. The Unique model only supports the entire row update. If the user needs unique key with partial update (such as loading multiple source tables into one doris table), you can consider using the Aggregate model, setting the aggregate type of the non-primary key columns to REPLACE_IF_NOT_NULL. For detail, please refer to [CREATE TABLE Manual](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 3. Duplicate is suitable for ad-hoc queries of any dimension. Although it is also impossible to take advantage of the pre-aggregation feature, it is not constrained by the aggregation model and can take advantage of the queue-store model (only reading related columns, but not all Key columns).

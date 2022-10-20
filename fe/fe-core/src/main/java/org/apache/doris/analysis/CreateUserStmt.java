@@ -23,7 +23,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -52,38 +51,38 @@ public class CreateUserStmt extends DdlStmt {
 
     private boolean ifNotExist;
     private UserIdentity userIdent;
-    private String password;
-    private byte[] scramblePassword;
-    private boolean isPlain;
+    private PassVar passVar;
     private String role;
+    private PasswordOptions passwordOptions;
 
     public CreateUserStmt() {
     }
 
     public CreateUserStmt(UserDesc userDesc) {
         userIdent = userDesc.getUserIdent();
-        password = userDesc.getPassword();
-        isPlain = userDesc.isPlain();
+        passVar = userDesc.getPassVar();
+        if (this.passwordOptions == null) {
+            this.passwordOptions = PasswordOptions.UNSET_OPTION;
+        }
     }
 
     public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role) {
+        this(ifNotExist, userDesc, role, null);
+    }
+
+    public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role, PasswordOptions passwordOptions) {
         this.ifNotExist = ifNotExist;
         userIdent = userDesc.getUserIdent();
-        password = userDesc.getPassword();
-        isPlain = userDesc.isPlain();
+        passVar = userDesc.getPassVar();
         this.role = role;
+        this.passwordOptions = passwordOptions;
+        if (this.passwordOptions == null) {
+            this.passwordOptions = PasswordOptions.UNSET_OPTION;
+        }
     }
 
     public boolean isIfNotExist() {
         return ifNotExist;
-    }
-
-    public boolean isSuperuser() {
-        return role.equalsIgnoreCase(PaloRole.ADMIN_ROLE);
-    }
-
-    public boolean hasRole() {
-        return role != null;
     }
 
     public String getQualifiedRole() {
@@ -91,7 +90,7 @@ public class CreateUserStmt extends DdlStmt {
     }
 
     public byte[] getPassword() {
-        return scramblePassword;
+        return passVar.getScrambled();
     }
 
     public UserIdentity getUserIdent() {
@@ -101,6 +100,10 @@ public class CreateUserStmt extends DdlStmt {
     @Override
     public boolean needAuditEncryption() {
         return true;
+    }
+
+    public PasswordOptions getPasswordOptions() {
+        return passwordOptions;
     }
 
     @Override
@@ -113,16 +116,7 @@ public class CreateUserStmt extends DdlStmt {
         }
 
         // convert plain password to hashed password
-        if (!Strings.isNullOrEmpty(password)) {
-            if (isPlain) {
-                // convert plain password to scramble
-                scramblePassword = MysqlPassword.makeScrambledPassword(password);
-            } else {
-                scramblePassword = MysqlPassword.checkPassword(password);
-            }
-        } else {
-            scramblePassword = new byte[0];
-        }
+        passVar.analyze();
 
         if (role != null) {
             if (role.equalsIgnoreCase("SUPERUSER")) {
@@ -132,6 +126,8 @@ public class CreateUserStmt extends DdlStmt {
             FeNameFormat.checkRoleName(role, true /* can be admin */, "Can not granted user to role");
             role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
+
+        passwordOptions.analyze();
 
         // check if current user has GRANT priv on GLOBAL or DATABASE level.
         if (!Env.getCurrentEnv().getAuth().checkHasPriv(ConnectContext.get(),
@@ -144,17 +140,19 @@ public class CreateUserStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE USER ").append(userIdent);
-        if (!Strings.isNullOrEmpty(password)) {
-            if (isPlain) {
+        if (!Strings.isNullOrEmpty(passVar.getText())) {
+            if (passVar.isPlain()) {
                 sb.append(" IDENTIFIED BY '").append("*XXX").append("'");
             } else {
-                sb.append(" IDENTIFIED BY PASSWORD '").append(password).append("'");
+                sb.append(" IDENTIFIED BY PASSWORD '").append(passVar.getText()).append("'");
             }
         }
 
         if (!Strings.isNullOrEmpty(role)) {
             sb.append(" DEFAULT ROLE '").append(role).append("'");
-
+        }
+        if (passwordOptions != null) {
+            sb.append(passwordOptions.toSql());
         }
 
         return sb.toString();

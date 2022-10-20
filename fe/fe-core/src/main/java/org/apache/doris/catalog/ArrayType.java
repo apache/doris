@@ -33,6 +33,8 @@ import java.util.Objects;
  */
 public class ArrayType extends Type {
 
+    public static final int MAX_NESTED_DEPTH = 9;
+
     @SerializedName(value = "itemType")
     private Type itemType;
 

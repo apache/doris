@@ -45,7 +45,7 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private Group root;
+    private final Group root;
 
     public Memo(Plan plan) {
         root = init(plan);
@@ -551,5 +551,18 @@ public class Memo {
                 recycleGroup(childGroup);
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("root:").append(getRoot()).append("\n");
+        for (Group group : groups.values()) {
+            builder.append(group.toString()).append("\n");
+            for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
+                builder.append("  ").append(groupExpression.toString()).append("\n");
+            }
+        }
+        return builder.toString();
     }
 }

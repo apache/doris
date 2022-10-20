@@ -36,7 +36,7 @@ class VOlapScanNode;
 class VOlapScanner {
 public:
     VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
-                 bool need_agg_finalize, const TPaloScanRange& scan_range, MemTracker* tracker);
+                 bool need_agg_finalize, const TPaloScanRange& scan_range);
     virtual ~VOlapScanner() = default;
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
@@ -140,8 +140,6 @@ private:
     bool _is_closed = false;
 
     MonotonicStopWatch _watcher;
-
-    MemTracker* _mem_tracker;
 
     VExprContext* _vconjunct_ctx = nullptr;
     bool _need_to_close = false;

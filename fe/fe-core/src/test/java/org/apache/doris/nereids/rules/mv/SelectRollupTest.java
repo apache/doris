@@ -54,6 +54,8 @@ class SelectRollupTest extends TestWithFeService implements PatternMatchSupporte
                 + "\"disable_auto_compaction\" = \"false\"\n"
                 + ");");
         addRollup("alter table t add rollup r1(k2, v1)");
+        // waiting table state to normal
+        Thread.sleep(500);
         addRollup("alter table t add rollup r2(k2, k3, v1)");
 
         createTable("CREATE TABLE `duplicate_tbl` (\n"

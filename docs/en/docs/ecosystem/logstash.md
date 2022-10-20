@@ -85,7 +85,7 @@ Configuration | Explanation
 `label_prefix` | Import the identification prefix, the final generated ID is *{label\_prefix}\_{db}\_{table}\_{time_stamp}*
 
 
-Load configuration:([Reference documents](http://doris.apache.org/master/zh-CN/administrator-guide/load-data/stream-load-manual.html))
+Load configuration:([Reference documents](../data-operate/import/import-way/stream-load-manual))
 
 Configuration | Explanation
 --- | ---

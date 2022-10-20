@@ -77,6 +77,8 @@ suite("test_string_function") {
     qt_sql "SELECT lcase(\"AbC123\");"
     qt_sql "SELECT lower(\"AbC123\");"
 
+    qt_sql "SELECT initcap(\"AbC123abc abc.abc,?|abc\");"
+
     qt_sql "select left(\"Hello doris\",5);"
     qt_sql "select right(\"Hello doris\",5);"
 
@@ -100,6 +102,10 @@ suite("test_string_function") {
     qt_sql "select null_or_empty(\"\");"
     qt_sql "select null_or_empty(\"a\");"
 
+    qt_sql "select not_null_or_empty(null);"
+    qt_sql "select not_null_or_empty(\"\");"
+    qt_sql "select not_null_or_empty(\"a\");"
+
     qt_sql "SELECT repeat(\"a\", 3);"
     qt_sql "SELECT repeat(\"a\", -1);"
     qt_sql "SELECT repeat(\"a\", 0);"
@@ -107,6 +113,7 @@ suite("test_string_function") {
     qt_sql "SELECT repeat(null,1);"
 
     qt_sql "select replace(\"https://doris.apache.org:9090\", \":9090\", \"\");"
+    qt_sql "select replace(\"https://doris.apache.org:9090\", \"\", \"new_str\");"
 
     qt_sql "SELECT REVERSE('hello');"
 

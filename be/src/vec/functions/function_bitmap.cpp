@@ -75,6 +75,51 @@ struct ToBitmap {
     }
 };
 
+struct ToBitmapWithCheck {
+    static constexpr auto name = "to_bitmap_with_check";
+    using ReturnType = DataTypeBitMap;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         MutableColumnPtr& col_res) {
+        return execute<false>(data, offsets, nullptr, col_res);
+    }
+
+    static Status vector_nullable(const ColumnString::Chars& data,
+                                  const ColumnString::Offsets& offsets, const NullMap& nullmap,
+                                  MutableColumnPtr& col_res) {
+        return execute<true>(data, offsets, &nullmap, col_res);
+    }
+    template <bool arg_is_nullable>
+    static Status execute(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                          const NullMap* nullmap, MutableColumnPtr& col_res) {
+        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
+        for (size_t i = 0; i < size; ++i) {
+            if (arg_is_nullable && ((*nullmap)[i])) {
+                continue;
+            } else {
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                size_t str_size = offsets[i] - offsets[i - 1];
+                StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+                uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                        raw_str, str_size, &parse_result);
+                if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
+                    res_data[i].add(int_value);
+                } else {
+                    LOG(WARNING) << "The input: " << raw_str
+                                 << " is not valid, to_bitmap only support bigint value from 0 to "
+                                    "18446744073709551615 currently";
+                    return Status::InternalError(
+                            "bitmap value must be in [0, 18446744073709551615)");
+                }
+            }
+        }
+        return Status::OK();
+    }
+};
+
 struct BitmapFromString {
     static constexpr auto name = "bitmap_from_string";
 
@@ -536,6 +581,8 @@ public:
 
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
 using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
+using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
+
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
 using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash<32>>;
 using FunctionBitmapHash64 = FunctionAlwaysNotNullable<BitmapHash<64>>;
@@ -564,6 +611,7 @@ using FunctionBitmapSubsetInRange = FunctionBitmapSubs<BitmapSubsetInRange>;
 void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapEmpty>();
     factory.register_function<FunctionToBitmap>();
+    factory.register_function<FunctionToBitmapWithCheck>();
     factory.register_function<FunctionBitmapFromString>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapHash64>();

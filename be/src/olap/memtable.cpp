@@ -142,7 +142,7 @@ MemTable::~MemTable() {
     if (_vec_skip_list != nullptr && keys_type() != KeysType::DUP_KEYS) {
         VecTable::Iterator it(_vec_skip_list.get());
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            // We should release agg_places here, because they are not relesed when a
+            // We should release agg_places here, because they are not released when a
             // load is canceled.
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];

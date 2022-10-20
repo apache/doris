@@ -97,6 +97,13 @@ clean_fe() {
     popd
 }
 
+# Copy the common files like licenses, notice.txt to output folder
+function copy_common_files() {
+    cp -r -p "${DORIS_HOME}/NOTICE.txt" "$1/"
+    cp -r -p "${DORIS_HOME}/dist/LICENSE-dist.txt" "$1/"
+    cp -r -p "${DORIS_HOME}/dist/licenses" "$1/"
+}
+
 if ! OPTS="$(getopt \
     -n "$0" \
     -o '' \
@@ -242,7 +249,11 @@ if [[ -z "${WITH_MYSQL}" ]]; then
     WITH_MYSQL='OFF'
 fi
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    GLIBC_COMPATIBILITY='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        GLIBC_COMPATIBILITY='ON'
+    else
+        GLIBC_COMPATIBILITY='OFF'
+    fi
 fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
@@ -251,16 +262,28 @@ if [[ -z "${WITH_LZO}" ]]; then
     WITH_LZO='OFF'
 fi
 if [[ -z "${USE_LIBCPP}" ]]; then
-    USE_LIBCPP='OFF'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
 fi
 if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
 fi
 if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    USE_MEM_TRACKER='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_MEM_TRACKER='ON'
+    else
+        USE_MEM_TRACKER='OFF'
+    fi
 fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
-    USE_JEMALLOC='OFF'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_JEMALLOC='ON'
+    else
+        USE_JEMALLOC='OFF'
+    fi
 fi
 if [[ -z "${STRICT_MEMORY_USE}" ]]; then
     STRICT_MEMORY_USE='OFF'
@@ -446,6 +469,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
+    copy_common_files "${DORIS_OUTPUT}/fe/"
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
 fi
@@ -466,6 +490,10 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
+
+    # Fix Killed: 9 error on MacOS (arm64).
+    # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
+    rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
     cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
 
     # make a soft link palo_be point to doris_be, for forward compatibility
@@ -491,6 +519,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
+    copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
 fi
@@ -502,6 +531,7 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
+    copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
     cd "${DORIS_HOME}"
 fi
 

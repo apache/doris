@@ -59,15 +59,8 @@ private:
     /// check param and fetch tablet_id from req
     Status _check_param(HttpRequest* req, uint64_t* tablet_id);
 
-    std::shared_ptr<CumulativeCompactionPolicy> _create_cumulative_compaction_policy();
-
 private:
     CompactionActionType _type;
-
-    /// running check mutex
-    static std::mutex _compaction_running_mutex;
-    /// whether there is manual compaction running
-    static bool _is_compaction_running;
 };
 
 } // end namespace doris

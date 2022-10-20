@@ -143,6 +143,14 @@ BooleanVal StringFunctions::null_or_empty(FunctionContext* context, const String
     }
 }
 
+BooleanVal StringFunctions::not_null_or_empty(FunctionContext* context, const StringVal& str) {
+    if (str.is_null || str.len == 0) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
 StringVal StringFunctions::space(FunctionContext* context, const IntVal& len) {
     if (len.is_null) {
         return StringVal::null();
@@ -347,6 +355,27 @@ StringVal StringFunctions::upper(FunctionContext* context, const StringVal& str)
         return result;
     }
     simd::VStringFunctions::to_upper(str.ptr, str.len, result.ptr);
+    return result;
+}
+
+StringVal StringFunctions::initcap(FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return StringVal::null();
+    }
+    StringVal result(context, str.len);
+
+    simd::VStringFunctions::to_lower(str.ptr, str.len, result.ptr);
+
+    bool need_capitalize = true;
+    for (int64_t i = 0; i < str.len; ++i) {
+        if (!::isalnum(result.ptr[i])) {
+            need_capitalize = true;
+        } else if (need_capitalize) {
+            result.ptr[i] = ::toupper(result.ptr[i]);
+            need_capitalize = false;
+        }
+    }
+
     return result;
 }
 

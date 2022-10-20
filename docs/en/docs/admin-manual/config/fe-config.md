@@ -1709,7 +1709,7 @@ Default：0
 
 The connection timeout and socket timeout config for thrift server.
 
-The value for thrift_client_timeout_ms is set to be larger than zero to prevent some hang up problems in java.net.SocketInputStream.socketRead0
+The value for thrift_client_timeout_ms is set to be zero to prevent read timeout.
 
 ### mysql_nio_backlog_num
 
@@ -2232,3 +2232,13 @@ The latest data version currently supported, cannot be modified, and should be c
 ### `min_be_exec_version`
 
 The oldest data version currently supported, which cannot be modified, should be consistent with the `HeartbeatServer::min_be_exec_version` in the BE of the matching version.
+
+### `max_query_profile_num`
+
+The max number of query profile.
+
+Default: 100
+
+Is it possible to dynamically configure: true
+
+Is it a configuration item unique to the Master FE node: false

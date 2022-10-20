@@ -227,6 +227,13 @@ public class GroupExpression {
 
     @Override
     public String toString() {
-        return "GroupExpression(plan=" + plan.toString() + ")";
+        StringBuilder builder = new StringBuilder();
+        builder.append(ownerGroup.getGroupId()).append("(plan=").append(plan).append(") children=[");
+        for (Group group : children) {
+            builder.append(group.getGroupId()).append(" ");
+        }
+        builder.append("] stats=");
+        builder.append(ownerGroup.getStatistics());
+        return builder.toString();
     }
 }

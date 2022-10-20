@@ -48,6 +48,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
@@ -2628,7 +2629,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (AnalysisException e) {
             LOG.error("should not happen", e);
         }
-        Env.getCurrentEnv().getAuth().createUser(new CreateUserStmt(new UserDesc(adminUser, "", true)));
+        Env.getCurrentEnv().getAuth().createUser(new CreateUserStmt(new UserDesc(adminUser, new PassVar("", true))));
     }
 
     private void unprotectCreateCluster(Cluster cluster) {

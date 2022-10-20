@@ -111,3 +111,7 @@ add_library(Olap STATIC
     segment_loader.cpp
     storage_policy_mgr.cpp
 )
+
+if (NOT USE_MEM_TRACKER)
+    target_compile_options(Olap PRIVATE -Wno-unused-lambda-capture)
+endif()

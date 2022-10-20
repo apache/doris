@@ -415,7 +415,7 @@ public:
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
-      * reverse - reverse ordering (acsending).
+      * reverse - reverse ordering (ascending).
       * limit - if isn't 0, then only first limit elements of the result column could be sorted.
       * nan_direction_hint - see above.
       */
@@ -428,7 +428,13 @@ public:
       */
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
-    virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+    /** Copies each element according offsets parameter.
+      * (i-th element should be copied counts[i] times.)
+      * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
+      * If `count_sz` is -1, `begin` must be 0.
+      */
+    virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                           size_t begin = 0, int count_sz = -1) const {
         LOG(FATAL) << "not support";
     };
 
@@ -607,6 +613,15 @@ public:
     virtual void set_date_type() { is_date = true; }
     virtual void set_datetime_type() { is_date_time = true; }
     virtual void set_decimalv2_type() { is_decimalv2 = true; }
+
+    void copy_date_types(const IColumn& col) {
+        if (col.is_date_type()) {
+            set_date_type();
+        }
+        if (col.is_datetime_type()) {
+            set_datetime_type();
+        }
+    }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;

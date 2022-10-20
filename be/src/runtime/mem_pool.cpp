@@ -119,20 +119,9 @@ Status MemPool::find_chunk(size_t min_size, bool check_limits) {
     }
 
     // Didn't find a big enough free chunk - need to allocate new chunk.
-    size_t chunk_size = 0;
     DCHECK_LE(next_chunk_size_, MAX_CHUNK_SIZE);
-
-    if (config::disable_mem_pools) {
-        // Disable pooling by sizing the chunk to fit only this allocation.
-        // Make sure the alignment guarantees are respected.
-        // This will generate too many small chunks.
-        chunk_size = std::max<size_t>(min_size, alignof(max_align_t));
-    } else {
-        DCHECK_GE(next_chunk_size_, INITIAL_CHUNK_SIZE);
-        chunk_size = std::max<size_t>(min_size, next_chunk_size_);
-    }
-
-    chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
+    DCHECK_GE(next_chunk_size_, INITIAL_CHUNK_SIZE);
+    size_t chunk_size = BitUtil::RoundUpToPowerOfTwo(std::max<size_t>(min_size, next_chunk_size_));
     if (check_limits &&
         !thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->check_limit(
                 chunk_size)) {

@@ -125,8 +125,7 @@ Status Tablet::_init_once_action() {
 #ifdef BE_TEST
     // init cumulative compaction policy by type
     _cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                    _cumulative_compaction_type);
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
 #endif
 
     RowsetVector rowset_vec;
@@ -1252,8 +1251,8 @@ void Tablet::get_compaction_status(std::string* json_result) {
             missing_versions_arr.PushBack(miss_value, missing_versions_arr.GetAllocator());
         }
         rapidjson::Value value;
-        std::string disk_size =
-                PrettyPrinter::print(rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
+        std::string disk_size = PrettyPrinter::print(
+                static_cast<uint64_t>(rowsets[i]->rowset_meta()->total_disk_size()), TUnit::BYTES);
         std::string version_str = strings::Substitute(
                 "[$0-$1] $2 $3 $4 $5 $6", ver.first, ver.second, rowsets[i]->num_segments(),
                 (delete_flags[i] ? "DELETE" : "DATA"),
@@ -1273,7 +1272,8 @@ void Tablet::get_compaction_status(std::string* json_result) {
         const Version& ver = stale_rowsets[i]->version();
         rapidjson::Value value;
         std::string disk_size = PrettyPrinter::print(
-                stale_rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
+                static_cast<uint64_t>(stale_rowsets[i]->rowset_meta()->total_disk_size()),
+                TUnit::BYTES);
         std::string version_str = strings::Substitute(
                 "[$0-$1] $2 $3 $4", ver.first, ver.second, stale_rowsets[i]->num_segments(),
                 stale_rowsets[i]->rowset_id().to_string(), disk_size);

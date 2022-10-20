@@ -54,7 +54,7 @@ CONF_mInt64(tc_use_memory_min, "10737418240");
 // free memory rate.[0-100]
 CONF_mInt64(tc_free_memory_rate, "20");
 // tcmallc aggressive_memory_decommit
-CONF_mBool(tc_enable_aggressive_memory_decommit, "false");
+CONF_Bool(tc_enable_aggressive_memory_decommit, "false");
 
 // Bound on the total amount of bytes allocated to thread caches.
 // This bound is not strict, so it is possible for the cache to go over this bound
@@ -183,7 +183,7 @@ CONF_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 CONF_mInt32(doris_scanner_row_bytes, "10485760");
 // number of max scan keys
-CONF_mInt32(doris_max_scan_key_num, "1024");
+CONF_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 CONF_mInt32(max_pushdown_conditions_per_column, "1024");
@@ -191,8 +191,6 @@ CONF_mInt32(max_pushdown_conditions_per_column, "1024");
 CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
-// push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
@@ -227,8 +225,6 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
-//file descriptors cache, by default, cache 32768 descriptors
-CONF_Int32(file_descriptor_cache_capacity, "32768");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
@@ -243,7 +239,7 @@ CONF_Int32(storage_page_cache_shard_size, "16");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-CONF_Bool(disable_storage_page_cache, "false");
+CONF_Bool(disable_storage_page_cache, "true");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -269,16 +265,6 @@ CONF_Bool(enable_base_compaction_idle_sched, "true");
 // dup key not compaction big files
 CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
 CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
-
-// config the cumulative compaction policy
-// Valid configs: num_based, size_based
-// num_based policy, the original version of cumulative compaction, cumulative version compaction once.
-// size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
-// lower write amplification, trading off read amplification and space amplification.
-CONF_mString(cumulative_compaction_policy, "size_based");
-CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "num_based";
-});
 
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
@@ -442,15 +428,21 @@ CONF_Bool(disable_mem_pools, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "10%");
-// 1024, The minimum chunk allocator size (in bytes)
-CONF_Int32(min_chunk_reserved_bytes, "1024");
+CONF_String(chunk_reserved_bytes_limit, "10%");
+
+// Whether using chunk allocator to cache memory chunk
+CONF_Bool(disable_chunk_allocator, "true");
 // Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
 // For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-CONF_mBool(disable_chunk_allocator_in_vec, "false");
+CONF_mBool(disable_chunk_allocator_in_vec, "true");
+
+// Both MemPool and vectorized engine's podarray allocator, vectorized engine's arena will try to allocate memory as power of two.
+// But if the memory is very large then power of two is also very large. This config means if the allocated memory's size is larger
+// than this limit then all allocators will not use RoundUpToPowerOfTwo to allocate memory.
+CONF_mInt64(memory_linear_growth_threshold, "134217728"); // 128Mb
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -721,11 +713,6 @@ CONF_mInt32(max_segment_num_per_rowset, "200");
 // The connection timeout when connecting to external table such as odbc table.
 CONF_mInt32(external_table_connect_timeout_sec, "30");
 
-// The capacity of lru cache in segment loader.
-// Althought it is called "segment cache", but it caches segments in rowset granularity.
-// So the value of this config should corresponding to the number of rowsets on this BE.
-CONF_mInt32(segment_cache_capacity, "1000000");
-
 // Global bitmap cache capacity for aggregation cache, size in bytes
 CONF_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 
@@ -818,9 +805,12 @@ CONF_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
+// OrcReader
+CONF_mInt32(orc_natural_read_size_mb, "8");
+
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
 CONF_Bool(enable_decimalv3, "false");
 
@@ -848,6 +838,7 @@ CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
 });
+CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
@@ -873,11 +864,9 @@ CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 // so as to avoid occupying the execution thread for a long time.
 CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 
-// Temp config. True to use new file scan node to do load job. Will remove after fully test.
-CONF_mBool(enable_new_load_scan_node, "false");
-
-// Temp config. True to use new file scanner. Will remove after fully test.
-CONF_mBool(enable_new_file_scanner, "false");
+// Hide webserver page for safety.
+// Hide the be config page for webserver.
+CONF_Bool(hide_webserver_config_page, "false");
 
 #ifdef BE_TEST
 // test s3

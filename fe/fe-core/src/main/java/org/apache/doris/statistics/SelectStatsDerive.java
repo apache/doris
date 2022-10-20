@@ -33,7 +33,7 @@ public class SelectStatsDerive extends BaseStatsDerive {
     @Override
     protected long deriveRowCount() {
         Preconditions.checkState(!childrenStatsResult.isEmpty());
-        rowCount = childrenStatsResult.get(0).getRowCount();
+        rowCount = (long) childrenStatsResult.get(0).getRowCount();
         applyConjunctsSelectivity();
         capRowCountAtLimit();
         return rowCount;

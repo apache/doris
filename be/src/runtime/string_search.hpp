@@ -39,6 +39,11 @@ public:
         _vol_searcher.reset(new Volnitsky(pattern->ptr, pattern->len));
     }
 
+    void set_pattern(const StringRef* pattern) {
+        _pattern = reinterpret_cast<const StringValue*>(pattern);
+        _vol_searcher.reset(new Volnitsky(pattern->data, pattern->size));
+    }
+
     // search for this pattern in str.
     //   Returns the offset into str if the pattern exists
     //   Returns -1 if the pattern is not found
@@ -48,6 +53,15 @@ public:
             return -1;
         } else {
             return it - str->ptr;
+        }
+    }
+
+    int search(const StringRef& str) const {
+        auto it = search(const_cast<char*>(str.data), str.size);
+        if (it == str.data + str.size) {
+            return -1;
+        } else {
+            return it - str.data;
         }
     }
 

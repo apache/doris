@@ -62,7 +62,7 @@ public:
 
     // check if this load channel mem consumption exceeds limit.
     // If yes, it will pick a tablets channel to try to reduce memory consumption.
-    // The mehtod will not return until the chosen tablet channels finished memtable
+    // The method will not return until the chosen tablet channels finished memtable
     // flush.
     template <typename TabletWriterAddResult>
     Status handle_mem_exceed_limit(TabletWriterAddResult* response);

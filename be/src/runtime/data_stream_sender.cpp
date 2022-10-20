@@ -82,7 +82,7 @@ DataStreamSender::Channel::~Channel() {
     if (_closure != nullptr && _closure->unref()) {
         delete _closure;
     }
-    // release this before request desctruct
+    // release this before request destruct
     _brpc_request.release_finst_id();
     _brpc_request.release_query_id();
 }
@@ -347,8 +347,8 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
     _name = "DataStreamSender";
 }
 
-// We use the ParttitionRange to compare here. It should not be a member function of PartitionInfo
-// class becaurce there are some other member in it.
+// We use the PartitionRange to compare here. It should not be a member function of PartitionInfo
+// class because there are some other member in it.
 // TODO: move this to dpp_sink
 static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo* v2) {
     return v1->range() < v2->range();

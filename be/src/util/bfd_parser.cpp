@@ -241,7 +241,7 @@ int BfdParser::decode_address(const char* str, const char** end, std::string* fi
         func_name->append("??");
         return -1;
     }
-    // demange function
+    // demangle function
     if (ctx.func_name != nullptr) {
 #define DMGL_PARAMS (1 << 0)
 #define DMGL_ANSI (1 << 1)

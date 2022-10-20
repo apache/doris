@@ -577,7 +577,7 @@ public class Config extends ConfigBase {
      * Default stream load and streaming mini load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int stream_load_default_timeout_second = 600; // 600s
+    public static int stream_load_default_timeout_second = 86400 * 3; // 3days
 
     /**
      * Default stream load pre-commit status timeout
@@ -807,7 +807,7 @@ public class Config extends ConfigBase {
      * Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int alter_table_timeout_second = 86400; // 1day
+    public static int alter_table_timeout_second = 86400 * 30; // 1month
     /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
@@ -1028,11 +1028,6 @@ public class Config extends ConfigBase {
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
     @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
-
-    /**
-     * if set to false, auth check will be disable, in case some goes wrong with the new privilege system.
-     */
-    @ConfField public static boolean enable_auth_check = true;
 
     /**
      * Max bytes a broker scanner can process in one broker load job.
@@ -1792,4 +1787,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false)
     public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
+
+    /**
+     * Max query profile num.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int max_query_profile_num = 100;
+
 }

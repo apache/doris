@@ -63,7 +63,6 @@ public class UserProperty implements Writable {
     private static final String PROP_SQL_BLOCK_RULES = "sql_block_rules";
     private static final String PROP_CPU_RESOURCE_LIMIT = "cpu_resource_limit";
     private static final String PROP_EXEC_MEM_LIMIT = "exec_mem_limit";
-    private static final String PROP_LOAD_MEM_LIMIT = "load_mem_limit";
     // advanced properties end
 
     private static final String PROP_LOAD_CLUSTER = "load_cluster";
@@ -109,7 +108,6 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_CPU_RESOURCE_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE_TAGS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
-        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -156,10 +154,6 @@ public class UserProperty implements Writable {
         return commonProperties.getExecMemLimit();
     }
 
-    public long getLoadMemLimit() {
-        return commonProperties.getLoadMemLimit();
-    }
-
     public void setPasswordForDomain(String domain, byte[] password, boolean errOnExist) throws DdlException {
         if (errOnExist && whiteList.containsDomain(domain)) {
             throw new DdlException("Domain " + domain + " of user " + qualifiedUser + " already exists");
@@ -182,7 +176,6 @@ public class UserProperty implements Writable {
         int cpuResourceLimit = this.commonProperties.getCpuResourceLimit();
         Set<Tag> resourceTags = this.commonProperties.getResourceTags();
         long execMemLimit = this.commonProperties.getExecMemLimit();
-        long loadMemLimit = this.commonProperties.getLoadMemLimit();
 
         UserResource newResource = resource.getCopiedUserResource();
         String newDefaultLoadCluster = defaultLoadCluster;
@@ -321,8 +314,6 @@ public class UserProperty implements Writable {
             } else if (keyArr[0].equalsIgnoreCase(PROP_EXEC_MEM_LIMIT)) {
                 // set property "exec_mem_limit" = "2147483648";
                 execMemLimit = getLongProperty(key, value, keyArr, PROP_EXEC_MEM_LIMIT);
-            } else if (keyArr[0].equalsIgnoreCase(PROP_LOAD_MEM_LIMIT)) {
-                loadMemLimit = getLongProperty(key, value, keyArr, PROP_LOAD_MEM_LIMIT);
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
@@ -335,7 +326,6 @@ public class UserProperty implements Writable {
         this.commonProperties.setCpuResourceLimit(cpuResourceLimit);
         this.commonProperties.setResourceTags(resourceTags);
         this.commonProperties.setExecMemLimit(execMemLimit);
-        this.commonProperties.setLoadMemLimit(loadMemLimit);
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -461,9 +451,6 @@ public class UserProperty implements Writable {
 
         // exec mem limit
         result.add(Lists.newArrayList(PROP_EXEC_MEM_LIMIT, String.valueOf(commonProperties.getExecMemLimit())));
-
-        // load mem limit
-        result.add(Lists.newArrayList(PROP_LOAD_MEM_LIMIT, String.valueOf(commonProperties.getLoadMemLimit())));
 
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));

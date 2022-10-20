@@ -323,11 +323,22 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override {
         auto s = size();
-        for (int i = 0; i < s; i++) {
-            size_t string_size = size_at(i);
-            size_t offset = offset_at(i);
-            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
-                                                   string_size, hashes[i]);
+        if (null_data) {
+            for (int i = 0; i < s; i++) {
+                if (null_data[i] == 0) {
+                    size_t string_size = size_at(i);
+                    size_t offset = offset_at(i);
+                    hashes[i] = HashUtil::xxHash64WithSeed(
+                            reinterpret_cast<const char*>(&chars[offset]), string_size, hashes[i]);
+                }
+            }
+        } else {
+            for (int i = 0; i < s; i++) {
+                size_t string_size = size_at(i);
+                size_t offset = offset_at(i);
+                hashes[i] = HashUtil::xxHash64WithSeed(
+                        reinterpret_cast<const char*>(&chars[offset]), string_size, hashes[i]);
+            }
         }
     }
 
@@ -366,7 +377,8 @@ public:
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnString>(num_columns, selector);

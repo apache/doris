@@ -278,13 +278,8 @@ public class ResourceTagQueryTest {
         long execMemLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(PaloAuth.ROOT_USER);
         Assert.assertEquals(1000000, execMemLimit);
 
-        String setLoadMemLimitStr = "set property for 'root' 'load_mem_limit' = '2000000';";
-        ExceptionChecker.expectThrowsNoException(() -> setProperty(setLoadMemLimitStr));
-        long loadMemLimit = Env.getCurrentEnv().getAuth().getLoadMemLimit(PaloAuth.ROOT_USER);
-        Assert.assertEquals(2000000, loadMemLimit);
-
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(PaloAuth.ROOT_USER);
-        Assert.assertEquals(17, userProps.size());
+        Assert.assertEquals(16, userProps.size());
     }
 
     private void checkTableReplicaAllocation(OlapTable tbl) throws InterruptedException {

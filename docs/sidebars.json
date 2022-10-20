@@ -163,7 +163,8 @@
                 "advanced/using-hll",
                 "advanced/variables",
                 "advanced/time-zone",
-                "advanced/small-file-mgr"
+                "advanced/small-file-mgr",
+                "advanced/cold_hot_separation"
             ]
         },
         {
@@ -174,6 +175,7 @@
                     "type": "category",
                     "label": "Expansion table",
                     "items": [
+                        "ecosystem/external-table/multi-catalog",
                         "ecosystem/external-table/doris-on-es",
                         "ecosystem/external-table/hudi-external-table",
                         "ecosystem/external-table/iceberg-of-doris",
@@ -251,6 +253,7 @@
                                 "sql-manual/sql-functions/array-functions/array_intersect",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/array_min",
+                                "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at",
                                 "sql-manual/sql-functions/array-functions/array_avg",
                                 "sql-manual/sql-functions/array-functions/size",
@@ -282,7 +285,6 @@
                                 "sql-manual/sql-functions/date-time-functions/yearweek",
                                 "sql-manual/sql-functions/date-time-functions/dayname",
                                 "sql-manual/sql-functions/date-time-functions/monthname",
-                                "sql-manual/sql-functions/date-time-functions/year_floor",
                                 "sql-manual/sql-functions/date-time-functions/hour",
                                 "sql-manual/sql-functions/date-time-functions/minute",
                                 "sql-manual/sql-functions/date-time-functions/second",
@@ -301,6 +303,7 @@
                                 "sql-manual/sql-functions/date-time-functions/timestampdiff",
                                 "sql-manual/sql-functions/date-time-functions/date_add",
                                 "sql-manual/sql-functions/date-time-functions/date_sub",
+                                "sql-manual/sql-functions/date-time-functions/date_trunc",
                                 "sql-manual/sql-functions/date-time-functions/date_format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
                                 "sql-manual/sql-functions/date-time-functions/minutes_add",
@@ -356,6 +359,7 @@
                                 "sql-manual/sql-functions/string-functions/lcase",
                                 "sql-manual/sql-functions/string-functions/upper",
                                 "sql-manual/sql-functions/string-functions/ucase",
+                                "sql-manual/sql-functions/string-functions/initcap",
                                 "sql-manual/sql-functions/string-functions/repeat",
                                 "sql-manual/sql-functions/string-functions/reverse",
                                 "sql-manual/sql-functions/string-functions/concat",
@@ -369,6 +373,7 @@
                                 "sql-manual/sql-functions/string-functions/ltrim",
                                 "sql-manual/sql-functions/string-functions/rtrim",
                                 "sql-manual/sql-functions/string-functions/null_or_empty",
+                                "sql-manual/sql-functions/string-functions/not_null_or_empty",
                                 "sql-manual/sql-functions/string-functions/hex",
                                 "sql-manual/sql-functions/string-functions/unhex",
                                 "sql-manual/sql-functions/string-functions/elt",
@@ -418,15 +423,18 @@
                                 "sql-manual/sql-functions/aggregate-functions/sum",
                                 "sql-manual/sql-functions/aggregate-functions/max_by",
                                 "sql-manual/sql-functions/aggregate-functions/bitmap_union",
+                                "sql-manual/sql-functions/aggregate-functions/group_bitmap_xor",
                                 "sql-manual/sql-functions/aggregate-functions/percentile_approx",
                                 "sql-manual/sql-functions/aggregate-functions/stddev",
                                 "sql-manual/sql-functions/aggregate-functions/group_concat",
                                 "sql-manual/sql-functions/aggregate-functions/collect_list",
                                 "sql-manual/sql-functions/aggregate-functions/min_by",
                                 "sql-manual/sql-functions/aggregate-functions/max",
+                                "sql-manual/sql-functions/aggregate-functions/any_value",
                                 "sql-manual/sql-functions/aggregate-functions/var_samp",
                                 "sql-manual/sql-functions/aggregate-functions/approx_count_distinct",
-                                "sql-manual/sql-functions/aggregate-functions/variance"
+                                "sql-manual/sql-functions/aggregate-functions/variance",
+                                "sql-manual/sql-functions/aggregate-functions/retention"
                             ]
                         },
                         {
@@ -608,7 +616,8 @@
                                 "sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE",
                                 "sql-manual/sql-reference/Account-Management-Statements/CREATE-USER",
                                 "sql-manual/sql-reference/Account-Management-Statements/DROP-USER",
-                                "sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD"
+                                "sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD",
+                                "sql-manual/sql-reference/Account-Management-Statements/ALTER-USER"
                             ]
                         },
                         {
@@ -649,7 +658,8 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY"
                                     ]
                                 },
                                 {
@@ -837,7 +847,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-TABLE",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET"
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-POLICY"
                             ]
                         },
                         {

@@ -102,7 +102,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalFilter((LogicalFilter<Plan>) this, context);
+        return visitor.visitLogicalFilter(this, context);
     }
 
     @Override
