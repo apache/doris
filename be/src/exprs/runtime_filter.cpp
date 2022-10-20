@@ -639,6 +639,7 @@ public:
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
+            _bloomfilter_func->init_with_fixed_length();
             _bloomfilter_func->merge(wrapper->_bloomfilter_func.get());
             break;
         }
@@ -658,6 +659,7 @@ public:
                                    << " change runtime filter to bloom filter(id=" << _filter_id
                                    << ") because: in_num(" << _hybrid_set->size()
                                    << ") >= max_in_num(" << _max_in_num << ")";
+                        _bloomfilter_func->init_with_fixed_length();
                         change_to_bloom_filter();
                     }
                     // in merge bloom filter
@@ -665,6 +667,7 @@ public:
                     VLOG_DEBUG << "fragment instance " << _fragment_instance_id.to_string()
                                << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
+                    _bloomfilter_func->init_with_fixed_length();
                     change_to_bloom_filter();
                     _bloomfilter_func->merge(wrapper->_bloomfilter_func.get());
                 }
@@ -684,6 +687,7 @@ public:
                     }
                     // bloom filter merge bloom filter
                 } else {
+                    _bloomfilter_func->init_with_fixed_length();
                     _bloomfilter_func->merge(wrapper->_bloomfilter_func.get());
                 }
             }
