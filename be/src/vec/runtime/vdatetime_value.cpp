@@ -1275,6 +1275,12 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 break;
                 // Micro second
             case 'f':
+                // _microsecond is removed, but need to eat this val
+                tmp = val + min(6, val_end - val);
+                if (!str_to_int64(val, &tmp, &int_value)) {
+                    return false;
+                }
+                val = tmp;
                 break;
                 // AM/PM
             case 'p':
