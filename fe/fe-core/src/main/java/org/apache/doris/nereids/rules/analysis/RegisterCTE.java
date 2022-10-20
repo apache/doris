@@ -131,7 +131,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
         // if the size of columnAlias is smaller than outputSlots' size, we will replace the corresponding number
         // of front slots with columnAlias.
         if (columnAlias.size() > outputSlots.size()) {
-            throw new AnalysisException("WITH-clause '" + withClause.getName() + "' returns " + columnAlias.size()
+            throw new AnalysisException("CTE [" + withClause.getName() + "] returns " + columnAlias.size()
                 + " columns, but " + outputSlots.size() + " labels were specified. The number of column labels must "
                 + "be smaller or equal to the number of returned columns.");
         }
@@ -140,8 +140,8 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
         // column alias cannot be used more than once
         columnAlias.stream().forEach(alias -> {
             if (names.contains(alias.toLowerCase())) {
-                throw new AnalysisException("Duplicated CTE column alias: '" + alias.toLowerCase()
-                    + "' in CTE " + withClause.getName());
+                throw new AnalysisException("Duplicated CTE column alias: [" + alias.toLowerCase()
+                    + "] in CTE [" + withClause.getName() + "]");
             }
             names.add(alias);
         });

@@ -201,4 +201,19 @@ suite("cte") {
         )
     """
 
+    // reference CTE which contains aliases in WithClause repeatedly
+    order_qt_cte_11 """
+        WITH cte1 AS (
+            SELECT s_suppkey as sk, s_name as sn
+            FROM supplier
+        ), cte2 AS (
+            SELECT sk, sn
+            FROM cte1
+            WHERE sk < 20
+        )
+        SELECT *
+        FROM cte1 JOIN cte2
+        ON cte1.sk = cte2.sk
+    """
+
 }

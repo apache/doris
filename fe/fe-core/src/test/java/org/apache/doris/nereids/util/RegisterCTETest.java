@@ -17,28 +17,72 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.analysis.CTEContext;
+import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
+import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 public class RegisterCTETest extends TestWithFeService implements PatternMatchSupported {
+
+    private final NereidsParser parser = new NereidsParser();
+
+    private final String sql1 = "WITH cte1 AS (SELECT s_suppkey FROM supplier WHERE s_suppkey < 5), "
+            + "cte2 AS (SELECT s_suppkey FROM cte1 WHERE s_suppkey < 3)"
+            + "SELECT * FROM cte1, cte2";
+
+    private final String sql2 = "WITH cte1 (skey) AS (SELECT s_suppkey, s_nation FROM supplier WHERE s_suppkey < 5), "
+            + "cte2 (sk2) AS (SELECT skey FROM cte1 WHERE skey < 3)"
+            + "SELECT * FROM cte1, cte2";
+
+    private final String sql3 = "WITH cte1 AS (SELECT * FROM supplier), "
+            + "cte2 AS (SELECT * FROM supplier WHERE s_region in (\"ASIA\", \"AFRICA\"))"
+            + "SELECT s_region, count(*) FROM cte1 GROUP BY s_region HAVING s_region in (SELECT s_region FROM cte2)";
+
+    private final String sql4 = "WITH cte1 AS (SELECT s_suppkey AS sk FROM supplier WHERE s_suppkey < 5), "
+            + "cte2 AS (SELECT sk FROM cte1 WHERE sk < 3)"
+            + "SELECT * FROM cte1 JOIN cte2 ON cte1.sk = cte2.sk";
+
+    private final List<String> testSql = ImmutableList.of(
+            sql1, sql2, sql3, sql4
+    );
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -63,19 +107,29 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
      * ******************************************************************************************** */
 
     @Test
+    public void testTranslateCase() throws Exception {
+        new MockUp<RuleSet>() {
+            @Mock
+            public List<Rule> getExplorationRules() {
+                return Lists.newArrayList(new AggregateDisassemble().build());
+            }
+        };
+
+        for (String sql : testSql) {
+            NamedExpressionUtil.clear();
+            StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
+            PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
+                    parser.parseSingle(sql),
+                    PhysicalProperties.ANY
+            );
+            // Just to check whether translate will throw exception
+            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+        }
+    }
+
+    @Test
     public void testCTERegister() {
-        String sql = "WITH cte1 AS (\n"
-                + "  \tSELECT s_suppkey\n"
-                + "  \tFROM supplier\n"
-                + "  \tWHERE s_suppkey < 5\n"
-                + "), cte2 AS (\n"
-                + "  \tSELECT s_suppkey\n"
-                + "  \tFROM cte1\n"
-                + "  \tWHERE s_suppkey < 3\n"
-                + ")\n"
-                + "SELECT *\n"
-                + "FROM cte1, cte2";
-        CTEContext cteContext = getCTEContextAfterRegisterCTE(sql);
+        CTEContext cteContext = getCTEContextAfterRegisterCTE(sql1);
 
         Assertions.assertTrue(cteContext.containsCTE("cte1")
                 && cteContext.containsCTE("cte2"));
@@ -83,33 +137,22 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         LogicalPlan cte2InitialPlan = cteContext.getInitialCTEPlan("cte2");
         PlanChecker.from(connectContext, cte2InitialPlan).matchesFromRoot(
                 logicalProject(
-                        logicalFilter(
-                                logicalSubQueryAlias(
-                                        logicalProject(
-                                                logicalFilter(
-                                                        unboundRelation()
-                                                )
-                                        )
+                    logicalFilter(
+                        logicalSubQueryAlias(
+                            logicalProject(
+                                logicalFilter(
+                                    unboundRelation()
                                 )
+                            )
                         )
+                    )
                 )
         );
     }
 
     @Test
-    public void testCTERegisterWithColumnAlias() throws Exception {
-        String sql = "  WITH cte1 (skey) AS (\n"
-                + "  \tSELECT s_suppkey, s_nation\n"
-                + "  \tFROM supplier\n"
-                + "  \tWHERE s_suppkey < 5\n"
-                + "), cte2 (sk2) AS (\n"
-                + "  \tSELECT skey\n"
-                + "  \tFROM cte1\n"
-                + "  \tWHERE skey < 3\n"
-                + ")\n"
-                + "SELECT *\n"
-                + "FROM cte1, cte2";
-        CTEContext cteContext = getCTEContextAfterRegisterCTE(sql);
+    public void testCTERegisterWithColumnAlias() {
+        CTEContext cteContext = getCTEContextAfterRegisterCTE(sql2);
 
         Assertions.assertTrue(cteContext.containsCTE("cte1")
                 && cteContext.containsCTE("cte2"));
@@ -144,69 +187,57 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
     }
 
     @Test
-    public void cte_test_2() {
+    public void testCTEInHavingAndSubquery() {
+        SlotReference region1 = new SlotReference(new ExprId(5), "s_region", VarcharType.INSTANCE,
+                false, ImmutableList.of("cte1"));
+        SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.INSTANCE,
+                false, ImmutableList.of("cte2"));
+        SlotReference count = new SlotReference(new ExprId(14), "count()", BigIntType.INSTANCE,
+                false, ImmutableList.of());
+        Alias countAlias = new Alias(new ExprId(14), new Count(), "count()");
+
         PlanChecker.from(connectContext)
-                .checkPlannerResult("  WITH cte1 (skey, sname) AS (\n"
-                    + "  \tSELECT *\n"
-                    + "  \tFROM supplier\n"
-                    + "  \tWHERE s_suppkey < 5\n"
-                    + "), cte2 (sk2) AS (\n"
-                    + "  \tSELECT skey\n"
-                    + "  \tFROM cte1\n"
-                    + "  \tWHERE skey < 3\n"
-                    + ")\n"
-                    + "SELECT *\n"
-                    + "FROM cte1, cte2");
+                .analyze(sql3)
+                .applyBottomUp(new PushApplyUnderProject())
+                .applyBottomUp(new PushApplyUnderFilter())
+                .applyBottomUp(new InApplyToJoin())
+                .matches(
+                        logicalProject(
+                            logicalJoin(
+                                logicalAggregate()
+                                    .when(FieldChecker.check("outputExpressions", ImmutableList.of(region1, countAlias)))
+                                    .when(FieldChecker.check("groupByExpressions", ImmutableList.of(region1))),
+                                any()
+                            ).when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
+                                .when(FieldChecker.check("otherJoinCondition", Optional.of(
+                                    new EqualTo(region1, region2)
+                                )))
+                        ).when(FieldChecker.check("projects", ImmutableList.of(region1, count)))
+                );
     }
 
     @Test
-    public void cte_test_3() {
+    public void testCTEWithAlias() {
+        SlotReference skInCTE1 = new SlotReference(new ExprId(7), "sk", VarcharType.INSTANCE,
+                false, ImmutableList.of("cte1"));
+        SlotReference skInCTE2 = new SlotReference(new ExprId(15), "sk", VarcharType.INSTANCE,
+                false, ImmutableList.of("cte2"));
+        Alias skAlias = new Alias(new ExprId(7),
+                new SlotReference(new ExprId(0), "s_suppkey", IntegerType.INSTANCE,
+                        false, ImmutableList.of("default_cluster:test", "supplier")), "sk");
         PlanChecker.from(connectContext)
-                .checkPlannerResult("  WITH cte1 AS (\n"
-                    + "  \tSELECT *\n"
-                    + "  \tFROM supplier\n"
-                    + "  \tWHERE s_suppkey < 5\n"
-                    + "), cte2 AS (\n"
-                    + "  \tSELECT s_suppkey\n"
-                    + "  \tFROM cte1\n"
-                    + "  \tWHERE s_suppkey < 3\n"
-                    + ")\n"
-                    + "  SELECT *\n"
-                    + "  FROM supplier\n"
-                    + "  WHERE s_suppkey in (select s_suppkey from cte2)");
-    }
-
-    @Test
-    public void cte_test_4() {
-        PlanChecker.from(connectContext)
-                .checkPlannerResult("  WITH cte1 AS (\n"
-                    + "  \tSELECT *\n"
-                    + "  \tFROM supplier\n"
-                    + "), cte2 AS (\n"
-                    + "  \tSELECT *\n"
-                    + "  \tFROM supplier\n"
-                    + "  \tWHERE s_region in (\"ASIA\", \"AFRICA\")\n"
-                    + ")\n"
-                    + "  SELECT s_region, count(*)\n"
-                    + "  FROM cte1\n"
-                    + "  GROUP BY s_region\n"
-                    + "  HAVING s_region in (SELECT s_region FROM cte2)");
-    }
-
-    @Test
-    public void cte_test_5() {
-        PlanChecker.from(connectContext)
-                .analyze("  WITH cte1 AS (\n"
-                    + "  \tSELECT s_suppkey as sk\n"
-                    + "  \tFROM supplier\n"
-                    + "  \tWHERE s_suppkey < 5\n"
-                    + "), cte2 AS (\n"
-                    + "  \tSELECT sk\n"
-                    + "  \tFROM cte1\n"
-                    + "  \tWHERE sk < 3\n"
-                    + ")\n"
-                    + "  SELECT *\n"
-                    + "  FROM cte1, cte2\n");
+                .analyze(sql4)
+                .matches(
+                    logicalProject(
+                        logicalJoin(
+                            logicalProject().when(FieldChecker.check("projects", ImmutableList.of(skAlias))),
+                            logicalProject().when(FieldChecker.check("projects", ImmutableList.of(skInCTE2)))
+                        ).when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
+                            .when(FieldChecker.check("otherJoinCondition", Optional.of(
+                                new EqualTo(skInCTE1, skInCTE2)
+                            )))
+                    ).when(FieldChecker.check("projects", ImmutableList.of(skInCTE1, skInCTE2)))
+                );
     }
 
 
@@ -216,18 +247,13 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
     @Test
     public void testCTEExceptionOfDuplicatedColumnAlias() {
+        String sql = "WITH cte1 (a1, A1) AS (SELECT * FROM supplier)"
+                + "SELECT * FROM cte1";
+
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
-            PlanChecker.from(connectContext)
-                    .checkPlannerResult("  WITH cte1 (skey, SKEY) AS (\n"
-                        + "  \tSELECT s_suppkey, s_name\n"
-                        + "  \tFROM supplier\n"
-                        + "  \tWHERE s_suppkey < 5\n"
-                        + ")\n"
-                        + "SELECT *\n"
-                        + "FROM cte1");
+            PlanChecker.from(connectContext).checkPlannerResult(sql);
         }, "Not throw expected exception.");
-        System.out.println(exception);
-        Assertions.assertTrue(exception.getMessage().contains("Duplicated CTE column alias"));
+        Assertions.assertTrue(exception.getMessage().contains("Duplicated CTE column alias: [a1] in CTE [cte1]"));
     }
 
     @Test
@@ -239,68 +265,42 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
             PlanChecker.from(connectContext).checkPlannerResult(sql);
         }, "Not throw expected exception.");
-        System.out.println(exception);
         Assertions.assertTrue(exception.getMessage().contains("The number of column labels must be "
                     + "smaller or equal to the number of returned columns"));
     }
 
     @Test
     public void testCTEExceptionOfReferenceInWrongOrder() {
+        String sql = "WITH cte1 AS (SELECT * FROM cte2), "
+                + "cte2 AS (SELECT * FROM supplier)"
+                + "SELECT * FROM cte1, cte2";
+
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
-            PlanChecker.from(connectContext)
-                    .checkPlannerResult("  WITH cte1 AS (\n"
-                        + "  \tSELECT s_suppkey\n"
-                        + "  \tFROM cte2\n"
-                        + "  \tWHERE s_suppkey < 5\n"
-                        + "), cte2 AS (\n"
-                        + "  \tSELECT s_suppkey\n"
-                        + "  \tFROM supplier\n"
-                        + "  \tWHERE s_suppkey < 3\n"
-                        + ")\n"
-                        + "SELECT *\n"
-                        + "FROM cte1, cte2");
+            PlanChecker.from(connectContext).checkPlannerResult(sql);
         }, "Not throw expected exception.");
-        System.out.println(exception);
-        Assertions.assertTrue(exception.getMessage().contains("does not exist in database"));
+        Assertions.assertTrue(exception.getMessage().contains("[cte2] does not exist in database"));
     }
 
     @Test
     public void testCTEExceptionOfErrorInUnusedCTE() {
+        String sql = "WITH cte1 AS (SELECT * FROM not_existed_table)"
+                + "SELECT * FROM supplier";
+
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
-            PlanChecker.from(connectContext)
-                    .checkPlannerResult("  WITH cte1 AS (\n"
-                        + "  \tSELECT s_suppkey\n"
-                        + "  \tFROM supplier\n"
-                        + "  \tWHERE s_suppkey < 5\n"
-                        + "), cte2 AS (\n"
-                        + "  \tSELECT s_suppkey\n"
-                        + "  \tFROM not_existed_table\n"
-                        + "  \tWHERE s_suppkey < 3\n"
-                        + ")\n"
-                        + "SELECT *\n"
-                        + "FROM cte1");
+            PlanChecker.from(connectContext).checkPlannerResult(sql);
         }, "Not throw expected exception.");
-        System.out.println(exception);
-        Assertions.assertTrue(exception.getMessage().contains("does not exist in database"));
+        Assertions.assertTrue(exception.getMessage().contains("[not_existed_table] does not exist in database"));
     }
 
     @Test
     public void testCTEExceptionOfDuplicatedCTEName() {
+        String sql = "WITH cte1 AS (SELECT * FROM supplier), "
+                    + "cte1 AS (SELECT * FROM part)"
+                    + "SELECT * FROM cte1";
+
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
-            PlanChecker.from(connectContext)
-                    .analyze("  WITH cte1 AS (\n"
-                        + "  \tSELECT s_suppkey\n"
-                        + "  \tFROM supplier\n"
-                        + "  \tWHERE s_suppkey < 5\n"
-                        + "), cte1 AS (\n"
-                        + "  \tSELECT s_suppkey\n"
-                        + "  \tFROM supplier\n"
-                        + "  \tWHERE s_suppkey < 3\n"
-                        + ")\n"
-                        + "SELECT *\n"
-                        + "FROM cte1");
+            PlanChecker.from(connectContext).analyze(sql);
         }, "Not throw expected exception.");
-        System.out.println(exception);
-        Assertions.assertTrue(exception.getMessage().contains("cannot be used more than once"));
+        Assertions.assertTrue(exception.getMessage().contains("[cte1] cannot be used more than once"));
     }
 }

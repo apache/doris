@@ -372,12 +372,15 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         logicalProject(
                                                 logicalFilter()
                                         ).when(FieldChecker.check("projects", ImmutableList.of(
-                                                new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE, true,
+                                                new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE,
+                                                        true,
                                                         ImmutableList.of("default_cluster:test", "t7")), "aa")
                                         )))
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("t2"))), "max(aa)")
+                                        new Alias(new ExprId(8),
+                                                new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                        true,
+                                                        ImmutableList.of("t2"))), "max(aa)")
                                 )))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of()))
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
