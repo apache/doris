@@ -130,6 +130,33 @@ class ReorderJoinTest implements PatternMatchSupported {
         check(plans);
     }
 
+    @Test
+    public void testCrossJoin() {
+        ImmutableList<LogicalPlan> plans = ImmutableList.of(
+                new LogicalPlanBuilder(scan1)
+                        .hashJoinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .filter(new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)))
+                        .build(),
+                new LogicalPlanBuilder(scan1)
+                        .hashJoinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .filter(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)))
+                        .build()
+        );
+
+        for (LogicalPlan plan : plans) {
+            PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                    .applyBottomUp(new ReorderJoin())
+                    .matchesFromRoot(
+                            logicalJoin(
+                                    logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
+                                    leafPlan()
+                            ).when(join -> join.getJoinType().isCrossJoin())
+                    );
+        }
+    }
+
     public void check(List<LogicalPlan> plans) {
         for (LogicalPlan plan : plans) {
             PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
