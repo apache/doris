@@ -54,7 +54,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
 
     // _cur_batch must be replaced with the returned batch.
     {
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         _current_block.reset();
     }
     *next_block = nullptr;
