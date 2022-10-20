@@ -52,10 +52,10 @@ public:
     static std::string remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
                                            int segment_id);
 
-    static std::string remote_tablet_path(int64_t tablet_id);
+    static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
+                                           int segment_id);
 
-    static std::string local_cache_path(const std::string& tablet_path, const RowsetId& rowset_id,
-                                        int segment_id);
+    static std::string remote_tablet_path(int64_t tablet_id);
 
     Status split_range(const RowCursor& start_key, const RowCursor& end_key,
                        uint64_t request_block_row_count, size_t key_num,

@@ -216,7 +216,7 @@ public:
 
     // return an unique identifier string for this rowset
     std::string unique_id() const {
-        return fmt::format("{}/{}", _rowset_dir, rowset_id().to_string());
+        return fmt::format("{}/{}", _tablet_path, rowset_id().to_string());
     }
 
     bool need_delete_file() const { return _need_delete_file; }
@@ -226,6 +226,8 @@ public:
     bool contains_version(Version version) const {
         return rowset_meta()->version().contains(version);
     }
+
+    const std::string& tablet_path() const { return _tablet_path; }
 
     virtual std::string rowset_dir() { return _rowset_dir; }
 
