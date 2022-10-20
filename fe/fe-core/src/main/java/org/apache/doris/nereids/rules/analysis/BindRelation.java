@@ -78,7 +78,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getStatementContext().getCteContext();
         if (cteContext.containsCTE(nameParts)) {
-            return new LogicalSubQueryAlias<>(nameParts, cteContext.findCTE(nameParts));
+            return new LogicalSubQueryAlias<>(nameParts, cteContext.getAnalyzedCTEPlan(nameParts));
         }
 
         String dbName = cascadesContext.getConnectContext().getDatabase();

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -46,7 +47,7 @@ import java.util.stream.IntStream;
 /**
  * Register CTE, includes checking columnAliases, checking CTE name, analyzing each CTE and store the
  * analyzed logicalPlan of CTE's query in CTEContext;
- * A LogicalProject node will be added to the root of the origin logicalPlan if there exist columnAliases.
+ * A LogicalProject node will be added to the root of the initial logicalPlan if there exist columnAliases.
  * Node LogicalCTE will be eliminated after registering.
  */
 public class RegisterCTE extends OneAnalysisRuleFactory {
@@ -72,11 +73,12 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
                 throw new AnalysisException("CTE name [" + cteName + "] cannot be used more than once.");
             }
 
+            // inline CTE's initialPlan if it is referenced by another CTE
             LogicalPlan plan = withClause.extractQueryPlan();
             plan = (LogicalPlan) new CTEVisitor().inlineCTE(cteContext, plan);
-            cteContext.putOriginPlan(cteName, plan);
-            System.out.println(plan.treeString());
+            cteContext.putInitialPlan(cteName, plan);
 
+            // analyze CTE's initialPlan
             CascadesContext cascadesContext = new Memo(plan).newCascadesContext(statementContext);
             cascadesContext.newAnalyzer().analyze();
             LogicalPlan analyzedPlan = (LogicalPlan) cascadesContext.getMemo().copyOut(false);
@@ -85,7 +87,6 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
                 analyzedPlan = withColumnAliases(analyzedPlan, withClause, cteContext);
             }
 
-            System.out.println(analyzedPlan.treeString());
             cteContext.putAnalyzedPlan(cteName, analyzedPlan);
         }
     }
@@ -99,19 +100,19 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
 
         checkColumnAlias(withClause, outputSlots);
 
-        // if this CTE has columnAlias, we should add an extra LogicalProject to both its originPlan and analyzedPlan,
+        // if this CTE has columnAlias, we should add an extra LogicalProject to both its initialPlan and analyzedPlan,
         // which is used to store columnAlias
 
-        // projects for originPlan
+        // projects for initialPlan
         List<NamedExpression> unboundProjects = IntStream.range(0, outputSlots.size())
                 .mapToObj(i -> i >= columnAliases.size()
                     ? new UnboundSlot(outputSlots.get(i).getName())
-                    : new Alias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
+                    : new UnboundAlias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
                 .collect(Collectors.toList());
 
         String name = withClause.getName();
-        LogicalPlan originPlan = cteContext.findCTE(name);
-        cteContext.putOriginPlan(name, new LogicalProject<>(unboundProjects, originPlan));
+        LogicalPlan initialPlan = cteContext.getInitialCTEPlan(name);
+        cteContext.putInitialPlan(name, new LogicalProject<>(unboundProjects, initialPlan));
 
         // projects for analyzedPlan
         List<NamedExpression> boundedProjects = IntStream.range(0, outputSlots.size())
@@ -155,7 +156,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
             }
             String name = unboundRelation.getTableName();
             if (context.containsCTE(name)) {
-                return new LogicalSubQueryAlias<>(name, context.findCTE(name));
+                return new LogicalSubQueryAlias<>(name, context.getInitialCTEPlan(name));
             }
             return unboundRelation;
         }

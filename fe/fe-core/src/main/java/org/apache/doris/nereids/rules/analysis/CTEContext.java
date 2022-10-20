@@ -29,11 +29,11 @@ public class CTEContext {
 
     // store CTE name and non-analyzed LogicalPlan of with query, which means the CTE query plan will be inline
     // everywhere it is referenced and analyzed more than once.
-    private Map<String, LogicalPlan> originCtePlans;
+    private Map<String, LogicalPlan> initialCtePlans;
     private Map<String, LogicalPlan> analyzedCtePlans;
 
     public CTEContext() {
-        originCtePlans = new HashMap<>();
+        initialCtePlans = new HashMap<>();
         analyzedCtePlans = new HashMap<>();
     }
 
@@ -41,15 +41,19 @@ public class CTEContext {
      * if cteName can be referenced in current order
      */
     public boolean containsCTE(String cteName) {
-        return originCtePlans.containsKey(cteName);
+        return initialCtePlans.containsKey(cteName);
     }
 
-    public LogicalPlan findCTE(String cteName) {
-        return originCtePlans.get(cteName);
+    public LogicalPlan getInitialCTEPlan(String cteName) {
+        return initialCtePlans.get(cteName);
     }
 
-    public void putOriginPlan(String cteName, LogicalPlan plan) {
-        originCtePlans.put(cteName, plan);
+    public LogicalPlan getAnalyzedCTEPlan(String cteName) {
+        return analyzedCtePlans.get(cteName);
+    }
+
+    public void putInitialPlan(String cteName, LogicalPlan plan) {
+        initialCtePlans.put(cteName, plan);
     }
 
     public void putAnalyzedPlan(String cteName, LogicalPlan plan) {

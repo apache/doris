@@ -225,6 +225,10 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 return new Alias(child, ((NamedExpression) child).getName());
             } else {
                 // TODO: resolve aliases
+                System.out.println(child.toSql());
+                if (unboundAlias.getAlias().isPresent()) {
+                    return new Alias(child, unboundAlias.getAlias().get());
+                }
                 return new Alias(child, child.toSql());
             }
         }
