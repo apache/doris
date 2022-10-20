@@ -24,10 +24,21 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Paper: Measuring the Complexity of Join Enumeration in Query Optimization
+ * <pre>
+ * Star query without products
+ * Join tree Number：
+ *   left-deep: 2(n-1)! * 1
+ *   zig-zag: (n-1)! * 2^(n-1)
+ *   bushy: star graph can't be a bushy, it can only form a zig-zag (because the center must be joined first)
+ * </pre>
+ */
 public class CascadesJoinReorderTest extends SqlTestBase {
     @Test
-    void testThreeJoin() {
+    void testStartThreeJoin() {
         // Three join
+        // (n-1)! * 2^(n-1) = 8
         String sql = "SELECT * FROM T1 "
                 + "JOIN T2 ON T1.id = T2.id "
                 + "JOIN T3 ON T1.id = T3.id";
@@ -44,8 +55,9 @@ public class CascadesJoinReorderTest extends SqlTestBase {
     }
 
     @Test
-    void testFourJoin() {
-        // Three join
+    void testStarFourJoin() {
+        // Four join
+        // (n-1)! * 2^(n-1) = 48
         String sql = "SELECT * FROM T1 "
                 + "JOIN T2 ON T1.id = T2.id "
                 + "JOIN T3 ON T1.id = T3.id "
