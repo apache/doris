@@ -172,7 +172,7 @@ void VSetOperationNode::hash_table_init() {
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL128:
-            _hash_table_variants.emplace<I128HashTableContext<RowRefListWithFlag>>();
+            _hash_table_variants.emplace<I128HashTableContext<RowRefListWithFlags>>();
             break;
         default:
             _hash_table_variants.emplace<SerializedHashTableContext<RowRefListWithFlags>>();
@@ -224,7 +224,7 @@ void VSetOperationNode::hash_table_init() {
                         .emplace<I64FixedKeyHashTableContext<false, RowRefListWithFlags>>();
             } else if (key_byte_size <= sizeof(UInt128)) {
                 _hash_table_variants
-                        .emplace<I128FixedKeyHashTableContext<false, RowRefListWithFlag>>();
+                        .emplace<I128FixedKeyHashTableContext<false, RowRefListWithFlags>>();
             } else {
                 _hash_table_variants
                         .emplace<I256FixedKeyHashTableContext<false, RowRefListWithFlags>>();
