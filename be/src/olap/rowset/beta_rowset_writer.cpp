@@ -53,14 +53,8 @@ BetaRowsetWriter::~BetaRowsetWriter() {
             return;
         }
         for (int i = 0; i < _num_segment; ++i) {
-            std::string seg_path = nullptr;
-            if (fs->type() == io::FileSystemType::LOCAL) {
-                seg_path =
-                        BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id, i);
-            } else {
-                seg_path =
-                        BetaRowset::remote_segment_path(_context.tablet_id, _context.rowset_id, i);
-            }
+            std::string seg_path =
+                    BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
@@ -261,7 +255,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     }
 
     RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path,
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
                                                _rowset_meta, &rowset);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
@@ -297,7 +291,7 @@ RowsetSharedPtr BetaRowsetWriter::build_tmp() {
     _build_rowset_meta(rowset_meta_);
 
     RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path,
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
                                                rowset_meta_, &rowset);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
@@ -310,7 +304,7 @@ Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     int32_t segment_id = _num_segment.fetch_add(1);
     auto path =
-            BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id, segment_id);
+            BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);

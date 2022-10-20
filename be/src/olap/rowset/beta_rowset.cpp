@@ -38,27 +38,18 @@ namespace doris {
 using io::FileCacheManager;
 
 std::string BetaRowset::segment_file_path(int segment_id) {
-    if (is_local()) {
-        return local_segment_path(_tablet_path, rowset_id(), segment_id);
-    }
-    return remote_segment_path(_rowset_meta->tablet_id(), rowset_id(), segment_id);
+    return segment_file_path(_rowset_dir, rowset_id(), segment_id);
 }
 
 std::string BetaRowset::segment_cache_path(int segment_id) {
     // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
-    return fmt::format("{}/{}_{}", _tablet_path, rowset_id().to_string(), segment_id);
+    return fmt::format("{}/{}_{}", _rowset_dir, rowset_id().to_string(), segment_id);
 }
 
-std::string BetaRowset::local_segment_path(const std::string& tablet_path,
+std::string BetaRowset::segment_file_path(const std::string& rowset_dir,
                                            const RowsetId& rowset_id, int segment_id) {
-    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}.dat
-    return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id.to_string(), segment_id);
-}
-
-std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
-                                            int segment_id) {
-    // data/{tablet_id}/{rowset_id}_{seg_num}.dat
-    return fmt::format("{}/{}/{}_{}.dat", DATA_PREFIX, tablet_id, rowset_id, segment_id);
+    // {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
+    return fmt::format("{}/{}_{}.dat", rowset_dir, rowset_id.to_string(), segment_id);
 }
 
 std::string BetaRowset::remote_tablet_path(int64_t tablet_id) {
@@ -188,9 +179,10 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id)
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
     for (int i = 0; i < num_segments(); ++i) {
-        auto dst_path = local_segment_path(dir, new_rowset_id, i);
+        auto dst_path = segment_file_path(dir, new_rowset_id, i);
         // TODO(lingbin): use Env API? or EnvUtil?
-        if (FileUtils::check_exist(dst_path)) {
+        bool dst_path_exist = false;
+        if (!fs->exists(dst_path, dst_path_exist).ok() || dst_path_exist) {
             LOG(WARNING) << "failed to create hard link, file already exist: " << dst_path;
             return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
         }
@@ -209,7 +201,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id)
 Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
     DCHECK(is_local());
     for (int i = 0; i < num_segments(); ++i) {
-        auto dst_path = local_segment_path(dir, new_rowset_id, i);
+        auto dst_path = segment_file_path(dir, new_rowset_id, i);
         Status status = Env::Default()->path_exists(dst_path);
         if (status.ok()) {
             LOG(WARNING) << "file already exist: " << dst_path;
