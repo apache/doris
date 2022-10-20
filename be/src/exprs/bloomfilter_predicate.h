@@ -123,17 +123,28 @@ public:
     }
 
     Status merge(BloomFilterFuncBase* bloomfilter_func) {
-        auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-        if (bloomfilter_func == nullptr) {
-            _bloom_filter.reset(BloomFilterAdaptor::create());
+        // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
+        // call for `merge` function. So we just reuse this bloom filter, and we don't need to
+        // allocate memory again.
+        if (!_inited) {
+            auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+            DCHECK(_bloom_filter == nullptr);
+            DCHECK(bloomfilter_func != nullptr);
+            _bloom_filter = bloomfilter_func->_bloom_filter;
+            _bloom_filter_alloced = other_func->_bloom_filter_alloced;
+            _inited = true;
+            return Status::OK();
+        } else {
+            DCHECK(bloomfilter_func != nullptr);
+            auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+            if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
+                LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
+                             << _bloom_filter_alloced
+                             << ", expected allocated bytes = " << other_func->_bloom_filter_alloced;
+                return Status::InvalidArgument("bloom filter size invalid");
+            }
+            return _bloom_filter->merge(other_func->_bloom_filter.get());
         }
-        if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-            LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
-                         << _bloom_filter_alloced
-                         << ", expected allocated bytes = " << other_func->_bloom_filter_alloced;
-            return Status::InvalidArgument("bloom filter size invalid");
-        }
-        return _bloom_filter->merge(other_func->_bloom_filter.get());
     }
 
     Status assign(const char* data, int len) {
