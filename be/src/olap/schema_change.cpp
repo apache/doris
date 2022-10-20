@@ -1747,7 +1747,8 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 
 std::shared_mutex SchemaChangeHandler::_mutex;
 std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
-std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap"};
+std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap",
+                                                                   "to_bitmap_with_check"};
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.

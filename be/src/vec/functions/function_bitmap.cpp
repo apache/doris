@@ -108,11 +108,12 @@ struct ToBitmapWithCheck {
                 if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
                     res_data[i].add(int_value);
                 } else {
-                    LOG(WARNING) << "The input: " << raw_str
-                                 << " is not valid, to_bitmap only support bigint value from 0 to "
-                                    "18446744073709551615 currently";
-                    return Status::InternalError(
-                            "bitmap value must be in [0, 18446744073709551615)");
+                    std::stringstream ss;
+                    ss << "The input: " << std::string(raw_str, str_size)
+                       << " is not valid, to_bitmap only support bigint value from 0 to "
+                          "18446744073709551615 currently";
+                    LOG(WARNING) << ss.str();
+                    return Status::InternalError(ss.str());
                 }
             }
         }
