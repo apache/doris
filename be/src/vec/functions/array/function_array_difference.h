@@ -67,8 +67,12 @@ public:
         } else if (which.is_decimal()) {
             return arguments[0];
         }
-        return std::make_shared<DataTypeArray>(is_nullable ? make_nullable(return_type)
-                                                           : return_type);
+        if (return_type) {
+            return std::make_shared<DataTypeArray>(is_nullable ? make_nullable(return_type)
+                                                               : return_type);
+        } else {
+            return nullptr;
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
