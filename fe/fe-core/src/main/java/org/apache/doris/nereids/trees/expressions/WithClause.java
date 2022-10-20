@@ -95,10 +95,10 @@ public class WithClause extends Expression {
     @Override
     public String toString() {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("(name: " + name + "), ");
+        stringBuilder.append("[(name: " + name + "), ");
         columnAliases.ifPresent(column -> stringBuilder.append(column.stream()
                 .collect(Collectors.joining(", ", "(columnAliases: ", "), "))));
-        stringBuilder.append("query: (" + query + ")");
+        stringBuilder.append(query + "]");
         return stringBuilder.toString();
     }
 

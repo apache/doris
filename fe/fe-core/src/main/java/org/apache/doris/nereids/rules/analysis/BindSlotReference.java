@@ -72,7 +72,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     private final Optional<Scope> outerScope;
 
     public BindSlotReference() {
-        this.outerScope = Optional.empty();
+        this(Optional.empty());
     }
 
     public BindSlotReference(Optional<Scope> outerScope) {

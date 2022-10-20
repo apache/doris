@@ -231,9 +231,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * process withClauses and store the results in a logical plan node LogicalCTE
      */
     public LogicalPlan withCte(CteContext ctx, LogicalPlan plan) {
-        // withClause list
-        List<WithClause> list = visit(ctx.withClause(), WithClause.class);
-        return new LogicalCTE<>(list, plan);
+        return new LogicalCTE<>(visit(ctx.withClause(), WithClause.class), plan);
     }
 
     @Override

@@ -27,8 +27,9 @@ import java.util.Map;
  */
 public class CTEContext {
 
-    // store CTE name and non-analyzed LogicalPlan of with query, which means the CTE query plan will be inline
-    // everywhere it is referenced and analyzed more than once.
+    // store CTE name and both initial and analyzed LogicalPlan of with query;
+    // The initial LogicalPlan is used to inline a CTE if it is referenced by another CTE,
+    // and the analyzed LogicalPlan will be  if it is referenced by the main query.
     private Map<String, LogicalPlan> initialCtePlans;
     private Map<String, LogicalPlan> analyzedCtePlans;
 
@@ -38,7 +39,7 @@ public class CTEContext {
     }
 
     /**
-     * if cteName can be referenced in current order
+     * check if cteName can be found in current order
      */
     public boolean containsCTE(String cteName) {
         return initialCtePlans.containsKey(cteName);

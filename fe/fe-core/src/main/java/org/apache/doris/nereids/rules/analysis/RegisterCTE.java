@@ -149,14 +149,14 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
 
     private class CTEVisitor extends DefaultPlanRewriter<CTEContext> {
         @Override
-        public LogicalPlan visitUnboundRelation(UnboundRelation unboundRelation, CTEContext context) {
+        public LogicalPlan visitUnboundRelation(UnboundRelation unboundRelation, CTEContext cteContext) {
             // confirm if it is a CTE
             if (unboundRelation.getNameParts().size() != 1) {
                 return unboundRelation;
             }
             String name = unboundRelation.getTableName();
-            if (context.containsCTE(name)) {
-                return new LogicalSubQueryAlias<>(name, context.getInitialCTEPlan(name));
+            if (cteContext.containsCTE(name)) {
+                return new LogicalSubQueryAlias<>(name, cteContext.getInitialCTEPlan(name));
             }
             return unboundRelation;
         }
