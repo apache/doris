@@ -139,8 +139,8 @@ public:
             auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
             if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
                 LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
-                             << _bloom_filter_alloced
-                             << ", expected allocated bytes = " << other_func->_bloom_filter_alloced;
+                             << _bloom_filter_alloced << ", expected allocated bytes = "
+                             << other_func->_bloom_filter_alloced;
                 return Status::InvalidArgument("bloom filter size invalid");
             }
             return _bloom_filter->merge(other_func->_bloom_filter.get());
