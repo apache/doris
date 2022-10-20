@@ -266,6 +266,7 @@ Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column, Type
         if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
             // nanoseconds will be ignored.
             v.set_microsecond((date_value % _decode_params->second_mask) * scale_to_micro);
+            // TODO: the precision of datetime v1
         }
         _FIXED_SHIFT_DATA_OFFSET();
     }
