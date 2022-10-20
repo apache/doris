@@ -31,7 +31,6 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
-#include <memory_resource>
 #include <string>
 #include <string_view>
 

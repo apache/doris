@@ -1493,7 +1493,7 @@ build_gettext() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    ../configure --prefix="${TP_INSTALL_DIR}"
+    ../configure --prefix="${TP_INSTALL_DIR}" --disable-java
     make -j "${PARALLEL}"
     make install
 
