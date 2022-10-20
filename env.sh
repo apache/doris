@@ -38,11 +38,11 @@ if [[ "$(uname -s)" == 'Darwin' ]]; then
         echo "Error: Homebrew is missing. Please install it first due to we use Homebrew to manage the tools which are needed to build the project."
         exit 1
     fi
-    if [[ ! -f "${DORIS_HOME}/custom_env.sh" ]] ||
-        ! grep HOMEBREW_REPO_PREFIX "${DORIS_HOME}/custom_env.sh" &>/dev/null; then
 
-        cat >>"${DORIS_HOME}/custom_env.sh" <<EOF
-HOMEBREW_REPO_PREFIX="$(brew --repo)"
+    cat >"${DORIS_HOME}/custom_env_mac.sh" <<EOF
+# This file is generated automatically. PLEASE DO NOT MODIFY IT.
+
+HOMEBREW_REPO_PREFIX="$(brew --prefix)"
 CELLARS=(
     automake
     autoconf
@@ -64,10 +64,20 @@ CELLARS=(
 for cellar in "\${CELLARS[@]}"; do
     EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"
 done
-export PATH="\${EXPORT_CELLARS}:\${PATH}"
+export PATH="\${EXPORT_CELLARS}:/usr/bin:\${PATH}"
 
 export DORIS_BUILD_PYTHON_VERSION=python3
 EOF
+
+    DORIS_HOME_ABSOLUATE_PATH="$(
+        set -e
+        cd "${DORIS_HOME}"
+        pwd
+    )"
+    SOURCE_MAC_ENV_CONTENT="source '${DORIS_HOME_ABSOLUATE_PATH}/custom_env_mac.sh'"
+    if [[ ! -f "${DORIS_HOME}/custom_env.sh" ]] ||
+        ! grep "${SOURCE_MAC_ENV_CONTENT}" "${DORIS_HOME}/custom_env.sh" &>/dev/null; then
+        echo "${SOURCE_MAC_ENV_CONTENT}" >>"${DORIS_HOME}/custom_env.sh"
     fi
 fi
 
