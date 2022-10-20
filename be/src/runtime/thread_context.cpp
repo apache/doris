@@ -25,7 +25,7 @@ DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, _ptr);
 
 ThreadContextPtr::ThreadContextPtr() {
     INIT_STATIC_THREAD_LOCAL(ThreadContext, _ptr);
-    _init = true;
+    init = true;
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
@@ -39,10 +39,12 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
 #else
     if (ExecEnv::GetInstance()->new_process_mem_tracker() == nullptr) {
         std::shared_ptr<MemTrackerLimiter> process_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(-1, "Process");
-        std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Process");
+        std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker =
                 std::make_shared<MemTrackerLimiter>(-1, "Orphan", process_mem_tracker);
-        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, _orphan_mem_tracker);
+        std::shared_ptr<MemTrackerLimiter> bthread_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Bthread", orphan_mem_tracker);
+        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, orphan_mem_tracker, bthread_mem_tracker);
     }
     thread_context()->attach_task(type, task_id, fragment_instance_id, ExecEnv::GetInstance()->orphan_mem_tracker());
 #endif // BE_TEST
@@ -61,10 +63,12 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
 #else
     if (ExecEnv::GetInstance()->new_process_mem_tracker() == nullptr) {
         std::shared_ptr<MemTrackerLimiter> process_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(-1, "Process");
-        std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Process");
+        std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker =
                 std::make_shared<MemTrackerLimiter>(-1, "Orphan", process_mem_tracker);
-        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, _orphan_mem_tracker);
+        std::shared_ptr<MemTrackerLimiter> bthread_mem_tracker =
+                std::make_shared<MemTrackerLimiter>(-1, "Bthread", orphan_mem_tracker);
+        ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, orphan_mem_tracker, bthread_mem_tracker);
     }
     thread_context()->attach_task(ThreadContext::TaskType::QUERY, "", TUniqueId(), ExecEnv::GetInstance()->orphan_mem_tracker());
 #endif // BE_TEST
@@ -89,37 +93,6 @@ AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
     if (config::memory_verbose_track) {
         thread_context()->_thread_mem_tracker_mgr->pop_consumer_tracker();
     }
-#endif // USE_MEM_TRACKER
-}
-
-SwitchBthread::SwitchBthread() {
-#ifdef USE_MEM_TRACKER
-    _bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-    // First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
-    if (_bthread_context == nullptr) {
-        // Create thread-local data on demand.
-        _bthread_context = new ThreadContext;
-        // set the data so that next time bthread_getspecific in the thread returns the data.
-        CHECK_EQ(0, bthread_setspecific(btls_key, _bthread_context));
-    } else {
-        DCHECK(_bthread_context->type() == ThreadContext::TaskType::UNKNOWN);
-        _bthread_context->_thread_mem_tracker_mgr->flush_untracked_mem<false>();
-    }
-    _bthread_context->_thread_mem_tracker_mgr->init();
-    _bthread_context->set_type(ThreadContext::TaskType::BRPC);
-    bthread_context_key = btls_key;
-    bthread_context = _bthread_context;
-#endif
-}
-
-SwitchBthread::~SwitchBthread() {
-#ifdef USE_MEM_TRACKER
-    DCHECK(_bthread_context != nullptr);
-    _bthread_context->_thread_mem_tracker_mgr->flush_untracked_mem<false>();
-    _bthread_context->_thread_mem_tracker_mgr->init();
-    _bthread_context->set_type(ThreadContext::TaskType::UNKNOWN);
-    bthread_context = nullptr;
-    bthread_context_key = EMPTY_BTLS_KEY;
 #endif // USE_MEM_TRACKER
 }
 

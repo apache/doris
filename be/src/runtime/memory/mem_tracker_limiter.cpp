@@ -74,7 +74,7 @@ MemTrackerLimiter::MemTrackerLimiter(int64_t byte_limit, const std::string& labe
 MemTrackerLimiter::~MemTrackerLimiter() {
     // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
 #ifndef BE_TEST
-    if (_label == "Process") doris::thread_context_ptr._init = false;
+    if (_label == "Process") doris::thread_context_ptr.init = false;
 #endif
     DCHECK(remain_child_count() == 0 || _label == "Process");
     // In order to ensure `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`
@@ -84,9 +84,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                 _consumption->current_value());
     }
     if (_reset_zero) {
-        ExecEnv::GetInstance()->orphan_mem_tracker_raw()->cache_consume_local(
-                _consumption->current_value());
-        cache_consume_local(-_consumption->current_value());
+        reset_zero();
         _all_ancestors.clear();
         _all_ancestors.push_back(ExecEnv::GetInstance()->orphan_mem_tracker_raw());
     }
