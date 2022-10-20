@@ -436,6 +436,9 @@ visible_functions = [
     [['array_slice', '%element_slice%'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     [['array_slice', '%element_slice%'], 'ARRAY_STRING', ['ARRAY_STRING', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     
+    [['array_range'], 'ARRAY_INT',       ['INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_range'], 'ARRAY_INT',       ['INT', 'INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_range'], 'ARRAY_INT',       ['INT', 'INT', 'INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     # reverse function for string builtin
     [['reverse'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions7reverseEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
