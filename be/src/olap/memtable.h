@@ -192,7 +192,7 @@ private:
     int64_t _flush_size = 0;
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged
-    // in unique or aggragate key model.
+    // in unique or aggregate key model.
     int64_t _rows = 0;
     void (MemTable::*_insert_fn)(const Tuple* tuple) = nullptr;
     void (MemTable::*_aggregate_two_row_fn)(const ContiguousRow& new_row,

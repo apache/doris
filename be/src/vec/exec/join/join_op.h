@@ -29,7 +29,7 @@ struct RowRef {
     SizeT row_num = 0;
     uint8_t block_offset;
     // Use in right join to mark row is visited
-    // TODO: opt the varaible to use it only need
+    // TODO: opt the variable to use it only need
     bool visited = false;
 
     RowRef() {}

@@ -156,7 +156,7 @@ public:
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
 
-    // note(wb) we didnt't impelment evaluate_vec method here, because storage layer only support AND predicate now;
+    // note(wb) we didnt't implement evaluate_vec method here, because storage layer only support AND predicate now;
 };
 
 class AndBlockColumnPredicate : public MutilColumnBlockPredicate {

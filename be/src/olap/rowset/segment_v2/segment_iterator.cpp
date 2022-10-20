@@ -707,10 +707,10 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
  *   If a type can be read fast, we can try to eliminate Lazy Materialization, because we think for this type, seek cost > read cost.
  *   This is an estimate, if we want more precise cost, statistics collection is necessary(this is a todo).
  *   In short, when returned non-pred columns contains string/hll/bitmap, we using Lazy Materialization.
- *   Otherwish, we disable it.
+ *   Otherwise, we disable it.
  *    
  *   When Lazy Materialization enable, we need to read column at least two times.
- *   Firt time to read Pred col, second time to read non-pred.
+ *   First time to read Pred col, second time to read non-pred.
  *   Here's an interesting question to research, whether read Pred col once is the best plan.
  *   (why not read Pred col twice or more?)
  *
@@ -720,7 +720,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
  *  2 Whether the predicate type can be evaluate in a fast way(using SIMD to eval pred)
  *    Such as integer type and float type, they can be eval fast.
  *    But for BloomFilter/string/date, they eval slow.
- *    If a type can be eval fast, we use vectorizaion to eval it.
+ *    If a type can be eval fast, we use vectorization to eval it.
  *    Otherwise, we use short-circuit to eval it.
  * 
  *  
