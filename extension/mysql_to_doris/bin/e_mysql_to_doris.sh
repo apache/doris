@@ -89,7 +89,8 @@ for table in $(cat ../conf/doris_tables |grep -v '#' | awk -F '\n' '{print $1}')
         do
         let x++
         d_t=`cat ../conf/mysql_tables |grep -v '#' | awk "NR==$x{print}" |awk -F '.' '{print $2}'`
-        sed -i "s/TABLE \`$d_t\`/TABLE if not exists $table/g" $path
+        sed -i "0,/.*\.$d_t ($/s/.*\.$d_t ($/CREATE TABLE IF NOT EXISTS $table /i" $path
+        sed -i "s/$table/$table(/g" $path
 done
 
 #create database
