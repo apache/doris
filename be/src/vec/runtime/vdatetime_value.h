@@ -523,26 +523,37 @@ public:
 
     const char* day_name() const;
 
-    VecDateTimeValue& operator++() {
+    VecDateTimeValue& operator+=(int64_t count) {
+        bool is_neg = false;
+        if (count < 0) {
+            is_neg = true;
+            count = -count;
+        }
         switch (_type) {
         case TIME_DATE: {
-            TimeInterval interval(DAY, 1, false);
+            TimeInterval interval(DAY, count, is_neg);
             date_add_interval<DAY>(interval);
             break;
         }
         case TIME_DATETIME: {
-            TimeInterval interval(SECOND, 1, false);
+            TimeInterval interval(SECOND, count, is_neg);
             date_add_interval<SECOND>(interval);
             break;
         }
         case TIME_TIME: {
-            TimeInterval interval(SECOND, 1, false);
+            TimeInterval interval(SECOND, count, is_neg);
             date_add_interval<SECOND>(interval);
             break;
         }
         }
         return *this;
     }
+
+    VecDateTimeValue& operator-=(int64_t count) { return *this += -count; }
+
+    VecDateTimeValue& operator++() { return *this += 1; }
+
+    VecDateTimeValue& operator--() { return *this += -1; }
 
     void to_datetime_val(doris_udf::DateTimeVal* tv) const {
         tv->packed_time = to_int64_datetime_packed();
@@ -1007,16 +1018,27 @@ public:
 
     const char* day_name() const;
 
-    DateV2Value<T>& operator++() {
+    DateV2Value<T>& operator+=(int64_t count) {
+        bool is_neg = false;
+        if (count < 0) {
+            is_neg = true;
+            count = -count;
+        }
         if constexpr (is_datetime) {
-            TimeInterval interval(SECOND, 1, false);
+            TimeInterval interval(SECOND, count, is_neg);
             date_add_interval<SECOND>(interval);
         } else {
-            TimeInterval interval(DAY, 1, false);
+            TimeInterval interval(DAY, count, is_neg);
             date_add_interval<DAY>(interval);
         }
         return *this;
     }
+
+    DateV2Value<T>& operator-=(int64_t count) { return *this += -count; }
+
+    DateV2Value<T>& operator++() { return *this += 1; }
+
+    DateV2Value<T>& operator--() { return *this += -1; }
 
     uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 

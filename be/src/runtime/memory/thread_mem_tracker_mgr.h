@@ -81,7 +81,7 @@ public:
     void push_consumer_tracker(MemTracker* mem_tracker);
     void pop_consumer_tracker();
     std::string last_consumer_tracker() {
-        return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack[-1]->label();
+        return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack.back()->label();
     }
 
     void set_exceed_call_back(ExceedCallBack cb_func) { _cb_func = cb_func; }
