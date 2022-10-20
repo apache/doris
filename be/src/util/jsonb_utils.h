@@ -51,7 +51,7 @@ public:
 
         os_.put(0);
 
-        std::string json_string{os_.getBuffer()};
+        std::string json_string {os_.getBuffer()};
         return json_string;
     }
 

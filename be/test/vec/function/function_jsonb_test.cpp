@@ -1224,7 +1224,6 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
              Null()}, // complex array
     };
 
-
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
         check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset);

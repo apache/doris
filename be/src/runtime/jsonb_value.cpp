@@ -28,7 +28,7 @@ Status JsonBinaryValue::from_json_string(const char* s, int length) {
     if (!parser.parse(s, length)) {
         error = parser.getErrorCode();
         return Status::InvalidArgument("json parse error: {} for value: {}",
-                JsonbErrMsg::getErrMsg(error), std::string_view(s, length));
+                                       JsonbErrMsg::getErrMsg(error), std::string_view(s, length));
     }
 
     ptr = parser.getWriter().getOutput()->getBuffer();

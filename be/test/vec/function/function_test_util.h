@@ -279,7 +279,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 } else {
                     // convert jsonb binary value to json string to compare with expected json text
                     EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
-                        << " at row " << i;
+                            << " at row " << i;
                 }
             } else {
                 Field field;
