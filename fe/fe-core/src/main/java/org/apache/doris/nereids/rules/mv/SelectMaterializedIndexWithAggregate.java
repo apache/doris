@@ -389,13 +389,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
         public CheckContext(LogicalOlapScan scan, long indexId) {
             // map<is_key, map<column_name, column>>
-            Map<Boolean, Map<String, Column>> nameToColumnGroupingByIsKey = scan.getTable().getSchemaByIndexId(indexId)
+            Map<Boolean, Map<String, Column>> nameToColumnGroupingByIsKey
+                    = scan.getTable().getSchemaByIndexId(indexId)
                     .stream()
                     .collect(Collectors.groupingBy(
                             Column::isKey,
-                            Collectors.mapping(Function.identity(),
-                                    Collectors.toMap(Column::getName, Function.identity())
-                            )
+                            Collectors.toMap(Column::getName, Function.identity())
                     ));
             Map<String, Column> keyNameToColumn = nameToColumnGroupingByIsKey.get(true);
             Map<String, Column> valueNameToColumn = nameToColumnGroupingByIsKey.getOrDefault(false, ImmutableMap.of());
@@ -426,7 +425,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     private PreAggStatus checkGroupingExprs(
             List<Expression> groupingExprs,
             CheckContext checkContext) {
-        return checkHasNoValueTypeColumn(groupingExprs, checkContext,
+        return disablePreAggIfContainsAnyValueColumn(groupingExprs, checkContext,
                 "Grouping expression %s contains value column %s");
     }
 
@@ -436,14 +435,15 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     private PreAggStatus checkPredicates(
             List<Expression> predicates,
             CheckContext checkContext) {
-        return checkHasNoValueTypeColumn(predicates, checkContext,
+        return disablePreAggIfContainsAnyValueColumn(predicates, checkContext,
                 "Predicate %s contains value column %s");
     }
 
     /**
      * Check the input expressions have no referenced slot to underlying value type column.
      */
-    private PreAggStatus checkHasNoValueTypeColumn(List<Expression> exprs, CheckContext ctx, String errorMsg) {
+    private PreAggStatus disablePreAggIfContainsAnyValueColumn(List<Expression> exprs, CheckContext ctx,
+            String errorMsg) {
         Map<ExprId, Column> exprIdToValueColumn = ctx.exprIdToValueColumn;
         return exprs.stream()
                 .map(expr -> expr.getInputSlots()
