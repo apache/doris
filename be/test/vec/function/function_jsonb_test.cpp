@@ -51,44 +51,37 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid);
 
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
@@ -123,8 +116,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
             {{STRING("[123, abc]")}, Null()}                   // invalid array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
@@ -162,8 +154,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
              STRING(R"([123,"abc"])")} // invalid array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
@@ -198,8 +189,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
             {{STRING("[123, abc]")}, STRING("")}               // invalid array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
@@ -228,44 +218,37 @@ TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid);
 
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
@@ -300,8 +283,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
             {{STRING("[123, abc]")}, Null()}                   // invalid array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
@@ -339,8 +321,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
              STRING(R"([123,"abc"])")} // invalid array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
@@ -375,8 +356,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
             {{STRING("[123, abc]")}, STRING("")}               // invalid array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
@@ -404,44 +384,37 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    auto st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set_valid);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_valid);
 
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
-    EXPECT_NE(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
@@ -478,8 +451,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
              STRING(R"([123,"abc"])")} // invalid array
     };
 
-    auto st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToInvalidTest) {
@@ -513,8 +485,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToInvalidTest) {
             {{STRING("[123, abc]")}, STRING("")}               // invalid array
     };
 
-    auto st = check_function<DataTypeJsonb, false>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, false>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractTest) {
@@ -546,8 +517,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
              STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
-    auto st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 
     // jsonb_extract obejct
     data_set = {
@@ -572,8 +542,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 
     // jsonb_extract array
     data_set = {
@@ -634,8 +603,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 
     // jsonb_extract $[0].k1
     data_set = {
@@ -660,8 +628,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
              STRING(R"("v41")")}, // complex array
     };
 
-    st = check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
@@ -691,8 +658,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
              Null()}, // complex array
     };
 
-    auto st = check_function<DataTypeString, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeString, true>(func_name, input_types, data_set);
 
     // jsonb_extract obejct
     data_set = {
@@ -717,8 +683,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeString, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeString, true>(func_name, input_types, data_set);
 
     // jsonb_extract array
     data_set = {
@@ -779,8 +744,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeString, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeString, true>(func_name, input_types, data_set);
 
     // jsonb_extract $[0].k1
     data_set = {
@@ -805,8 +769,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
              STRING("v41")}, // complex array
     };
 
-    st = check_function<DataTypeString, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
@@ -836,8 +799,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
              Null()}, // complex array
     };
 
-    auto st = check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 
     // jsonb_extract obejct
     data_set = {
@@ -862,8 +824,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 
     // jsonb_extract array
     data_set = {
@@ -924,8 +885,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 
     // jsonb_extract $[0].k1
     data_set = {
@@ -952,8 +912,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
              INT(400)}, // complex array
     };
 
-    st = check_function<DataTypeInt32, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
@@ -983,8 +942,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
              Null()}, // complex array
     };
 
-    auto st = check_function<DataTypeInt64, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 
     // jsonb_extract obejct
     data_set = {
@@ -1009,8 +967,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeInt64, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 
     // jsonb_extract array
     data_set = {
@@ -1071,8 +1028,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeInt64, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 
     // jsonb_extract $[0].k1
     data_set = {
@@ -1099,8 +1055,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
              BIGINT(400)}, // complex array
     };
 
-    st = check_function<DataTypeInt64, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
@@ -1130,8 +1085,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
              Null()}, // complex array
     };
 
-    auto st = check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 
     // jsonb_extract obejct
     data_set = {
@@ -1155,8 +1109,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 
     // jsonb_extract array
     data_set = {
@@ -1216,8 +1169,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
              Null()}, // complex array
     };
 
-    st = check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 
     // jsonb_extract $[0].k1
     data_set = {
@@ -1243,8 +1195,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
              DOUBLE(400)}, // complex array
     };
 
-    st = check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
-    EXPECT_EQ(Status::OK(), st);
+    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
@@ -1273,12 +1224,10 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
              Null()}, // complex array
     };
 
-    auto st = Status::OK();
 
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        st = check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset);
-        EXPECT_EQ(Status::OK(), st);
+        check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset);
     }
 
     // cast to TINYINT
@@ -1304,8 +1253,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        st = check_function<DataTypeInt8, true>(func_name, input_types, const_dataset);
-        EXPECT_EQ(Status::OK(), st);
+        check_function<DataTypeInt8, true>(func_name, input_types, const_dataset);
     }
 
     // cast to SMALLINT
@@ -1331,8 +1279,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        st = check_function<DataTypeInt16, true>(func_name, input_types, const_dataset);
-        EXPECT_EQ(Status::OK(), st);
+        check_function<DataTypeInt16, true>(func_name, input_types, const_dataset);
     }
 
     // cast to INT
@@ -1358,8 +1305,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        st = check_function<DataTypeInt32, true>(func_name, input_types, const_dataset);
-        EXPECT_EQ(Status::OK(), st);
+        check_function<DataTypeInt32, true>(func_name, input_types, const_dataset);
     }
 
     // cast to BIGINT
@@ -1386,8 +1332,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        st = check_function<DataTypeInt64, true>(func_name, input_types, const_dataset);
-        EXPECT_EQ(Status::OK(), st);
+        check_function<DataTypeInt64, true>(func_name, input_types, const_dataset);
     }
 
     // cast to DOUBLE
@@ -1414,8 +1359,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        st = check_function<DataTypeFloat64, true>(func_name, input_types, const_dataset);
-        EXPECT_EQ(Status::OK(), st);
+        check_function<DataTypeFloat64, true>(func_name, input_types, const_dataset);
     }
 
     // cast to STRING
@@ -1444,8 +1388,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     };
     for (const auto& row : data_set) {
         DataSet const_dataset = {row};
-        st = check_function<DataTypeString, true>(func_name, input_types, const_dataset);
-        EXPECT_EQ(Status::OK(), st);
+        check_function<DataTypeString, true>(func_name, input_types, const_dataset);
     }
 }
 
