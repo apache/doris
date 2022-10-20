@@ -17,8 +17,6 @@
 
 suite("test_array_functions_with_where") {
     def tableName = "tbl_test_array_functions_with_where"
-    // open enable_array_type
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
     sql """ set enable_vectorized_engine = true """
 
