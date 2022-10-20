@@ -204,8 +204,11 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
         case TYPE_STRING: {
             const auto column_string =
                     assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
-
-            size_t limit = std::min(config::string_type_length_soft_limit_bytes, desc->type().len);
+            size_t limit = config::string_type_length_soft_limit_bytes;
+            // when desc->type().len is negative, std::min will return overflow value, so we need to check it
+            if (desc->type().len > 0) {
+                limit = std::min(config::string_type_length_soft_limit_bytes, desc->type().len);
+            }
             for (int j = 0; j < num_rows; ++j) {
                 if (!filter_bitmap->Get(j)) {
                     auto str_val = column_string->get_data_at(j);
