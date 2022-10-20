@@ -75,7 +75,7 @@ bool DateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 bool DateTimeValue::from_date_str(const char* date_str, int len) {
     const char* ptr = date_str;
     const char* end = date_str + len;
-    // ONLY 2, 6 can follow by a sapce
+    // ONLY 2, 6 can follow by a space
     const static int allow_space_mask = 4 | 64;
     const static int MAX_DATE_PARTS = 8;
     uint32_t date_val[MAX_DATE_PARTS];
@@ -196,7 +196,7 @@ bool DateTimeValue::from_date_str(const char* date_str, int len) {
 // [YY_PART_YEAR * 10000L + 101, 991231] for two digits year 1970 ~1999
 // (991231, 10000101) invalid, because support 1000-01-01
 // [10000101, 99991231] for four digits year date value.
-// (99991231, 101000000) invalid, NOTE below this is datetime vaule hh:mm:ss must exist.
+// (99991231, 101000000) invalid, NOTE below this is datetime value hh:mm:ss must exist.
 // [101000000, (YY_PART_YEAR - 1)##1231235959] two digits year datetime value
 // ((YY_PART_YEAR - 1)##1231235959, YY_PART_YEAR##0101000000) invalid
 // ((YY_PART_YEAR)##1231235959, 99991231235959] two digits year datetime value 1970 ~ 1999

@@ -117,7 +117,7 @@ void set(T& x) {
   * takes any pointer-like object;
   * for (3) and (4), LookupResult = Cell *, and both getters are implemented.
   * They have to be specialized for each particular Cell class to supersede the
-  * default verision that takes a generic pointer-like object.
+  * default version that takes a generic pointer-like object.
   */
 struct VoidKey {};
 struct VoidMapped {

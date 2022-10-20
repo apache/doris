@@ -432,7 +432,7 @@ Status BrokerScanner::_line_split_to_values(const Slice& line) {
         read_by_column_def = range.read_by_column_def;
     }
     const std::vector<std::string>& columns_from_path = range.columns_from_path;
-    // read data by column defination, resize _split_values to _src_solt_size
+    // read data by column definition, resize _split_values to _src_solt_size
     if (read_by_column_def) {
         // fill slots by NULL
         while (_split_values.size() + columns_from_path.size() < _src_slot_descs.size()) {

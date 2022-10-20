@@ -37,7 +37,7 @@ using ConstNullMapPtr = const NullMap*;
 
 /// Class that specifies nullable columns. A nullable column represents
 /// a column, which may have any type, provided with the possibility of
-/// storing NULL values. For this purpose, a ColumNullable object stores
+/// storing NULL values. For this purpose, a ColumnNullable object stores
 /// an ordinary column along with a special column, namely a byte map,
 /// whose type is ColumnUInt8. The latter column indicates whether the
 /// value of a given row is a NULL or not. Such a design is preferred

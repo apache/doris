@@ -201,7 +201,7 @@ struct DateFormatImpl {
     }
 };
 
-// TODO: This function should be depend on argments not always nullable
+// TODO: This function should be depend on arguments not always nullable
 template <typename DateType>
 struct FromUnixTimeImpl {
     using FromType = Int32;
