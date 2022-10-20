@@ -192,12 +192,17 @@ ProcessHashTableProbe<JoinOpType, ignore_null>::ProcessHashTableProbe(HashJoinNo
         : _join_node(join_node),
           _batch_size(batch_size),
           _build_blocks(join_node->_build_blocks),
-          _tuple_is_null_left_flags(
-                  reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_left_flag_column)
-                          .get_data()),
+          _tuple_is_null_left_flags(join_node->_is_outer_join
+                                            ? &(reinterpret_cast<ColumnUInt8&>(
+                                                        *join_node->_tuple_is_null_left_flag_column)
+                                                        .get_data())
+                                            : nullptr),
           _tuple_is_null_right_flags(
-                  reinterpret_cast<ColumnUInt8&>(*join_node->_tuple_is_null_right_flag_column)
-                          .get_data()),
+                  join_node->_is_outer_join
+                          ? &(reinterpret_cast<ColumnUInt8&>(
+                                      *join_node->_tuple_is_null_right_flag_column)
+                                      .get_data())
+                          : nullptr),
           _rows_returned_counter(join_node->_rows_returned_counter),
           _search_hashtable_timer(join_node->_search_hashtable_timer),
           _build_side_output_timer(join_node->_build_side_output_timer),
@@ -268,8 +273,8 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::build_side_output_column(
 
     // Dispose right tuple is null flags columns
     if constexpr (probe_all && !have_other_join_conjunct) {
-        _tuple_is_null_right_flags.resize(size);
-        auto* __restrict null_data = _tuple_is_null_right_flags.data();
+        _tuple_is_null_right_flags->resize(size);
+        auto* __restrict null_data = _tuple_is_null_right_flags->data();
         for (int i = 0; i < size; ++i) {
             null_data[i] = _build_block_rows[i] == -1;
         }
@@ -298,7 +303,7 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::probe_side_output_column(
     }
 
     if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN && !have_other_join_conjunct) {
-        _tuple_is_null_left_flags.resize_fill(size, 0);
+        _tuple_is_null_left_flags->resize_fill(size, 0);
     }
 }
 
@@ -616,7 +621,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
 
             for (int i = 0; i < column->size(); ++i) {
                 if (filter_map[i]) {
-                    _tuple_is_null_right_flags.emplace_back(null_map_data[i]);
+                    _tuple_is_null_right_flags->emplace_back(null_map_data[i]);
                 }
             }
             output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
@@ -672,7 +677,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
                 *visited_map[i] |= result;
                 filter_size += result;
             }
-            _tuple_is_null_left_flags.resize_fill(filter_size, 0);
+            _tuple_is_null_left_flags->resize_fill(filter_size, 0);
         } else {
             // inner join do nothing
         }
@@ -741,7 +746,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::process_data_in_hashtable
         for (int i = 0; i < right_col_idx; ++i) {
             assert_cast<ColumnNullable*>(mcol[i].get())->insert_many_defaults(block_size);
         }
-        _tuple_is_null_left_flags.resize_fill(block_size, 1);
+        _tuple_is_null_left_flags->resize_fill(block_size, 1);
     }
     *eos = iter == hash_table_ctx.hash_table.end();
 
