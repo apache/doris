@@ -33,6 +33,9 @@
 #include "vec/exec/scan/vfile_scanner.h"
 
 namespace doris::vectorized {
+
+const static Slice _s_null_slice = Slice("\\N");
+
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs)
@@ -57,7 +60,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 
 CsvReader::~CsvReader() {}
 
-Status CsvReader::init_reader() {
+Status CsvReader::init_reader(bool is_load) {
     // set the skip lines and start offset
     int64_t start_offset = _range.start_offset;
     if (start_offset == 0 && _params.__isset.file_attributes &&
@@ -124,6 +127,19 @@ Status CsvReader::init_reader() {
                 _file_format_type);
     }
 
+    _is_load = is_load;
+    if (!_is_load) {
+        // For query task, we need to save the mapping from table schema to file column
+        DCHECK(_params.__isset.column_idxs);
+        _col_idxs = _params.column_idxs;
+    } else {
+        // For load task, the column order is same as file column order
+        int i = 0;
+        for (auto& desc [[maybe_unused]] : _file_slot_descs) {
+            _col_idxs.push_back(i++);
+        }
+    }
+
     _line_reader_eof = false;
     return Status::OK();
 }
@@ -134,10 +150,19 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         return Status::OK();
     }
 
-    const int batch_size = _state->batch_size();
-    auto columns = block->mutate_columns();
+    if (!_init_column_pos) {
+        // Save mapping from file slot desc to column in block, so that we don't need to
+        // find column in block by name every time.
+        for (int i = 0; i < _file_slot_descs.size(); ++i) {
+            size_t position = block->get_position_by_name(_file_slot_descs[i]->col_name());
+            _col_posistions.push_back(position);
+        }
+        _init_column_pos = true;
+    }
 
-    while (columns[0]->size() < batch_size && !_line_reader_eof) {
+    const int batch_size = _state->batch_size();
+    int rows = 0;
+    while (rows < batch_size && !_line_reader_eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
@@ -150,16 +175,15 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             continue;
         }
 
-        // TODO(ftw): check read_rows?
-        ++(*read_rows);
-        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), columns));
+        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block));
+        ++rows;
 
         if (_line_reader_eof == true) {
             *eof = true;
             break;
         }
     }
-    columns.clear();
+    *read_rows = rows;
 
     return Status::OK();
 }
@@ -228,7 +252,7 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
-Status CsvReader::_fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns) {
+Status CsvReader::_fill_dest_columns(const Slice& line, Block* block) {
     bool is_success = false;
 
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
@@ -240,10 +264,15 @@ Status CsvReader::_fill_dest_columns(const Slice& line, std::vector<MutableColum
     // if _split_values.size > _file_slot_descs.size()
     // we only take the first few columns
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        // TODO(ftw): no need of src_slot_desc
         auto src_slot_desc = _file_slot_descs[i];
-        const Slice& value = _split_values[i];
-        _text_converter->write_string_column(src_slot_desc, &columns[i], value.data, value.size);
+        int col_idx = _col_idxs[i];
+        // col idx is out of range, fill with null.
+        const Slice& value =
+                col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+        IColumn* col_ptr =
+                const_cast<IColumn*>(block->get_by_position(_col_posistions[i]).column.get());
+        _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
+                                          false);
     }
 
     return Status::OK();
@@ -251,42 +280,51 @@ Status CsvReader::_fill_dest_columns(const Slice& line, std::vector<MutableColum
 
 Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
     if (!validate_utf8(line.data, line.size)) {
-        RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                []() -> std::string { return "Unable to display"; },
-                []() -> std::string {
-                    fmt::memory_buffer error_msg;
-                    fmt::format_to(error_msg, "{}", "Unable to display");
-                    return fmt::to_string(error_msg);
-                },
-                &_line_reader_eof));
-        _counter->num_rows_filtered++;
-        *success = false;
-        return Status::OK();
+        if (!_is_load) {
+            return Status::InternalError("Only support csv data in utf8 codec");
+        } else {
+            RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                    []() -> std::string { return "Unable to display"; },
+                    []() -> std::string {
+                        fmt::memory_buffer error_msg;
+                        fmt::format_to(error_msg, "{}", "Unable to display");
+                        return fmt::to_string(error_msg);
+                    },
+                    &_line_reader_eof));
+            _counter->num_rows_filtered++;
+            *success = false;
+            return Status::OK();
+        }
     }
 
     _split_line(line);
 
-    // if actual column number in csv file is not equal to _file_slot_descs.size()
-    // then filter this line.
-    if (_split_values.size() != _file_slot_descs.size()) {
-        std::string cmp_str =
-                _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
-        RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                [&]() -> std::string { return std::string(line.data, line.size); },
-                [&]() -> std::string {
-                    fmt::memory_buffer error_msg;
-                    fmt::format_to(error_msg, "{} {} {}", "actual column number in csv file is ",
-                                   cmp_str, " schema column number.");
-                    fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
-                                   _split_values.size(), _value_separator);
-                    fmt::format_to(error_msg, "line delimiter: [{}], schema column number: {}; ",
-                                   _line_delimiter, _file_slot_descs.size());
-                    return fmt::to_string(error_msg);
-                },
-                &_line_reader_eof));
-        _counter->num_rows_filtered++;
-        *success = false;
-        return Status::OK();
+    if (_is_load) {
+        // Only check for load task. For query task, the non exist column will be filled "null".
+        // if actual column number in csv file is not equal to _file_slot_descs.size()
+        // then filter this line.
+        if (_split_values.size() != _file_slot_descs.size()) {
+            std::string cmp_str =
+                    _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
+            RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                    [&]() -> std::string { return std::string(line.data, line.size); },
+                    [&]() -> std::string {
+                        fmt::memory_buffer error_msg;
+                        fmt::format_to(error_msg, "{} {} {}",
+                                       "actual column number in csv file is ", cmp_str,
+                                       " schema column number.");
+                        fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
+                                       _split_values.size(), _value_separator);
+                        fmt::format_to(error_msg,
+                                       "line delimiter: [{}], schema column number: {}; ",
+                                       _line_delimiter, _file_slot_descs.size());
+                        return fmt::to_string(error_msg);
+                    },
+                    &_line_reader_eof));
+            _counter->num_rows_filtered++;
+            *success = false;
+            return Status::OK();
+        }
     }
 
     *success = true;

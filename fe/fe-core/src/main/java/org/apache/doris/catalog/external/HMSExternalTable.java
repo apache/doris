@@ -311,3 +311,4 @@ public class HMSExternalTable extends ExternalTable {
         return catalog.getCatalogProperty().getS3Properties();
     }
 }
+
