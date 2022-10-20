@@ -354,7 +354,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         _add_block_closure->cntl.http_request().set_content_type("application/json");
 
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, NULL,
                                                              &_add_block_closure->result,
                                                              _add_block_closure);
@@ -362,7 +362,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     } else {
         _add_block_closure->cntl.http_request().Clear();
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
             _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
                                            &_add_block_closure->result, _add_block_closure);
         }

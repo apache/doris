@@ -120,10 +120,12 @@ public:
     std::shared_ptr<MemTrackerLimiter> process_mem_tracker() { return _process_mem_tracker; }
     void set_global_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& process_tracker,
                                 const std::shared_ptr<MemTrackerLimiter>& orphan_tracker,
+                                const std::shared_ptr<MemTrackerLimiter>& nursery_mem_tracker,
                                 const std::shared_ptr<MemTrackerLimiter>& bthread_mem_tracker) {
         _process_mem_tracker = process_tracker;
         _orphan_mem_tracker = orphan_tracker;
         _orphan_mem_tracker_raw = orphan_tracker.get();
+        _nursery_mem_tracker = nursery_mem_tracker;
         _bthread_mem_tracker = bthread_mem_tracker;
     }
     std::shared_ptr<MemTracker> allocator_cache_mem_tracker() {
@@ -131,6 +133,7 @@ public:
     }
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
+    std::shared_ptr<MemTrackerLimiter> nursery_mem_tracker() { return _nursery_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> bthread_mem_tracker() { return _bthread_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
@@ -226,7 +229,9 @@ private:
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
-    // Bthread default mem tracker
+    // Parent is orphan, Nursery of orphan memory after manually switching thread mem tracker
+    std::shared_ptr<MemTrackerLimiter> _nursery_mem_tracker;
+    // Parent is orphan, bthread default mem tracker
     std::shared_ptr<MemTrackerLimiter> _bthread_mem_tracker;
     // The ancestor for all querys tracker.
     std::shared_ptr<MemTrackerLimiter> _query_pool_mem_tracker;
