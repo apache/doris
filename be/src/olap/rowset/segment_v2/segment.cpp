@@ -42,7 +42,7 @@ namespace segment_v2 {
 
 using io::FileCacheManager;
 
-Status Segment::open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
+Status Segment::open(io::FileSystemPtr fs, const std::string& path, const std::string& cache_path,
                      uint32_t segment_id, TabletSchemaSPtr tablet_schema,
                      std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
