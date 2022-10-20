@@ -276,10 +276,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
                 } else {
                     // convert jsonb binary value to json string to compare with expected json text
-                    JsonbToJson to_json;
-                    doris::JsonbValue* val =
-                            doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
-                    EXPECT_EQ(to_json.jsonb_to_string(val), expect_data) << " at row " << i;
+                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
+                        << " at row " << i;
                 }
             } else {
                 Field field;
