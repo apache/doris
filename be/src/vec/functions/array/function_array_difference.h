@@ -71,7 +71,9 @@ public:
             return std::make_shared<DataTypeArray>(is_nullable ? make_nullable(return_type)
                                                                : return_type);
         } else {
-            return nullptr;
+            LOG(FATAL) << "Function of " << name
+                       << " return type get wrong: and input argument is: "
+                       << arguments[0]->get_name();
         }
     }
 
