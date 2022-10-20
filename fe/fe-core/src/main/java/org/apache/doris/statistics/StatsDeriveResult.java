@@ -44,6 +44,7 @@ public class StatsDeriveResult {
 
     public boolean isReduced = false;
     public int width = 1;
+    public double penalty = 0.0;
 
     public StatsDeriveResult(double rowCount, Map<Slot, ColumnStat> slotToColumnStats) {
         this.rowCount = rowCount;
@@ -66,6 +67,7 @@ public class StatsDeriveResult {
         }
         this.isReduced = another.isReduced;
         this.width = another.width;
+        this.penalty = another.penalty;
     }
 
     public double computeSize() {
@@ -171,7 +173,8 @@ public class StatsDeriveResult {
         StringBuilder builder = new StringBuilder();
         builder.append("(rows=").append((long) rowCount)
                 .append(", isReduced=").append(isReduced)
-                .append(", width=").append(width).append(")");
+                .append(", width=").append(width)
+                .append(", penalty=").append(penalty).append(")");
         return builder.toString();
     }
 

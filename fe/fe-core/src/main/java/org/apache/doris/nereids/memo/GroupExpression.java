@@ -231,11 +231,13 @@ public class GroupExpression {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
+
         if (ownerGroup == null) {
             builder.append("OWNER GROUP IS NULL[]");
         } else {
             builder.append(ownerGroup.getGroupId()).append(" cost=").append((long)cost);
         }
+
         if (estimate != null) {
             builder.append(" est=").append(estimate);
         }

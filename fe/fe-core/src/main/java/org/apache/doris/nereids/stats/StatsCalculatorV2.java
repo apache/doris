@@ -324,9 +324,13 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
         for (NamedExpression outputExpression : outputExpressions) {
-            slotToColumnStats.put(outputExpression.toSlot(), new ColumnStat());
+            ColumnStat columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
+            columnStat.setNdv(Math.min(columnStat.getNdv(), resultSetCount));
+            slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotToColumnStats);
+        statsDeriveResult.width = childStats.width;
+        statsDeriveResult.penalty = childStats.penalty + childStats.getRowCount();
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
     }

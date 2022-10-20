@@ -26,6 +26,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -180,10 +181,11 @@ public class CostCalculator {
 
             double leftRowCount = probeStats.computeColumnSize(leftIds);
             double rightRowCount = buildStats.computeColumnSize(rightIds);
-            double rightDeepPenalty = 0.0;
+            double rightDeepPenalty = 6 * Math.min(probeStats.penalty, buildStats.penalty);
             if (buildStats.width > 2) {
                 rightDeepPenalty = Math.abs(leftRowCount - rightRowCount);
             }
+
             if (physicalHashJoin.getJoinType().isCrossJoin()) {
                 return CostEstimate.of(leftRowCount + rightRowCount + outputRowCount,
                         0,
@@ -213,7 +215,19 @@ public class CostCalculator {
                     rightStatistics.computeSize(),
                     0);
         }
+
+        @Override
+        public CostEstimate visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
+                PlanContext context) {
+            return CostEstimate.of(
+                    assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
+                    assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
+                    0
+            );
+        }
     }
+
+
 
     //private static CostEstimate calculateJoinInputCost(PlanContext context) {
     //    StatsDeriveResult probeStats = context.getChildStatistics(0);

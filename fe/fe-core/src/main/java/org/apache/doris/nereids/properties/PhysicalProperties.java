@@ -101,4 +101,5 @@ public class PhysicalProperties {
     public String toString() {
         return distributionSpec.toString() + " " + orderSpec.toString();
     }
+
 }

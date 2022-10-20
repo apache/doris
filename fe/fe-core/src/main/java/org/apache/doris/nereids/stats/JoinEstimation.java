@@ -88,6 +88,7 @@ public class JoinEstimation {
                         * rightStats.getRowCount()
                         * rColumnStats.getSelectivity()
                         / rColumnStats.getNdv());
+        rowCount = Math.ceil(rowCount);
         return rowCount;
     }
 
@@ -187,6 +188,7 @@ public class JoinEstimation {
         }
         statsDeriveResult.setRowCount(rowCount);
         statsDeriveResult.width = rightStats.width + leftStats.width;
+        statsDeriveResult.penalty = 0.0;
         return statsDeriveResult;
     }
 

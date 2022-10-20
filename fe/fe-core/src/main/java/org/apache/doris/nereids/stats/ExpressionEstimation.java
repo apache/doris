@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -176,6 +177,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
 
     @Override
     public ColumnStat visitCount(Count count, StatsDeriveResult context) {
+        if (count.isStar()) {
+            return new ColumnStat(1.0, 8.0, 8.0, 0.0,
+                    Double.MIN_VALUE, Double.MAX_VALUE);
+        }
         Expression child = count.child(0);
         ColumnStat columnStat = child.accept(this, context);
         if (columnStat == ColumnStat.UNKNOWN) {
@@ -219,5 +224,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
     @Override
     public ColumnStat visitSubstring(Substring substring, StatsDeriveResult context) {
         return substring.child(0).accept(this, context);
+    }
+
+    @Override
+    public ColumnStat visitAlias(Alias alias, StatsDeriveResult context) {
+        return alias.child().accept(this, context);
     }
 }
