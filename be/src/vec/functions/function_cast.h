@@ -307,7 +307,7 @@ struct ConvertImplGenericToString {
     }
 
     static Status execute2(FunctionContext* /*ctx*/, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t /*input_rows_count*/) {
+                           const size_t result, size_t /*input_rows_count*/) {
         return execute(block, arguments, result);
     }
 };
@@ -439,8 +439,7 @@ struct ConvertImplFromJsonb {
         // result column must set type
         DCHECK(block.get_by_position(result).type != nullptr);
         auto data_type_to = block.get_by_position(result).type;
-        if (const ColumnJsonb* col_jsonb =
-                    check_and_get_column<ColumnJsonb>(&col_from)) {
+        if (const ColumnJsonb* col_jsonb = check_and_get_column<ColumnJsonb>(&col_from)) {
             auto null_map_col = ColumnUInt8::create(input_rows_count, 0);
             auto& null_map = null_map_col->get_data();
             auto col_to = ColumnType::create();
@@ -448,7 +447,7 @@ struct ConvertImplFromJsonb {
             //IColumn & col_to = *res;
             // size_t size = col_from.size();
             col_to->reserve(input_rows_count);
-            auto & res = col_to->get_data();
+            auto& res = col_to->get_data();
             res.resize(input_rows_count);
 
             for (size_t i = 0; i < input_rows_count; ++i) {
@@ -509,7 +508,8 @@ struct ConvertImplFromJsonb {
                         res[i] = 0;
                     }
                 } else if constexpr (type_index == TypeIndex::Int64) {
-                    if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
+                    if (value->isInt8() || value->isInt16() || value->isInt32() ||
+                        value->isInt64()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
@@ -518,7 +518,8 @@ struct ConvertImplFromJsonb {
                 } else if constexpr (type_index == TypeIndex::Float64) {
                     if (value->isDouble()) {
                         res[i] = ((const JsonbDoubleVal*)value)->val();
-                    } else if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
+                    } else if (value->isInt8() || value->isInt16() || value->isInt32() ||
+                               value->isInt64()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
@@ -529,8 +530,8 @@ struct ConvertImplFromJsonb {
                 }
             }
 
-            block.replace_by_position(result,
-                ColumnNullable::create(std::move(col_to), std::move(null_map_col)));
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_to), std::move(null_map_col)));
         } else {
             return Status::RuntimeError(
                     "Illegal column {} of first argument of conversion function from string",
@@ -1369,15 +1370,16 @@ private:
     WrapperType create_unsupport_wrapper(const String error_msg) const {
         LOG(WARNING) << error_msg;
         return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
-                          const ColumnNumbers& /*arguments*/,
-                          const size_t /*result*/, size_t /*input_rows_count*/) {
+                           const ColumnNumbers& /*arguments*/, const size_t /*result*/,
+                           size_t /*input_rows_count*/) {
             return Status::InvalidArgument(error_msg);
         };
     }
 
-    WrapperType create_unsupport_wrapper(const String from_type_name, const String to_type_name) const {
+    WrapperType create_unsupport_wrapper(const String from_type_name,
+                                         const String to_type_name) const {
         const String error_msg = fmt::format("Conversion from {} to {} is not supported",
-                                  from_type_name, to_type_name);
+                                             from_type_name, to_type_name);
         return create_unsupport_wrapper(error_msg);
     }
 
@@ -1392,7 +1394,8 @@ private:
 
         if (!from_type) {
             return create_unsupport_wrapper(
-                "CAST AS Array can only be performed between same-dimensional Array, String types");
+                    "CAST AS Array can only be performed between same-dimensional Array, String "
+                    "types");
         }
 
         DataTypePtr from_nested_type = from_type->get_nested_type();
@@ -1402,7 +1405,8 @@ private:
 
         if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
             !from_empty_array) {
-            return create_unsupport_wrapper("CAST AS Array can only be performed between same-dimensional array types");
+            return create_unsupport_wrapper(
+                    "CAST AS Array can only be performed between same-dimensional array types");
         }
 
         const DataTypePtr& to_nested_type = to_type.get_nested_type();
@@ -1446,13 +1450,13 @@ private:
 
     // check jsonb value type and get to_type value
     WrapperType create_jsonb_wrapper(const DataTypeJsonb& from_type,
-                                    const DataTypePtr& to_type) const {
+                                     const DataTypePtr& to_type) const {
         // Conversion from String through parsing.
         if (check_and_get_data_type<DataTypeString>(to_type.get())) {
             return &ConvertImplGenericToString::execute2;
         }
 
-        switch(to_type->get_type_id()) {
+        switch (to_type->get_type_id()) {
         case TypeIndex::UInt8:
             return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8>::execute;
         case TypeIndex::Int8:
@@ -1475,13 +1479,13 @@ private:
     // create cresponding jsonb value with type to_type
     // use jsonb writer to create jsonb value
     WrapperType create_jsonb_wrapper(const DataTypePtr& from_type,
-                                    const DataTypeJsonb& to_type) const {
+                                     const DataTypeJsonb& to_type) const {
         /// Conversion from String through parsing.
         // if (check_and_get_data_type<DataTypeString>(from_type.get())) {
         //     return &ConvertImplGenericFromString<ColumnString>::execute;
         // }
 
-        switch(from_type->get_type_id()) {
+        switch (from_type->get_type_id()) {
         case TypeIndex::UInt8:
             return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
         case TypeIndex::Int8:
