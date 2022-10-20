@@ -184,11 +184,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         seg_iterators.push_back(std::move(iter));
     }
 
-    if (seg_iterators.empty() && read_context->is_vec) {
-        _empty = true;
-        return Status::OK();
-    }
-
     std::vector<RowwiseIterator*> iterators;
     for (auto& owned_it : seg_iterators) {
         auto st = owned_it->init(_read_options);
