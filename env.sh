@@ -64,7 +64,7 @@ CELLARS=(
 for cellar in "\${CELLARS[@]}"; do
     EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"
 done
-export PATH="\${EXPORT_CELLARS}:\${PATH}"
+export PATH="\${EXPORT_CELLARS}:/usr/bin:\${PATH}"
 
 export DORIS_BUILD_PYTHON_VERSION=python3
 EOF
