@@ -299,7 +299,7 @@ visible_functions = [
     [['array_sum'],     'DOUBLE',   ['ARRAY_FLOAT'],    '', '', '','vec', 'ALWAYS_NULLABLE'],
     [['array_sum'],     'DOUBLE',   ['ARRAY_DOUBLE'],   '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_sum'],     'DECIMALV2',['ARRAY_DECIMALV2'],'', '', '', 'vec', 'ALWAYS_NULLABLE'],
-    [['array_avg'],     'BOOLEAN',  ['ARRAY_BOOLEAN'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_avg'],     'DOUBLE',   ['ARRAY_BOOLEAN'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_avg'],     'DOUBLE',   ['ARRAY_TINYINT'],  '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_avg'],     'DOUBLE',   ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_avg'],     'DOUBLE',   ['ARRAY_INT'],      '', '', '', 'vec', 'ALWAYS_NULLABLE'],
