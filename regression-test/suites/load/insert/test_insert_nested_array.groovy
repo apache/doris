@@ -17,7 +17,6 @@
 
 suite("test_insert_nested_array", "load") {
     def test_nested_array_2_depths = { enable_vectorized ->
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
         sql "set enable_vectorized_engine = ${enable_vectorized}"
 
         def tableName
@@ -55,7 +54,6 @@ suite("test_insert_nested_array", "load") {
     }
 
     def test_nested_array_3_depths = { enable_vectorized ->
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
         sql "set enable_vectorized_engine = ${enable_vectorized}"
 
         def tableName
