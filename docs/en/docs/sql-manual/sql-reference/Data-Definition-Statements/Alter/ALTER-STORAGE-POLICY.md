@@ -1,11 +1,11 @@
 ---
 {
-    "title": "DROP-MATERIALIZED-VIEW",
-    "language": "en"
+"title": "ALTER-POLICY",
+"language": "en"
 }
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,46 +24,35 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DROP-POLICY
+## ALTER-POLICY
 
 ### Name
 
-DROP POLICY
+ALTER STORAGE POLICY
 
 ### Description
 
-drop policy for row or storage
+This statement is used to modify an existing cold and hot separation migration strategy. Only root or admin users can modify resources.
 
-#### ROW POLICY
-
-Grammar：
-
-1. Drop row policy
 ```sql
-DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
-```
-
-2. Drop storage policy
-```sql
-DROP STORAGE POLICY policy_name1
+ALTER STORAGE POLICY  'policy_name'
+PROPERTIES ("key"="value", ...);
 ```
 
 ### Example
 
-1. Drop the row policy for table1 named test_row_policy_1
-
-   ```sql
-   DROP ROW POLICY test_row_policy_1 on table1
-   ```
-
-2. Drop the row policy for table1 using by user test
-
-   ```sql
-   DROP ROW POLICY test_row_policy_1 on table1 for test
-   ```
+1. Modify the name to coolown_datetime Cold and hot separation data migration time point:
+```sql
+ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_datetime" = "2023-06-08 00:00:00");
+```
+2. Modify the name to coolown_countdown of hot and cold separation data migration of ttl
+```sql
+ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES ("cooldown_ttl" = "10000");
+```
 ### Keywords
 
-    DROP, POLICY
+```sql
+ALTER, STORAGE, POLICY
+```
 
 ### Best Practice
-

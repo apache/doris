@@ -1,7 +1,7 @@
 ---
 {
     "title": "SHOW-POLICY",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,9 +32,7 @@ SHOW ROW POLICY
 
 ### Description
 
-查看当前 DB 下的行安全策略
-
-语法：
+View the row security policy under the current DB
 
 ```sql
 SHOW ROW POLICY [FOR user]
@@ -42,7 +40,7 @@ SHOW ROW POLICY [FOR user]
 
 ### Example
 
-1. 查看所有安全策略。
+1. view all security policies.
 
     ```sql
     mysql> SHOW ROW POLICY;
@@ -57,7 +55,7 @@ SHOW ROW POLICY [FOR user]
     2 rows in set (0.00 sec)
     ```
     
-2. 指定用户名查询
+2. specify user name query
 
     ```sql
     mysql> SHOW ROW POLICY FOR test;
@@ -70,7 +68,7 @@ SHOW ROW POLICY [FOR user]
     1 row in set (0.01 sec)
     ```
 
-3. 展示数据迁移策略
+3. demonstrate data migration strategies
     ```sql
     mysql> SHOW STORAGE POLICY;
     +---------------------+---------+-----------------------+---------------------+-------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+

@@ -1,11 +1,11 @@
 ---
 {
-    "title": "DROP-MATERIALIZED-VIEW",
-    "language": "en"
+"title": "ALTER-POLICY",
+"language": "zh-CN"
 }
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,46 +24,35 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DROP-POLICY
+## ALTER-POLICY
 
 ### Name
 
-DROP POLICY
+ALTER STORAGE POLICY
 
 ### Description
 
-drop policy for row or storage
-
-#### ROW POLICY
-
-Grammar：
-
-1. Drop row policy
+该语句用于修改一个已有的冷热分离迁移策略。仅 root 或 admin 用户可以修改资源。
+语法：
 ```sql
-DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
-```
-
-2. Drop storage policy
-```sql
-DROP STORAGE POLICY policy_name1
+ALTER STORAGE POLICY  'policy_name'
+PROPERTIES ("key"="value", ...);
 ```
 
 ### Example
 
-1. Drop the row policy for table1 named test_row_policy_1
-
-   ```sql
-   DROP ROW POLICY test_row_policy_1 on table1
-   ```
-
-2. Drop the row policy for table1 using by user test
-
-   ```sql
-   DROP ROW POLICY test_row_policy_1 on table1 for test
-   ```
+1. 修改名为 cooldown_datetime冷热分离数据迁移时间点：
+```sql
+ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_datetime" = "2023-06-08 00:00:00");
+```
+2. 修改名为 cooldown_ttl的冷热分离数据迁移倒计时
+```sql
+ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES ("cooldown_ttl" = "10000");
+```
 ### Keywords
 
-    DROP, POLICY
+```sql
+ALTER, STORAGE, POLICY
+```
 
 ### Best Practice
-
