@@ -182,20 +182,20 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      * <li> A JOIN B RIGHT JOIN (C JOIN D) --> MJ(A, B, MJ([ROJ]C, D))
      * </ul>
      * </p>
-     * <p>
      * Graphic presentation:
+     * <pre>
      * A JOIN B JOIN C LEFT JOIN D JOIN F
      *      left                  left│
      * A  B  C  D  F   ──►   A  B  C  │ D  F   ──►  MJ(LOJ A,B,C,MJ(DF)
-     * <p>
+     *
      * A JOIN B RIGHT JOIN C JOIN D JOIN F
      *     right                  │right
      * A  B  C  D  F   ──►   A  B │  C  D  F   ──►  MJ(A,B,MJ(ROJ C,D,F)
-     * <p>
+     *
      * (A JOIN B JOIN C) FULL JOIN (D JOIN F)
      *       full                    │
      * A  B  C  D  F   ──►   A  B  C │ D  F    ──►  MJ(FOJ MJ(A,B,C) MJ(D,F))
-     * </p>
+     * </pre>
      */
     public Plan multiJoinToJoin(MultiJoin multiJoin) {
         if (multiJoin.arity() == 1) {
@@ -275,21 +275,20 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         List<Expression> joinFilter = multiJoinHandleChildren.getJoinFilter();
 
         Plan left = multiJoinHandleChildren.child(0);
-        List<Plan> candidates = multiJoinHandleChildren.children().subList(1, multiJoinHandleChildren.arity());
+        Set<Integer> usedPlansIndex = new HashSet<>();
+        usedPlansIndex.add(0);
 
-        LogicalJoin<? extends Plan, ? extends Plan> join = findInnerJoin(left, candidates, joinFilter);
-        List<Plan> newInputs = Lists.newArrayList();
-        newInputs.add(join);
-        newInputs.addAll(candidates.stream().filter(plan -> !join.right().equals(plan)).collect(Collectors.toList()));
+        while (usedPlansIndex.size() != multiJoinHandleChildren.children().size()) {
+            LogicalJoin<? extends Plan, ? extends Plan> join = findInnerJoin(left, multiJoinHandleChildren.children(),
+                    joinFilter, usedPlansIndex);
+            // TODO: removeAll isn't good.
+            joinFilter.removeAll(join.getHashJoinConjuncts());
+            joinFilter.removeAll(join.getOtherJoinConjuncts());
 
-        joinFilter.removeAll(join.getHashJoinConjuncts());
-        joinFilter.removeAll(join.getOtherJoinConjuncts());
-        // TODO(wj): eliminate this recursion.
-        return multiJoinToJoin(new MultiJoin(
-                newInputs,
-                joinFilter,
-                JoinType.INNER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION));
+            left = join;
+        }
+
+        return PlanUtils.filterOrSelf(joinFilter, left);
     }
 
     /**
@@ -319,9 +318,13 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      * @return InnerJoin or CrossJoin{left, last of [candidates]}
      */
     private LogicalJoin<? extends Plan, ? extends Plan> findInnerJoin(Plan left, List<Plan> candidates,
-            List<Expression> joinFilter) {
+            List<Expression> joinFilter, Set<Integer> usedPlansIndex) {
         Set<Slot> leftOutputSet = left.getOutputSet();
         for (int i = 0; i < candidates.size(); i++) {
+            if (usedPlansIndex.contains(i)) {
+                continue;
+            }
+
             Plan candidate = candidates.get(i);
             Set<Slot> rightOutputSet = candidate.getOutputSet();
 
@@ -330,8 +333,6 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             List<Expression> currentJoinFilter = joinFilter.stream()
                     .filter(expr -> {
                         Set<Slot> exprInputSlots = expr.getInputSlots();
-                        Preconditions.checkState(exprInputSlots.size() > 1,
-                                "Predicate like table.col > 1 must have pushdown.");
                         if (leftOutputSet.containsAll(exprInputSlots)) {
                             return false;
                         }
@@ -347,12 +348,14 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             List<Expression> hashJoinConditions = pair.first;
             List<Expression> otherJoinConditions = pair.second;
             if (!hashJoinConditions.isEmpty()) {
+                usedPlansIndex.add(i);
                 return new LogicalJoin<>(JoinType.INNER_JOIN,
                         hashJoinConditions, otherJoinConditions,
                         left, candidate);
             }
 
             if (i == candidates.size() - 1) {
+                usedPlansIndex.add(i);
                 return new LogicalJoin<>(JoinType.CROSS_JOIN,
                         hashJoinConditions, otherJoinConditions,
                         left, candidate);

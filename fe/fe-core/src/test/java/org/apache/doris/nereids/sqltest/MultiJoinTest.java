@@ -75,6 +75,7 @@ public class MultiJoinTest extends TestWithFeService implements PatternMatchSupp
         List<String> sqls = ImmutableList.<String>builder()
                 .add("SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id")
                 .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id")
+                .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id AND T1.score > 0")
                 .build();
 
         for (String sql : sqls) {
