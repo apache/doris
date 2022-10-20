@@ -690,7 +690,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
                     *visited_map[i] |= result;
                     filter_size += result;
                 }
-                _tuple_is_null_left_flags.resize_fill(filter_size, 0);
+                _tuple_is_null_left_flags->resize_fill(filter_size, 0);
             } else {
                 // inner join do nothing
             }
