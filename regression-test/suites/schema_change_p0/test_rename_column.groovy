@@ -35,6 +35,7 @@ suite ("test_rename_column") {
         PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "true")
         """
     qt_desc """ desc ${tableName} """
+
     sql """ 
         INSERT INTO ${tableName} VALUES
                 (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2020-01-01', 1, 30, 20)
@@ -44,13 +45,16 @@ suite ("test_rename_column") {
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)
         """
     sql """ sync """
+
     qt_select """ SELECT * FROM ${tableName} order by user_id ASC, last_visit_date """
 
     // rename key column
     sql """ ALTER table ${tableName} RENAME COLUMN  user_id new_user_id """
+
     sql """ sync """
 
     qt_select """ SELECT * FROM ${tableName} order by new_user_id DESC, last_visit_date """
+
     qt_desc """ desc ${tableName} """
 
     sql """
@@ -70,6 +74,7 @@ suite ("test_rename_column") {
     sql """ sync """
 
     qt_select """ SELECT * FROM ${tableName} order by new_user_id DESC, last_visit_date """
+
     qt_desc """ desc ${tableName} """
 
     test {
@@ -120,7 +125,6 @@ suite ("test_rename_column") {
                 `city` VARCHAR(20) COMMENT "用户所在城市",
                 `age` SMALLINT COMMENT "用户年龄",
                 `sex` TINYINT COMMENT "用户性别",
-
                 `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
                 `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间",
@@ -133,36 +137,109 @@ suite ("test_rename_column") {
     qt_desc """ desc ${tableName} """
 
     //add rollup
-    def result = "null"
+    def resRoll = "null"
     def rollupName = "rollup_cost"
-    sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`age`,`sex`, cost);"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
+    sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`, `cost`);"
+    while (!resRoll.contains("FINISHED")){
+        resRoll = sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
+        resRoll = resRoll.toString()
+        logger.info("result: ${resRoll}")
+        if(resRoll.contains("CANCELLED")){
             return
         }
-        Thread.sleep(100)
+        Thread.sleep(500)
     }
+
+    qt_select """ select user_id, cost from ${tableName} order by user_id """
 
     sql """ INSERT INTO ${tableName} VALUES
             (1, '2017-10-01', 'Beijing', 10, 1, 1, 30, 20, hll_hash(1), to_bitmap(1))
         """
     sql """ INSERT INTO ${tableName} VALUES
-            (1, '2017-10-01', 'Beijing', 10, 1, 1, 31, 19, hll_hash(2), to_bitmap(2))
+            (1, '2017-10-02', 'Beijing', 10, 1, 1, 31, 19, hll_hash(2), to_bitmap(2))
         """
     sql """ sync """
+
     qt_select """ select * from ${tableName} order by user_id """
+
+    qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
+
     sql """ ALTER TABLE ${tableName} RENAME COLUMN user_id new_user_id """
 
     sql """ INSERT INTO ${tableName} VALUES
             (2, '2017-10-01', 'Beijing', 10, 1, 1, 31, 21, hll_hash(2), to_bitmap(2))
         """
     sql """ INSERT INTO ${tableName} VALUES
-            (2, '2017-10-01', 'Beijing', 10, 1, 1, 32, 20, hll_hash(3), to_bitmap(3))
+            (2, '2017-10-02', 'Beijing', 10, 1, 1, 32, 20, hll_hash(3), to_bitmap(3))
         """
     qt_desc """ desc ${tableName} """
+
     qt_select""" select * from ${tableName} order by new_user_id """
+
+    qt_select """ select new_user_id, sum(cost) from ${tableName} group by new_user_id order by new_user_id """
+
     sql """ DROP TABLE ${tableName} """
+
+    // materialized view
+    sql """
+            CREATE TABLE ${tableName} (
+                `user_id` LARGEINT NOT NULL COMMENT "用户id",
+                `date` DATE NOT NULL COMMENT "数据灌入日期时间",
+                `city` VARCHAR(20) COMMENT "用户所在城市",
+                `age` SMALLINT COMMENT "用户年龄",
+                `sex` TINYINT COMMENT "用户性别",
+                `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
+                `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
+                `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间",
+                `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
+                `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
+            AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+            BUCKETS 1
+            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
+        """
+
+    //add materialized view
+    def resMv = "null"
+    def mvName = "mv1"
+    sql "create materialized view ${mvName} as select user_id, sum(cost) from ${tableName} group by user_id;"
+    while (!resMv.contains("FINISHED")){
+        resMv = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
+        resMv = resMv.toString()
+        logger.info("result: ${resMv}")
+        if(resMv.contains("CANCELLED")){
+            return
+        }
+        Thread.sleep(500)
+    }
+
+    qt_select """ select user_id, cost from ${tableName} order by user_id """
+
+    sql """ INSERT INTO ${tableName} VALUES
+            (1, '2017-10-01', 'Beijing', 10, 1, 1, 30, 20, hll_hash(1), to_bitmap(1))
+        """
+    sql """ INSERT INTO ${tableName} VALUES
+            (1, '2017-10-02', 'Beijing', 10, 1, 1, 31, 19, hll_hash(2), to_bitmap(2))
+        """
+    sql """ sync """
+
+    qt_select """ select * from ${tableName} order by user_id """
+
+    qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
+
+    sql """ ALTER TABLE ${tableName} RENAME COLUMN user_id new_user_id """
+
+    sql """ INSERT INTO ${tableName} VALUES
+            (2, '2017-10-01', 'Beijing', 10, 1, 1, 31, 21, hll_hash(2), to_bitmap(2))
+        """
+    sql """ INSERT INTO ${tableName} VALUES
+            (2, '2017-10-02', 'Beijing', 10, 1, 1, 32, 20, hll_hash(3), to_bitmap(3))
+        """
+    qt_desc """ desc ${tableName} """
+
+    qt_select""" select * from ${tableName} order by new_user_id """
+
+    qt_select """ select new_user_id, sum(cost) from ${tableName} group by new_user_id order by new_user_id """
+
+    sql """ DROP TABLE ${tableName} """
+
 }

@@ -4045,7 +4045,8 @@ public class Env {
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
             // rename column is not implemented for table without column unique id.
             if (entry.getValue().getMaxColUniqueId() < 0) {
-                throw new DdlException("not implemented for table without column unique id");
+                throw new DdlException("not implemented for table without column unique id,"
+                        + " which are created with property 'light_schema_change'.");
             }
             // check if new name is already used
             if (entry.getValue().getColumnByName(newColName) != null) {

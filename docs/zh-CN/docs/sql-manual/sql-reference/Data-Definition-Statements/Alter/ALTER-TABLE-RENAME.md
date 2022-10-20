@@ -75,7 +75,7 @@ RENAME COLUMN old_column_name new_column_name;
 ```
 
 注意：
-- 目前仅支持有column unique id的table
+- 目前仅支持有 column unique id 的表, 通过 'light_schema_change' 属性创建。
 
 
 ### Example
