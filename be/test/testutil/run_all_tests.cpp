@@ -36,7 +36,6 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_global_mem_tracker(process_mem_tracker, orphan_mem_tracker,
                                                           bthread_mem_tracker);
     doris::thread_context()->_thread_mem_tracker_mgr->init();
-    doris::TabletSchemaCache::create_global_schema_cache();
     doris::StoragePageCache::create_global_cache(1 << 30, 10);
     doris::SegmentLoader::create_global_instance(1000);
     std::string conf = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
