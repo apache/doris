@@ -156,7 +156,7 @@ rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const 
                                                     const int num,
                                                     rapidjson::Document::AllocatorType& allocator) {
     rapidjson::Value val;
-    if (*(flag.ptr + num) == '0') { //null
+    if (arg.is_null || *(flag.ptr + num) == '0') { //null
         rapidjson::Value nullObject(rapidjson::kNullType);
         val = nullObject;
     } else if (*(flag.ptr + num) == '1') { //bool
