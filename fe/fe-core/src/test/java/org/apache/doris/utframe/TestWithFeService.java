@@ -149,7 +149,9 @@ public abstract class TestWithFeService {
     }
 
     protected StatementContext createStatementCtx(String sql) {
-        return new StatementContext(connectContext, new OriginStatement(sql, 0));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        return statementContext;
     }
 
     protected CascadesContext createCascadesContext(String sql) {

@@ -264,10 +264,10 @@ public class ConnectProcessor {
                 try {
                     stmts = nereidsParser.parseSQL(originStmt);
                 } catch (Exception e) {
-                    nereidsParseException = e;
                     // TODO: We should catch all exception here until we support all query syntax.
+                    nereidsParseException = e;
                     LOG.info(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt.toString());
+                            + " Nereids cannot process this statement: \"{}\".", originStmt);
                 }
             }
             // stmts == null when Nereids cannot planner this query or Nereids is disabled.
@@ -283,7 +283,7 @@ public class ConnectProcessor {
                 parsedStmt = stmts.get(i);
                 if (parsedStmt instanceof SelectStmt) {
                     if (!ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                        throw new Exception(String.format("SQL: {}", parsedStmt.toSql()), nereidsParseException);
+                        throw new Exception(String.format("SQL: %s", parsedStmt.toSql()), nereidsParseException);
                     }
                 }
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));

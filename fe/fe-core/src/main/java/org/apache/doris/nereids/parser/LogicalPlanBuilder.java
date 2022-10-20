@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
@@ -71,6 +72,7 @@ import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -140,6 +142,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -166,6 +169,8 @@ import java.util.stream.Collectors;
  * Build a logical plan tree with unbounded nodes.
  */
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
+
+    private StatementContext statementContext = new StatementContext();
 
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
@@ -194,8 +199,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * Visit multi-statements.
      */
     @Override
-    public List<LogicalPlan> visitMultiStatements(MultiStatementsContext ctx) {
-        return visit(ctx.statement(), LogicalPlan.class);
+    public List<Pair<LogicalPlan, StatementContext>> visitMultiStatements(MultiStatementsContext ctx) {
+        List<Pair<LogicalPlan, StatementContext>> logicalPlans = Lists.newArrayList();
+        for (org.apache.doris.nereids.DorisParser.StatementContext statement : ctx.statement()) {
+            statementContext = new StatementContext();
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().setStatementContext(statementContext);
+            }
+            logicalPlans.add(Pair.of(
+                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
+        }
+        return logicalPlans;
     }
 
     /* ********************************************************************************************
