@@ -304,10 +304,11 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
 
             for (InputSplit split : inputSplits) {
                 FileSplit fileSplit = (FileSplit) split;
+                List<String> pathPartitionKeys = getPathPartitionKeys();
                 List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
-                        getPathPartitionKeys(), false);
+                        pathPartitionKeys, false);
 
-                TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath);
+                TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
 
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 LOG.info(
@@ -366,12 +367,14 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
         return locations;
     }
 
-    private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath)
+    private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
+                                               List<String> columnsFromPathKeys)
             throws DdlException, MetaNotFoundException {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
         rangeDesc.setColumnsFromPath(columnsFromPath);
+        rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 
         if (getLocationType() == TFileType.FILE_HDFS) {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
