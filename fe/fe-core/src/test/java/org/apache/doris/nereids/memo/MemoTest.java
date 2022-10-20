@@ -17,17 +17,24 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -45,12 +52,234 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-public class MemoRewriteTest implements PatternMatchSupported {
+class MemoTest implements PatternMatchSupported {
+
     private ConnectContext connectContext = MemoTestUtils.createConnectContext();
+
+    private LogicalJoin<LogicalOlapScan, LogicalOlapScan> logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN,
+            PlanConstructor.newLogicalOlapScan(0, "A", 0),
+            PlanConstructor.newLogicalOlapScan(1, "B", 0));
+
+    private LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> logicalJoinABC = new LogicalJoin<>(
+            JoinType.INNER_JOIN, logicalJoinAB, PlanConstructor.newLogicalOlapScan(2, "C", 0));
+
+    @Test
+    void mergeGroup() throws Exception {
+        Memo memo = new Memo();
+        GroupId gid2 = new GroupId(2);
+        Group srcGroup = new Group(gid2, new GroupExpression(new FakePlan()), new LogicalProperties(ArrayList::new));
+        GroupId gid3 = new GroupId(3);
+        Group dstGroup = new Group(gid3, new GroupExpression(new FakePlan()), new LogicalProperties(ArrayList::new));
+        FakePlan d = new FakePlan();
+        GroupExpression ge1 = new GroupExpression(d, Arrays.asList(srcGroup));
+        GroupId gid0 = new GroupId(0);
+        Group g1 = new Group(gid0, ge1, new LogicalProperties(ArrayList::new));
+        g1.setBestPlan(ge1, Double.MIN_VALUE, PhysicalProperties.ANY);
+        GroupExpression ge2 = new GroupExpression(d, Arrays.asList(dstGroup));
+        GroupId gid1 = new GroupId(1);
+        Group g2 = new Group(gid1, ge2, new LogicalProperties(ArrayList::new));
+        Map<GroupId, Group> groups = (Map<GroupId, Group>) Deencapsulation.getField(memo, "groups");
+        groups.put(gid2, srcGroup);
+        groups.put(gid3, dstGroup);
+        groups.put(gid0, g1);
+        groups.put(gid1, g2);
+        Map<GroupExpression, GroupExpression> groupExpressions =
+                (Map<GroupExpression, GroupExpression>) Deencapsulation.getField(memo, "groupExpressions");
+        groupExpressions.put(ge1, ge1);
+        groupExpressions.put(ge2, ge2);
+        memo.mergeGroup(srcGroup, dstGroup);
+        Assertions.assertNull(g1.getBestPlan(PhysicalProperties.ANY));
+        Assertions.assertEquals(ge1.getOwnerGroup(), g2);
+    }
+
+    /**
+     * Original:
+     * Group 0: LogicalOlapScan C
+     * Group 1: LogicalOlapScan B
+     * Group 2: LogicalOlapScan A
+     * Group 3: Join(Group 1, Group 2)
+     * Group 4: Join(Group 0, Group 3)
+     * <p>
+     * Then:
+     * Copy In Join(Group 2, Group 1) into Group 3
+     * <p>
+     * Expected:
+     * Group 0: LogicalOlapScan C
+     * Group 1: LogicalOlapScan B
+     * Group 2: LogicalOlapScan A
+     * Group 3: Join(Group 1, Group 2), Join(Group 2, Group 1)
+     * Group 4: Join(Group 0, Group 3)
+     */
+    @Test
+    public void testInsertSameGroup() {
+        PlanChecker.from(MemoTestUtils.createConnectContext(), logicalJoinABC)
+                .transform(
+                        // swap join's children
+                        logicalJoin(logicalOlapScan(), logicalOlapScan()).then(joinBA ->
+                                new LogicalProject<>(Lists.newArrayList(joinBA.getOutput()),
+                                        new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left()))
+                        ))
+                .checkGroupNum(6)
+                .checkGroupExpressionNum(7)
+                .checkMemo(memo -> {
+                    Group root = memo.getRoot();
+                    Assertions.assertEquals(1, root.getLogicalExpressions().size());
+                    GroupExpression joinABC = root.getLogicalExpression();
+                    Assertions.assertEquals(2, joinABC.child(0).getLogicalExpressions().size());
+                    Assertions.assertEquals(1, joinABC.child(1).getLogicalExpressions().size());
+                    GroupExpression joinAB = joinABC.child(0).getLogicalExpressions().get(0);
+                    GroupExpression project = joinABC.child(0).getLogicalExpressions().get(1);
+                    GroupExpression joinBA = project.child(0).getLogicalExpression();
+                    Assertions.assertTrue(joinAB.getPlan() instanceof LogicalJoin);
+                    Assertions.assertTrue(joinBA.getPlan() instanceof LogicalJoin);
+                });
+
+    }
+
+    @Test
+    public void initByOneLevelPlan() {
+        OlapTable table = PlanConstructor.newOlapTable(0, "a", 1);
+        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table);
+
+        PlanChecker.from(connectContext, scan)
+                .checkGroupNum(1)
+                .matches(
+                        logicalOlapScan().when(scan::equals)
+                );
+    }
+
+    @Test
+    public void initByTwoLevelChainPlan() {
+        OlapTable table = PlanConstructor.newOlapTable(0, "a", 1);
+        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table);
+
+        LogicalProject<LogicalOlapScan> topProject = new LogicalProject<>(
+                ImmutableList.of(scan.computeOutput().get(0)), scan);
+
+        PlanChecker.from(connectContext, topProject)
+                .checkGroupNum(2)
+                .matches(
+                        logicalProject(
+                                any().when(child -> Objects.equals(child, scan))
+                        ).when(root -> Objects.equals(root, topProject))
+                );
+    }
+
+    @Test
+    public void initByJoinSameUnboundTable() {
+        UnboundRelation scanA = new UnboundRelation(ImmutableList.of("a"));
+
+        LogicalJoin<UnboundRelation, UnboundRelation> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA);
+
+        PlanChecker.from(connectContext, topJoin)
+                .checkGroupNum(3)
+                .matches(
+                        logicalJoin(
+                                any().when(left -> Objects.equals(left, scanA)),
+                                any().when(right -> Objects.equals(right, scanA))
+                        ).when(root -> Objects.equals(root, topJoin))
+                );
+    }
+
+    @Test
+    public void initByJoinSameLogicalTable() {
+        IdGenerator<RelationId> generator = RelationId.createGenerator();
+        OlapTable tableA = PlanConstructor.newOlapTable(0, "a", 1);
+        LogicalOlapScan scanA = new LogicalOlapScan(generator.getNextId(), tableA);
+        LogicalOlapScan scanA1 = new LogicalOlapScan(generator.getNextId(), tableA);
+
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA1);
+
+        PlanChecker.from(connectContext, topJoin)
+                .checkGroupNum(3)
+                .matches(
+                        logicalJoin(
+                                any().when(left -> Objects.equals(left, scanA)),
+                                any().when(right -> Objects.equals(right, scanA1))
+                        ).when(root -> Objects.equals(root, topJoin))
+                );
+    }
+
+    @Test
+    public void initByTwoLevelJoinPlan() {
+        IdGenerator<RelationId> generator = RelationId.createGenerator();
+        OlapTable tableA = PlanConstructor.newOlapTable(0, "a", 1);
+        OlapTable tableB = PlanConstructor.newOlapTable(0, "b", 1);
+        LogicalOlapScan scanA = new LogicalOlapScan(generator.getNextId(), tableA);
+        LogicalOlapScan scanB = new LogicalOlapScan(generator.getNextId(), tableB);
+
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanB);
+
+        PlanChecker.from(connectContext, topJoin)
+                .checkGroupNum(3)
+                .matches(
+                        logicalJoin(
+                                any().when(left -> Objects.equals(left, scanA)),
+                                any().when(right -> Objects.equals(right, scanB))
+                        ).when(root -> Objects.equals(root, topJoin))
+                );
+    }
+
+    @Test
+    public void initByThreeLevelChainPlan() {
+        OlapTable table = PlanConstructor.newOlapTable(0, "a", 1);
+        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table);
+
+        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
+                ImmutableList.of(scan.computeOutput().get(0)), scan);
+        LogicalFilter<LogicalProject<LogicalOlapScan>> filter = new LogicalFilter<>(
+                new EqualTo(scan.computeOutput().get(0), new IntegerLiteral(1)), project);
+
+        PlanChecker.from(connectContext, filter)
+                .checkGroupNum(3)
+                .matches(
+                        logicalFilter(
+                                logicalProject(
+                                        any().when(child -> Objects.equals(child, scan))
+                                ).when(root -> Objects.equals(root, project))
+                        ).when(root -> Objects.equals(root, filter))
+                );
+    }
+
+    @Test
+    public void initByThreeLevelBushyPlan() {
+        IdGenerator<RelationId> generator = RelationId.createGenerator();
+        OlapTable tableA = PlanConstructor.newOlapTable(0, "a", 1);
+        OlapTable tableB = PlanConstructor.newOlapTable(0, "b", 1);
+        OlapTable tableC = PlanConstructor.newOlapTable(0, "c", 1);
+        OlapTable tableD = PlanConstructor.newOlapTable(0, "d", 1);
+        LogicalOlapScan scanA = new LogicalOlapScan(generator.getNextId(), tableA);
+        LogicalOlapScan scanB = new LogicalOlapScan(generator.getNextId(), tableB);
+        LogicalOlapScan scanC = new LogicalOlapScan(generator.getNextId(), tableC);
+        LogicalOlapScan scanD = new LogicalOlapScan(generator.getNextId(), tableD);
+
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> leftJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, scanA, scanB);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> rightJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, scanC, scanD);
+        LogicalJoin topJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, leftJoin, rightJoin);
+
+        PlanChecker.from(connectContext, topJoin)
+                .checkGroupNum(7)
+                .matches(
+                        logicalJoin(
+                                logicalJoin(
+                                        any().when(child -> Objects.equals(child, scanA)),
+                                        any().when(child -> Objects.equals(child, scanB))
+                                ).when(left -> Objects.equals(left, leftJoin)),
+
+                                logicalJoin(
+                                        any().when(child -> Objects.equals(child, scanC)),
+                                        any().when(child -> Objects.equals(child, scanD))
+                                ).when(right -> Objects.equals(right, rightJoin))
+                        ).when(root -> Objects.equals(root, topJoin))
+                );
+    }
 
     /*
      * A -> A:
@@ -204,25 +433,15 @@ public class MemoRewriteTest implements PatternMatchSupported {
         A a2 = new A(ImmutableList.of("student"), State.ALREADY_REWRITE);
         LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, a2);
 
-        PlanChecker.from(connectContext, a)
-                .applyBottomUp(
-                        unboundRelation()
-                                // 4: add state condition to the pattern's predicates
-                                .when(r -> (r instanceof A) && ((A) r).state == State.NOT_REWRITE)
-                                .then(unboundRelation -> {
-                                    // 5: new plan and change state, so this case equal to 'A -> B(C)', which C has
-                                    //    different state with A
-                                    A notRewritePlan = (A) unboundRelation;
-                                    return limit.withChildren(notRewritePlan.withState(State.ALREADY_REWRITE));
-                                }
-                        )
-                )
-                .checkGroupNum(2)
-                .matchesFromRoot(
-                        logicalLimit(
-                                unboundRelation().when(a2::equals)
-                        ).when(limit::equals)
-                );
+        PlanChecker.from(connectContext, a).applyBottomUp(unboundRelation()
+                        // 4: add state condition to the pattern's predicates
+                        .when(r -> (r instanceof A) && ((A) r).state == State.NOT_REWRITE).then(unboundRelation -> {
+                            // 5: new plan and change state, so this case equal to 'A -> B(C)', which C has
+                            //    different state with A
+                            A notRewritePlan = (A) unboundRelation;
+                            return limit.withChildren(notRewritePlan.withState(State.ALREADY_REWRITE));
+                        })).checkGroupNum(2)
+                .matchesFromRoot(logicalLimit(unboundRelation().when(a2::equals)).when(limit::equals));
     }
 
     /*
@@ -359,7 +578,7 @@ public class MemoRewriteTest implements PatternMatchSupported {
                 )
                 .checkGroupNum(1)
                 .matchesFromRoot(
-                    logicalOlapScan().when(student::equals)
+                        logicalOlapScan().when(student::equals)
                 );
     }
 
@@ -801,30 +1020,30 @@ public class MemoRewriteTest implements PatternMatchSupported {
                         )
                 ))
                 .applyTopDown(
-                    logicalLimit(logicalJoin()).then(limit -> {
-                        LogicalJoin<GroupPlan, GroupPlan> join = limit.child();
-                        switch (join.getJoinType()) {
-                            case LEFT_OUTER_JOIN:
-                                return join.withChildren(limit.withChildren(join.left()), join.right());
-                            case RIGHT_OUTER_JOIN:
-                                return join.withChildren(join.left(), limit.withChildren(join.right()));
-                            case CROSS_JOIN:
-                                return join.withChildren(limit.withChildren(join.left()), limit.withChildren(join.right()));
-                            case INNER_JOIN:
-                                if (!join.getHashJoinConjuncts().isEmpty()) {
-                                    return join.withChildren(
-                                            limit.withChildren(join.left()),
-                                            limit.withChildren(join.right())
-                                    );
-                                } else {
+                        logicalLimit(logicalJoin()).then(limit -> {
+                            LogicalJoin<GroupPlan, GroupPlan> join = limit.child();
+                            switch (join.getJoinType()) {
+                                case LEFT_OUTER_JOIN:
+                                    return join.withChildren(limit.withChildren(join.left()), join.right());
+                                case RIGHT_OUTER_JOIN:
+                                    return join.withChildren(join.left(), limit.withChildren(join.right()));
+                                case CROSS_JOIN:
+                                    return join.withChildren(limit.withChildren(join.left()), limit.withChildren(join.right()));
+                                case INNER_JOIN:
+                                    if (!join.getHashJoinConjuncts().isEmpty()) {
+                                        return join.withChildren(
+                                                limit.withChildren(join.left()),
+                                                limit.withChildren(join.right())
+                                        );
+                                    } else {
+                                        return limit;
+                                    }
+                                case LEFT_ANTI_JOIN:
+                                    // todo: support anti join.
+                                default:
                                     return limit;
-                                }
-                            case LEFT_ANTI_JOIN:
-                                // todo: support anti join.
-                            default:
-                                return limit;
-                        }
-                    })
+                            }
+                        })
                 )
                 .matchesFromRoot(
                         logicalJoin(

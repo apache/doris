@@ -429,9 +429,8 @@ public class Group {
         lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
             GroupExpression bestGroupExpression = costAndGroupExpr.second;
             // change into target group.
-            if (bestGroupExpression.getOwnerGroup() == this) {
+            if (bestGroupExpression.getOwnerGroup() == this || bestGroupExpression.getOwnerGroup() == null) {
                 bestGroupExpression.setOwnerGroup(target);
-                bestGroupExpression.children().set(0, target);
             }
             if (!target.lowestCostPlans.containsKey(physicalProperties)) {
                 target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
