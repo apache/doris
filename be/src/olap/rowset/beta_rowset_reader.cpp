@@ -162,15 +162,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
     _read_options.runtime_state = read_context->runtime_state;
-    if (read_context->read_orderby_key_limit > 0) {
-        size_t limit = read_context->read_orderby_key_limit;
-        if (read_context->predicates != nullptr) {
-            limit = limit * 2;
-        }
-        if (read_options.block_row_max > limit) {
-            read_options.block_row_max = limit;
-        }
-    }
 
     // load segments
     // use cache is true when do vertica compaction
