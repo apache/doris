@@ -31,6 +31,8 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
+#include <memory_resource>
+#include <string>
 #include <string_view>
 
 #include "exprs/math_functions.h"
@@ -1245,6 +1247,54 @@ public:
 
         block.replace_by_position(result, std::move(res));
         return Status::OK();
+    }
+};
+
+class FunctionExtractURLParameter : public IFunction {
+public:
+    static constexpr auto name = "extract_url_parameter";
+    static FunctionPtr create() { return std::make_shared<FunctionExtractURLParameter>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto col_url =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_parameter =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto url_col = assert_cast<const ColumnString*>(col_url.get());
+        auto parameter_col = assert_cast<const ColumnString*>(col_parameter.get());
+
+        ColumnString::MutablePtr col_res = ColumnString::create();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            auto source = url_col->get_data_at(i);
+            auto param = parameter_col->get_data_at(i);
+            StringValue url_str(const_cast<char*>(source.data), source.size);
+            StringValue parameter_str(const_cast<char*>(param.data), param.size);
+
+            std::string result = extract_url(url_str, parameter_str);
+
+            col_res->insert_data(result.data(), result.length());
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    std::string extract_url(StringValue url, StringValue parameter) {
+        if (url.len == 0 || parameter.len == 0) {
+            return "";
+        }
+        return UrlParser::extract_url(url, parameter);
     }
 };
 

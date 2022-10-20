@@ -2137,6 +2137,7 @@ visible_functions = [
     [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions10split_partEPN9doris_udf15FunctionContextERKNS1_9StringValES6_RKNS1_6IntValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
+     [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],'','', '', 'vec', ''],
 
     # Longtext function
     [['substr', 'substring'], 'STRING', ['STRING', 'INT'],

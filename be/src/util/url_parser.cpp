@@ -17,6 +17,8 @@
 
 #include "util/url_parser.h"
 
+#include <string>
+
 #include "runtime/string_value.hpp"
 
 namespace doris {
@@ -344,4 +346,59 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 }
 
+std::string UrlParser::extract_url(const StringValue& url, const StringValue& name) {
+    std::string result;
+    std::string str_name = name.to_string();
+    // Remove leading and trailing spaces.
+    StringValue trimmed_url = url.trim();
+    // find '?'
+    int32_t question_pos = _s_question_search.search(&trimmed_url);
+    if (question_pos < 0) {
+        // this url no parameters.
+        // Example: https://doris.apache.org/
+        return result;
+    }
+    // find '#'
+    int32_t hash_pos = _s_hash_search.search(&trimmed_url);
+    std::string sub_url = "";
+    if (hash_pos < 0) {
+        sub_url = trimmed_url.substring(question_pos + 1, trimmed_url.len - question_pos - 1)
+                          .to_string();
+    } else {
+        sub_url = trimmed_url.substring(question_pos + 1, hash_pos - question_pos - 1).to_string();
+    }
+
+    // find '&' and '=', and extract target parameter
+    // Example: k1=aa&k2=bb&k3=cc&test=dd
+    std::string::size_type and_pod;
+    std::string::size_type len = sub_url.length();
+    std::string key_url;
+    while (true) {
+        if (len <= 0) {
+            break;
+        }
+        and_pod = sub_url.find_first_of('&');
+        if (and_pod != std::string::npos) {
+            key_url = sub_url.substr(0, and_pod);
+            sub_url = sub_url.substr(and_pod + 1, len - and_pod);
+        } else {
+            key_url = sub_url;
+            sub_url = "";
+        }
+        len = sub_url.length();
+
+        std::string::size_type eq_pod = key_url.find_first_of('=');
+        if (eq_pod == std::string::npos) {
+            // invalid url. like: k1&k2=bb
+            continue;
+        }
+        int32_t key_len = key_url.length();
+        std::string key = key_url.substr(0, eq_pod);
+        if (str_name == key) {
+            result = key_url.substr(eq_pod + 1, key_len - eq_pod);
+            return result;
+        }
+    }
+    return result;
+}
 } // namespace doris
