@@ -43,8 +43,9 @@ import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -58,13 +59,6 @@ import java.util.Map;
 import java.util.Optional;
 
 public class StatsCalculatorTest {
-
-    @Mocked
-    ConnectContext context;
-    @Mocked
-    Env env;
-    @Mocked
-    StatisticsManager statisticsManager;
 
     // TODO: temporary disable this test, until we could get column stats
     // @Test
@@ -107,7 +101,7 @@ public class StatsCalculatorTest {
 
     @Test
     public void testFilter() {
-        List<String> qualifier = new ArrayList<>();
+        List<String> qualifier = Lists.newArrayList();
         qualifier.add("test");
         qualifier.add("t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
@@ -118,8 +112,8 @@ public class StatsCalculatorTest {
         columnStat1.setNumNulls(5);
         ColumnStat columnStat2 = new ColumnStat();
         columnStat2.setNdv(20);
-        columnStat1.setNumNulls(10);
-        Map<Slot, ColumnStat> slotColumnStatsMap = new HashMap<>();
+        columnStat2.setNumNulls(10);
+        Map<Slot, ColumnStat> slotColumnStatsMap = Maps.newHashMap();
         slotColumnStatsMap.put(slot1, columnStat1);
         slotColumnStatsMap.put(slot2, columnStat2);
         StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
@@ -131,16 +125,11 @@ public class StatsCalculatorTest {
         Or or = new Or(eq1, eq2);
 
         Group childGroup = new Group();
-        childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
-            @Override
-            public List<Slot> get() {
-                return Collections.emptyList();
-            }
-        }));
+        childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
-        LogicalFilter logicalFilter = new LogicalFilter(and, groupPlan);
+        LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan);
         GroupExpression groupExpression = new GroupExpression(logicalFilter);
         groupExpression.addChild(childGroup);
         Group ownerGroup = new Group();
@@ -148,7 +137,7 @@ public class StatsCalculatorTest {
         StatsCalculator.estimate(groupExpression);
         Assertions.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
-        LogicalFilter logicalFilterOr = new LogicalFilter(or, groupPlan);
+        LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr);
         groupExpressionOr.addChild(childGroup);
         Group ownerGroupOr = new Group();
@@ -197,7 +186,10 @@ public class StatsCalculatorTest {
     // }
 
     @Test
-    public void testOlapScan() {
+    public void testOlapScan(
+            @Mocked ConnectContext context,
+            @Mocked Env env,
+            @Mocked StatisticsManager statisticsManager) {
         ColumnStat columnStat1 = new ColumnStat();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);
