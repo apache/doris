@@ -290,10 +290,6 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
                                      http_req->header(HTTP_FORMAT_KEY));
     }
 
-    if (ctx->two_phase_commit && config::disable_stream_load_2pc) {
-        return Status::InternalError("Two phase commit (2PC) for stream load was disabled");
-    }
-
     // check content length
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
