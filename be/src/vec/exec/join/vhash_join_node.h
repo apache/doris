@@ -302,6 +302,8 @@ private:
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
+
+    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 } // namespace vectorized
 } // namespace doris
