@@ -154,18 +154,28 @@ public class Group {
         return oldExpression;
     }
 
+    /**
+     * clear logical group expression and change ownership
+     * @return logical group expression
+     */
     public List<GroupExpression> clearLogicalExpressions() {
-        List<GroupExpression> move = logicalExpressions.stream()
-                .peek(this::removeGroupExpression)
-                .collect(Collectors.toList());
-        logicalExpressions.clear();
+        for (GroupExpression groupExpression : logicalExpressions) {
+            removeGroupExpression(groupExpression);
+        }
+        List<GroupExpression> move = Lists.newArrayList(logicalExpressions);
+        physicalExpressions.clear();
         return move;
     }
 
+    /**
+     * clear physical group expression and change ownership
+     * @return physical group expression
+     */
     public List<GroupExpression> clearPhysicalExpressions() {
-        List<GroupExpression> move = physicalExpressions.stream()
-                .peek(this::removeGroupExpression)
-                .collect(Collectors.toList());
+        for (GroupExpression groupExpression : physicalExpressions) {
+            removeGroupExpression(groupExpression);
+        }
+        List<GroupExpression> move = Lists.newArrayList(physicalExpressions);
         physicalExpressions.clear();
         return move;
     }
