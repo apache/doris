@@ -193,7 +193,9 @@ Status ExecEnv::_init_mem_tracker() {
     if (global_memory_limit_bytes > MemInfo::physical_mem()) {
         LOG(WARNING) << "Memory limit "
                      << PrettyPrinter::print(global_memory_limit_bytes, TUnit::BYTES)
-                     << " exceeds physical memory, using physical memory instead";
+                     << " exceeds physical memory of "
+                     << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES)
+                     << ". Using physical memory instead";
         global_memory_limit_bytes = MemInfo::physical_mem();
     }
     _process_mem_tracker =
@@ -300,6 +302,13 @@ Status ExecEnv::_init_mem_tracker() {
     RETURN_IF_ERROR(_disk_io_mgr->init(global_memory_limit_bytes));
     RETURN_IF_ERROR(_tmp_file_mgr->init());
 
+    // 5. init chunk allocator
+    if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {
+        ss << "Config min_chunk_reserved_bytes must be a power-of-two: "
+           << config::min_chunk_reserved_bytes;
+        return Status::InternalError(ss.str());
+    }
+
     int64_t chunk_reserved_bytes_limit =
             ParseUtil::parse_mem_spec(config::chunk_reserved_bytes_limit, global_memory_limit_bytes,
                                       MemInfo::physical_mem(), &is_percent);
@@ -309,8 +318,8 @@ Status ExecEnv::_init_mem_tracker() {
            << config::chunk_reserved_bytes_limit;
         return Status::InternalError(ss.str());
     }
-    // Has to round to multiple of page size(4096 bytes), chunk allocator will also check this
-    chunk_reserved_bytes_limit = BitUtil::RoundDown(chunk_reserved_bytes_limit, 4096);
+    chunk_reserved_bytes_limit =
+            BitUtil::RoundDown(chunk_reserved_bytes_limit, config::min_chunk_reserved_bytes);
     ChunkAllocator::init_instance(chunk_reserved_bytes_limit);
     LOG(INFO) << "Chunk allocator memory limit: "
               << PrettyPrinter::print(chunk_reserved_bytes_limit, TUnit::BYTES)

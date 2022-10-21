@@ -30,8 +30,6 @@
 #include <cstddef>
 #include <memory>
 
-#include "common/config.h"
-#include "util/bit_util.h"
 #include "vec/common/allocator.h"
 #include "vec/common/bit_helpers.h"
 #include "vec/common/memcpy_small.h"
@@ -122,9 +120,8 @@ protected:
         }
     }
 
-    /// Not round up, keep the size just as the application pass in like std::vector
     void alloc_for_num_elements(size_t num_elements) {
-        alloc(minimum_memory_for_elements(num_elements));
+        alloc(round_up_to_power_of_two_or_zero(minimum_memory_for_elements(num_elements)));
     }
 
     template <typename... TAllocatorParams>
@@ -184,7 +181,6 @@ protected:
         return (stack_threshold > 0) && (allocated_bytes() <= stack_threshold);
     }
 
-    /// This method is called by push back or emplace back, this is the same behaviour with std::vector
     template <typename... TAllocatorParams>
     void reserve_for_next_size(TAllocatorParams&&... allocator_params) {
         if (size() == 0) {
@@ -193,10 +189,8 @@ protected:
             realloc(std::max(integerRoundUp(initial_bytes, ELEMENT_SIZE),
                              minimum_memory_for_elements(1)),
                     std::forward<TAllocatorParams>(allocator_params)...);
-        } else {
-            // There is still a power of 2 expansion here, this method is used in push back method
+        } else
             realloc(allocated_bytes() * 2, std::forward<TAllocatorParams>(allocator_params)...);
-        }
     }
 
 #ifndef NDEBUG
@@ -450,11 +444,9 @@ public:
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert_prepare(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
         size_t required_capacity = this->size() + (from_end - from_begin);
-        if (required_capacity > this->capacity()) {
-            // std::vector's insert method will expand if required capactiy is larger than current
+        if (required_capacity > this->capacity())
             this->reserve(round_up_to_power_of_two_or_zero(required_capacity),
                           std::forward<TAllocatorParams>(allocator_params)...);
-        }
     }
 
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
@@ -634,10 +626,8 @@ public:
     template <typename It1, typename It2>
     void assign(It1 from_begin, It2 from_end) {
         size_t required_capacity = from_end - from_begin;
-        if (required_capacity > this->capacity()) {
-            // std::vector assign just expand the capacity to the required capacity
-            this->reserve(required_capacity);
-        }
+        if (required_capacity > this->capacity())
+            this->reserve(round_up_to_power_of_two_or_zero(required_capacity));
 
         size_t bytes_to_copy = this->byte_size(required_capacity);
         memcpy(this->c_start, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
