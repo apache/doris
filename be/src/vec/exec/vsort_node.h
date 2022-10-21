@@ -76,6 +76,10 @@ private:
     std::vector<Block> _sorted_blocks;
     std::priority_queue<SortCursor> _priority_queue;
 
+    // for some reason, _sort_tuple_slot_expr_ctxs is not-null but _lhs_ordering_expr_ctxs is nullable
+    // this flag list would be used to convert column to nullable.
+    std::vector<bool> _need_convert_to_nullable_flags;
+
     // TODO: Not using now, maybe should be delete
     // Keeps track of the number of rows skipped for handling _offset.
     int64_t _num_rows_skipped;

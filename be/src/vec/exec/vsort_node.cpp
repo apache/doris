@@ -36,6 +36,16 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
+    if (tnode.sort_node.sort_info.__isset.slot_exprs_nullability_changed_flags) {
+        _need_convert_to_nullable_flags =
+                tnode.sort_node.sort_info.slot_exprs_nullability_changed_flags;
+    } else {
+        _need_convert_to_nullable_flags.resize(
+                tnode.sort_node.sort_info.__isset.sort_tuple_slot_exprs
+                        ? tnode.sort_node.sort_info.sort_tuple_slot_exprs.size()
+                        : 0,
+                false);
+    }
     return Status::OK();
 }
 
@@ -177,8 +187,17 @@ Status VSortNode::pretreat_block(doris::vectorized::Block& block) {
         }
 
         Block new_block;
+        int i = 0;
+
         for (auto column_id : valid_column_ids) {
-            new_block.insert(block.get_by_position(column_id));
+            if (_need_convert_to_nullable_flags[i]) {
+                auto column_ptr = make_nullable(block.get_by_position(column_id).column);
+                new_block.insert(
+                        {column_ptr, make_nullable(block.get_by_position(column_id).type), ""});
+            } else {
+                new_block.insert(block.get_by_position(column_id));
+            }
+            i++;
         }
         block.swap(new_block);
     }
