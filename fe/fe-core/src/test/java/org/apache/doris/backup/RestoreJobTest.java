@@ -234,7 +234,7 @@ public class RestoreJobTest {
         db.dropTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
-                new ReplicaAllocation((short) 3), 100000, -1, false, catalog, repo.getId());
+                new ReplicaAllocation((short) 3), 100000, -1, false, false, catalog, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
