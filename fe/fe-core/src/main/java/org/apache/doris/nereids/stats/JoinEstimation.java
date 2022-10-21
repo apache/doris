@@ -106,12 +106,12 @@ public class JoinEstimation {
         JoinEstimationResult result = new JoinEstimationResult();
         SlotReference eqLeft = (SlotReference) equalto.child(0);
         SlotReference eqRight = (SlotReference) equalto.child(1);
-        if ((rightStats.width == LIMIT_RIGHT_WIDTH && !rightStats.isReduced)
-                || rightStats.width > LIMIT_RIGHT_WIDTH + 1) {
+        if ((rightStats.getWidth() == LIMIT_RIGHT_WIDTH && !rightStats.isReduced)
+                || rightStats.getWidth() > LIMIT_RIGHT_WIDTH + 1) {
             //if the right side is too wide, ignore the filter effect.
             result.forbiddenReducePropagation = true;
             //penalty too right deep tree by multiply level
-            result.rowCount = rightStats.width * (leftStats.getRowCount()
+            result.rowCount = rightStats.getWidth() * (leftStats.getRowCount()
                     + AVG_DIM_FACT_RATIO * rightStats.getRowCount());
         } else if (eqLeft.getColumn().isPresent() || eqRight.getColumn().isPresent()) {
             Set<Slot> rightSlots = ((PhysicalHashJoin<?, ?>) join).child(1).getOutputSet();
@@ -187,8 +187,8 @@ public class JoinEstimation {
             statsDeriveResult.merge(rightStats);
         }
         statsDeriveResult.setRowCount(rowCount);
-        statsDeriveResult.width = rightStats.width + leftStats.width;
-        statsDeriveResult.penalty = 0.0;
+        statsDeriveResult.setWidth(rightStats.getWidth() + leftStats.getWidth());
+        statsDeriveResult.setPenalty(0.0);
         return statsDeriveResult;
     }
 
@@ -207,7 +207,7 @@ public class JoinEstimation {
         boolean forbiddenReducePropagation = false;
         double rowCount;
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
-            if (rightStats.isReduced && rightStats.width <= LIMIT_RIGHT_WIDTH) {
+            if (rightStats.isReduced && rightStats.getWidth() <= LIMIT_RIGHT_WIDTH) {
                 rowCount = leftStats.getRowCount() / REDUCE_TIMES;
             } else {
                 rowCount = leftStats.getRowCount() + 1;
@@ -270,7 +270,7 @@ public class JoinEstimation {
         }
         statsDeriveResult.setRowCount(rowCount);
         statsDeriveResult.isReduced = !forbiddenReducePropagation && (isReducedByHashJoin || leftStats.isReduced);
-        statsDeriveResult.width = rightStats.width + leftStats.width;
+        statsDeriveResult.setWidth(rightStats.getWidth() + leftStats.getWidth());
         return statsDeriveResult;
     }
 

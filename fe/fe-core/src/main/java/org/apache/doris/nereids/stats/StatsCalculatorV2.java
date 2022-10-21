@@ -329,8 +329,8 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotToColumnStats);
-        statsDeriveResult.width = childStats.width;
-        statsDeriveResult.penalty = childStats.penalty + childStats.getRowCount();
+        statsDeriveResult.setWidth(childStats.getWidth());
+        statsDeriveResult.setPenalty(childStats.getPenalty() + childStats.getRowCount());
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
     }

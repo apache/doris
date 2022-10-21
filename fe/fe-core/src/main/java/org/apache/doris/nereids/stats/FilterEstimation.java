@@ -122,6 +122,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
                     isNot);
         }
         StatsDeriveResult outputStats = new StatsDeriveResult(inputStats);
+        //TODO: we take the assumption that func(A) and A have the same stats.
         outputStats.updateBySelectivity(selectivity, cp.getInputSlots());
         if (left.getInputSlots().size() == 1) {
             Slot leftSlot = left.getInputSlots().iterator().next();

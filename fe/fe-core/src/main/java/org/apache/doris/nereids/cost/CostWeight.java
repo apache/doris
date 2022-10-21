@@ -26,13 +26,12 @@ public class CostWeight {
     private final double cpuWeight;
     private final double memoryWeight;
     private final double networkWeight;
-
-    private final double penalty;
+    private final double penaltyWeight;
 
     /**
      * Constructor
      */
-    public CostWeight(double cpuWeight, double memoryWeight, double networkWeight, double penalty) {
+    public CostWeight(double cpuWeight, double memoryWeight, double networkWeight, double penaltyWeight) {
         Preconditions.checkArgument(cpuWeight >= 0, "cpuWeight cannot be negative");
         Preconditions.checkArgument(memoryWeight >= 0, "memoryWeight cannot be negative");
         Preconditions.checkArgument(networkWeight >= 0, "networkWeight cannot be negative");
@@ -40,12 +39,12 @@ public class CostWeight {
         this.cpuWeight = cpuWeight;
         this.memoryWeight = memoryWeight;
         this.networkWeight = networkWeight;
-        this.penalty = penalty;
+        this.penaltyWeight = penaltyWeight;
     }
 
     public double calculate(CostEstimate costEstimate) {
         return costEstimate.getCpuCost() * cpuWeight + costEstimate.getMemoryCost() * memoryWeight
                 + costEstimate.getNetworkCost() * networkWeight
-                + costEstimate.getPenalty() * penalty;
+                + costEstimate.getPenalty() * penaltyWeight;
     }
 }

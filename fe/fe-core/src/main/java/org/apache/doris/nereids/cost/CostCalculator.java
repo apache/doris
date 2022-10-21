@@ -48,6 +48,11 @@ import java.util.List;
  * Inspired by Presto.
  */
 public class CostCalculator {
+    static final double cpuWeight = 1;
+    static final double memorWeight = 1;
+    static final double networkWeight = 1.5;
+    static final double penaltyWeight = 0.5;
+    static final double heavyOperatorPunishFactor = 6.0;
 
     /**
      * Constructor.
@@ -56,8 +61,8 @@ public class CostCalculator {
         PlanContext planContext = new PlanContext(groupExpression);
         CostEstimator costCalculator = new CostEstimator();
         CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
-        groupExpression.estimate = costEstimate;
-        CostWeight costWeight = new CostWeight(1, 1, 1.5, 0.5);
+        groupExpression.setCostEstimate(costEstimate);
+        CostWeight costWeight = new CostWeight(cpuWeight, memorWeight, networkWeight, penaltyWeight);
         return costWeight.calculate(costEstimate);
     }
 
@@ -181,21 +186,31 @@ public class CostCalculator {
 
             double leftRowCount = probeStats.computeColumnSize(leftIds);
             double rightRowCount = buildStats.computeColumnSize(rightIds);
-            double rightDeepPenalty = 6 * Math.min(probeStats.penalty, buildStats.penalty);
-            if (buildStats.width >= 2) {
-                rightDeepPenalty += Math.abs(leftRowCount - rightRowCount);
+            /*
+            pattern1: L join1 (Agg1() join2 Agg2())
+            result number of join2 may much less than Agg1.
+            but Agg1 and Agg2 are slow. so we need to punish this pattern1.
+
+            pattern2: (L join1 Agg1) join2 agg2
+            in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
+            */
+            double penalty = CostCalculator.heavyOperatorPunishFactor
+                    * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
+            if (buildStats.getWidth() >= 2) {
+                //penalty for right deep tree
+                penalty += Math.abs(leftRowCount - rightRowCount);
             }
 
             if (physicalHashJoin.getJoinType().isCrossJoin()) {
                 return CostEstimate.of(leftRowCount + rightRowCount + outputRowCount,
                         0,
                         leftRowCount + rightRowCount,
-                        rightDeepPenalty);
+                        penalty);
             }
             return CostEstimate.of(leftRowCount + rightRowCount + outputRowCount,
                     rightRowCount,
                     0,
-                    rightDeepPenalty
+                    penalty
             );
         }
 
@@ -226,26 +241,4 @@ public class CostCalculator {
             );
         }
     }
-
-
-
-    //private static CostEstimate calculateJoinInputCost(PlanContext context) {
-    //    StatsDeriveResult probeStats = context.getChildStatistics(0);
-    //    StatsDeriveResult buildStats = context.getChildStatistics(1);
-    //    List<Id> leftIds = context.getChildOutputIds(0);
-    //    List<Id> rightIds = context.getChildOutputIds(1);
-    //
-    //    double cpuCost = probeStats.computeColumnSize(leftIds) + buildStats.computeColumnSize(rightIds);
-    //    double memoryCost = buildStats.computeColumnSize(rightIds);
-    //
-    //    return CostEstimate.of(cpuCost, memoryCost, 0);
-    //}
-
-    //private static CostEstimate calculateJoinOutputCost(
-    //        PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin) {
-    //    StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
-    //
-    //    double size = outputStats.computeSize();
-    //    return CostEstimate.ofCpu(size);
-    //}
 }

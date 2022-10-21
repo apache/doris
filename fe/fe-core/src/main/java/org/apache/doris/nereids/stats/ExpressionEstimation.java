@@ -63,7 +63,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
     }
 
     public ColumnStat visitCaseWhen(CaseWhen caseWhen, StatsDeriveResult context) {
-        throw new RuntimeException("ExpressionEstimation case-when not done");
+        throw new RuntimeException("ExpressionEstimation case-when not implemented");
     }
 
     public ColumnStat visitCast(Cast cast, StatsDeriveResult context) {
@@ -177,18 +177,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
 
     @Override
     public ColumnStat visitCount(Count count, StatsDeriveResult context) {
-        if (count.isStar()) {
-            return new ColumnStat(1.0, 8.0, 8.0, 0.0,
-                    Double.MIN_VALUE, Double.MAX_VALUE);
-        }
-        Expression child = count.child(0);
-        ColumnStat columnStat = child.accept(this, context);
-        if (columnStat == ColumnStat.UNKNOWN) {
-            return ColumnStat.UNKNOWN;
-        }
-        double expectedValue = context.getRowCount() - columnStat.getNumNulls();
-        return new ColumnStat(1,
-                count.getDataType().width(), count.getDataType().width(), 0, expectedValue, expectedValue);
+        //count() returns long type
+        return new ColumnStat(1.0, 8.0, 8.0, 0.0,
+                Double.MIN_VALUE, Double.MAX_VALUE);
     }
 
     // TODO: return a proper estimated stat after supports histogram

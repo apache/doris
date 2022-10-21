@@ -40,8 +40,8 @@ import java.util.Optional;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
-    public double cost = 0.0;
-    public CostEstimate estimate = null;
+    private double cost = 0.0;
+    private CostEstimate costEstimate = null;
     private Group ownerGroup;
     private List<Group> children;
     private final Plan plan;
@@ -192,7 +192,7 @@ public class GroupExpression {
      * @param property property that needs to be satisfied
      * @return Lowest cost to satisfy that property
      */
-    public double getCost(PhysicalProperties property) {
+    public double getCostByProperties(PhysicalProperties property) {
         Preconditions.checkState(lowestCostTable.containsKey(property));
         return lowestCostTable.get(property).first;
     }
@@ -200,6 +200,22 @@ public class GroupExpression {
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
             PhysicalProperties requiredPropertySet) {
         this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    }
+
+    public double getCost() {
+        return cost;
+    }
+
+    public void setCost(double cost) {
+        this.cost = cost;
+    }
+
+    public CostEstimate getCostEstimate() {
+        return costEstimate;
+    }
+
+    public void setCostEstimate(CostEstimate costEstimate) {
+        this.costEstimate = costEstimate;
     }
 
     @Override
@@ -235,11 +251,11 @@ public class GroupExpression {
         if (ownerGroup == null) {
             builder.append("OWNER GROUP IS NULL[]");
         } else {
-            builder.append(ownerGroup.getGroupId()).append(" cost=").append((long)cost);
+            builder.append(ownerGroup.getGroupId()).append(" cost=").append((long) cost);
         }
 
-        if (estimate != null) {
-            builder.append(" est=").append(estimate);
+        if (costEstimate != null) {
+            builder.append(" est=").append(costEstimate);
         }
         builder.append(" (plan=" + plan.toString() + ") children=[");
         for (Group group : children) {

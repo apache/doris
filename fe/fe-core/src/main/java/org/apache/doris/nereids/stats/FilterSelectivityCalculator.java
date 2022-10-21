@@ -92,6 +92,7 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
     // TODO: If right value greater than the max value or less than min value in column stats, return 0.0 .
     @Override
     public Double visitEqualTo(EqualTo equalTo, Void context) {
+        //TODO: remove the assumption that fun(A) and A have the same stats
         SlotReference left = (SlotReference) equalTo.left().getInputSlots().toArray()[0];
         Literal literal = (Literal) equalTo.right();
         ColumnStat columnStats = slotRefToStats.get(left);

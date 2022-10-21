@@ -41,10 +41,10 @@ public class StatsDeriveResult {
     private final Map<Id, Long> columnIdToNdv = Maps.newHashMap();
 
     private Map<Slot, ColumnStat> slotToColumnStats;
-
+    private int width = 1;
+    private double penalty = 0.0;
+    //TODO: isReduced to be removed after remove StatsCalculatorV1
     public boolean isReduced = false;
-    public int width = 1;
-    public double penalty = 0.0;
 
     public StatsDeriveResult(double rowCount, Map<Slot, ColumnStat> slotToColumnStats) {
         this.rowCount = rowCount;
@@ -57,7 +57,7 @@ public class StatsDeriveResult {
         this.columnIdToNdv.putAll(columnIdToNdv);
     }
 
-    public  StatsDeriveResult(StatsDeriveResult another) {
+    public StatsDeriveResult(StatsDeriveResult another) {
         this.rowCount = another.rowCount;
         this.columnIdToDataSize.putAll(another.columnIdToDataSize);
         this.columnIdToNdv.putAll(another.columnIdToNdv);
@@ -202,5 +202,21 @@ public class StatsDeriveResult {
 
     public ColumnStat getColumnStatsBySlot(Slot slot) {
         return slotToColumnStats.get(slot);
+    }
+
+    public int getWidth() {
+        return width;
+    }
+
+    public void setWidth(int width) {
+        this.width = width;
+    }
+
+    public double getPenalty() {
+        return penalty;
+    }
+
+    public void setPenalty(double penalty) {
+        this.penalty = penalty;
     }
 }
