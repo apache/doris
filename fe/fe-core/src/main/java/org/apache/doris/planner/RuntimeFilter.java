@@ -269,6 +269,7 @@ public final class RuntimeFilter {
             return null;
         }
 
+        targetExpr = targetExpr.getRealSlotRef();
         Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr);
         Preconditions.checkNotNull(targetSlots);
         if (targetSlots.isEmpty()) {
