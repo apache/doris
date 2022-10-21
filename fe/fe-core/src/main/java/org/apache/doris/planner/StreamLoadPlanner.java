@@ -42,7 +42,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
