@@ -49,7 +49,20 @@ int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
 
+struct Nullable {
+    TypeIndex tp;
+};
+
+struct Notnull {
+    TypeIndex tp;
+};
+
+struct ConstedNotnull {
+    TypeIndex tp;
+};
+
 namespace ut_type {
+using BOOLEAN = uint8_t;
 using TINYINT = int8_t;
 using SMALLINT = int16_t;
 using INT = int32_t;
@@ -240,10 +253,12 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     block.insert({nullptr, return_type, "result"});
 
     auto result = block.columns() - 1;
+    auto st = func->execute(fn_ctx, block, arguments, result, row_size);
     if (expect_fail) {
-        RETURN_IF_ERROR(func->execute(fn_ctx, block, arguments, result, row_size));
+        EXPECT_NE(Status::OK(), st);
+        return st;
     } else {
-        func->execute(fn_ctx, block, arguments, result, row_size);
+        EXPECT_EQ(Status::OK(), st);
     }
 
     func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
@@ -263,10 +278,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
                 } else {
                     // convert jsonb binary value to json string to compare with expected json text
-                    JsonbToJson to_json;
-                    doris::JsonbValue* val =
-                            doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
-                    EXPECT_EQ(to_json.jsonb_to_string(val), expect_data) << " at row " << i;
+                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
+                            << " at row " << i;
                 }
             } else {
                 Field field;

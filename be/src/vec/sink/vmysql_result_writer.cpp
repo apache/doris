@@ -119,10 +119,8 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                         buf_ret = _buffer.push_null();
                     }
                 } else {
-                    JsonbToJson toStr;
-                    std::string json_str = toStr.jsonb_to_string(
-                            JsonbDocument::createDocument(json_val.data, json_val.size)
-                                    ->getValue());
+                    std::string json_str =
+                            JsonbToJson::jsonb_to_json_string(json_val.data, json_val.size);
                     buf_ret = _buffer.push_string(json_str.c_str(), json_str.size());
                 }
             }
