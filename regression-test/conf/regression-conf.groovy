@@ -65,3 +65,16 @@ brokerName = "broker_name"
 enableBrokerLoad=true
 ak=""
 sk=""
+
+// jdbc connector test config
+// To enable jdbc test, you need first start mysql/pg container.
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableJdbcTest=false
+mysql_57_port=3316
+pg_14_port=5442
+
+// hive catalog test config
+// To enable jdbc test, you need first start hive container.
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableHiveTest=false
+hms_port=9183
