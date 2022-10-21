@@ -21,7 +21,7 @@ import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
-
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
@@ -88,6 +88,7 @@ import scala.Tuple2;
 // 2. repartition data by using doris data model(partition and bucket)
 // 3. process aggregation if needed
 // 4. write data to parquet file
+
 public final class SparkDpp implements java.io.Serializable {
     private static final Logger LOG = LoggerFactory.getLogger(SparkDpp.class);
 
@@ -219,7 +220,6 @@ public final class SparkDpp implements java.io.Serializable {
                         continue;
                     }
 
-
                     String curBucketKey = keyColumns.get(0).toString();
                     List<Object> columnObjects = new ArrayList<>();
                     for (int i = 1; i < keyColumns.size(); ++i) {
@@ -228,7 +228,6 @@ public final class SparkDpp implements java.io.Serializable {
                     for (int i = 0; i < valueColumns.length; ++i) {
                         columnObjects.add(sparkRDDAggregators[i].finalize(valueColumns[i]));
                     }
-
                     Row rowWithoutBucketKey = RowFactory.create(columnObjects.toArray());
                     // if the bucket key is new, it will belong to a new tablet
                     if (lastBucketKey == null || !curBucketKey.equals(lastBucketKey)) {
@@ -622,6 +621,30 @@ public final class SparkDpp implements java.io.Serializable {
         if (fileGroup.columnsFromPath != null) {
             srcColumnsWithColumnsFromPath.addAll(fileGroup.columnsFromPath);
         }
+
+        if (fileGroup.fileFormat.equalsIgnoreCase("parquet")) {
+            // parquet had its own schema, just use it; perhaps we could add some validation in future.
+            Dataset<Row> dataFrame = spark.read().parquet(fileUrl);
+            if (!CollectionUtils.isEmpty(columnValueFromPath)) {
+                for (int k = 0; k < columnValueFromPath.size(); k++) {
+                    dataFrame = dataFrame.withColumn(
+                        fileGroup.columnsFromPath.get(k), functions.lit(columnValueFromPath.get(k)));
+                }
+            }
+            return dataFrame;
+        }
+
+        if (fileGroup.fileFormat.equalsIgnoreCase("orc")) {
+            Dataset<Row> dataFrame = spark.read().orc(fileUrl);
+            if (!CollectionUtils.isEmpty(columnValueFromPath)) {
+                for (int k = 0; k < columnValueFromPath.size(); k++) {
+                    dataFrame = dataFrame.withColumn(
+                        fileGroup.columnsFromPath.get(k), functions.lit(columnValueFromPath.get(k)));
+                }
+            }
+            return dataFrame;
+        }
+
         StructType srcSchema = createScrSchema(srcColumnsWithColumnsFromPath);
         JavaRDD<String> sourceDataRdd = spark.read().textFile(fileUrl).toJavaRDD();
         int columnSize = dataSrcColumns.size();
