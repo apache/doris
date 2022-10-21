@@ -24,7 +24,7 @@ with tmp as (select
                     and substring(c_phone, 1, 2) in
                         ('13', '31', '23', '29', '30', '18', '17'))
 
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true,runtime_bloom_filter_size=4194304) */
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=4,runtime_bloom_filter_size=4194304) */
     cntrycode,
     count(*) as numcust,
     sum(c_acctbal) as totacctbal
