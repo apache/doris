@@ -312,7 +312,8 @@ TEST(BitmapValueTest, Roaring64Map) {
     uint32_t expectedsize = r1.getSizeInBytes();
     char* serializedbytes = new char[expectedsize];
     r1.write(serializedbytes);
-    Roaring64Map t = Roaring64Map::read(serializedbytes);
+    Roaring64Map t;
+    Roaring64Map::read(serializedbytes, t);
     EXPECT_TRUE(r1 == t);
     delete[] serializedbytes;
 

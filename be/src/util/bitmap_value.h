@@ -713,13 +713,11 @@ public:
      * This function is unsafe in the sense that if you provide bad data,
      * many bytes could be read, possibly causing a buffer overflow. See also readSafe.
      */
-    static Roaring64Map read(const char* buf) {
-        Roaring64Map result;
-
+    static void read(const char* buf, Roaring64Map& result) {
         if (*buf == BitmapTypeCode::BITMAP32) {
             roaring::Roaring read = roaring::Roaring::read(buf + 1);
             result.emplaceOrInsert(0, std::move(read));
-            return result;
+            return;
         }
 
         DCHECK_EQ(BitmapTypeCode::BITMAP64, *buf);
@@ -741,7 +739,7 @@ public:
             buf += read_var.getSizeInBytes();
             result.emplaceOrInsert(key, std::move(read_var));
         }
-        return result;
+        return;
     }
 
     /**
@@ -1609,7 +1607,10 @@ public:
         case BitmapTypeCode::BITMAP32:
         case BitmapTypeCode::BITMAP64:
             _type = BITMAP;
-            _bitmap = detail::Roaring64Map::read(src);
+            // Both phmap and Roaring64Map does not implement move contructor
+            // so that Return Value Optimization could not work.
+            _bitmap.clear();
+            detail::Roaring64Map::read(src, _bitmap);
             break;
         default:
             LOG(ERROR) << "BitmapTypeCode invalid, should between: " << BitmapTypeCode::EMPTY
