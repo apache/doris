@@ -174,8 +174,6 @@ public class FileSystemManager {
             brokerFileSystem = getS3AFileSystem(path, properties);
         } else if (scheme.equals(KS3_SCHEME)) {
             brokerFileSystem = getKS3FileSystem(path, properties);
-        } else if (scheme.equals(CHDFS_SCHEME)) {
-            brokerFileSystem = getChdfsFileSystem(path, properties);
         } else if (scheme.equals(OBS_SCHEME)) {
             brokerFileSystem = getOBSFileSystem(path, properties);
         } else {
