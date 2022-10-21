@@ -175,6 +175,8 @@ public:
         offsets->clear();
     }
 
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+
 private:
     WrappedPtr data;
     WrappedPtr offsets;

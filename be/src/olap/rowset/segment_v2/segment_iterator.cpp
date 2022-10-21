@@ -1081,8 +1081,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
-                        column_desc->type(), column_desc->is_nullable());
+                _current_return_columns[cid] =
+                        Schema::get_predicate_column_nullable_ptr(*column_desc);
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
