@@ -401,9 +401,7 @@ private:
                 return a.inline_value > b.inline_value ? 1
                                                        : (a.inline_value < b.inline_value ? -1 : 0);
             } else {
-                return memcmp_small_allow_overflow15(
-                        a.inline_value.data + a.inline_value.size, a.inline_value.size,
-                        b.inline_value.data + b.inline_value.size, b.inline_value.size);
+                return column.compare_at(a.row_id, b.row_id, column, 0);
             }
         };
 
