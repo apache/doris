@@ -18,58 +18,14 @@
 package org.apache.doris.nereids.sqltest;
 
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class MultiJoinTest extends TestWithFeService implements PatternMatchSupported {
-    @Override
-    protected void runBeforeAll() throws Exception {
-        createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
-
-        createTables(
-                "CREATE TABLE IF NOT EXISTS T1 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n",
-                "CREATE TABLE IF NOT EXISTS T2 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n",
-                "CREATE TABLE IF NOT EXISTS T3 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n"
-        );
-    }
-
-    @Override
-    protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
-    }
-
+public class MultiJoinTest extends SqlTestBase {
     @Test
     void testMultiJoinEliminateCross() {
         List<String> sqls = ImmutableList.<String>builder()
