@@ -111,7 +111,9 @@ struct ToBitmapWithCheck {
                     std::stringstream ss;
                     ss << "The input: " << std::string(raw_str, str_size)
                        << " is not valid, to_bitmap only support bigint value from 0 to "
-                          "18446744073709551615 currently";
+                          "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                          "column with negative values or cannot load negative values to column "
+                          "with to_bitmap MV on it.";
                     LOG(WARNING) << ss.str();
                     return Status::InternalError(ss.str());
                 }

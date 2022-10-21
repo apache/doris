@@ -187,7 +187,8 @@ StringVal BitmapFunctions::to_bitmap_with_check(doris_udf::FunctionContext* ctx,
             std::stringstream ss;
             ss << "The input: " << src.to_string()
                << " is not valid, to_bitmap only support bigint value from 0 to "
-                  "18446744073709551615 currently";
+                  "18446744073709551615 currently, cannot load negative values to column with"
+                  " to_bitmap MV on it.";
             ctx->set_error(ss.str().c_str());
             return StringVal::null();
         }
