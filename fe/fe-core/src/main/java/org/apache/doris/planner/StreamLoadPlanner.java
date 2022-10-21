@@ -174,9 +174,9 @@ public class StreamLoadPlanner {
         // create scan node
         if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
             ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
-            if (!Util.isCsvFormat(taskInfo.getFormatType())) {
+            if (!Util.isStreamLoadSupportFormat(taskInfo.getFormatType())) {
                 throw new AnalysisException(
-                        "New stream load scan load not support non-csv type now: " + taskInfo.getFormatType());
+                        "New stream load scan load not support this type now: " + taskInfo.getFormatType());
             }
             // 1. create file group
             DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);

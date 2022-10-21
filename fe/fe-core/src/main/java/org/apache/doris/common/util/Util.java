@@ -544,13 +544,14 @@ public class Util {
         }
     }
 
-    public static boolean isCsvFormat(TFileFormatType fileFormatType) {
+    public static boolean isStreamLoadSupportFormat(TFileFormatType fileFormatType) {
         return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
                 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
                 || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
-                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN
+                || fileFormatType == TFileFormatType.FORMAT_JSON;
     }
 }
