@@ -46,6 +46,7 @@ public class OperationType {
     public static final short OP_RECOVER_PARTITION = 18;
     public static final short OP_RENAME_TABLE = 19;
     public static final short OP_RENAME_PARTITION = 110;
+    public static final short OP_RENAME_COLUMN = 115;
     public static final short OP_BACKUP_JOB = 116;
     public static final short OP_RESTORE_JOB = 117;
     public static final short OP_TRUNCATE_TABLE = 118;
