@@ -153,10 +153,10 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     } else {
 #ifndef BE_TEST
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->loadTxnBegin(result, request);
-            }));
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxnBegin(result, request);
+                }));
 #else
         result = k_stream_load_begin_result;
 #endif
