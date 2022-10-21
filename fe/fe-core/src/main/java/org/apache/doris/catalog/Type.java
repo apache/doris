@@ -69,6 +69,9 @@ public abstract class Type {
     public static final ScalarType DEFAULT_DECIMALV2 = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
                     ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE);
 
+    public static final ScalarType MAX_DECIMALV2_TYPE = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
+            ScalarType.MAX_DECIMALV2_PRECISION, ScalarType.MAX_DECIMALV2_SCALE);
+
     public static final ScalarType DEFAULT_DECIMAL32 =
             ScalarType.createDecimalType(PrimitiveType.DECIMAL32, ScalarType.MAX_DECIMAL32_PRECISION,
                     ScalarType.DEFAULT_SCALE);
@@ -121,7 +124,7 @@ public abstract class Type {
         numericTypes.addAll(integerTypes);
         numericTypes.add(FLOAT);
         numericTypes.add(DOUBLE);
-        numericTypes.add(DECIMALV2);
+        numericTypes.add(MAX_DECIMALV2_TYPE);
         numericTypes.add(DECIMAL32);
         numericTypes.add(DECIMAL64);
         numericTypes.add(DECIMAL128);
@@ -538,7 +541,7 @@ public abstract class Type {
             case DOUBLE:
                 return DOUBLE;
             case DECIMALV2:
-                return DECIMALV2;
+                return MAX_DECIMALV2_TYPE;
             case DECIMAL32:
                 return DECIMAL32;
             case DECIMAL64:
