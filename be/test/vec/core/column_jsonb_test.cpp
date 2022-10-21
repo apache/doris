@@ -50,9 +50,7 @@ TEST(ColumnJsonbTest, SingleValueTest) {
 
     for (size_t i = 0; i < offs.size(); i++) {
         auto v = data_column->get_data_at(offs[i]);
-        JsonbToJson toStr;
-        std::string json_str =
-                toStr.jsonb_to_string(JsonbDocument::createDocument(v.data, v.size)->getValue());
+        std::string json_str = JsonbToJson::jsonb_to_json_string(v.data, v.size);
         EXPECT_EQ(vals[i], json_str);
     }
 }
