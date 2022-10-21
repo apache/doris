@@ -19,13 +19,15 @@ package org.apache.doris.nereids.jobs.scheduler;
 
 import org.apache.doris.nereids.jobs.Job;
 
+import org.apache.commons.collections.ArrayStack;
+
 import java.util.Stack;
 
 /**
  * LIFO implementation of {@link JobPool}.
  */
 public class JobStack implements JobPool {
-    Stack<Job> stack = new Stack<>();
+    ArrayStack stack = new ArrayStack();
 
     @Override
     public void push(Job job) {
@@ -34,7 +36,7 @@ public class JobStack implements JobPool {
 
     @Override
     public Job pop() {
-        return stack.pop();
+        return ((Job) stack.pop());
     }
 
     @Override
