@@ -19,6 +19,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/columns_number.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -43,7 +44,13 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
+    //TODO: now the input have no limit, so it's column or const number
+    //But we maybe could set the step argument is const, so could impl vector_const()
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const override {
+        return {get_number_of_arguments()};
+    }
 
     size_t get_number_of_arguments() const override {
         return get_variadic_argument_types_impl().size();
@@ -53,20 +60,10 @@ public:
         return Impl::get_variadic_argument_types();
     }
 
-    ColumnNumbers get_arguments_that_are_always_constant() const override {
-        return {get_number_of_arguments()};
-    }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        //don't know why nested array type is always nullable
-        bool is_nullable = true;
-        auto nested_type = std::make_shared<DataTypeInt32>();
-        auto res = std::make_shared<DataTypeArray>(is_nullable ? make_nullable(nested_type)
-                                                               : nested_type);
-        LOG(INFO) << "get_return_type_impl: " << res->get_name();
+        auto nested_type = make_nullable(std::make_shared<DataTypeInt32>());
+        auto res = std::make_shared<DataTypeArray>(nested_type);
         return make_nullable(res);
-        // return std::make_shared<DataTypeArray>(is_nullable ? make_nullable(nested_type)
-        //                                                    : nested_type);
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -130,22 +127,17 @@ private:
                        ColumnArray::Offsets64& dest_offsets) {
         int rows = start.size();
         for (auto row = 0; row < rows; ++row) {
-            LOG(INFO) << "row and rows is: " << row << " " << rows;
             if (args_null_map[row] || start[row] < 0 || end[row] < 0 || step[row] < 0) {
                 nested_column.push_back(0);
                 dest_offsets.push_back(dest_offsets.back() + 1);
                 dest_nested_null_map.push_back(1);
                 args_null_map[row] = 1;
-                LOG(INFO) << "args_null_map is null " << dest_offsets.back();
             } else {
                 int offset = dest_offsets.back();
-                LOG(INFO) << "offset: " << offset;
                 for (auto idx = start[row]; idx < end[row]; idx = idx + step[row]) {
                     nested_column.push_back(idx);
                     dest_nested_null_map.push_back(0);
                     offset++;
-                    LOG(INFO) << "start[row]  end[row]  step[row] idx offset :" << start[row] << " "
-                              << end[row] << " " << step[row] << " " << idx << " " << offset;
                 }
                 dest_offsets.push_back(offset);
             }
@@ -176,7 +168,6 @@ struct RangeTwoImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-                                LOG(INFO)<<"RangeTwoImpl RangeTwoImpl RangeTwoImpl RangeTwoImpl ";
         auto step_column = ColumnInt32::create(input_rows_count, 1);
         block.insert({std::move(step_column), std::make_shared<DataTypeInt32>(), "step_column"});
         ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};

@@ -257,6 +257,7 @@
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at",
                                 "sql-manual/sql-functions/array-functions/array_avg",
+                                "sql-manual/sql-functions/array-functions/array_range",
                                 "sql-manual/sql-functions/array-functions/size",
                                 "sql-manual/sql-functions/array-functions/array_distinct",
                                 "sql-manual/sql-functions/array-functions/array_difference",
