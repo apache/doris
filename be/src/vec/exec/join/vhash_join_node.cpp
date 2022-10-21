@@ -1175,7 +1175,7 @@ void HashJoinNode::_prepare_probe_block() {
     // remove add nullmap of probe columns
     for (auto index : _probe_column_convert_to_null) {
         auto& column_type = _probe_block.safe_get_by_position(index);
-        DCHECK(column_type.column->is_nullable());
+        DCHECK(column_type.column->is_nullable() || is_column_const(*(column_type.column.get())));
         DCHECK(column_type.type->is_nullable());
 
         column_type.column = remove_nullable(column_type.column);
