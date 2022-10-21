@@ -180,6 +180,7 @@
                         "ecosystem/external-table/hudi-external-table",
                         "ecosystem/external-table/iceberg-of-doris",
                         "ecosystem/external-table/odbc-of-doris",
+                        "ecosystem/external-table/jdbc-of-doris",
                         "ecosystem/external-table/hive-of-doris"
                     ]
                 },
@@ -258,8 +259,10 @@
                                 "sql-manual/sql-functions/array-functions/array_avg",
                                 "sql-manual/sql-functions/array-functions/size",
                                 "sql-manual/sql-functions/array-functions/array_distinct",
+                                "sql-manual/sql-functions/array-functions/array_difference",
                                 "sql-manual/sql-functions/array-functions/array_union",
-                                "sql-manual/sql-functions/array-functions/array_sum"
+                                "sql-manual/sql-functions/array-functions/array_sum",
+                                "sql-manual/sql-functions/array-functions/array_join"
                             ]
                         },
                         {
