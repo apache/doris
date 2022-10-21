@@ -230,9 +230,8 @@ public class NereidsPlanner extends Planner {
             return physicalPlan;
         } catch (Exception e) {
             String memo = cascadesContext.getMemo().toString();
-            LOG.warn(memo);
-            LOG.warn("<--|Error|--------->", e);
-            throw new AnalysisException("<--|Error|--------->", e);
+            LOG.warn("Failed to choose best plan, memo structure:{}", memo, e);
+            throw new AnalysisException("Failed to choose best plan", e);
         }
     }
 

@@ -232,8 +232,77 @@ Query OK, 1000 rows affected (0.28 sec)
 
 ### 连接 Elasticsearch
 
-TODO
+> 1. 支持 5.x 及以上版本。
+> 2. 5.x 和 6.x 中一个 index 中的多个 type 默认取第一个
 
+以下示例，用于创建一个名为 es 的 Catalog 连接指定的 ES，并关闭节点发现功能。
+
+```
+CREATE CATALOG es PROPERTIES (
+	"type"="es",
+	"elasticsearch.hosts"="http://192.168.120.12:29200",
+	"elasticsearch.nodes_discovery"="false"
+);
+```
+
+创建后，可以通过 `SHOW CATALOGS` 命令查看 catalog：
+
+```
+mysql> SHOW CATALOGS;
++-----------+-------------+----------+
+| CatalogId | CatalogName | Type     |
++-----------+-------------+----------+
+|         0 | internal    | internal |
+|     11003 | es          | es       |
++-----------+-------------+----------+
+2 rows in set (0.02 sec)
+```
+
+通过 `SWITCH` 命令切换到 es catalog，并查看其中的数据库(只有一个 default_db 关联所有 index)
+
+```
+mysql> SWITCH es;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SHOW DATABASES;
++------------+
+| Database   |
++------------+
+| default_db |
++------------+
+
+mysql> show tables;
++----------------------+
+| Tables_in_default_db |
++----------------------+
+| test                 |
+| test2                |
++----------------------+
+```
+
+查询示例
+
+```
+mysql> select * from test;
++------------+-------------+--------+-------+
+| test4      | test2       | test3  | test1 |
++------------+-------------+--------+-------+
+| 2022-08-08 | hello world |  2.415 | test2 |
+| 2022-08-08 | hello world | 3.1415 | test1 |
++------------+-------------+--------+-------+
+```
+
+## 参数说明：
+
+参数 | 说明
+---|---
+**elasticsearch.hosts** | ES 地址，可以是一个或多个，也可以是 ES 的负载均衡地址
+**elasticsearch.username** | ES 用户名
+**elasticsearch.password** | 对应用户的密码信息
+**elasticsearch.doc_value_scan** | 是否开启通过 ES/Lucene 列式存储获取查询字段的值，默认为 false
+**elasticsearch.keyword_sniff** | 是否对 ES 中字符串类型分词类型 text.fields 进行探测，获取额外的未分词 keyword 字段名 multi-fields 机制
+**elasticsearch.nodes_discovery** | 是否开启 ES 节点发现，默认为 true，在网络隔离环境下设置为 false，只连接指定节点
+**elasticsearch.ssl** | ES 是否开启 https 访问模式，目前在 fe/be 实现方式为信任所有
 
 ## 列类型映射
 

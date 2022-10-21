@@ -127,20 +127,18 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
                                           const Status& extract_st) {
     std::string query_id;
     TUniqueId finst_id;
-    std::shared_ptr<MemTrackerLimiter> transmit_tracker;
+    std::shared_ptr<MemTrackerLimiter> transmit_tracker = nullptr;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
-        // In some cases, query mem tracker does not exist in BE when transmit block, will get null pointer.
-        transmit_tracker = std::make_shared<MemTrackerLimiter>(
-                -1, fmt::format("QueryTransmit#queryId={}", query_id),
-                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id));
-    } else {
+        transmit_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
+    }
+    if (!transmit_tracker) {
         query_id = "unkown_transmit_data";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_data");
     }
-    SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " query_id=" << query_id << " node=" << request->node_id();
     // The response is accessed when done->Run is called in transmit_data(),
@@ -148,6 +146,7 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
     Status st;
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
+        SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
         st = _exec_env->stream_mgr()->transmit_data(request, &done);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_data failed, message=" << st.get_error_msg()
@@ -637,20 +636,19 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
                                            const Status& extract_st) {
     std::string query_id;
     TUniqueId finst_id;
-    std::shared_ptr<MemTrackerLimiter> transmit_tracker;
+    std::shared_ptr<MemTrackerLimiter> transmit_tracker = nullptr;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
-        // In some cases, query mem tracker does not exist in BE when transmit block, will get null pointer.
-        transmit_tracker = std::make_shared<MemTrackerLimiter>(
-                -1, fmt::format("QueryTransmit#queryId={}", query_id),
-                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id));
-    } else {
+        // phmap `parallel_flat_hash_map` is not thread safe, so get query mem tracker may be null pointer.
+        transmit_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
+    }
+    if (!transmit_tracker) {
         query_id = "unkown_transmit_block";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_block");
     }
-    SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
     VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
              << " query_id=" << query_id << " node=" << request->node_id();
     // The response is accessed when done->Run is called in transmit_block(),
@@ -658,6 +656,7 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
     Status st;
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
+        SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()

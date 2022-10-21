@@ -21,6 +21,7 @@
 #include "vec/data_types/data_type_array.h"
 
 #include "gen_cpp/data.pb.h"
+#include "util/stack_util.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -175,14 +176,20 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
 }
 
 Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
+    DCHECK(!rb.eof());
     // only support one level now
     auto* array_column = assert_cast<ColumnArray*>(column);
     auto& offsets = array_column->get_offsets();
 
     IColumn& nested_column = array_column->get_data();
+    DCHECK(nested_column.is_nullable());
     if (*rb.position() != '[') {
         return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
                                        *rb.position());
+    }
+    if (*(rb.end() - 1) != ']') {
+        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
+                                       *(rb.end() - 1));
     }
     ++rb.position();
     bool first = true;
@@ -210,13 +217,9 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
 
         // dispose the case of [123,,,]
         if (nested_str_len == 0) {
-            if (nested_column.is_nullable()) {
-                auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
-                nested_null_col.get_nested_column().insert_default();
-                nested_null_col.get_null_map_data().push_back(0);
-            } else {
-                nested_column.insert_default();
-            }
+            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
+            nested_null_col.get_nested_column().insert_default();
+            nested_null_col.get_null_map_data().push_back(0);
             ++size;
             continue;
         }
@@ -236,19 +239,31 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         }
 
         // dispose the case of ["123"] or ['123']
+        bool has_quota = false;
+        size_t tmp_len = nested_str_len;
         ReadBuffer read_buffer(rb.position(), nested_str_len);
         auto begin_char = *(rb.position() + begin_pos);
         auto end_char = *(rb.position() + end_pos);
         if (begin_char == end_char && (begin_char == '"' || begin_char == '\'')) {
             int64_t length = end_pos - begin_pos - 1;
             read_buffer = ReadBuffer(rb.position() + begin_pos + 1, (length > 0 ? length : 0));
+            tmp_len = (length > 0 ? length : 0);
+            has_quota = true;
         }
 
-        auto st = nested->from_string(read_buffer, &nested_column);
-        if (!st.ok()) {
-            // we should do revert if error
-            array_column->pop_back(size);
-            return st;
+        // handle null, need to distinguish null and "null"
+        if (!has_quota && tmp_len == 4 && strncmp(read_buffer.position(), "null", 4) == 0) {
+            // insert null
+            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
+            nested_null_col.get_nested_column().insert_default();
+            nested_null_col.get_null_map_data().push_back(1);
+        } else {
+            auto st = nested->from_string(read_buffer, &nested_column);
+            if (!st.ok()) {
+                // we should do revert if error
+                array_column->pop_back(size);
+                return st;
+            }
         }
         rb.position() += nested_str_len;
         DCHECK_LE(rb.position(), rb.end());

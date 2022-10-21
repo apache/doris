@@ -164,7 +164,7 @@ public class StmtExecutor implements ProfileWriter {
     private static final String NULL_VALUE_FOR_LOAD = "\\N";
     private final Object writeProfileLock = new Object();
     private ConnectContext context;
-    private StatementContext statementContext;
+    private final StatementContext statementContext;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
@@ -191,6 +191,7 @@ public class StmtExecutor implements ProfileWriter {
         this.serializer = context.getSerializer();
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
+        this.context.setStatementContext(statementContext);
     }
 
     // this constructor is only for test now.
@@ -205,8 +206,16 @@ public class StmtExecutor implements ProfileWriter {
         this.originStmt = parsedStmt.getOrigStmt();
         this.serializer = context.getSerializer();
         this.isProxy = false;
-        this.statementContext = new StatementContext(ctx, originStmt);
-        this.statementContext.setParsedStatement(parsedStmt);
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            this.statementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
+            this.statementContext.setConnectContext(ctx);
+            this.statementContext.setOriginStatement(originStmt);
+            this.statementContext.setParsedStatement(parsedStmt);
+        } else {
+            this.statementContext = new StatementContext(ctx, originStmt);
+            this.statementContext.setParsedStatement(parsedStmt);
+        }
+        this.context.setStatementContext(statementContext);
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) {

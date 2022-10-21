@@ -201,7 +201,7 @@ struct DateFormatImpl {
     }
 };
 
-// TODO: This function should be depend on argments not always nullable
+// TODO: This function should be depend on arguments not always nullable
 template <typename DateType>
 struct FromUnixTimeImpl {
     using FromType = Int32;
@@ -308,7 +308,7 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         }
 
         for (size_t i = 0; i < size; ++i) {
-            null_map_ptr[i] = to_ptr[i] <= MIN_YEAR || to_ptr[i] >= MAX_YEAR;
+            null_map_ptr[i] = to_ptr[i] > MAX_YEAR;
         }
     }
 };

@@ -264,7 +264,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
             if constexpr (type == TYPE_DECIMALV2) {
                 DecimalV2Value decimal_val(data[i]);
-                auto decimal_str = decimal_val.to_string();
+                auto decimal_str = decimal_val.to_string(scale);
                 buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             }
 
@@ -449,6 +449,7 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
         auto column_ptr = block.get_by_position(i).column->convert_to_full_column_if_const();
         auto type_ptr = block.get_by_position(i).type;
 
+        int scale = _output_vexpr_ctxs[i]->root()->type().scale;
         switch (_output_vexpr_ctxs[i]->root()->result_type()) {
         case TYPE_BOOLEAN:
             if (type_ptr->is_nullable()) {
@@ -544,10 +545,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, true>(column_ptr, result,
-                                                                              nested_type);
+                                                                              nested_type, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(column_ptr, result,
-                                                                               type_ptr);
+                                                                               type_ptr, scale);
             }
             break;
         }
@@ -556,10 +557,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL32, true>(column_ptr, result,
-                                                                              nested_type);
+                                                                              nested_type, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL32, false>(column_ptr, result,
-                                                                               type_ptr);
+                                                                               type_ptr, scale);
             }
             break;
         }
@@ -568,10 +569,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL64, true>(column_ptr, result,
-                                                                              nested_type);
+                                                                              nested_type, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL64, false>(column_ptr, result,
-                                                                               type_ptr);
+                                                                               type_ptr, scale);
             }
             break;
         }
@@ -580,10 +581,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, true>(column_ptr, result,
-                                                                               nested_type);
+                                                                               nested_type, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, false>(column_ptr, result,
-                                                                                type_ptr);
+                                                                                type_ptr, scale);
             }
             break;
         }
@@ -613,7 +614,6 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             break;
         }
         case TYPE_DATETIMEV2: {
-            int scale = _output_vexpr_ctxs[i]->root()->type().scale;
             if (type_ptr->is_nullable()) {
                 status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, true>(column_ptr, result,
                                                                                nullptr, scale);

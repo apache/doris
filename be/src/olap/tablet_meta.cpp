@@ -691,9 +691,12 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     auto it = _stale_rs_metas.begin();
     while (it != _stale_rs_metas.end()) {
         if ((*it)->version() == version) {
+            if (_enable_unique_key_merge_on_write) {
+                // remove rowset delete bitmap
+                delete_bitmap().remove({(*it)->rowset_id(), 0, 0},
+                                       {(*it)->rowset_id(), UINT32_MAX, 0});
+            }
             it = _stale_rs_metas.erase(it);
-            // remove rowset delete bitmap
-            delete_bitmap().remove({(*it)->rowset_id(), 0, 0}, {(*it)->rowset_id(), UINT32_MAX, 0});
         } else {
             it++;
         }

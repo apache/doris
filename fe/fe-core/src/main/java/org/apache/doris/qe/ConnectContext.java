@@ -31,6 +31,7 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
@@ -145,6 +146,8 @@ public class ConnectContext {
     private InsertResult insertResult;
 
     private SessionContext sessionContext;
+
+    private StatementContext statementContext;
 
     public SessionContext getSessionContext() {
         return sessionContext;
@@ -510,6 +513,14 @@ public class ConnectContext {
 
     public void initTracer(String name) {
         this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
+    }
+
+    public void setStatementContext(StatementContext statementContext) {
+        this.statementContext = statementContext;
     }
 
     // kill operation with no protect.

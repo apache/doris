@@ -329,7 +329,7 @@ void JsonReader::_close() {
 
 // read one json string from line reader or file reader and parse it to json doc.
 // return Status::DataQualityError() if data has quality error.
-// return other error if encounter other problemes.
+// return other error if encounter other problems.
 // return Status::OK() if parse succeed or reach EOF.
 Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
     // read a whole message
@@ -354,7 +354,8 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
     }
 
     // clear memory here.
-    _origin_json_doc.GetAllocator().Clear();
+    _value_allocator.Clear();
+    _parse_allocator.Clear();
     bool has_parse_error = false;
     // parse jsondata to JsonDoc
 

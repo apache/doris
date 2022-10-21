@@ -18,8 +18,6 @@
 #include "vec/exec/scan/new_file_scan_node.h"
 
 #include "vec/columns/column_const.h"
-#include "vec/exec/scan/new_file_arrow_scanner.h"
-#include "vec/exec/scan/new_file_text_scanner.h"
 #include "vec/exec/scan/new_olap_scanner.h"
 #include "vec/exec/scan/vfile_scanner.h"
 #include "vec/functions/in.h"
@@ -102,28 +100,9 @@ Status NewFileScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 }
 
 VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
-    VScanner* scanner = nullptr;
-    if (config::enable_new_file_scanner) {
-        scanner = new VFileScanner(_state, this, _limit_per_scanner, scan_range, runtime_profile());
-        ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range);
-    } else {
-        switch (scan_range.params.format_type) {
-        case TFileFormatType::FORMAT_PARQUET:
-            scanner = new NewFileParquetScanner(_state, this, _limit_per_scanner, scan_range,
-                                                runtime_profile(), std::vector<TExpr>());
-            break;
-        case TFileFormatType::FORMAT_ORC:
-            scanner = new NewFileORCScanner(_state, this, _limit_per_scanner, scan_range,
-                                            runtime_profile(), std::vector<TExpr>());
-            break;
-
-        default:
-            scanner = new NewFileTextScanner(_state, this, _limit_per_scanner, scan_range,
-                                             runtime_profile(), std::vector<TExpr>());
-            break;
-        }
-        ((NewFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get());
-    }
+    VScanner* scanner =
+            new VFileScanner(_state, this, _limit_per_scanner, scan_range, runtime_profile());
+    ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range);
     _scanner_pool.add(scanner);
     // TODO: Can we remove _conjunct_ctxs and use _vconjunct_ctx_ptr instead?
     scanner->reg_conjunct_ctxs(_conjunct_ctxs);

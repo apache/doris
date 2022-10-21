@@ -233,8 +233,7 @@ public class GroupExpression {
         if (ownerGroup == null) {
             builder.append("OWNER GROUP IS NULL[]");
         } else {
-            builder.append(ownerGroup.getGroupId())
-                    .append("(plan=" + plan.toString() + ") children=[");
+            builder.append(ownerGroup.getGroupId()).append("(plan=").append(plan.toString()).append(") children=[");
         }
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");

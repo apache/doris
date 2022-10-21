@@ -61,7 +61,7 @@ struct NumComparisonImpl {
     /// If you don't specify NO_INLINE, the compiler will inline this function, but we don't need this as this function contains tight loop inside.
     static void NO_INLINE vector_vector(const PaddedPODArray<A>& a, const PaddedPODArray<B>& b,
                                         PaddedPODArray<UInt8>& c) {
-        /** GCC 4.8.2 vectorizes a loop only if it is written in this form.
+        /** GCC 4.8.2 vectorized a loop only if it is written in this form.
           * In this case, if you loop through the array index (the code will look simpler),
           *  the loop will not be vectorized.
           */

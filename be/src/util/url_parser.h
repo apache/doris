@@ -60,6 +60,11 @@ public:
     // If part did not match any of the url part constants, returns INVALID.
     static UrlPart get_url_part(const StringValue& part);
 
+    // Extract parameter value from url
+    // Example for url:
+    // http://doris.apache.org?k1=aa&k2=bb&k3=cc&test=dd#999
+    static StringValue extract_url(StringValue url, StringValue name);
+
 private:
     // Constants representing parts of a URL.
     static const StringValue _s_url_authority;

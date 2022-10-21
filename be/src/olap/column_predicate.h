@@ -105,7 +105,7 @@ public:
 
     virtual bool can_do_bloom_filter() const { return false; }
 
-    // used to evaluate pre read column in lazy matertialization
+    // used to evaluate pre read column in lazy materialization
     // now only support integer/float
     // a vectorized eval way
     virtual void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {

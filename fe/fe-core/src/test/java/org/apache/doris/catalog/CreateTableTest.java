@@ -45,7 +45,6 @@ public class CreateTableTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         Config.disable_storage_medium_check = true;
-        Config.enable_array_type = true;
         UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
@@ -568,6 +567,44 @@ public class CreateTableTest {
         ExceptionChecker.expectThrowsNoException(() -> {
             createTable("create table test.table2(k1 INT, k2 Array<Array<int>>) duplicate key (k1) "
                     + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+        });
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("CREATE TABLE test.table3 (\n"
+                    + "  `k1` INT(11) NULL COMMENT \"\",\n"
+                    + "  `k2` ARRAY<ARRAY<SMALLINT>> NULL COMMENT \"\",\n"
+                    + "  `k3` ARRAY<ARRAY<ARRAY<INT(11)>>> NULL COMMENT \"\",\n"
+                    + "  `k4` ARRAY<ARRAY<ARRAY<ARRAY<BIGINT>>>> NULL COMMENT \"\",\n"
+                    + "  `k5` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<CHAR>>>>> NULL COMMENT \"\",\n"
+                    + "  `k6` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<VARCHAR(20)>>>>>> NULL COMMENT \"\",\n"
+                    + "  `k7` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DATE>>>>>>> NULL COMMENT \"\",\n"
+                    + "  `k8` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DATETIME>>>>>>>> NULL COMMENT \"\",\n"
+                    + "  `k11` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DECIMAL(20, 6)>>>>>>>>> NULL COMMENT \"\"\n"
+                    + ") ENGINE=OLAP\n"
+                    + "DUPLICATE KEY(`k1`)\n"
+                    + "DISTRIBUTED BY HASH(`k1`) BUCKETS 3\n"
+                    + "PROPERTIES (\n"
+                    + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                    + ");");
+        });
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Type exceeds the maximum nesting depth of 9",
+                () -> {
+                    createTable("CREATE TABLE test.table4 (\n"
+                            + "  `k1` INT(11) NULL COMMENT \"\",\n"
+                            + "  `k2` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DECIMAL(20, 6)>>>>>>>>>> NULL COMMENT \"\"\n"
+                            + ") ENGINE=OLAP\n"
+                            + "DUPLICATE KEY(`k1`)\n"
+                            + "DISTRIBUTED BY HASH(`k1`) BUCKETS 3\n"
+                            + "PROPERTIES (\n"
+                            + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                            + ");");
+                });
+
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.table5(\n"
+                    + "\tk1 int,\n"
+                    + "\tv1 array<int>\n"
+                    + ") distributed by hash(k1) buckets 1\n"
+                    + "properties(\"replication_num\" = \"1\");");
         });
     }
 }

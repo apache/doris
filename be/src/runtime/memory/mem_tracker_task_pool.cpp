@@ -55,7 +55,7 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_query_scanner_me
         const std::string& query_id) {
     return register_task_mem_tracker_impl("Scanner#" + query_id, -1,
                                           fmt::format("Scanner#Query#Id={}", query_id),
-                                          ExecEnv::GetInstance()->query_pool_mem_tracker());
+                                          get_task_mem_tracker(query_id));
 }
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_load_mem_tracker(
@@ -69,7 +69,7 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::register_load_scanner_mem
         const std::string& load_id) {
     return register_task_mem_tracker_impl("Scanner#" + load_id, -1,
                                           fmt::format("Scanner#Load#Id={}", load_id),
-                                          ExecEnv::GetInstance()->load_pool_mem_tracker());
+                                          get_task_mem_tracker(load_id));
 }
 
 std::shared_ptr<MemTrackerLimiter> MemTrackerTaskPool::get_task_mem_tracker(
@@ -104,9 +104,9 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             LOG(INFO) << fmt::format(
                     "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                     "PeakUsed={}",
-                    it->first, PrettyPrinter::print(it->second->limit(), TUnit::BYTES),
-                    PrettyPrinter::print(it->second->consumption(), TUnit::BYTES),
-                    PrettyPrinter::print(it->second->peak_consumption(), TUnit::BYTES));
+                    it->first, MemTracker::print_bytes(it->second->limit()),
+                    MemTracker::print_bytes(it->second->consumption()),
+                    MemTracker::print_bytes(it->second->peak_consumption()));
             expired_task_ids.emplace_back(it->first);
         } else if (config::memory_verbose_track) {
             it->second->print_log_usage("query routine");

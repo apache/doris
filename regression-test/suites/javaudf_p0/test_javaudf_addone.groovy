@@ -23,7 +23,7 @@ import java.nio.file.Paths
 
 suite("test_javaudf_addone") {
     def tableName = "test_javaudf_addone"
-    def jarPath = """${context.file.parent}/jars/java-udf-demo-jar-with-dependencies.jar"""
+    def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
     try {
