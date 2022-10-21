@@ -76,7 +76,7 @@ struct LikeSearchState {
             hs_scratch;
 
     // hyperscan match callback
-    static int hs_match_handler(unsigned int /* from */,       // NOLINT
+    static int hs_match_handler(unsigned int /* id */,         // NOLINT
                                 unsigned long long /* from */, // NOLINT
                                 unsigned long long /* to */,   // NOLINT
                                 unsigned int /* flags */, void* ctx) {

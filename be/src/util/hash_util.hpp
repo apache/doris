@@ -45,11 +45,19 @@ namespace doris {
 // Utility class to compute hash values.
 class HashUtil {
 public:
+    // like hash_combine but without hash
+    static inline uint32_t direct_combine(uint32_t x, uint32_t y) {
+        return x + 0x9e3779b9 + (y << 6) + (y >> 2);
+    }
+
     template <typename T>
     static uint32_t fixed_len_to_uint32(T value) {
         if constexpr (sizeof(T) <= sizeof(uint32_t)) {
             return value;
+        } else if constexpr (sizeof(T) == sizeof(uint64_t)) {
+            return direct_combine(((uint64_t)value << 32) >> 32, (uint64_t)value >> 32);
         }
+
         return std::hash<T>()(value);
     }
 
