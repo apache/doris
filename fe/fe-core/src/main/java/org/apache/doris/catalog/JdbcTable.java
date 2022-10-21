@@ -248,6 +248,9 @@ public class JdbcTable extends Table {
         if (Strings.isNullOrEmpty(jdbcTypeName)) {
             throw new DdlException("property " + TABLE_TYPE + " must be set");
         }
+        if (!TABLE_TYPE_MAP.containsKey(jdbcTypeName.toLowerCase())) {
+            throw new DdlException("Unknown jdbc table type: " + jdbcTypeName);
+        }
 
         Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
         if (resource == null) {

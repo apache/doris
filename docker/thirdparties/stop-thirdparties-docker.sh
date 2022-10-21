@@ -17,41 +17,21 @@
 # under the License.
 
 ################################################################
-# This script will restart all thirdparty containers
+# This script will stop all thirdparty containers
 ################################################################
 
 set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-# If you want to start multi group of these containers on same host,
-# Change this to a specific string.
-# Do not use "_" or other sepcial characters, only number and alphabeta.
-# NOTICE: change this uid will modify the file in docker-compose.
-CONTAINER_UID="doris--"
-
 # elasticsearch
 # docker compose -f "${ROOT}"/docker-compose/elasticsearch/elasticsearch.yaml down
-# docker compose -f "${ROOT}"/docker-compose/elasticsearch/elasticsearch.yaml up -d
 
 # mysql 5.7
-sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
 sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env down
-sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
-sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
-sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
 
 # pg 14
-sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
 sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
-sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
-sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
 
 # hive
-# before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
-sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-sudo "${ROOT}"/docker-compose/hive/gen_env.sh
 sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
-sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d

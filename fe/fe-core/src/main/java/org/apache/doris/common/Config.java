@@ -1690,7 +1690,7 @@ public class Config extends ConfigBase {
      * Temp config for multi catalog feature.
      * Should be removed when this feature is ready.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_multi_catalog = false;
 
     @ConfField(mutable = true, masterOnly = false)
