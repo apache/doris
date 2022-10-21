@@ -159,7 +159,8 @@ public class Group {
      */
     public List<GroupExpression> clearLogicalExpressions() {
         for (GroupExpression groupExpression : logicalExpressions) {
-            removeGroupExpression(groupExpression);
+            groupExpression.setOwnerGroup(null);
+            groupExpression.children().forEach(g -> g.removeParentExpression(groupExpression));
         }
         List<GroupExpression> move = Lists.newArrayList(logicalExpressions);
         physicalExpressions.clear();
@@ -172,7 +173,8 @@ public class Group {
      */
     public List<GroupExpression> clearPhysicalExpressions() {
         for (GroupExpression groupExpression : physicalExpressions) {
-            removeGroupExpression(groupExpression);
+            groupExpression.setOwnerGroup(null);
+            groupExpression.children().forEach(g -> g.removeParentExpression(groupExpression));
         }
         List<GroupExpression> move = Lists.newArrayList(physicalExpressions);
         physicalExpressions.clear();
