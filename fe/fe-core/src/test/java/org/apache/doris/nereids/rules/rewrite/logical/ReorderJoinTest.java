@@ -160,14 +160,14 @@ class ReorderJoinTest implements PatternMatchSupported {
     public void check(List<LogicalPlan> plans) {
         for (LogicalPlan plan : plans) {
             PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                    .applyBottomUp(new ReorderJoin())
+                    .rewrite()
+                    .printlnTree()
                     .matchesFromRoot(
                             logicalJoin(
                                     logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
                                     leafPlan()
                             ).whenNot(join -> join.getJoinType().isCrossJoin())
-                    )
-                    .printlnTree();
+                    );
         }
     }
 

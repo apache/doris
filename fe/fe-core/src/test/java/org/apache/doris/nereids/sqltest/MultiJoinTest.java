@@ -97,41 +97,35 @@ public class MultiJoinTest extends TestWithFeService implements PatternMatchSupp
     @Disabled
     // TODO: MultiJoin And EliminateOuter
     void testEliminateBelowOuter() {
-        List<String> sqls = ImmutableList.<String>builder()
-                .add("SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id")
-                .build();
-
-        for (String sql : sqls) {
-            PlanChecker.from(connectContext)
-                    .analyze(sql)
-                    .applyBottomUp(new ReorderJoin())
-                    .matches(
-                            logicalJoin(
-                                    logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
-                                    leafPlan()
-                            ).whenNot(join -> join.getJoinType().isCrossJoin())
-                    )
-                    .printlnTree();
-        }
+        String sql = "SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new ReorderJoin())
+                .printlnTree();
     }
 
     @Test
-    void testPushdown() {
-        List<String> sqls = ImmutableList.<String>builder()
-                .add("SELECT * FROM T1 LEFT JOIN T2 ON T1.id = T2.id WHERE T2.score > 0")
-                .build();
+    void testPushdownAndEliminateOuter() {
+        String sql = "SELECT * FROM T1 LEFT JOIN T2 ON T1.id = T2.id WHERE T2.score > 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin().when(join -> join.getJoinType().isInnerJoin())
+                );
 
-        for (String sql : sqls) {
-            PlanChecker.from(connectContext)
-                    .analyze(sql)
-                    .applyBottomUp(new ReorderJoin())
-                    .matches(
-                            logicalFilter(
-                                    logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin())
-                            )
-                    )
-                    .printlnTree();
-        }
+        String sql1 = "SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id AND T3.score > 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql1)
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin(
+                                logicalJoin().when(join -> join.getJoinType().isInnerJoin()),
+                                any()
+                        ).when(join -> join.getJoinType().isInnerJoin())
+                );
     }
 
     @Test
