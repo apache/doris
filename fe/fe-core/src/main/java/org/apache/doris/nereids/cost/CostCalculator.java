@@ -182,8 +182,8 @@ public class CostCalculator {
             double leftRowCount = probeStats.computeColumnSize(leftIds);
             double rightRowCount = buildStats.computeColumnSize(rightIds);
             double rightDeepPenalty = 6 * Math.min(probeStats.penalty, buildStats.penalty);
-            if (buildStats.width > 2) {
-                rightDeepPenalty = Math.abs(leftRowCount - rightRowCount);
+            if (buildStats.width >= 2) {
+                rightDeepPenalty += Math.abs(leftRowCount - rightRowCount);
             }
 
             if (physicalHashJoin.getJoinType().isCrossJoin()) {

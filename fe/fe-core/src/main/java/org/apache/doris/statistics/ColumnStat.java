@@ -25,6 +25,7 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -107,7 +108,7 @@ public class ColumnStat {
         return columnStat;
     }
 
-    public static boolean isInvalid(ColumnStat stats) {
+    public static boolean isUnKnown(ColumnStat stats) {
         return stats == UNKNOWN;
     }
 
@@ -448,5 +449,24 @@ public class ColumnStat {
 
     public void setSelectivity(double selectivity) {
         this.selectivity = selectivity;
+    }
+
+    public double ndvIntersection(ColumnStat other) {
+        if (maxValue == minValue) {
+            if (minValue <= other.maxValue && minValue >= other.minValue) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+        double min = Math.max(minValue, other.minValue);
+        double max = Math.min(maxValue, other.maxValue);
+        if (min < max) {
+            return Math.ceil(ndv * (max - min) / (maxValue - minValue));
+        } else if (min > max) {
+            return 0;
+        } else {
+            return 1;
+        }
     }
 }

@@ -105,6 +105,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
     @Override
     public StatsDeriveResult visitComparisonPredicate(ComparisonPredicate cp, EstimationContext context) {
+        boolean isNot = (context != null) && context.isNot;
         Expression left = cp.left();
         Expression right = cp.right();
         ColumnStat statsForLeft = ExpressionEstimation.estimate(left, inputStats);
@@ -115,7 +116,10 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
             selectivity = calculateWhenBothChildIsColumn(cp, statsForLeft, statsForRight);
         } else {
             // For literal, it's max min is same value.
-            selectivity = updateLeftStatsWhenRightChildIsLiteral(cp, statsForLeft, statsForRight.getMaxValue());
+            selectivity = updateLeftStatsWhenRightChildIsLiteral(cp,
+                    statsForLeft,
+                    statsForRight.getMaxValue(),
+                    isNot);
         }
         StatsDeriveResult outputStats = new StatsDeriveResult(inputStats);
         outputStats.updateBySelectivity(selectivity, cp.getInputSlots());
@@ -126,8 +130,89 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         return outputStats;
     }
 
+    private double updateLessThan(ColumnStat statsForLeft, double val,
+            double min, double max, double ndv) {
+        double selectivity = 1.0;
+        if (val <= min) {
+            statsForLeft.setMaxValue(val);
+            statsForLeft.setMinValue(0);
+            statsForLeft.setNdv(0);
+            selectivity = 0.0;
+        } else if (val > max) {
+            selectivity = 1.0;
+        } else if (val == max) {
+            selectivity = 1.0 - 1.0 / ndv;
+        } else {
+            statsForLeft.setMaxValue(val);
+            selectivity = (val - min) / (max - min);
+            statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+        }
+        return selectivity;
+    }
+
+    private double updateLessThanEqual(ColumnStat statsForLeft, double val,
+            double min, double max, double ndv) {
+        double selectivity = 1.0;
+        if (val < min) {
+            statsForLeft.setMaxValue(val);
+            statsForLeft.setMinValue(val);
+            selectivity = 0.0;
+        } else if (val == min) {
+            statsForLeft.setMaxValue(val);
+            selectivity = 1.0 / ndv;
+        } else if (val >= max) {
+            selectivity = 1.0;
+        } else {
+            statsForLeft.setMaxValue(val);
+            selectivity = (val - min) / (max - min);
+            statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+        }
+        return selectivity;
+    }
+
+    private double updateGreaterThan(ColumnStat statsForLeft, double val,
+            double min, double max, double ndv) {
+        double selectivity = 1.0;
+        if (val >= max) {
+            statsForLeft.setMaxValue(val);
+            statsForLeft.setMinValue(val);
+            statsForLeft.setNdv(0);
+            selectivity = 0.0;
+        } else if (val == min) {
+            selectivity = 1.0 - 1.0 / ndv;
+        } else if (val < min) {
+            selectivity = 1.0;
+        } else {
+            statsForLeft.setMinValue(val);
+            selectivity = (max - val) / (max - min);
+            statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+        }
+        return selectivity;
+    }
+
+    private double updateGreaterThanEqual(ColumnStat statsForLeft, double val,
+            double min, double max, double ndv) {
+        double selectivity = 1.0;
+        if (val > max) {
+            statsForLeft.setMinValue(val);
+            statsForLeft.setMaxValue(val);
+            selectivity = 0.0;
+        } else if (val == max) {
+            statsForLeft.setMinValue(val);
+            statsForLeft.setMaxValue(val);
+            selectivity = 1.0 / ndv;
+        } else if (val <= min) {
+            selectivity = 1.0;
+        } else {
+            statsForLeft.setMinValue(val);
+            selectivity = (max - val) / (max - min);
+            statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+        }
+        return selectivity;
+    }
+
     private double updateLeftStatsWhenRightChildIsLiteral(ComparisonPredicate cp,
-            ColumnStat statsForLeft, double val) {
+            ColumnStat statsForLeft, double val, boolean isNot) {
         if (statsForLeft == ColumnStat.UNKNOWN) {
             return 1.0;
         }
@@ -136,74 +221,43 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         double max = statsForLeft.getMaxValue();
         double min = statsForLeft.getMinValue();
         if (cp instanceof EqualTo) {
-            statsForLeft.setNdv(1);
-            statsForLeft.setMaxValue(val);
-            statsForLeft.setMinValue(val);
-            if (val > max || val < min) {
-                selectivity = 0.0;
+            if (!isNot) {
+                statsForLeft.setNdv(1);
+                statsForLeft.setMaxValue(val);
+                statsForLeft.setMinValue(val);
+                if (val > max || val < min) {
+                    selectivity = 0.0;
+                } else {
+                    selectivity = 1.0 / ndv;
+                }
             } else {
-                selectivity = 1.0 / ndv;
+                if (val <= max && val >= min) {
+                    selectivity = 1 - DEFAULT_EQUALITY_COMPARISON_SELECTIVITY;
+                }
             }
         } else if (cp instanceof LessThan) {
-            if (val <= min) {
-                statsForLeft.setMaxValue(val);
-                statsForLeft.setMinValue(0);
-                statsForLeft.setNdv(0);
-                selectivity = 0.0;
-            } else if (val > max) {
-                selectivity = 1.0;
-            } else if (val == max) {
-                selectivity = 1.0 - 1.0 / ndv;
+            if (isNot) {
+                selectivity = updateGreaterThanEqual(statsForLeft, val, min, max, ndv);
             } else {
-                statsForLeft.setMaxValue(val);
-                selectivity = (val - min) / (max - min);
-                statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+                selectivity = updateLessThan(statsForLeft, val, min, max, ndv);
             }
         } else if (cp instanceof LessThanEqual) {
-            if (val < min) {
-                statsForLeft.setMaxValue(val);
-                statsForLeft.setMinValue(val);
-                selectivity = 0.0;
-            } else if (val == min) {
-                statsForLeft.setMaxValue(val);
-                selectivity = 1.0 / ndv;
-            } else if (val >= max) {
-                selectivity = 1.0;
+            if (isNot) {
+                selectivity = updateGreaterThan(statsForLeft, val, min, max, ndv);
             } else {
-                statsForLeft.setMaxValue(val);
-                selectivity = (val - min) / (max - min);
-                statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+                selectivity = updateLessThanEqual(statsForLeft, val, min, max, ndv);
             }
         } else if (cp instanceof GreaterThan) {
-            if (val >= max) {
-                statsForLeft.setMaxValue(val);
-                statsForLeft.setMinValue(val);
-                statsForLeft.setNdv(0);
-                selectivity = 0.0;
-            } else if (val == min) {
-                selectivity = 1.0 - 1.0 / ndv;
-            } else if (val < min) {
-                selectivity = 1.0;
+            if (isNot) {
+                selectivity = updateLessThanEqual(statsForLeft, val, min, max, ndv);
             } else {
-                statsForLeft.setMinValue(val);
-                selectivity = (max - val) / (max - min);
-                statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+                selectivity = updateGreaterThan(statsForLeft, val, min, max, ndv);
             }
         } else if (cp instanceof GreaterThanEqual) {
-            if (val > max) {
-                statsForLeft.setMinValue(val);
-                statsForLeft.setMaxValue(val);
-                selectivity = 0.0;
-            } else if (val == max) {
-                statsForLeft.setMinValue(val);
-                statsForLeft.setMaxValue(val);
-                selectivity = 1.0 / ndv;
-            } else if (val <= min) {
-                selectivity = 1.0;
+            if (isNot) {
+                selectivity = updateLessThan(statsForLeft, val, min, max, ndv);
             } else {
-                statsForLeft.setMinValue(val);
-                selectivity = (max - val) / (max - min);
-                statsForLeft.setNdv(selectivity * statsForLeft.getNdv());
+                selectivity = updateGreaterThanEqual(statsForLeft, val, min, max, ndv);
             }
         } else {
             throw new RuntimeException(String.format("Unexpected expression : %s", cp.toSql()));
@@ -330,40 +384,85 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         boolean isNotIn = context != null && context.isNot;
         Expression compareExpr = inPredicate.getCompareExpr();
         ColumnStat compareExprStats = ExpressionEstimation.estimate(compareExpr, inputStats);
-        if (ColumnStat.isInvalid(compareExprStats)) {
+        if (ColumnStat.isUnKnown(compareExprStats)) {
             return inputStats;
         }
         List<Expression> options = inPredicate.getOptions();
         double maxOption = 0;
         double minOption = Double.MAX_VALUE;
-        double optionDistinctCount = 0;
-        for (Expression option : options) {
-            ColumnStat optionStats = ExpressionEstimation.estimate(option, inputStats);
-            if (ColumnStat.isInvalid(optionStats)) {
-                return inputStats;
+        /* suppose A.(min, max) = (0, 10), A.ndv=10
+         A in ( 1, 2, 5, 100):
+              validInOptCount = 3, that is (1, 2, 5)
+              table selectivity = 3/10
+              A.min = 1, A.max=5
+              A.selectivity = 3/5
+              A.ndv = 3
+         A not in (1, 2, 3, 100):
+              validInOptCount = 10 - 3
+              we assume that 1, 2, 3 exist in A
+              A.ndv = 10 - 3 = 7
+              table selectivity = 7/10
+              A.(min, max) not changed
+              A.selectivity = 7/10
+        */
+        double validInOptCount = 0;
+        double columnSelectivity = 1.0;
+        double selectivity = 1.0;
+        if (isNotIn) {
+            for (Expression option : options) {
+                ColumnStat optionStats = ExpressionEstimation.estimate(option, inputStats);
+                if (ColumnStat.isUnKnown(optionStats)) {
+                    continue;
+                }
+                double validOptionNdv = compareExprStats.ndvIntersection(optionStats);
+                if (validOptionNdv > 0.0) {
+                    validInOptCount += validOptionNdv;
+                }
             }
-            optionDistinctCount += optionStats.getNdv();
-            maxOption = Math.max(optionStats.getMaxValue(), maxOption);
-            minOption = Math.min(optionStats.getMinValue(), minOption);
+            validInOptCount = Math.min(1, compareExprStats.getNdv() - validInOptCount);
+            columnSelectivity = Math.max(1, validInOptCount)
+                    / compareExprStats.getNdv();
+        } else {
+            for (Expression option : options) {
+                ColumnStat optionStats = ExpressionEstimation.estimate(option, inputStats);
+                if (ColumnStat.isUnKnown(optionStats)) {
+                    validInOptCount++;
+                    continue;
+                }
+                double validOptionNdv = compareExprStats.ndvIntersection(optionStats);
+                if (validOptionNdv > 0.0) {
+                    validInOptCount += validOptionNdv;
+                    maxOption = Math.max(optionStats.getMaxValue(), maxOption);
+                    minOption = Math.min(optionStats.getMinValue(), minOption);
+                }
+            }
+            maxOption = Math.min(maxOption, compareExprStats.getMaxValue());
+            minOption = Math.max(minOption, compareExprStats.getMinValue());
+            if (maxOption == minOption) {
+                columnSelectivity = 1.0;
+            } else {
+                double outputRange = maxOption - minOption;
+                double originRange = Math.max(1, compareExprStats.getMaxValue() - compareExprStats.getMinValue());
+                double orginDensity = compareExprStats.getNdv() / originRange;
+                double outputDensity = validInOptCount / outputRange;
+                columnSelectivity = Math.min(1, outputDensity / orginDensity);
+            }
+            compareExprStats.setMaxValue(maxOption);
+            compareExprStats.setMinValue(minOption);
         }
-        double selectivity = DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY;
-        double cmpExprMax = compareExprStats.getMaxValue();
-        double cmpExprMin = compareExprStats.getMinValue();
-        boolean hasOverlap = Math.max(cmpExprMin, minOption) <= Math.min(cmpExprMax, maxOption);
-        if (!hasOverlap) {
-            selectivity = 0.0;
-        }
-        double cmpDistinctCount = compareExprStats.getNdv();
-        selectivity = Math.min(1.0, optionDistinctCount / cmpDistinctCount);
-        double expectedMax = Math.min(cmpExprMax, maxOption);
-        double expectedMin = Math.max(cmpExprMin, minOption);
-        compareExprStats.setMaxValue(expectedMax);
-        compareExprStats.setMinValue(expectedMin);
+
+        selectivity = Math.min(1.0, validInOptCount / compareExprStats.getNdv());
+
+        compareExprStats.setSelectivity(compareExprStats.getSelectivity() * columnSelectivity);
+        compareExprStats.setNdv(validInOptCount);
+
         StatsDeriveResult estimated = new StatsDeriveResult(inputStats);
-        if (compareExpr instanceof SlotReference && !isNotIn) {
+
+        estimated = estimated.updateRowCountOnCopy(selectivity);
+        if (compareExpr instanceof SlotReference) {
             estimated.addColumnStats((SlotReference) compareExpr, compareExprStats);
         }
-        return estimated.updateRowCountOnCopy(isNotIn ? 1.0 - selectivity : selectivity);
+        return estimated;
     }
 
     @Override
