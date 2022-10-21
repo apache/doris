@@ -21,8 +21,6 @@ import org.apache.doris.nereids.jobs.Job;
 
 import org.apache.commons.collections.ArrayStack;
 
-import java.util.Stack;
-
 /**
  * LIFO implementation of {@link JobPool}.
  */
