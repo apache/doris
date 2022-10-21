@@ -173,6 +173,9 @@ struct StringValue {
     // Trims leading and trailing spaces.
     StringValue trim() const;
 
+    // Find the first position char of appear, return -1 if not found
+    int64_t find_first_of(char c) const;
+
     void to_string_val(doris_udf::StringVal* sv) const {
         *sv = doris_udf::StringVal(reinterpret_cast<uint8_t*>(ptr), len);
     }

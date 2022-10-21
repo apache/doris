@@ -1276,12 +1276,9 @@ public:
         for (int i = 0; i < input_rows_count; ++i) {
             auto source = url_col->get_data_at(i);
             auto param = parameter_col->get_data_at(i);
-            StringValue url_str(const_cast<char*>(source.data), source.size);
-            StringValue parameter_str(const_cast<char*>(param.data), param.size);
+            auto res = extract_url(source, param);
 
-            std::string result = extract_url(url_str, parameter_str);
-
-            col_res->insert_data(result.data(), result.length());
+            col_res->insert_data(res.ptr, res.len);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -1289,11 +1286,11 @@ public:
     }
 
 private:
-    std::string extract_url(StringValue url, StringValue parameter) {
-        if (url.len == 0 || parameter.len == 0) {
-            return "";
+    StringValue extract_url(StringRef url, StringRef parameter) {
+        if (url.size == 0 || parameter.size == 0) {
+            return StringValue("", 0);
         }
-        return UrlParser::extract_url(url, parameter);
+        return UrlParser::extract_url(StringValue(url), StringValue(parameter));
     }
 };
 
