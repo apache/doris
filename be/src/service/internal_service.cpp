@@ -127,14 +127,15 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
                                           const Status& extract_st) {
     std::string query_id;
     TUniqueId finst_id;
-    std::shared_ptr<MemTrackerLimiter> transmit_tracker;
+    std::shared_ptr<MemTrackerLimiter> transmit_tracker = nullptr;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
         transmit_tracker =
                 _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
-    } else {
+    }
+    if (!transmit_tracker) {
         query_id = "unkown_transmit_data";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_data");
     }
@@ -635,14 +636,16 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
                                            const Status& extract_st) {
     std::string query_id;
     TUniqueId finst_id;
-    std::shared_ptr<MemTrackerLimiter> transmit_tracker;
+    std::shared_ptr<MemTrackerLimiter> transmit_tracker = nullptr;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
+        // phmap `parallel_flat_hash_map` is not thread safe, so get query mem tracker may be null pointer.
         transmit_tracker =
                 _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
-    } else {
+    }
+    if (!transmit_tracker) {
         query_id = "unkown_transmit_block";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_block");
     }
