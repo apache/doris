@@ -34,6 +34,7 @@ import com.google.common.collect.Maps;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -377,7 +378,7 @@ public class Memo {
             return source;
         }
         List<GroupExpression> needReplaceChild = source.getParentGroupExpressions().stream()
-                .filter(e -> !e.getOwnerGroup().equals(destination)
+                .filter(e -> Objects.nonNull(e.getOwnerGroup()) && !e.getOwnerGroup().equals(destination)
         ).collect(Collectors.toList());
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
