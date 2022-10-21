@@ -145,23 +145,13 @@ Status CsvReader::init_reader(bool is_load) {
 }
 
 Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    if (_line_reader_eof == true) {
+    if (_line_reader_eof) {
         *eof = true;
         return Status::OK();
     }
 
-    if (!_init_column_pos) {
-        // Save mapping from file slot desc to column in block, so that we don't need to
-        // find column in block by name every time.
-        for (int i = 0; i < _file_slot_descs.size(); ++i) {
-            size_t position = block->get_position_by_name(_file_slot_descs[i]->col_name());
-            _col_posistions.push_back(position);
-        }
-        _init_column_pos = true;
-    }
-
     const int batch_size = _state->batch_size();
-    int rows = 0;
+    size_t rows = 0;
     while (rows < batch_size && !_line_reader_eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
@@ -175,14 +165,10 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             continue;
         }
 
-        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block));
-        ++rows;
-
-        if (_line_reader_eof == true) {
-            *eof = true;
-            break;
-        }
+        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, &rows));
     }
+
+    *eof = (rows == 0);
     *read_rows = rows;
 
     return Status::OK();
@@ -252,7 +238,7 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
-Status CsvReader::_fill_dest_columns(const Slice& line, Block* block) {
+Status CsvReader::_fill_dest_columns(const Slice& line, Block* block, size_t* rows) {
     bool is_success = false;
 
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
@@ -269,11 +255,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block) {
         // col idx is out of range, fill with null.
         const Slice& value =
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-        IColumn* col_ptr =
-                const_cast<IColumn*>(block->get_by_position(_col_posistions[i]).column.get());
+        IColumn* col_ptr = const_cast<IColumn*>(block->get_by_position(i).column.get());
         _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
                                           false);
     }
+    ++(*rows);
 
     return Status::OK();
 }

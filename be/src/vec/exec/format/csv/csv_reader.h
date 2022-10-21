@@ -43,8 +43,7 @@ public:
 
 private:
     Status _create_decompressor();
-    // Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns);
-    Status _fill_dest_columns(const Slice& line, Block* block);
+    Status _fill_dest_columns(const Slice& line, Block* block, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
@@ -60,14 +59,11 @@ private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     // Only for query task, save the columns' index which need to be read.
     // eg, there are 3 cols in "_file_slot_descs" named: k1, k2, k3
-    // and the corressponding pposition in file is 0, 3, 5.
+    // and the corressponding position in file is 0, 3, 5.
     // So the _col_idx will be: <0, 3, 5>
     std::vector<int> _col_idxs;
     // True if this is a load task
     bool _is_load = false;
-    // Save column position in block, order by _file_slot_descs
-    bool _init_column_pos = false;
-    std::vector<size_t> _col_posistions;
 
     // _file_reader_s is for stream load pipe reader,
     // and _file_reader is for other file reader.
