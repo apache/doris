@@ -437,9 +437,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
         switch (ref_column.type()) {
         case OLAP_FIELD_TYPE_TINYINT:
             if (*(int8_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int8_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int8_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int8_t*)src;
@@ -449,9 +451,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_SMALLINT:
             if (*(int16_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int16_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int16_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int16_t*)src;
@@ -461,9 +465,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_INT:
             if (*(int32_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int32_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int32_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int32_t*)src;
@@ -473,9 +479,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_BIGINT:
             if (*(int64_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int64_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int64_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int64_t*)src;
@@ -1747,7 +1755,8 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 
 std::shared_mutex SchemaChangeHandler::_mutex;
 std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
-std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap"};
+std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap",
+                                                                   "to_bitmap_with_check"};
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
