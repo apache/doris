@@ -113,6 +113,8 @@ def generate_fe_datatype(str_type):
         vec_type = str_type.split('_', 1);
         if len(vec_type) > 1 and vec_type[0] == "ARRAY":
             return "new ArrayType(" + generate_fe_datatype(vec_type[1]) + ")"
+    if str_type == "DECIMALV2":
+        return "Type.MAX_DECIMALV2_TYPE"
     return "Type." + str_type
 
 """
