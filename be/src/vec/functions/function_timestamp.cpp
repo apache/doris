@@ -569,10 +569,10 @@ public:
     }
 };
 
-template <typename Impl, typename DateType>
+template <template <typename> class Impl, typename DateType>
 class FunctionDateOrDateTimeToDate : public IFunction {
 public:
-    static constexpr auto name = Impl::name;
+    static constexpr auto name = Impl<DateType>::name;
     static FunctionPtr create() {
         return std::make_shared<FunctionDateOrDateTimeToDate<Impl, DateType>>();
     }
@@ -599,7 +599,8 @@ public:
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
+                      std::is_same_v<DateType, DataTypeDate>) {
             return {std::make_shared<DataTypeDate>()};
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             return {std::make_shared<DataTypeDateV2>()};
@@ -610,7 +611,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+        return Impl<DateType>::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
@@ -625,7 +626,8 @@ struct LastDayImpl {
         ColumnPtr res_column;
         ColumnPtr argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+        if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
+                      std::is_same_v<DateType, DataTypeDate>) {
             auto data_col = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
             res_column = ColumnInt64::create(input_rows_count);
             execute_straight<VecDateTimeValue, Int64, Int64>(
@@ -764,14 +766,10 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<
             FunctionUnixTimestamp<UnixTimeStampDatetimeImpl<DataTypeDateTimeV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl>>();
-    factory.register_function<
-            FunctionDateOrDateTimeToDate<LastDayImpl<DataTypeDateTime>, DataTypeDateTime>>();
-    factory.register_function<
-            FunctionDateOrDateTimeToDate<LastDayImpl<DataTypeDate>, DataTypeDate>>();
-    factory.register_function<
-            FunctionDateOrDateTimeToDate<LastDayImpl<DataTypeDateV2>, DataTypeDateV2>>();
-    factory.register_function<
-            FunctionDateOrDateTimeToDate<LastDayImpl<DataTypeDateTimeV2>, DataTypeDateTimeV2>>();
+    factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, DataTypeDateTime>>();
+    factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, DataTypeDate>>();
+    factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, DataTypeDateV2>>();
+    factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, DataTypeDateTimeV2>>();
 }
 
 } // namespace doris::vectorized
