@@ -279,6 +279,11 @@ public class EditLog {
                     env.replayRenamePartition(info);
                     break;
                 }
+                case OperationType.OP_RENAME_COLUMN: {
+                    TableRenameColumnInfo info = (TableRenameColumnInfo) journal.getData();
+                    env.replayRenameColumn(info);
+                    break;
+                }
                 case OperationType.OP_BACKUP_JOB: {
                     BackupJob job = (BackupJob) journal.getData();
                     env.getBackupHandler().replayAddJob(job);
@@ -1218,6 +1223,10 @@ public class EditLog {
 
     public void logPartitionRename(TableInfo tableInfo) {
         logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
+    }
+
+    public void logColumnRename(TableRenameColumnInfo info) {
+        logEdit(OperationType.OP_RENAME_COLUMN, info);
     }
 
     public void logCreateCluster(Cluster cluster) {
