@@ -84,6 +84,17 @@ public:
         return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack.back()->label();
     }
 
+    void start_count_scope_mem() {
+        _scope_mem = 0;
+        _count_scope_mem = true;
+    }
+
+    int64_t stop_count_scope_mem() {
+        flush_untracked_mem<false>();
+        _count_scope_mem = false;
+        return _scope_mem;
+    }
+
     void set_exceed_call_back(ExceedCallBack cb_func) { _cb_func = cb_func; }
 
     // Note that, If call the memory allocation operation in TCMalloc new/delete Hook,
@@ -135,6 +146,10 @@ private:
     // Frequent calls to unordered_map _untracked_mems[] in consume will degrade performance.
     int64_t _untracked_mem = 0;
     int64_t old_untracked_mem = 0;
+
+    bool _count_scope_mem = false;
+    int64_t _scope_mem = 0;
+
     std::string failed_msg = std::string();
 
     // _limiter_tracker_stack[0] = orphan_mem_tracker
@@ -216,6 +231,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     if (!_init) init();
     DCHECK(_limiter_tracker_raw);
     old_untracked_mem = _untracked_mem;
+    if (_count_scope_mem) _scope_mem += _untracked_mem;
     if (CheckLimit) {
 #ifndef BE_TEST
         // When all threads are started, `attach_limiter_tracker` is expected to be called to bind the limiter tracker.

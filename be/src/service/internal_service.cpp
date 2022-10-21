@@ -139,7 +139,6 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
         query_id = "unkown_transmit_data";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_data");
     }
-    SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " query_id=" << query_id << " node=" << request->node_id();
     // The response is accessed when done->Run is called in transmit_data(),
@@ -147,6 +146,7 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
     Status st;
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
+        SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
         st = _exec_env->stream_mgr()->transmit_data(request, &done);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_data failed, message=" << st.get_error_msg()
@@ -649,7 +649,6 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
         query_id = "unkown_transmit_block";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_block");
     }
-    SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
     VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
              << " query_id=" << query_id << " node=" << request->node_id();
     // The response is accessed when done->Run is called in transmit_block(),
@@ -657,6 +656,7 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
     Status st;
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
+        SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()

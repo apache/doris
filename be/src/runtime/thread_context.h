@@ -29,16 +29,58 @@
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
 
+// Used to observe the memory usage of the specified code segment
 #ifdef USE_MEM_TRACKER
-// Add thread mem tracker consumer during query execution.
+// Count a code segment memory (memory malloc - memory free) to int64_t
+// Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT(&scope_mem); xxx; xxx; }
+#define SCOPED_MEM_COUNT(scope_mem) \
+    auto VARNAME_LINENUM(scope_mem_count) = doris::ScopeMemCount(scope_mem)
+// Count a code segment memory (memory malloc - memory free) to MemTracker.
+// Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
+// Usage example: std::unique_ptr<MemTracker> tracker = std::make_unique<MemTracker>("first_tracker");
+//                { SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get()); xxx; xxx; }
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
-// Attach to task when thread starts
+#else
+#define SCOPED_MEM_COUNT(scope_mem) (void)0
+#define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
+#endif
+
+// Used to observe query/load/compaction/e.g. execution thread memory usage and respond when memory exceeds the limit.
+#ifdef USE_MEM_TRACKER
+// Attach to query/load/compaction/e.g. when thread starts.
+// This will save some info about a working thread in the thread context.
+// And count the memory during thread execution (is actually also the code segment that executes the function)
+// to specify MemTrackerLimiter, and expect to handle when the memory exceeds the limit, for example cancel query.
+// Usage is similar to SCOPED_CONSUME_MEM_TRACKER.
 #define SCOPED_ATTACH_TASK(arg1, ...) \
     auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, ##__VA_ARGS__)
+// Switch MemTrackerLimiter for count memory during thread execution.
+// Usually used after SCOPED_ATTACH_TASK, in order to count the memory of the specified code segment into another
+// MemTrackerLimiter instead of the MemTrackerLimiter added by the attach task.
+#define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) \
+    auto VARNAME_LINENUM(switch_mem_tracker) = SwitchThreadMemTrackerLimiter(mem_tracker_limiter)
+// If you don't want to cancel query after thread MemTrackerLimiter exceed limit in a code segment, then use it.
+// Usually used after SCOPED_ATTACH_TASK.
+#define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() \
+    auto VARNAME_LINENUM(stop_check_limit) = StopCheckThreadMemTrackerLimit()
+// If the thread MemTrackerLimiter exceeds the limit, an error status is returned.
+// Usually used after SCOPED_ATTACH_TASK, during query execution.
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                              \
+    return doris::thread_context()                                                          \
+            ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()                            \
+            ->mem_limit_exceeded(                                                           \
+                    state,                                                                  \
+                    fmt::format("exec node:<{}>, {}",                                       \
+                                doris::thread_context()                                     \
+                                        ->_thread_mem_tracker_mgr->last_consumer_tracker(), \
+                                msg),                                                       \
+                    ##__VA_ARGS__);
 #else
-#define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) (void)0
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
+#define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) (void)0
+#define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() (void)0
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...) (void)0
 #endif
 
 namespace doris {
@@ -136,6 +178,13 @@ public:
     void attach_task(const TaskType& type, const std::string& task_id,
                      const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+#ifndef BE_TEST
+        // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
+        DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) &&
+               type != TaskType::UNKNOWN && _task_id == "" && mem_tracker != nullptr)
+                << ",new tracker label: " << mem_tracker->label() << ",old tracker label: "
+                << _thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label();
+#endif
         _type = type;
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
@@ -230,6 +279,16 @@ static ThreadContext* thread_context() {
     }
 }
 
+class ScopeMemCount {
+public:
+    explicit ScopeMemCount(int64_t* scope_mem);
+
+    ~ScopeMemCount();
+
+private:
+    int64_t* _scope_mem;
+};
+
 class AttachTask {
 public:
     explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
@@ -240,6 +299,14 @@ public:
     explicit AttachTask(RuntimeState* runtime_state);
 
     ~AttachTask();
+};
+
+class SwitchThreadMemTrackerLimiter {
+public:
+    explicit SwitchThreadMemTrackerLimiter(
+            const std::shared_ptr<MemTrackerLimiter>& mem_tracker_limiter);
+
+    ~SwitchThreadMemTrackerLimiter();
 };
 
 class AddThreadMemTrackerConsumer {
@@ -264,30 +331,22 @@ private:
     bool _pre;
 };
 
-// The following macros are used to fix the tracking accuracy of caches etc.
+// Basic macros for mem tracker, usually do not need to be modified and used.
 #ifdef USE_MEM_TRACKER
-#define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() \
-    auto VARNAME_LINENUM(stop_check_limit) = StopCheckThreadMemTrackerLimit()
+// For the memory that cannot be counted by mem hook, manually count it into the mem tracker, such as mmap.
 #define CONSUME_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->_thread_mem_tracker_mgr->consume(size)
 #define RELEASE_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->_thread_mem_tracker_mgr->consume(-size)
+
+// used to fix the tracking accuracy of caches.
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                         \
     doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->transfer_to( \
             size, tracker)
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) \
     tracker->transfer_to(                               \
             size, doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw())
-#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                              \
-    return doris::thread_context()                                                          \
-            ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()                            \
-            ->mem_limit_exceeded(                                                           \
-                    state,                                                                  \
-                    fmt::format("exec node:<{}>, {}",                                       \
-                                doris::thread_context()                                     \
-                                        ->_thread_mem_tracker_mgr->last_consumer_tracker(), \
-                                msg),                                                       \
-                    ##__VA_ARGS__);
+
 // Mem Hook to consume thread mem tracker
 #define MEM_MALLOC_HOOK(size)                                                \
     do {                                                                     \
@@ -306,12 +365,10 @@ private:
         }                                                                     \
     } while (0)
 #else
-#define STOP_CHECK_THREAD_MEM_TRACKER_LIMIT() (void)0
 #define CONSUME_THREAD_MEM_TRACKER(size) (void)0
 #define RELEASE_THREAD_MEM_TRACKER(size) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
-#define RETURN_LIMIT_EXCEEDED(state, msg, ...) (void)0
 #define MEM_MALLOC_HOOK(size) (void)0
 #define MEM_FREE_HOOK(size) (void)0
 #endif
