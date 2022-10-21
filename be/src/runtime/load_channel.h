@@ -177,9 +177,6 @@ Status LoadChannel::handle_mem_exceed_limit(TabletWriterAddResult* response) {
     {
         // lock so that only one thread can check mem limit
         std::lock_guard<std::mutex> l(_lock);
-
-        LOG(INFO) << "reducing memory of " << *this
-                  << " ,mem consumption: " << _mem_tracker->consumption();
         found = _find_largest_consumption_channel(&channel);
     }
     // Release lock so that other threads can still call add_batch concurrently.

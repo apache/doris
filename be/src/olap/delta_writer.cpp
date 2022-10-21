@@ -383,9 +383,14 @@ Status DeltaWriter::cancel() {
     return Status::OK();
 }
 
-int64_t DeltaWriter::save_memtable_consumption_snapshot() {
+void DeltaWriter::save_mem_consumption_snapshot() {
+    _mem_consumption_snapshot = mem_consumption();
     _memtable_consumption_snapshot = memtable_consumption();
-    return _memtable_consumption_snapshot;
+}
+
+int64_t DeltaWriter::get_memtable_consumption_inflush() const {
+    if (_flush_token->get_stats().flush_running_count == 0) return 0;
+    return _mem_consumption_snapshot - _memtable_consumption_snapshot;
 }
 
 int64_t DeltaWriter::get_memtable_consumption_snapshot() const {
