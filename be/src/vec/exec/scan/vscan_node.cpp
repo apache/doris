@@ -202,6 +202,9 @@ Status VScanNode::_acquire_runtime_filter() {
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        if (auto bf = runtime_filter->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
+        }
         bool ready = runtime_filter->is_ready();
         if (!ready) {
             ready = runtime_filter->await();
