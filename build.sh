@@ -434,7 +434,7 @@ function build_ui() {
 
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
-    build_ui
+#     build_ui
 fi
 
 # Clean and build Frontend
