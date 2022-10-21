@@ -53,4 +53,9 @@ elif [[ -d "${JAVA_HOME}/jre" ]]; then
 else
     export LIBJVM_PATH="${JAVA_HOME}/lib/${jvm_arch}"
 fi
-echo "${LIBJVM_PATH}"/*/libjvm.so
+
+if [[ "$(uname -s)" != 'Darwin' ]]; then
+    echo "${LIBJVM_PATH}"/*/libjvm.so
+else
+    echo "${LIBJVM_PATH}"/*/libjvm.dylib
+fi

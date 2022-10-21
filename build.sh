@@ -300,6 +300,10 @@ if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
 
+if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
+    BUILD_JAVA_UDF=0
+fi
+
 echo "Get params:
     BUILD_FE            -- ${BUILD_FE}
     BUILD_BE            -- ${BUILD_BE}
@@ -447,7 +451,10 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
+    if [[ "$(uname -sm)" == 'Darwin arm64' ]]; then
+        os_arch='-Dos.arch=x86_64'
+    fi
+    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests ${os_arch:+${os_arch}}
     cd "${DORIS_HOME}"
 fi
 
