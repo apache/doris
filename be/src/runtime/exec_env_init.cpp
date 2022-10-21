@@ -107,17 +107,20 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         store_paths.size() > 0) {
         _scan_thread_pool = new PriorityWorkStealingThreadPool(
                 config::doris_scanner_thread_pool_thread_num, store_paths.size(),
-                config::doris_scanner_thread_pool_queue_size);
+                config::doris_scanner_thread_pool_queue_size,
+                "olap_scanner");
         LOG(INFO) << "scan thread pool use PriorityWorkStealingThreadPool";
     } else {
         _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                                   config::doris_scanner_thread_pool_queue_size);
+                                                   config::doris_scanner_thread_pool_queue_size,
+                                                   "olap_scanner");
         LOG(INFO) << "scan thread pool use PriorityThreadPool";
     }
 
     _remote_scan_thread_pool =
             new PriorityThreadPool(config::doris_remote_scanner_thread_pool_thread_num,
-                                   config::doris_remote_scanner_thread_pool_queue_size);
+                                   config::doris_remote_scanner_thread_pool_queue_size,
+                                   "remote_scan");
 
     ThreadPoolBuilder("LimitedScanThreadPool")
             .set_min_threads(config::doris_scanner_thread_pool_thread_num)

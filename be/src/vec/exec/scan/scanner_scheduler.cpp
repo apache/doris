@@ -72,12 +72,13 @@ Status ScannerScheduler::init(ExecEnv* env) {
     // 2. local scan thread pool
     _local_scan_thread_pool.reset(new PriorityWorkStealingThreadPool(
             config::doris_scanner_thread_pool_thread_num, env->store_paths().size(),
-            config::doris_scanner_thread_pool_queue_size));
+            config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
     _remote_scan_thread_pool.reset(
             new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                   config::doris_scanner_thread_pool_queue_size));
+                                   config::doris_scanner_thread_pool_queue_size,
+                                   "remote_scan"));
 
     _is_init = true;
     return Status::OK();
