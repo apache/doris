@@ -114,10 +114,13 @@ vectorized::DataTypePtr Schema::get_data_type_ptr(const Field& field) {
     return vectorized::DataTypeFactory::instance().create_data_type(field);
 }
 
-vectorized::IColumn::MutablePtr Schema::get_predicate_column_nullable_ptr(FieldType type,
-                                                                          bool is_null) {
-    vectorized::IColumn::MutablePtr ptr = Schema::get_predicate_column_ptr(type);
-    if (is_null) {
+vectorized::IColumn::MutablePtr Schema::get_predicate_column_nullable_ptr(const Field& field) {
+    if (UNLIKELY(field.type() == OLAP_FIELD_TYPE_ARRAY)) {
+        return get_data_type_ptr(field)->create_column();
+    }
+
+    vectorized::IColumn::MutablePtr ptr = Schema::get_predicate_column_ptr(field.type());
+    if (field.is_nullable()) {
         return doris::vectorized::ColumnNullable::create(std::move(ptr),
                                                          doris::vectorized::ColumnUInt8::create());
     }
