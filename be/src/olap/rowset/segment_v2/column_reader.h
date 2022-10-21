@@ -31,6 +31,7 @@
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h" // for InvertedIndexReader
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
 #include "olap/rowset/segment_v2/parsed_page.h"        // for ParsedPage
@@ -105,6 +106,9 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
+    Status new_inverted_index_iterator(InvertedIndexParserType inverted_index_analyser_type,
+                                       InvertedIndexIterator** iterator);
+
     // Seek to the first entry in the column.
     Status seek_to_first(OrdinalPageIndexIterator* iter);
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter);
@@ -174,9 +178,19 @@ private:
         });
     }
 
+    // Read column inverted indexes into memory
+    // May be called multiple times, subsequent calls will no op.
+    Status _ensure_inverted_index_loaded(InvertedIndexParserType inverted_index_analyser_type) {
+        return _load_inverted_index_once.call([this, inverted_index_analyser_type] {
+            RETURN_IF_ERROR(_load_inverted_index_index(inverted_index_analyser_type));
+            return Status::OK();
+        });
+    }
+
     Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
     Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
     Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
+    Status _load_inverted_index_index(InvertedIndexParserType inverted_index_analyser_type);
     Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
@@ -214,9 +228,11 @@ private:
     const BloomFilterIndexPB* _bf_index_meta = nullptr;
 
     DorisCallOnce<Status> _load_index_once;
+    DorisCallOnce<Status> _load_inverted_index_once;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
+    std::unique_ptr<InvertedIndexReader> _inverted_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;

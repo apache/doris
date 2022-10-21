@@ -19,8 +19,10 @@
 
 #include <roaring/roaring.hh>
 
+#include "olap/schema.h"
 #include "olap/column_block.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/selection_vector.h"
 #include "vec/columns/column.h"
@@ -129,6 +131,13 @@ public:
     virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* roaring) const = 0;
 
+    //evaluate predicate on inverted
+    virtual Status evaluate(const Schema& schema, InvertedIndexIterator* iterators,
+                            uint32_t num_rows, roaring::Roaring* bitmap) const {
+        return Status::NotSupported(
+                "Not Implemented evaluate with inverted index, please check the predicate");
+    }
+
     // evaluate predicate on IColumn
     // a short circuit eval way
     virtual uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
@@ -179,6 +188,7 @@ public:
     }
 
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
+
     const std::string pred_type_string(PredicateType type) {
         switch (type) {
         case PredicateType::EQ:

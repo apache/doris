@@ -21,6 +21,7 @@
 
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
 
@@ -56,6 +57,52 @@ public:
 
         return _bitmap_compare(status, exact_match, ordinal_limit, seeked_ordinal, iterator,
                                bitmap);
+    }
+
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
+                            uint32_t num_rows, roaring::Roaring* bitmap) const override {
+        if (iterator == nullptr) {
+            return Status::OK();
+        }
+        auto column_desc = schema.column(_column_id);
+        std::string column_name = column_desc->name();
+
+        InvertedIndexQueryType query_type;
+        switch (PT)
+        {
+        case PredicateType::EQ:
+            query_type = InvertedIndexQueryType::EQUAL_QUERY;
+            break;
+        case PredicateType::NE:
+            query_type = InvertedIndexQueryType::EQUAL_QUERY;
+            break;
+        case PredicateType::LT:
+            query_type = InvertedIndexQueryType::LESS_THAN_QUERY;
+            break;
+        case PredicateType::LE:
+            query_type = InvertedIndexQueryType::LESS_EQUAL_QUERY;
+            break;
+        case PredicateType::GT:
+            query_type = InvertedIndexQueryType::GREATER_THAN_QUERY;
+            break;
+        case PredicateType::GE:
+            query_type = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+            break;
+        default:
+            return Status::InvalidArgument("invalid comparison predicate type {}", PT);
+        }
+
+        roaring::Roaring roaring;
+        RETURN_IF_ERROR(
+            iterator->read_from_inverted_index(column_name, &_value, query_type, num_rows, &roaring));
+
+        if constexpr(PT == PredicateType::NE) {
+            *bitmap -= roaring;
+        } else {
+            *bitmap &= roaring;
+        }
+
+        return Status::OK();
     }
 
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,

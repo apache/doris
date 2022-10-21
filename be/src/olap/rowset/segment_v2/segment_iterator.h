@@ -27,6 +27,7 @@
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
@@ -106,6 +107,7 @@ private:
 
     Status _init_return_column_iterators();
     Status _init_bitmap_index_iterators();
+    Status _init_inverted_index_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
     Status _get_row_ranges_by_keys();
@@ -123,6 +125,7 @@ private:
     Status _get_row_ranges_by_column_conditions();
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     Status _apply_bitmap_index();
+    Status _apply_inverted_index();
 
     Status _apply_index_except_leafnode_of_andnode();
     Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
@@ -259,6 +262,7 @@ private:
     // can use _schema get unique_id by cid
     std::map<int32_t, ColumnIterator*> _column_iterators;
     std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
+    std::map<int32_t, InvertedIndexIterator*> _inverted_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
