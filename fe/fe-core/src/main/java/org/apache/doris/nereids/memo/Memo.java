@@ -376,8 +376,8 @@ public class Memo {
         if (source.equals(destination)) {
             return source;
         }
-        List<GroupExpression> needReplaceChild = source.getParentGroupExpressions().stream().filter(
-                e -> !e.getOwnerGroup().equals(destination)
+        List<GroupExpression> needReplaceChild = source.getParentGroupExpressions().stream()
+                .filter(e -> !e.getOwnerGroup().equals(destination)
         ).collect(Collectors.toList());
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);

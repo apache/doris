@@ -156,7 +156,7 @@ public class Group {
 
     public List<GroupExpression> clearLogicalExpressions() {
         List<GroupExpression> move = logicalExpressions.stream()
-                .peek(groupExpr -> groupExpr.setOwnerGroup(null))
+                .peek(this::removeGroupExpression)
                 .collect(Collectors.toList());
         logicalExpressions.clear();
         return move;
@@ -164,7 +164,7 @@ public class Group {
 
     public List<GroupExpression> clearPhysicalExpressions() {
         List<GroupExpression> move = physicalExpressions.stream()
-                .peek(groupExpr -> groupExpr.setOwnerGroup(null))
+                .peek(this::removeGroupExpression)
                 .collect(Collectors.toList());
         physicalExpressions.clear();
         return move;
