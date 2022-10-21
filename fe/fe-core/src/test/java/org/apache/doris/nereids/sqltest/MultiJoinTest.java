@@ -24,6 +24,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -73,9 +74,9 @@ public class MultiJoinTest extends TestWithFeService implements PatternMatchSupp
     @Test
     void testMultiJoinEliminateCross() {
         List<String> sqls = ImmutableList.<String>builder()
-                .add("SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id")
                 .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id")
                 .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id AND T1.score > 0")
+                .add("SELECT * FROM T2 LEFT JOIN T3 ON T2.id = T3.id, T1 WHERE T1.id = T2.id AND T1.score > 0 AND T1.id + T2.id + T3.id > 0")
                 .build();
 
         for (String sql : sqls) {
@@ -87,6 +88,47 @@ public class MultiJoinTest extends TestWithFeService implements PatternMatchSupp
                                     logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
                                     leafPlan()
                             ).whenNot(join -> join.getJoinType().isCrossJoin())
+                    )
+                    .printlnTree();
+        }
+    }
+
+    @Test
+    @Disabled
+    // TODO: MultiJoin And EliminateOuter
+    void testEliminateBelowOuter() {
+        List<String> sqls = ImmutableList.<String>builder()
+                .add("SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id")
+                .build();
+
+        for (String sql : sqls) {
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .applyBottomUp(new ReorderJoin())
+                    .matches(
+                            logicalJoin(
+                                    logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
+                                    leafPlan()
+                            ).whenNot(join -> join.getJoinType().isCrossJoin())
+                    )
+                    .printlnTree();
+        }
+    }
+
+    @Test
+    void testPushdown() {
+        List<String> sqls = ImmutableList.<String>builder()
+                .add("SELECT * FROM T1 LEFT JOIN T2 ON T1.id = T2.id WHERE T2.score > 0")
+                .build();
+
+        for (String sql : sqls) {
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .applyBottomUp(new ReorderJoin())
+                    .matches(
+                            logicalFilter(
+                                    logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin())
+                            )
                     )
                     .printlnTree();
         }

@@ -38,6 +38,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -79,8 +80,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
 
     /**
      * Recursively convert to
-     * {@link LogicalJoin} or
-     * {@link LogicalFilter}--{@link LogicalJoin}
+     * {@link LogicalJoin} or {@link LogicalFilter}--{@link LogicalJoin}
      * --> {@link MultiJoin}
      */
     public Plan joinToMultiJoin(Plan plan) {
@@ -272,7 +272,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
 
         // following this multiJoin just contain INNER/CROSS.
-        List<Expression> joinFilter = multiJoinHandleChildren.getJoinFilter();
+        Set<Expression> joinFilter = new HashSet<>(multiJoinHandleChildren.getJoinFilter());
 
         Plan left = multiJoinHandleChildren.child(0);
         Set<Integer> usedPlansIndex = new HashSet<>();
@@ -281,14 +281,13 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         while (usedPlansIndex.size() != multiJoinHandleChildren.children().size()) {
             LogicalJoin<? extends Plan, ? extends Plan> join = findInnerJoin(left, multiJoinHandleChildren.children(),
                     joinFilter, usedPlansIndex);
-            // TODO: removeAll isn't good.
-            joinFilter.removeAll(join.getHashJoinConjuncts());
-            joinFilter.removeAll(join.getOtherJoinConjuncts());
+            join.getHashJoinConjuncts().forEach(joinFilter::remove);
+            join.getOtherJoinConjuncts().forEach(joinFilter::remove);
 
             left = join;
         }
 
-        return PlanUtils.filterOrSelf(joinFilter, left);
+        return PlanUtils.filterOrSelf(new ArrayList<>(joinFilter), left);
     }
 
     /**
@@ -318,7 +317,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      * @return InnerJoin or CrossJoin{left, last of [candidates]}
      */
     private LogicalJoin<? extends Plan, ? extends Plan> findInnerJoin(Plan left, List<Plan> candidates,
-            List<Expression> joinFilter, Set<Integer> usedPlansIndex) {
+            Set<Expression> joinFilter, Set<Integer> usedPlansIndex) {
         List<Expression> otherJoinConditions = Lists.newArrayList();
         Set<Slot> leftOutputSet = left.getOutputSet();
         for (int i = 0; i < candidates.size(); i++) {
