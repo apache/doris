@@ -1392,34 +1392,6 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::String}},
-            {{{BOOLEAN(1), STRING("Json")}, STRING("true")}});
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::String}},
-            {{{BOOLEAN(0), STRING("Json")}, STRING("false")}});
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Int8}, ConstedNotnull {TypeIndex::String}},
-            {{{TINYINT(100), STRING("Json")}, STRING("100")}});
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Int16}, ConstedNotnull {TypeIndex::String}},
-            {{{SMALLINT(10000), STRING("Json")}, STRING("10000")}});
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Int32}, ConstedNotnull {TypeIndex::String}},
-            {{{INT(1000000000), STRING("Json")}, STRING("1000000000")}});
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Int64}, ConstedNotnull {TypeIndex::String}},
-            {{{BIGINT(1152921504606846976), STRING("Json")}, STRING("1152921504606846976")}});
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Float64}, ConstedNotnull {TypeIndex::String}},
-            {{{DOUBLE(6.18), STRING("Json")}, STRING("6.18")}});
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"(abcd)"), STRING("Json")}, STRING("")}}, true); // should fail
-    check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"("abcd")"), STRING("Json")}, STRING(R"("abcd")")}});
-
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::String}},
             {{{BOOLEAN(1), STRING("Json")}, STRING("true")}});
@@ -1443,7 +1415,7 @@ TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
             {{{DOUBLE(6.18), STRING("Json")}, STRING("6.18")}});
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
-            {{{STRING(R"(abcd)"), STRING("Json")}, STRING("")}}, true); // should fail
+            {{{STRING(R"(abcd)"), STRING("Json")}, Null()}}); // should fail
     check_function<DataTypeJsonb, true>(
             "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::String}},
             {{{STRING(R"("abcd")"), STRING("Json")}, STRING(R"("abcd")")}});
