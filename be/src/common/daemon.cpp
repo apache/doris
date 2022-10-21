@@ -74,13 +74,29 @@ void Daemon::tcmalloc_gc_thread() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         size_t used_size = 0;
         size_t free_size = 0;
+        size_t heap_size = 0;
+        size_t max_total_thread_cache_bytes = 0;
+        size_t current_total_thread_cache_bytes = 0;
+        size_t pageheap_unmapped_bytes = 0;
 
         MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
                                                         &used_size);
+        MallocExtension::instance()->GetNumericProperty("generic.heap_size", &heap_size);
         MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes", &free_size);
+        MallocExtension::instance()->GetNumericProperty("tcmalloc.max_total_thread_cache_bytes",
+                                                        &max_total_thread_cache_bytes);
+        MallocExtension::instance()->GetNumericProperty("tcmalloc.current_total_thread_cache_bytes",
+                                                        &current_total_thread_cache_bytes);
+        MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_unmapped_bytes",
+                                                        &pageheap_unmapped_bytes);
+ 
         size_t alloc_size = used_size + free_size;
-        LOG(INFO) << "tcmalloc.pageheap_free_bytes " << free_size
-                  << ", generic.current_allocated_bytes " << used_size;
+        LOG(INFO) << "generic.heap_size " << heap_size 
+                  << ", tcmalloc.pageheap_free_bytes " << free_size
+                  << ", generic.current_allocated_bytes " << used_size
+                  << ", tcmalloc.max_total_thread_cache_bytes " << max_total_thread_cache_bytes
+                  << ", tcmalloc.current_total_thread_cache_bytes " << current_total_thread_cache_bytes
+                  << ", tcmalloc.pageheap_unmapped_bytes " << pageheap_unmapped_bytes;
 
         if (alloc_size > config::tc_use_memory_min) {
             size_t max_free_size = alloc_size * config::tc_free_memory_rate / 100;
