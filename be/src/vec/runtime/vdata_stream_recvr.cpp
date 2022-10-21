@@ -53,10 +53,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
     }
 
     // _cur_batch must be replaced with the returned batch.
-    {
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
-        _current_block.reset();
-    }
+    _current_block.reset();
     *next_block = nullptr;
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
@@ -80,7 +77,10 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
-        closure_pair.first->Run();
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            closure_pair.first->Run();
+        }
         _pending_closures.pop_front();
 
         closure_pair.second.stop();
@@ -222,8 +222,11 @@ void VDataStreamRecvr::SenderQueue::cancel() {
 
     {
         std::lock_guard<std::mutex> l(_lock);
-        for (auto closure_pair : _pending_closures) {
-            closure_pair.first->Run();
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            for (auto closure_pair : _pending_closures) {
+                closure_pair.first->Run();
+            }
         }
         _pending_closures.clear();
     }
@@ -237,8 +240,11 @@ void VDataStreamRecvr::SenderQueue::close() {
         std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
 
-        for (auto closure_pair : _pending_closures) {
-            closure_pair.first->Run();
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            for (auto closure_pair : _pending_closures) {
+                closure_pair.first->Run();
+            }
         }
         _pending_closures.clear();
     }

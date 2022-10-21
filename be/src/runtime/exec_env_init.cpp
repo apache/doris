@@ -202,6 +202,7 @@ Status ExecEnv::_init_mem_tracker() {
             std::make_shared<MemTrackerLimiter>(global_memory_limit_bytes, "Process");
     _orphan_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Orphan", _process_mem_tracker);
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
+    _nursery_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Nursery", _orphan_mem_tracker);
     _bthread_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Bthread", _orphan_mem_tracker);
     thread_context()->_thread_mem_tracker_mgr->init();
     thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
