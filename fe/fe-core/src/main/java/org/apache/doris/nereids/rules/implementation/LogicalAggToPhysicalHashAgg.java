@@ -31,7 +31,6 @@ public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
             boolean useStreamAgg = !ctx.connectContext.getSessionVariable().disableStreamPreaggregations
                     && !ctx.root.getGroupByExpressions().isEmpty();
             return new PhysicalAggregate<>(
-                    // TODO: for use a function to judge whether use stream
                     ctx.root.getGroupByExpressions(),
                     ctx.root.getOutputExpressions(),
                     ctx.root.getPartitionExpressions(),
