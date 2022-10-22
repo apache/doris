@@ -19,17 +19,11 @@
 
 #include <parallel_hashmap/phmap.h>
 
-#include <cstring>
-
 #include "common/object_pool.h"
-#include "common/status.h"
-#include "exprs/expr.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/large_int_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
-#include "vec/exprs/vliteral.h"
 
 namespace doris {
 
@@ -46,19 +40,19 @@ public:
     virtual void insert(HybridSetBase* set) = 0;
 
     virtual int size() = 0;
-    virtual bool find(void* data) = 0;
+    virtual bool find(const void* data) = 0;
     // use in vectorize execute engine
-    virtual bool find(void* data, size_t) = 0;
+    virtual bool find(const void* data, size_t) = 0;
 
-    virtual Status to_vexpr_list(doris::ObjectPool* pool,
-                                 std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
-                                 int scale) = 0;
+    virtual void find_fixed_len(const char* data, const uint8* nullmap, int number,
+                                uint8* results) {
+        LOG(FATAL) << "HybridSetBase not support find_fixed_len";
+    }
 
-    virtual bool is_date_v2() { return false; }
     class IteratorBase {
     public:
-        IteratorBase() {}
-        virtual ~IteratorBase() {}
+        IteratorBase() = default;
+        virtual ~IteratorBase() = default;
         virtual const void* get_value() = 0;
         virtual bool has_next() const = 0;
         virtual void next() = 0;
@@ -77,25 +71,10 @@ public:
 
     ~HybridSet() override = default;
 
-    bool is_date_v2() override { return T == TYPE_DATEV2; }
-
-    Status to_vexpr_list(doris::ObjectPool* pool,
-                         std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
-                         int scale) override {
-        HybridSetBase::IteratorBase* it = begin();
-        DCHECK(it != nullptr);
-        while (it->has_next()) {
-            TExprNode node;
-            const void* v = it->get_value();
-            create_texpr_literal_node<T>(v, &node, precision, scale);
-            vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
-            it->next();
-        }
-        return Status::OK();
-    };
-
     void insert(const void* data) override {
-        if (data == nullptr) return;
+        if (data == nullptr) {
+            return;
+        }
 
         if constexpr (sizeof(CppType) >= 16) {
             // for large int, it will core dump with no memcpy
@@ -110,7 +89,7 @@ public:
 
     void insert_fixed_len(const char* data, const int* offsets, int number) override {
         for (int i = 0; i < number; i++) {
-            _set.insert(*((CppType*)data + offsets[i]));
+            insert((void*)((CppType*)data + offsets[i]));
         }
     }
 
@@ -121,12 +100,27 @@ public:
 
     int size() override { return _set.size(); }
 
-    bool find(void* data) override {
-        auto it = _set.find(*reinterpret_cast<CppType*>(data));
+    bool find(const void* data) override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        auto it = _set.find(*reinterpret_cast<const CppType*>(data));
         return !(it == _set.end());
     }
 
-    bool find(void* data, size_t) override { return find(data); }
+    bool find(const void* data, size_t) override { return find(data); }
+
+    void find_fixed_len(const char* data, const uint8* nullmap, int number,
+                        uint8* results) override {
+        for (int i = 0; i < number; i++) {
+            if (nullmap != nullptr && nullmap[i]) {
+                results[i] = false;
+            } else {
+                results[i] = _set.count(*((CppType*)data + i));
+            }
+        }
+    }
 
     template <class _iT>
     class Iterator : public IteratorBase {
@@ -135,9 +129,9 @@ public:
                  typename phmap::flat_hash_set<_iT>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const override { return !(_begin == _end); }
-        virtual const void* get_value() override { return _begin.operator->(); }
-        virtual void next() override { ++_begin; }
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override { return _begin.operator->(); }
+        void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<_iT>::iterator _begin;
@@ -147,6 +141,8 @@ public:
     IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator<CppType>(_set.begin(), _set.end()));
     }
+
+    phmap::flat_hash_set<CppType>* get_inner_set() { return &_set; }
 
 private:
     phmap::flat_hash_set<CppType> _set;
@@ -159,23 +155,10 @@ public:
 
     ~StringSet() override = default;
 
-    Status to_vexpr_list(doris::ObjectPool* pool,
-                         std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
-                         int scale) override {
-        HybridSetBase::IteratorBase* it = begin();
-        DCHECK(it != nullptr);
-        while (it->has_next()) {
-            TExprNode node;
-            const void* v = it->get_value();
-            create_texpr_literal_node<TYPE_STRING>(v, &node);
-            vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
-            it->next();
-        }
-        return Status::OK();
-    };
-
     void insert(const void* data) override {
-        if (data == nullptr) return;
+        if (data == nullptr) {
+            return;
+        }
 
         const auto* value = reinterpret_cast<const StringValue*>(data);
         std::string str_value(value->ptr, value->len);
@@ -198,16 +181,20 @@ public:
 
     int size() override { return _set.size(); }
 
-    bool find(void* data) override {
-        auto* value = reinterpret_cast<StringValue*>(data);
+    bool find(const void* data) override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        auto* value = reinterpret_cast<const StringValue*>(data);
         std::string_view str_value(const_cast<const char*>(value->ptr), value->len);
         auto it = _set.find(str_value);
 
         return !(it == _set.end());
     }
 
-    bool find(void* data, size_t size) override {
-        std::string str_value(reinterpret_cast<char*>(data), size);
+    bool find(const void* data, size_t size) override {
+        std::string str_value(reinterpret_cast<const char*>(data), size);
         auto it = _set.find(str_value);
         return !(it == _set.end());
     }
@@ -218,13 +205,13 @@ public:
                  phmap::flat_hash_set<std::string>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const override { return !(_begin == _end); }
-        virtual const void* get_value() override {
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override {
             _value.ptr = const_cast<char*>(_begin->data());
             _value.len = _begin->length();
             return &_value;
         }
-        virtual void next() override { ++_begin; }
+        void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<std::string>::iterator _begin;
@@ -235,6 +222,8 @@ public:
     IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
+
+    phmap::flat_hash_set<std::string>* get_inner_set() { return &_set; }
 
 private:
     phmap::flat_hash_set<std::string> _set;
@@ -250,23 +239,10 @@ public:
 
     ~StringValueSet() override = default;
 
-    Status to_vexpr_list(doris::ObjectPool* pool,
-                         std::vector<doris::vectorized::VExpr*>* vexpr_list, int precision,
-                         int scale) override {
-        HybridSetBase::IteratorBase* it = begin();
-        DCHECK(it != nullptr);
-        while (it->has_next()) {
-            TExprNode node;
-            const void* v = it->get_value();
-            create_texpr_literal_node<TYPE_STRING>(v, &node);
-            vexpr_list->push_back(pool->add(new doris::vectorized::VLiteral(node)));
-            it->next();
-        }
-        return Status::OK();
-    };
-
     void insert(const void* data) override {
-        if (data == nullptr) return;
+        if (data == nullptr) {
+            return;
+        }
 
         const auto* value = reinterpret_cast<const StringValue*>(data);
         StringValue sv(value->ptr, value->len);
@@ -289,16 +265,23 @@ public:
 
     int size() override { return _set.size(); }
 
-    bool find(void* data) override {
-        auto* value = reinterpret_cast<StringValue*>(data);
+    bool find(const void* data) override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        auto* value = reinterpret_cast<const StringValue*>(data);
         auto it = _set.find(*value);
 
         return !(it == _set.end());
     }
 
-    bool find(void* data, size_t size) override {
-        // std::string str_value(reinterpret_cast<char*>(data), size);
-        StringValue sv(reinterpret_cast<char*>(data), size);
+    bool find(const void* data, size_t size) override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        StringValue sv(reinterpret_cast<const char*>(data), size);
         auto it = _set.find(sv);
         return !(it == _set.end());
     }
@@ -309,13 +292,13 @@ public:
                  phmap::flat_hash_set<StringValue>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const override { return !(_begin == _end); }
-        virtual const void* get_value() override {
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override {
             _value.ptr = const_cast<char*>(_begin->ptr);
             _value.len = _begin->len;
             return &_value;
         }
-        virtual void next() override { ++_begin; }
+        void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<StringValue>::iterator _begin;
@@ -326,6 +309,8 @@ public:
     IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
+
+    phmap::flat_hash_set<StringValue>* get_inner_set() { return &_set; }
 
 private:
     phmap::flat_hash_set<StringValue> _set;

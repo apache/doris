@@ -22,11 +22,8 @@
 #include <time.h>
 
 #include "olap/column_predicate.h"
-#include "olap/field.h"
 #include "olap/row_block2.h"
 #include "runtime/mem_pool.h"
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.hpp"
 
 namespace doris {
 
@@ -150,8 +147,8 @@ public:
         values.insert(4);                                                                         \
         values.insert(5);                                                                         \
         values.insert(6);                                                                         \
-        ColumnPredicate* pred = new InListPredicateBase<PRIMITIVE_TYPE, PredicateType::IN_LIST>(  \
-                0, std::move(values));                                                            \
+        ColumnPredicate* pred =                                                                   \
+                new InListPredicateBase<PRIMITIVE_TYPE, PredicateType::IN_LIST>(0, values);       \
         uint16_t sel[10];                                                                         \
         for (int i = 0; i < 10; ++i) {                                                            \
             sel[i] = i;                                                                           \
@@ -216,8 +213,7 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     values.insert(4.1);
     values.insert(5.1);
     values.insert(6.1);
-    ColumnPredicate* pred =
-            new InListPredicateBase<TYPE_FLOAT, PredicateType::IN_LIST>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicateBase<TYPE_FLOAT, PredicateType::IN_LIST>(0, values);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -267,8 +263,7 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
     values.insert(5.1);
     values.insert(6.1);
 
-    ColumnPredicate* pred =
-            new InListPredicateBase<TYPE_DOUBLE, PredicateType::IN_LIST>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicateBase<TYPE_DOUBLE, PredicateType::IN_LIST>(0, values);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -323,7 +318,7 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     values.insert(value3);
 
     ColumnPredicate* pred =
-            new InListPredicateBase<TYPE_DECIMALV2, PredicateType::IN_LIST>(0, std::move(values));
+            new InListPredicateBase<TYPE_DECIMALV2, PredicateType::IN_LIST>(0, values);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -388,8 +383,7 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     value3.len = 5;
     values.insert(value3);
 
-    ColumnPredicate* pred =
-            new InListPredicateBase<TYPE_CHAR, PredicateType::IN_LIST>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicateBase<TYPE_CHAR, PredicateType::IN_LIST>(0, values);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -467,7 +461,7 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
     values.insert(value3);
 
     ColumnPredicate* pred =
-            new InListPredicateBase<TYPE_VARCHAR, PredicateType::IN_LIST>(0, std::move(values));
+            new InListPredicateBase<TYPE_VARCHAR, PredicateType::IN_LIST>(0, values);
 
     // for ColumnBlock no null
     init_row_block(tablet_schema, size);
@@ -533,8 +527,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
 
     uint24_t value3 = datetime::timestamp_from_date("2017-09-11");
     values.insert(value3);
-    ColumnPredicate* pred =
-            new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST>(0, values);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -606,8 +599,7 @@ TEST_F(TestInListPredicate, DATE_V2_COLUMN) {
 
     uint32_t value3 = datetime::timestamp_from_date_v2("2017-09-11");
     values.insert(value3);
-    ColumnPredicate* pred =
-            new InListPredicateBase<TYPE_DATEV2, PredicateType::IN_LIST>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicateBase<TYPE_DATEV2, PredicateType::IN_LIST>(0, values);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
@@ -681,7 +673,7 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     values.insert(value3);
 
     ColumnPredicate* pred =
-            new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST>(0, std::move(values));
+            new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST>(0, values);
 
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");
