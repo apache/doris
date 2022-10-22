@@ -344,8 +344,8 @@ It is also possible to use only one layer of partitioning. When using a layer pa
 Compound Partitions
 
 - The first level is called Partition, which is partition. Users can specify a dimension column as a partition column (currently only columns of integer and time types are supported), and specify the value range of each partition.
-- The second level is called Distribution, which means bucketing. Users can specify one or more dimension columns and the number of buckets to perform HASH distribution on the data.
-  第二级称为 Distribution，即分桶。用户可以指定一个或多个维度列以及桶数对数据进行 HASH 分布 或者不指定分桶列设置成 Random Distribution 对数据进行随机分布。
+- The second level is called Distribution, which means bucketing. Users can specify one or more dimension columns and the number of buckets to perform HASH distribution on the data or set it to Random Distribution with not specifying the bucket distribution column to randomly distribute the data.
+
 Composite partitions are recommended for the following scenarios
 
 - There is a time dimension or similar dimension with ordered values, which can be used as a partition column. Partition granularity can be evaluated based on import frequency, partition data volume, etc.
