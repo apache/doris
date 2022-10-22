@@ -35,11 +35,13 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -75,6 +77,10 @@ import java.util.stream.Collectors;
  */
 public class HiveScanProvider implements HMSTableScanProviderIf {
     private static final Logger LOG = LogManager.getLogger(HiveScanProvider.class);
+
+    private static final String PROP_FIELD_DELIMITER = "field.delim";
+    private static final String DEFAULT_FIELD_DELIMITER = "|";
+    private static final String DEFAULT_LINE_DELIMITER = "\n";
 
     protected HMSExternalTable hmsTable;
 
@@ -268,7 +274,20 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
             String fsName = fullPath.replace(filePath, "");
             TFileType locationType = getLocationType();
             context.params.setFileType(locationType);
+            TFileFormatType fileFormatType = getFileFormatType();
             context.params.setFormatType(getFileFormatType());
+            if (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
+                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+                String columnSeparator
+                        = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
+                        .getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER);
+                textParams.setColumnSeparator(columnSeparator);
+                textParams.setLineDelimiter(DEFAULT_LINE_DELIMITER);
+                TFileAttributes fileAttributes = new TFileAttributes();
+                fileAttributes.setTextParams(textParams);
+                context.params.setFileAttributes(fileAttributes);
+            }
+
             // set hdfs params for hdfs file type.
             Map<String, String> locationProperties = getLocationProperties();
             if (locationType == TFileType.FILE_HDFS) {
@@ -363,4 +382,5 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
     }
 
 }
+
 
