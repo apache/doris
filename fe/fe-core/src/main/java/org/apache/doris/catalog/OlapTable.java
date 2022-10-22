@@ -1084,7 +1084,14 @@ public class OlapTable extends Table {
 
     @Override
     public boolean isPartitioned() {
-        return getPartitions().size() > 1;
+        int numSegs = 0;
+        for (Partition part : getPartitions()) {
+            numSegs += part.getDistributionInfo().getBucketNum();
+            if (numSegs > 1) {
+                return true;
+            }
+        }
+        return false;
     }
 
 
