@@ -168,7 +168,8 @@ suite("test_outfile") {
 
         File[] files = path.listFiles()
         assert files.length == 2 // one is outfile, the other is SUCCESS file
-        List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
+        File dataFile = files[0].getName().contains("SUCCESS") ? files[1] : files[0];
+        List<String> outLines = Files.readAllLines(Paths.get(dataFile.getAbsolutePath()), StandardCharsets.UTF_8);
         assertEquals(2, outLines.size())
         String[] outLine1 = outLines.get(0).split("\t")
         assertEquals(3, outLine1.size())
