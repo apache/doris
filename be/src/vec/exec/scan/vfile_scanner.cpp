@@ -492,7 +492,7 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             _cur_reader.reset(
                     new CsvReader(_state, _profile, &_counter, _params, range, _file_slot_descs));
-            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader();
+            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
             break;
         }
         default:
