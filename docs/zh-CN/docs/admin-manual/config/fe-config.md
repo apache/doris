@@ -2297,3 +2297,25 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：false
+
+### `disable_backend_black_list`
+
+用于禁止BE黑名单功能。禁止该功能后，如果向BE发送查询请求失败，也不会将这个BE添加到黑名单。
+该参数适用于回归测试环境，以减少偶发的错误导致大量回归测试失败。
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_backend_heartbeat_failure_tolerance_count`
+
+最大可容忍的BE节点心跳失败次数。如果连续心跳失败次数超过这个值，则会将BE状态置为 dead。
+该参数适用于回归测试环境，以减少偶发的心跳失败导致大量回归测试失败。
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
