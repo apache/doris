@@ -71,10 +71,10 @@ public class JoinEstimation {
 
     private static double estimateInnerJoin2(Join join, EqualTo equalto,
             StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
-        SlotReference eqRight = (SlotReference) equalto.child(1);
+        SlotReference eqRight = (SlotReference) equalto.child(1).getInputSlots().toArray()[0];
 
         ColumnStat rColumnStats = rightStats.getSlotToColumnStats().get(eqRight);
-        SlotReference eqLeft = (SlotReference) equalto.child(0);
+        SlotReference eqLeft = (SlotReference) equalto.child(0).getInputSlots().toArray()[0];
 
         if (rColumnStats == null) {
             rColumnStats = rightStats.getSlotToColumnStats().get(eqLeft);

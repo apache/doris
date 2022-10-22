@@ -47,9 +47,9 @@ import java.util.Map;
  * TODO: Should consider the distribution of data.
  */
 public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, EstimationContext> {
-    private static final double DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY = 0.8;
+    public static final double DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY = 0.8;
 
-    private static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
+    public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
 
     private final StatsDeriveResult inputStats;
 
@@ -420,7 +420,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
                     validInOptCount += validOptionNdv;
                 }
             }
-            validInOptCount = Math.min(1, compareExprStats.getNdv() - validInOptCount);
+            validInOptCount = Math.max(1, compareExprStats.getNdv() - validInOptCount);
             columnSelectivity = Math.max(1, validInOptCount)
                     / compareExprStats.getNdv();
         } else {
