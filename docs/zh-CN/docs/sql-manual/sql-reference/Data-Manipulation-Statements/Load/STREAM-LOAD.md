@@ -139,6 +139,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
            hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
            系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
        ```
+23. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
 
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
