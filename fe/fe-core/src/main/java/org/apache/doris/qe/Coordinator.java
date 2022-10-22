@@ -2150,7 +2150,7 @@ public class Coordinator {
         }
 
         public boolean isBackendStateHealthy() {
-            if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime) {
+            if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime && !backend.isAlive()) {
                 LOG.warn("backend {} is down while joining the coordinator. job id: {}",
                         backend.getId(), jobId);
                 return false;

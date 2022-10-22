@@ -21,6 +21,7 @@ import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -127,6 +128,14 @@ public class Backend implements Writable {
     // A backend can only be assigned to one tag type, and each type can only have one value.
     @SerializedName("tagMap")
     private Map<String, String> tagMap = Maps.newHashMap();
+
+    // Counter of heartbeat failure.
+    // Once a heartbeat failed, increase this counter by one.
+    // And if it reaches Config.max_backend_heartbeat_failure_tolerance_count, this backend
+    // will be marked as dead.
+    // And once it back to alive, reset this counter.
+    // No need to persist, because only master FE handle heartbeat.
+    private int heartbeatFailureCounter = 0;
 
     public Backend() {
         this.host = "";
@@ -331,6 +340,10 @@ public class Backend implements Writable {
 
     public BackendStatus getBackendStatus() {
         return backendStatus;
+    }
+
+    public int getHeartbeatFailureCounter() {
+        return heartbeatFailureCounter;
     }
 
     /**
@@ -690,12 +703,19 @@ public class Backend implements Writable {
             }
 
             heartbeatErrMsg = "";
+            this.heartbeatFailureCounter = 0;
         } else {
-            if (isAlive.compareAndSet(true, false)) {
-                isChanged = true;
-                LOG.warn("{} is dead,", this.toString());
+            // Only set backend to dead if the heartbeat failure counter exceed threshold.
+            if (++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {
+                if (isAlive.compareAndSet(true, false)) {
+                    isChanged = true;
+                    LOG.warn("{} is dead,", this.toString());
+                }
             }
 
+            // still set error msg and missing time even if we may not mark this backend as dead,
+            // for debug easily.
+            // But notice that if isChanged = false, these msg will not sync to other FE.
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
             lastMissingHeartbeatTime = System.currentTimeMillis();
         }
