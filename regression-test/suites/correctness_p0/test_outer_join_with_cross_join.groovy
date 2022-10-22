@@ -33,7 +33,7 @@ suite("test_outer_join_with_cross_join") {
     """
     
     sql """
-        create table test_outer_join_with_cross_join_outerjoin_A ( a int not null )
+        create table if not exists test_outer_join_with_cross_join_outerjoin_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -44,7 +44,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table test_outer_join_with_cross_join_outerjoin_B ( a int not null )
+        create table if not exists test_outer_join_with_cross_join_outerjoin_B ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -55,7 +55,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table test_outer_join_with_cross_join_outerjoin_C ( a int not null )
+        create table if not exists test_outer_join_with_cross_join_outerjoin_C ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -66,7 +66,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table test_outer_join_with_cross_join_outerjoin_D ( a int not null )
+        create table if not exists test_outer_join_with_cross_join_outerjoin_D ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (

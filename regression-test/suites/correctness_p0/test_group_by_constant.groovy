@@ -22,7 +22,7 @@ suite("test_group_by_constant") {
     """
 
     sql """
-        CREATE TABLE `table_group_by_constant` (
+        CREATE TABLE IF NOT EXISTS `table_group_by_constant` (
         `inc_day` date NULL
         ) ENGINE=OLAP
         UNIQUE KEY(`inc_day`)

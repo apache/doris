@@ -32,7 +32,7 @@ The same resolve error occurs when re-analyze v2.
      def viewName = "v_pushdown_pred_to_view";
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-         CREATE TABLE ${tableName} (
+         CREATE TABLE IF NOT EXISTS ${tableName} (
              `id` int
          ) ENGINE=OLAP
          AGGREGATE KEY(`id`)

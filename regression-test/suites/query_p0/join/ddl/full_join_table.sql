@@ -1,4 +1,4 @@
-CREATE TABLE `full_join_table` (
+CREATE TABLE IF NOT EXISTS `full_join_table` (
   `x` varchar(150) NULL COMMENT ""
 ) ENGINE=OLAP
 UNIQUE KEY(`x`)

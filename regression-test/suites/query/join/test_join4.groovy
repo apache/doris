@@ -27,8 +27,8 @@ suite("test_join4", "query,p0") {
     sql "DROP TABLE IF EXISTS ${tbName1};"
     sql "DROP TABLE IF EXISTS ${tbName2};"
 
-    sql """create table ${tbName1} (x1 int, x2 int) DISTRIBUTED BY HASH(x1) properties("replication_num" = "1");"""
-    sql """create table ${tbName2} (y1 int, y2 int) DISTRIBUTED BY HASH(y1) properties("replication_num" = "1");"""
+    sql """create table if not exists ${tbName1} (x1 int, x2 int) DISTRIBUTED BY HASH(x1) properties("replication_num" = "1");"""
+    sql """create table if not exists ${tbName2} (y1 int, y2 int) DISTRIBUTED BY HASH(y1) properties("replication_num" = "1");"""
 
     sql "insert into ${tbName1} values (1,11);"
     sql "insert into ${tbName1} values (2,22);"

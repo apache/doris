@@ -1,4 +1,4 @@
-create table parquet_s3_case9 (
+create table if not exists parquet_s3_case9 (
 tinyint_col           tinyint,
 smallint_col          smallint,
 int_col               int,

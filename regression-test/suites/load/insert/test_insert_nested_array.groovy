@@ -28,7 +28,7 @@ suite("test_insert_nested_array", "load") {
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 `key` INT,
                 value ARRAY<ARRAY<INT>>
             ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
@@ -65,7 +65,7 @@ suite("test_insert_nested_array", "load") {
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 `key` INT,
                 value ARRAY<ARRAY<ARRAY<INT>>>
             ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1

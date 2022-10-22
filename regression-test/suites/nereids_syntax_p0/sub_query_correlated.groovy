@@ -50,7 +50,7 @@ suite ("sub_query_correlated") {
     """
 
     sql """
-        create table subquery1
+        create table if not exists subquery1
         (k1 bigint, k2 bigint)
         duplicate key(k1)
         distributed by hash(k2) buckets 1
@@ -58,7 +58,7 @@ suite ("sub_query_correlated") {
     """
 
     sql """
-        create table subquery2
+        create table if not exists subquery2
         (k1 varchar(10), k2 bigint)
         partition by range(k2)
         (partition p1 values less than("10"))
@@ -67,14 +67,14 @@ suite ("sub_query_correlated") {
     """
 
     sql """
-        create table subquery3
+        create table if not exists subquery3
         (k1 int not null, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
         distributed by hash(k2) buckets 1
         properties('replication_num' = '1')
     """
 
     sql """
-        create table subquery4
+        create table if not exists subquery4
         (k1 bigint, k2 bigint)
         duplicate key(k1)
         distributed by hash(k2) buckets 1

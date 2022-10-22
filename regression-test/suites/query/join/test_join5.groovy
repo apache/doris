@@ -29,9 +29,9 @@ suite("test_join5", "query,p0") {
     sql "DROP TABLE IF EXISTS ${tbName2};"
     sql "DROP TABLE IF EXISTS ${tbName3};"
 
-    sql """create table ${tbName1} (f1 int, f2 text) DISTRIBUTED BY HASH(f1) properties("replication_num" = "1");"""
-    sql """create table ${tbName2} (f1 int) DISTRIBUTED BY HASH(f1) properties("replication_num" = "1");"""
-    sql """create table ${tbName3} (c1 int, c2 int, c3 int) DISTRIBUTED BY HASH(c1) properties("replication_num" = "1");"""
+    sql """create table if not exists ${tbName1} (f1 int, f2 text) DISTRIBUTED BY HASH(f1) properties("replication_num" = "1");"""
+    sql """create table if not exists ${tbName2} (f1 int) DISTRIBUTED BY HASH(f1) properties("replication_num" = "1");"""
+    sql """create table if not exists ${tbName3} (c1 int, c2 int, c3 int) DISTRIBUTED BY HASH(c1) properties("replication_num" = "1");"""
 
     sql "insert into ${tbName1} values (1,null);"
     sql "insert into ${tbName1} values (null,null);"
@@ -77,9 +77,9 @@ suite("test_join5", "query,p0") {
     sql "DROP TABLE IF EXISTS ${tbName6};"
 
 
-    sql """create table ${tbName4} (f1 int) UNIQUE KEY (f1) DISTRIBUTED BY HASH(f1) properties("replication_num" = "1");"""
-    sql """create table ${tbName5} (f2 int) UNIQUE KEY (f2) DISTRIBUTED BY HASH(f2) properties("replication_num" = "1");"""
-    sql """create table ${tbName6} (f3 int) UNIQUE KEY (f3) DISTRIBUTED BY HASH(f3) properties("replication_num" = "1");"""
+    sql """create table if not exists ${tbName4} (f1 int) UNIQUE KEY (f1) DISTRIBUTED BY HASH(f1) properties("replication_num" = "1");"""
+    sql """create table if not exists ${tbName5} (f2 int) UNIQUE KEY (f2) DISTRIBUTED BY HASH(f2) properties("replication_num" = "1");"""
+    sql """create table if not exists ${tbName6} (f3 int) UNIQUE KEY (f3) DISTRIBUTED BY HASH(f3) properties("replication_num" = "1");"""
 
     sql "insert into ${tbName4} values(53);"
     sql "insert into ${tbName5} values(53);"
@@ -105,9 +105,9 @@ suite("test_join5", "query,p0") {
     sql "DROP TABLE IF EXISTS ${tbName6};"
 
 
-    sql """ create table a (code char not null) UNIQUE KEY (code) DISTRIBUTED BY HASH(code) properties("replication_num" = "1");"""
-    sql """ create table b (a char not null, num integer not null) UNIQUE KEY (a,num) DISTRIBUTED BY HASH(a) properties("replication_num" = "1");"""
-    sql """ create table c (name char not null, a char) UNIQUE KEY (name) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");""";
+    sql """ create table if not exists a (code char not null) UNIQUE KEY (code) DISTRIBUTED BY HASH(code) properties("replication_num" = "1");"""
+    sql """ create table if not exists b (a char not null, num integer not null) UNIQUE KEY (a,num) DISTRIBUTED BY HASH(a) properties("replication_num" = "1");"""
+    sql """ create table if not exists c (name char not null, a char) UNIQUE KEY (name) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");""";
 
     sql " insert into a (code) values ('p');"
     sql " insert into a (code) values ('q');"

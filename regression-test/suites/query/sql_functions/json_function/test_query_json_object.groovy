@@ -20,7 +20,7 @@ suite("test_query_json_object", "query") {
     def tableName = "test_query_json_object"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
-            CREATE TABLE `${tableName}` (
+            CREATE TABLE IF NOT EXISTS `${tableName}` (
               `k1` int(11) NULL COMMENT "user id"
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
