@@ -35,6 +35,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -2228,13 +2229,21 @@ public class Analyzer {
     public void changeAllOuterJoinTupleToNull() throws VecNotImplException {
         for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
             for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
-                changeSlotToNull(slotDescriptor);
+                if (VectorizedUtil.isVectorized()) {
+                    changeSlotToNull(slotDescriptor);
+                } else {
+                    slotDescriptor.setIsNullable(true);
+                }
             }
         }
 
         for (TupleId tid : globalState.outerJoinedMaterializedTupleIds) {
             for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
-                changeSlotToNull(slotDescriptor);
+                if (VectorizedUtil.isVectorized()) {
+                    changeSlotToNull(slotDescriptor);
+                } else {
+                    slotDescriptor.setIsNullable(true);
+                }
             }
         }
     }
