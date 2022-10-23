@@ -599,9 +599,10 @@ public:
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
-                      std::is_same_v<DateType, DataTypeDate>) {
+        if constexpr (std::is_same_v<DateType, DataTypeDate>) {
             return {std::make_shared<DataTypeDate>()};
+        } else if constexpr (std::is_same_v<DateType, DataTypeDateTime>) {
+            return {std::make_shared<DataTypeDateTime>()};
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             return {std::make_shared<DataTypeDateV2>()};
         } else {
