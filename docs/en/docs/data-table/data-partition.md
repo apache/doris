@@ -335,7 +335,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
 
 4. About the settings and usage scenarios of Random Distribution.
 
-    * If the OLAP table does not have columns with replace type, set the data bucket mode of the table to RANDOM to avoid the severe data skew.
+    * If the OLAP table does not have columns with replace type, set the data bucket mode of the table to RANDOM to avoid the severe data skew(When data is loaded into the partition corresponding to the table, each batch of data in a single load task will randomly select a tablet to write)).
     * When the bucket distribution mode of the table is set to RANDOM, because there is no bucket distribution column, it is not possible to query only a few buckets based on the bucket distribution column values. When querying the table, all buckets int the hit partition will be scanned at the same time. This setting is suitable for aggregate query analysis of the table data as a whole, but not for highly concurrent point queries.
     * If the data distribution of the OLAP table is Random Distribution, you can set the load to single tablet mode (set 'load_to_single_tablet' to true) when importing data. When importing large amounts of data, a task will only write one tablet when writing data to the corresponding partition. This will improve the concurrency and throughput of data import and reduce the problem of write amplification caused by data import and compaction, finally ensure the stability of the cluster.
 
