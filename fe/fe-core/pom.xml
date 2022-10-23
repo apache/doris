@@ -127,7 +127,7 @@ under the License.
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-text</artifactId>
-            <version>1.9</version>
+            <version>1.10.0</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/cglib/cglib -->
         <dependency>
