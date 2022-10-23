@@ -451,10 +451,7 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    if [[ "$(uname -sm)" == 'Darwin arm64' ]]; then
-        os_arch='-Dos.arch=x86_64'
-    fi
-    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests ${os_arch:+${os_arch}}
+    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
     cd "${DORIS_HOME}"
 fi
 
