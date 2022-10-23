@@ -147,7 +147,7 @@ distribution_desc
         v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
         ```
     
-*  `index_definition_list`
+* `index_definition_list`
 
     索引列表定义：
     
@@ -231,7 +231,16 @@ distribution_desc
   
     定义数据分桶方式。
 
-    `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
+    1) Hash 分桶
+       语法：
+          `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
+       说明：
+          使用指定的 key 列进行哈希分桶。
+    2) Random 分桶
+       语法：
+          `DISTRIBUTED BY RANDOM [BUCKETS num]`
+       说明：
+          使用随机数进行分桶。 
 
 * `rollup_list`
 

@@ -144,7 +144,8 @@ separated by commas.
            The system will use the order specified by user. in case above, data should be ended
            with __DORIS_SEQUENCE_COL__.
        ```
-
+23. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
+    
     RETURN VALUES
         After the import is complete, the related content of this import will be returned in Json format. Currently includes the following fields
         Status: Import the last status.
