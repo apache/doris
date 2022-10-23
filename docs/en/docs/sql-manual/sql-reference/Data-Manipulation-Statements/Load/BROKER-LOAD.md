@@ -173,6 +173,14 @@ WITH BROKER broker_name
     It allows the user to set the parallelism of the load execution plan
     on a single node when the broker load is submitted, default value is 1.
 
+  - `send_batch_parallelism`
+  
+    Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`. 
+    
+  - `load_to_single_tablet`
+  
+    Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition.
+
 ### Example
 
 1. Import a batch of data from HDFS
