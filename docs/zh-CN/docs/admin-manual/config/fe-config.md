@@ -2259,7 +2259,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### backend_rpc_timeout_ms
 
- FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
+FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 默认值：60000
 
@@ -2278,10 +2278,11 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否为 Master FE 节点独有的配置项：false
 
 
+### enable_fqdn_mode
 
- FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
+此配置用于 k8s 部署环境。当 enable_k8s_detect_container_drift_mode 为 true 时，将允许更改 be 或 broker 的重建 pod的 ip。
 
-默认值：60000
+默认值： false
 
 是否可以动态配置：false
 
@@ -2339,7 +2340,6 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
-
 
 ### `max_replica_count_when_schema_change`
 
@@ -2414,3 +2414,12 @@ hive partition 的最大缓存数量。
 
 是否为 Master FE 节点独有的配置项：true
 
+### `enable_fqdn_mode`
+
+此配置用于 k8s 部署环境。当 enable_fqdn_mode 为 true 时，将允许更改 be 的重建 pod的 ip。
+
+默认值： false
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true

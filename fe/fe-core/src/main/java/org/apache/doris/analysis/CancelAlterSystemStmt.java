@@ -18,36 +18,37 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import org.apache.commons.lang3.tuple.Triple;
 
-import java.util.LinkedList;
 import java.util.List;
 
 public class CancelAlterSystemStmt extends CancelStmt {
 
     protected List<String> hostPorts;
-    private List<Pair<String, Integer>> hostPortPairs;
+    private List<Triple<String, String, Integer>> ipHostPortTriples;
 
     public CancelAlterSystemStmt(List<String> hostPorts) {
         this.hostPorts = hostPorts;
-        this.hostPortPairs = new LinkedList<Pair<String, Integer>>();
+        this.ipHostPortTriples = Lists.newArrayList();
     }
 
-    public List<Pair<String, Integer>> getHostPortPairs() {
-        return hostPortPairs;
+    public List<Triple<String, String, Integer>> getIpHostPortTriples() {
+        return ipHostPortTriples;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         for (String hostPort : hostPorts) {
-            Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);
-            this.hostPortPairs.add(pair);
+            Triple<String, String, Integer> triple = SystemInfoService.getIpHostAndPort(hostPort,
+                    !Config.enable_fqdn_mode);
+            this.ipHostPortTriples.add(triple);
         }
-
-        Preconditions.checkState(!this.hostPortPairs.isEmpty());
+        Preconditions.checkState(!this.ipHostPortTriples.isEmpty());
     }
 
     @Override

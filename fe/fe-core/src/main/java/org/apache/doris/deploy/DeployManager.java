@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -34,6 +35,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -552,7 +554,7 @@ public class DeployManager extends MasterDaemon {
                             env.dropFrontend(FrontendNodeType.OBSERVER, localIp, localPort);
                             break;
                         case BACKEND:
-                            Env.getCurrentSystemInfo().dropBackend(localIp, localPort);
+                            Env.getCurrentSystemInfo().dropBackend(localIp, null, localPort);
                             break;
                         default:
                             break;
@@ -585,8 +587,12 @@ public class DeployManager extends MasterDaemon {
                             env.addFrontend(FrontendNodeType.OBSERVER, remoteIp, remotePort);
                             break;
                         case BACKEND:
-                            List<Pair<String, Integer>> newBackends = Lists.newArrayList();
-                            newBackends.add(Pair.of(remoteIp, remotePort));
+                            List<Triple<String, String, Integer>> newBackends = Lists.newArrayList();
+                            String hostName = NetUtils.getHostnameByIp(remoteIp);
+                            if (hostName.equals(remoteIp)) {
+                                hostName = null;
+                            }
+                            newBackends.add(Triple.of(remoteIp, hostName, remotePort));
                             Env.getCurrentSystemInfo().addBackends(newBackends, false);
                             break;
                         default:

@@ -38,7 +38,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
@@ -48,6 +47,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -125,7 +125,7 @@ public class SystemHandler extends AlterHandler {
             if (!Strings.isNullOrEmpty(destClusterName) && Env.getCurrentEnv().getCluster(destClusterName) == null) {
                 throw new DdlException("Cluster: " + destClusterName + " does not exist.");
             }
-            Env.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), addBackendClause.isFree(),
+            Env.getCurrentSystemInfo().addBackends(addBackendClause.getIpHostPortTriples(), addBackendClause.isFree(),
                     addBackendClause.getDestCluster(), addBackendClause.getTagMap());
         } else if (alterClause instanceof DropBackendClause) {
             // drop backend
@@ -136,7 +136,7 @@ public class SystemHandler extends AlterHandler {
                         + "All data on this backend will be discarded permanently. "
                         + "If you insist, use DROPP instead of DROP");
             }
-            Env.getCurrentSystemInfo().dropBackends(dropBackendClause.getHostPortPairs());
+            Env.getCurrentSystemInfo().dropBackends(dropBackendClause.getIpHostPortTriples());
         } else if (alterClause instanceof DecommissionBackendClause) {
             // decommission
             DecommissionBackendClause decommissionBackendClause = (DecommissionBackendClause) alterClause;
@@ -197,7 +197,7 @@ public class SystemHandler extends AlterHandler {
 
     private List<Backend> checkDecommission(DecommissionBackendClause decommissionBackendClause)
             throws DdlException {
-        return checkDecommission(decommissionBackendClause.getHostPortPairs());
+        return checkDecommission(decommissionBackendClause.getIpHostPortTriples());
     }
 
     /*
@@ -206,15 +206,18 @@ public class SystemHandler extends AlterHandler {
      * 2. after decommission, the remaining backend num should meet the replication num.
      * 3. after decommission, The remaining space capacity can store data on decommissioned backends.
      */
-    public static List<Backend> checkDecommission(List<Pair<String, Integer>> hostPortPairs)
+    public static List<Backend> checkDecommission(List<Triple<String, String, Integer>> ipHostPortTriples)
             throws DdlException {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         List<Backend> decommissionBackends = Lists.newArrayList();
         // check if exist
-        for (Pair<String, Integer> pair : hostPortPairs) {
-            Backend backend = infoService.getBackendWithHeartbeatPort(pair.first, pair.second);
+        for (Triple<String, String, Integer> triple : ipHostPortTriples) {
+            Backend backend = infoService.getBackendWithHeartbeatPort(triple.getLeft(), triple.getMiddle(),
+                    triple.getRight());
             if (backend == null) {
-                throw new DdlException("Backend does not exist[" + pair.first + ":" + pair.second + "]");
+                throw new DdlException("Backend does not exist["
+                        + (Config.enable_fqdn_mode ? triple.getMiddle() : triple.getLeft())
+                        + ":" + triple.getRight() + "]");
             }
             if (backend.isDecommissioned()) {
                 // already under decommission, ignore it
@@ -232,22 +235,23 @@ public class SystemHandler extends AlterHandler {
     @Override
     public synchronized void cancel(CancelStmt stmt) throws DdlException {
         CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) stmt;
-        cancelAlterSystemStmt.getHostPortPairs();
-
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         // check if backends is under decommission
         List<Backend> backends = Lists.newArrayList();
-        List<Pair<String, Integer>> hostPortPairs = cancelAlterSystemStmt.getHostPortPairs();
-        for (Pair<String, Integer> pair : hostPortPairs) {
+        List<Triple<String, String, Integer>> ipHostPortTriples = cancelAlterSystemStmt.getIpHostPortTriples();
+        for (Triple<String, String, Integer> triple : ipHostPortTriples) {
             // check if exist
-            Backend backend = infoService.getBackendWithHeartbeatPort(pair.first, pair.second);
+            Backend backend = infoService.getBackendWithHeartbeatPort(triple.getLeft(), triple.getMiddle(),
+                    triple.getRight());
             if (backend == null) {
-                throw new DdlException("Backend does not exists[" + pair.first + "]");
+                throw new DdlException("Backend does not exist["
+                        + (Config.enable_fqdn_mode ? triple.getMiddle() : triple.getLeft())
+                        + ":" + triple.getRight() + "]");
             }
 
             if (!backend.isDecommissioned()) {
                 // it's ok. just log
-                LOG.info("backend is not decommissioned[{}]", pair.first);
+                LOG.info("backend is not decommissioned[{}]", backend.getId());
                 continue;
             }
 

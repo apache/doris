@@ -47,7 +47,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -70,7 +69,9 @@ public class Backend implements Writable {
     @SerializedName("id")
     private long id;
     @SerializedName("host")
-    private String host;
+    private volatile String host;
+    @SerializedName("hostName")
+    private String hostName;
     private String version;
 
     @SerializedName("heartbeatPort")
@@ -160,9 +161,14 @@ public class Backend implements Writable {
         this.tagMap.put(locationTag.type, locationTag.value);
     }
 
-    public Backend(long id, String host, int heartbeatPort) {
+    public Backend(long id, String ip, int heartbeatPort) {
+        this(id, ip, null, heartbeatPort);
+    }
+
+    public Backend(long id, String ip, String hostName, int heartbeatPort) {
         this.id = id;
-        this.host = host;
+        this.host = ip;
+        this.hostName = hostName;
         this.version = "";
         this.heartbeatPort = heartbeatPort;
         this.bePort = -1;
@@ -187,6 +193,10 @@ public class Backend implements Writable {
 
     public String getHost() {
         return host;
+    }
+
+    public String getHostName() {
+        return hostName;
     }
 
     public String getVersion() {
@@ -278,6 +288,10 @@ public class Backend implements Writable {
         this.backendState = state.ordinal();
     }
 
+    public void setHost(String host) {
+        this.host = host;
+    }
+
     public void setAlive(boolean isAlive) {
         this.isAlive.set(isAlive);
     }
@@ -351,31 +365,12 @@ public class Backend implements Writable {
     }
 
     /**
-     * backend belong to some cluster
-     *
-     * @return
-     */
-    public boolean isUsedByCluster() {
-        return this.backendState == BackendState.using.ordinal();
-    }
-
-    /**
      * backend is free, and it isn't belong to any cluster
      *
      * @return
      */
     public boolean isFreeFromCluster() {
         return this.backendState == BackendState.free.ordinal();
-    }
-
-    /**
-     * backend execute discommission in cluster , and backendState will be free
-     * finally
-     *
-     * @return
-     */
-    public boolean isOffLineFromCluster() {
-        return this.backendState == BackendState.offline.ordinal();
     }
 
     public ImmutableMap<String, DiskInfo> getDisks() {
@@ -478,15 +473,6 @@ public class Backend implements Writable {
             }
         }
         return exceedLimit;
-    }
-
-    public String getPathByPathHash(long pathHash) {
-        for (DiskInfo diskInfo : disksRef.values()) {
-            if (diskInfo.getPathHash() == pathHash) {
-                return diskInfo.getRootPath();
-            }
-        }
-        return null;
     }
 
     public void updateDisks(Map<String, TDisk> backendDisks) {
@@ -799,18 +785,5 @@ public class Backend implements Writable {
 
     public String getTagMapString() {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
-    }
-
-    /**
-     * Get Tag by type, return Optional.empty if no such tag with given type
-     *
-     * @param type
-     * @return
-     */
-    public Optional<Tag> getTagByType(String type) {
-        if (!tagMap.containsKey(type)) {
-            return Optional.empty();
-        }
-        return Optional.of(Tag.createNotCheck(type, tagMap.get(type)));
     }
 }

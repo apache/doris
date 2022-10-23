@@ -17,6 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.system.SystemInfoService;
+
+import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.tuple.Triple;
+
 import java.util.List;
 
 public class DropBackendClause extends BackendClause {
@@ -34,6 +41,20 @@ public class DropBackendClause extends BackendClause {
 
     public boolean isForce() {
         return force;
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (Config.enable_fqdn_mode) {
+            for (String hostPort : hostPorts) {
+                Triple<String, String, Integer> triple = SystemInfoService.getIpHostAndPort(hostPort,
+                        !Config.enable_fqdn_mode);
+                ipHostPortTriples.add(triple);
+            }
+            Preconditions.checkState(!ipHostPortTriples.isEmpty());
+        } else {
+            super.analyze(analyzer);
+        }
     }
 
     @Override

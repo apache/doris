@@ -1925,5 +1925,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_storage_policy = false;
+
+    /**
+     * This config is mainly used in the k8s cluster environment.
+     * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
+     * after reconstruction, while the ip can be changed.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_fqdn_mode = false;
+    
 }
 
