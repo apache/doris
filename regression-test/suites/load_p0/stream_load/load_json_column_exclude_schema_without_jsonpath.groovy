@@ -49,8 +49,11 @@ suite("test_load_json_column_exclude_schema_without_jsonpath", "p0") {
             """
     }
 
-    def load_array_data = {table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
+    def load_array_data = {new_json_reader_flag, table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
                             json_root, where_expr, fuzzy_flag, column_sep, file_name ->
+        // should be deleted after new_load_scan is ready
+        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
+
         // load the json data
         streamLoad {
             table table_name
@@ -91,7 +94,12 @@ suite("test_load_json_column_exclude_schema_without_jsonpath", "p0") {
         
         create_test_table.call(true)
 
-        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
+        load_array_data.call('false', testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
+
+        // test new json load, should be deleted after new_load_scan ready
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        create_test_table.call(true)
+        load_array_data.call('true', testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -103,7 +111,12 @@ suite("test_load_json_column_exclude_schema_without_jsonpath", "p0") {
         
         create_test_table.call(false)
 
-        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
+        load_array_data.call('false', testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
+
+        // test new json load, should be deleted after new_load_scan ready
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        create_test_table.call(false)
+        load_array_data.call('true', testTable, 'true', '', 'json', '', '', '', '', '', '', 'json_column_match.json')
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

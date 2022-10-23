@@ -47,9 +47,6 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
 
 private:
-    Status (NewJsonReader::*_vhandle_json_callback)(
-            std::vector<vectorized::MutableColumnPtr>& columns,
-            const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row, bool* eof);
     Status _get_range_params();
     Status _open_file_reader();
     Status _open_line_reader();
@@ -91,6 +88,9 @@ private:
     std::string _print_json_value(const rapidjson::Value& value);
 
 private:
+    Status (NewJsonReader::*_vhandle_json_callback)(
+            std::vector<vectorized::MutableColumnPtr>& columns,
+            const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row, bool* eof);
     RuntimeState* _state;
     RuntimeProfile* _profile;
     ScannerCounter* _counter;
@@ -128,8 +128,8 @@ private:
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     std::vector<JsonPath> _parsed_json_root;
 
-    char _value_buffer[4 * 1024 * 1024];
-    char _parse_buffer[512 * 1024];
+    char _value_buffer[4 * 1024 * 1024]; // 4MB
+    char _parse_buffer[512 * 1024];      // 512KB
 
     typedef rapidjson::GenericDocument<rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>,
                                        rapidjson::MemoryPoolAllocator<>>

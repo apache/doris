@@ -30,7 +30,8 @@ namespace doris::vectorized {
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof)
-        : _state(state),
+        : _vhandle_json_callback(nullptr),
+          _state(state),
           _profile(profile),
           _counter(counter),
           _params(params),
@@ -44,6 +45,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _skip_first_line(false),
           _next_row(0),
           _total_rows(0),
+          _value_allocator(_value_buffer, sizeof(_value_buffer)),
+          _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _scanner_eof(scanner_eof) {
     _file_format_type = _params.format_type;
 
@@ -55,8 +58,6 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
 Status NewJsonReader::init_reader() {
     RETURN_IF_ERROR(_get_range_params());
 
-    LOG(INFO) << "--ftw: strip_out_array" << _strip_outer_array;
-    LOG(INFO) << "--ftw: read_json_by_line" << _read_json_by_line;
     RETURN_IF_ERROR(_open_file_reader());
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
