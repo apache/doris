@@ -159,7 +159,8 @@ struct ArrayAggregateImpl {
         const IColumn* data = array.get_data_ptr().get();
 
         const auto& offsets = array.get_offsets();
-        if (execute_type<Int8>(res, type, data, offsets) ||
+        if (execute_type<UInt8>(res, type, data, offsets) ||
+            execute_type<Int8>(res, type, data, offsets) ||
             execute_type<Int16>(res, type, data, offsets) ||
             execute_type<Int32>(res, type, data, offsets) ||
             execute_type<Int64>(res, type, data, offsets) ||
