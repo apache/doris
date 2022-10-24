@@ -165,7 +165,7 @@ public:
         }
     }
 
-    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) override {
+    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
         if (_bloom_filter == nullptr) {
             _bloom_filter.reset(BloomFilterAdaptor::create());
         }
