@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,6 +189,11 @@ public class SlotRef extends Expr {
         numDistinctValues = desc.getStats().getNumDistinctValues();
         if (type.equals(Type.BOOLEAN)) {
             selectivity = DEFAULT_SELECTIVITY;
+        }
+        if (tblName == null) {
+            if (StringUtils.isNotEmpty(desc.getParent().getAlias())) {
+                tblName = new TableName(null, null, desc.getParent().getAlias());
+            }
         }
     }
 
