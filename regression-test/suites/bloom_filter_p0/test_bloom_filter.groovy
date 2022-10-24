@@ -20,7 +20,6 @@ suite("test_bloom_filter") {
 
     // bloom filter index for ARRAY column
     def test_tb = "test_array_bloom_filter_tb"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     sql """DROP TABLE IF EXISTS ${test_tb}"""
     test {
         sql """CREATE TABLE ${test_tb} (

@@ -161,8 +161,12 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
-                    RETURN_IF_ERROR(
-                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    // make a copy or range and pass to extend_scan_key, keep the range unchanged
+                    // because extend_scan_key method may change the first parameter.
+                    // but the original range may be converted to olap filters, if it's not a exact_range.
+                    auto temp_range = range;
+                    RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
+                                                               &exact_range));
                     if (exact_range) {
                         _colname_to_value_range.erase(iter->first);
                     }

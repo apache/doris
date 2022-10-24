@@ -219,6 +219,14 @@ FROM data_source [data_source_properties]
      当导入数据格式为 json 时，可以通过 json_root 指定 Json 数据的根节点。Doris 将通过 json_root 抽取根节点的元素进行解析。默认为空。
 
      `-H "json_root: $.RECORDS"`
+  
+  10. `send_batch_parallelism`
+
+      整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。 
+
+  11. `load_to_single_tablet`
+
+      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
 
 - `FROM data_source [data_source_properties]`
 

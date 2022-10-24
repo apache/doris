@@ -36,6 +36,13 @@ curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 export DORIS_HOME="${curdir}/.."
 export TP_DIR="${curdir}"
 
+# include custom environment variables
+if [[ -f "${DORIS_HOME}/env.sh" ]]; then
+    export BUILD_THIRDPARTY_WIP=1
+    . "${DORIS_HOME}/env.sh"
+    export BUILD_THIRDPARTY_WIP=
+fi
+
 # Check args
 usage() {
     echo "
@@ -102,13 +109,6 @@ echo "Get params:
     PARALLEL            -- ${PARALLEL}
 "
 
-# include custom environment variables
-if [[ -f "${DORIS_HOME}/env.sh" ]]; then
-    export BUILD_THIRDPARTY_WIP=1
-    . "${DORIS_HOME}/env.sh"
-    export BUILD_THIRDPARTY_WIP=
-fi
-
 if [[ ! -f "${TP_DIR}/download-thirdparty.sh" ]]; then
     echo "Download thirdparty script is missing".
     exit 1
@@ -147,7 +147,7 @@ elif [[ "${CC}" == *clang ]]; then
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
     clang_version="$("${CC}" -dumpversion)"
-    if [[ "${clang_version}" < '15.0.0' ]]; then
+    if [[ "${clang_version}" < '14.0.0' ]]; then
         warning_unused_but_set_variable=''
     fi
 fi
@@ -1493,7 +1493,7 @@ build_gettext() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    ../configure --prefix="${TP_INSTALL_DIR}"
+    ../configure --prefix="${TP_INSTALL_DIR}" --disable-java
     make -j "${PARALLEL}"
     make install
 

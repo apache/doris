@@ -146,8 +146,6 @@ suite("test_union") {
              union distinct (select 1.00000000, 2.00000) order by 1, 2"""
     def res2 = sql"""select cast(1 as decimal), cast(2 as decimal) union distinct select 1.0, 2.0 
              union distinct (select 1.00000000, 2.00000) order by 1, 2"""
-    check2_doris(res1, res2)
-
 
     // test_union_multi
     List sub_sql = ["(select k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11 from baseall where k1 % 3 = 0)"] * 10

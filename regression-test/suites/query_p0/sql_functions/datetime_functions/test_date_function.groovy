@@ -180,6 +180,7 @@ suite("test_date_function") {
     sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
+    qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
     qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2020-09-01")  """
@@ -242,9 +243,13 @@ suite("test_date_function") {
     // WEEKOFYEAR
     qt_sql """ select weekofyear('2008-02-20 00:00:00') """
 
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03"), ("9999-08-01 13:21:03"),("0-08-01 13:21:03")"""
+
     // YEAR
     qt_sql """ select year('1987-01-01') """
     qt_sql """ select year('2050-01-01') """
+    qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
 
     // YEARWEEK
     qt_sql """ select yearweek('2021-1-1') """

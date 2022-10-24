@@ -359,6 +359,18 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public Expr getRealSlotRef() {
+        Preconditions.checkState(!type.equals(Type.INVALID));
+        Preconditions.checkState(desc != null);
+        if (!desc.getSourceExprs().isEmpty()
+                && desc.getSourceExprs().get(0) instanceof SlotRef) {
+            return desc.getSourceExprs().get(0);
+        } else {
+            return this;
+        }
+    }
+
+    @Override
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         Preconditions.checkState(!type.equals(Type.INVALID));
         Preconditions.checkState(desc != null);

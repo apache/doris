@@ -240,17 +240,18 @@ void ColumnDecimal<T>::insert_data(const char* src, size_t /*length*/) {
 
 template <typename T>
 void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num) {
+    size_t old_size = data.size();
+    data.resize(old_size + num);
+
     if (this->is_decimalv2_type()) {
+        DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
             int64_t int_value = *(int64_t*)(cur_ptr);
             int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
-            DecimalV2Value decimal_val(int_value, frac_value);
-            this->insert_data(reinterpret_cast<char*>(&decimal_val), 0);
+            target[i].from_olap_decimal(int_value, frac_value);
         }
     } else {
-        size_t old_size = data.size();
-        data.resize(old_size + num);
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 }

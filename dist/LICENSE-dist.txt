@@ -1282,6 +1282,8 @@ The Apache Software License, Version 2.0
         - org.apache.zookeeper:zookeeper:3.4.6 (no url defined)
     * commons-beanutils:
         - commons-beanutils:commons-beanutils:1.7.0 (no url defined)
+    * commons-text:
+        - corg.apache.commons:commons-text:1.10.0 (no url defined) 
     * oro:
         - oro:oro:2.0.8 (no url defined)
     * je:

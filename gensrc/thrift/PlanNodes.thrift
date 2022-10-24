@@ -289,6 +289,8 @@ struct TFileScanRangeParams {
     14: optional list<Types.TNetworkAddress> broker_addresses
     15: optional TFileAttributes file_attributes
     16: optional Exprs.TExpr pre_filter_exprs
+    // For csv query task, same the column index in file, order by dest_tuple
+    17: optional list<i32> column_idxs
 }
 
 struct TFileRangeDesc {
@@ -482,6 +484,9 @@ struct TSortInfo {
   // Expressions evaluated over the input row that materialize the tuple to be sorted.
   // Contains one expr per slot in the materialized tuple.
   4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
+
+  // Indicates the nullable info of sort_tuple_slot_exprs is changed after substitute by child's smap
+  5: optional list<bool> slot_exprs_nullability_changed_flags   
 }
 
 enum TPushAggOp {

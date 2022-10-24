@@ -48,6 +48,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
     protected String name;
     protected ExternalCatalog extCatalog;
     protected DatabaseProperty dbProperties;
+    protected boolean initialized = false;
 
     /**
      * Create external database.
@@ -60,6 +61,10 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
         this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
+    }
+
+    public synchronized void setUnInitialized() {
+        this.initialized = false;
     }
 
     @Override

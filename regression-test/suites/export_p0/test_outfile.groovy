@@ -163,12 +163,13 @@ suite("test_outfile") {
 
         sql "set return_object_data_as_binary = false"
         sql """
-            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFilePath}/";
+            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFilePath}/" properties("success_file_name" = "SUCCESS")
         """
 
         File[] files = path.listFiles()
-        assert files.length == 1
-        List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
+        assert files.length == 2 // one is outfile, the other is SUCCESS file
+        File dataFile = files[0].getName().contains("SUCCESS") ? files[1] : files[0];
+        List<String> outLines = Files.readAllLines(Paths.get(dataFile.getAbsolutePath()), StandardCharsets.UTF_8);
         assertEquals(2, outLines.size())
         String[] outLine1 = outLines.get(0).split("\t")
         assertEquals(3, outLine1.size())

@@ -415,7 +415,7 @@ public:
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
-      * reverse - reverse ordering (acsending).
+      * reverse - reverse ordering (ascending).
       * limit - if isn't 0, then only first limit elements of the result column could be sorted.
       * nan_direction_hint - see above.
       */
@@ -613,6 +613,15 @@ public:
     virtual void set_date_type() { is_date = true; }
     virtual void set_datetime_type() { is_date_time = true; }
     virtual void set_decimalv2_type() { is_decimalv2 = true; }
+
+    void copy_date_types(const IColumn& col) {
+        if (col.is_date_type()) {
+            set_date_type();
+        }
+        if (col.is_datetime_type()) {
+            set_datetime_type();
+        }
+    }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;

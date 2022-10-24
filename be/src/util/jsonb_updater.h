@@ -49,7 +49,7 @@ struct NodeInfo {
  */
 class JsonbUpdater {
 public:
-    // buffer_size is the maxinum number of bytes can be packed in document
+    // buffer_size is the maximum number of bytes can be packed in document
     JsonbUpdater(JsonbDocument* doc, uint buffer_size, double shrink_ratio = 0.5)
             : document_(doc), buffer_size_(buffer_size), str_shrink_ratio_(shrink_ratio) {
         root_ = document_->getValue();

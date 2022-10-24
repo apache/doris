@@ -27,6 +27,7 @@
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/wrapper_field.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/string_value.h"
 #include "runtime/type_limit.h"
 #include "uint24.h"
@@ -267,7 +268,10 @@ public:
 private:
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
-        if constexpr (PT == PredicateType::IN_LIST) {
+        if constexpr (Type == TYPE_BOOLEAN) {
+            DCHECK(_values.size() == 2);
+            return PT == PredicateType::IN_LIST;
+        } else if constexpr (PT == PredicateType::IN_LIST) {
             return lhs != rhs;
         }
         return lhs == rhs;

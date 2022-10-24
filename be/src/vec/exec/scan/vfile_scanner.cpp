@@ -492,7 +492,7 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             _cur_reader.reset(
                     new CsvReader(_state, _profile, &_counter, _params, range, _file_slot_descs));
-            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader();
+            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
             break;
         }
         default:
@@ -509,7 +509,7 @@ Status VFileScanner::_get_next_reader() {
         _name_to_col_type.clear();
         _missing_cols.clear();
         _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
-        if (!_missing_cols.empty() && _is_load && VLOG_NOTICE_IS_ON) {
+        if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;
             for (auto& col : _missing_cols) {
                 fmt::format_to(col_buf, " {}", col);

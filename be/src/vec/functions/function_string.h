@@ -31,6 +31,7 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 #include "exprs/math_functions.h"
@@ -391,6 +392,37 @@ public:
     }
 };
 
+struct NullOrEmptyImpl {
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeUInt8>()}; }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count, bool reverse) {
+        auto res_map = ColumnUInt8::create(input_rows_count, 0);
+
+        auto column = block.get_by_position(arguments[0]).column;
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
+            column = nullable->get_nested_column_ptr();
+            VectorizedUtils::update_null_map(res_map->get_data(), nullable->get_null_map_data());
+        }
+        auto str_col = assert_cast<const ColumnString*>(column.get());
+        const auto& offsets = str_col->get_offsets();
+
+        auto& res_map_data = res_map->get_data();
+        for (int i = 0; i < input_rows_count; ++i) {
+            int size = offsets[i] - offsets[i - 1];
+            res_map_data[i] |= (size == 0);
+        }
+        if (reverse) {
+            for (int i = 0; i < input_rows_count; ++i) {
+                res_map_data[i] = !res_map_data[i];
+            }
+        }
+
+        block.replace_by_position(result, std::move(res_map));
+        return Status::OK();
+    }
+};
+
 class FunctionNullOrEmpty : public IFunction {
 public:
     static constexpr auto name = "null_or_empty";
@@ -407,23 +439,28 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto res_map = ColumnUInt8::create(input_rows_count, 0);
+        NullOrEmptyImpl::execute(context, block, arguments, result, input_rows_count, false);
+        return Status::OK();
+    }
+};
 
-        auto column = block.get_by_position(arguments[0]).column;
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
-            column = nullable->get_nested_column_ptr();
-            VectorizedUtils::update_null_map(res_map->get_data(), nullable->get_null_map_data());
-        }
-        auto str_col = assert_cast<const ColumnString*>(column.get());
-        const auto& offsets = str_col->get_offsets();
+class FunctionNotNullOrEmpty : public IFunction {
+public:
+    static constexpr auto name = "not_null_or_empty";
+    static FunctionPtr create() { return std::make_shared<FunctionNotNullOrEmpty>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
 
-        auto& res_map_data = res_map->get_data();
-        for (int i = 0; i < input_rows_count; ++i) {
-            int size = offsets[i] - offsets[i - 1];
-            res_map_data[i] |= (size == 0);
-        }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeUInt8>();
+    }
 
-        block.replace_by_position(result, std::move(res_map));
+    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        NullOrEmptyImpl::execute(context, block, arguments, result, input_rows_count, true);
         return Status::OK();
     }
 };
@@ -1209,6 +1246,51 @@ public:
 
         block.replace_by_position(result, std::move(res));
         return Status::OK();
+    }
+};
+
+class FunctionExtractURLParameter : public IFunction {
+public:
+    static constexpr auto name = "extract_url_parameter";
+    static FunctionPtr create() { return std::make_shared<FunctionExtractURLParameter>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto col_url =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col_parameter =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto url_col = assert_cast<const ColumnString*>(col_url.get());
+        auto parameter_col = assert_cast<const ColumnString*>(col_parameter.get());
+
+        ColumnString::MutablePtr col_res = ColumnString::create();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            auto source = url_col->get_data_at(i);
+            auto param = parameter_col->get_data_at(i);
+            auto res = extract_url(source, param);
+
+            col_res->insert_data(res.ptr, res.len);
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    StringValue extract_url(StringRef url, StringRef parameter) {
+        if (url.size == 0 || parameter.size == 0) {
+            return StringValue("", 0);
+        }
+        return UrlParser::extract_url(StringValue(url), StringValue(parameter));
     }
 };
 

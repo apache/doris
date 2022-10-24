@@ -39,7 +39,7 @@ struct MinusImpl {
         return DecimalV2Value(a.value() - b.value());
     }
 
-    /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.
+    /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
     static inline bool apply(A a, B b, Result& c) {
         return common::sub_overflow(static_cast<Result>(a), b, c);

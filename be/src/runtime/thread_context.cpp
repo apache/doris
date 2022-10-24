@@ -29,6 +29,15 @@ ThreadContextPtr::ThreadContextPtr() {
     init = true;
 }
 
+ScopeMemCount::ScopeMemCount(int64_t* scope_mem) {
+    _scope_mem = scope_mem;
+    thread_context()->_thread_mem_tracker_mgr->start_count_scope_mem();
+}
+
+ScopeMemCount::~ScopeMemCount() {
+    *_scope_mem = thread_context()->_thread_mem_tracker_mgr->stop_count_scope_mem();
+}
+
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                        const ThreadContext::TaskType& type, const std::string& task_id,
                        const TUniqueId& fragment_instance_id) {
@@ -53,6 +62,17 @@ AttachTask::~AttachTask() {
 #ifndef NDEBUG
     DorisMetrics::instance()->attach_task_thread_count->increment(1);
 #endif // NDEBUG
+}
+
+SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
+        const std::shared_ptr<MemTrackerLimiter>& mem_tracker_limiter) {
+    DCHECK(mem_tracker_limiter);
+    thread_context()->_thread_mem_tracker_mgr->attach_limiter_tracker("", TUniqueId(),
+                                                                      mem_tracker_limiter);
+}
+
+SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
+    thread_context()->_thread_mem_tracker_mgr->detach_limiter_tracker();
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
