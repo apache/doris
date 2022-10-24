@@ -50,8 +50,7 @@ singleStatement
 
 statement
     : cte? query                                                            #statementDefault
-    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)?
-        query                                                          #explain
+    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)? query            #explain
     ;
 
 //  -----------------Query-----------------

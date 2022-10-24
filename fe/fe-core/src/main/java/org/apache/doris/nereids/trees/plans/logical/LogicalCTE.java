@@ -45,10 +45,10 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
         this(withQueries, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalCTE(List<WithClause> withQueries, Optional<GroupExpression> groupExpression,
+    public LogicalCTE(List<WithClause> withClauses, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
-        this.withClauses = withQueries;
+        this.withClauses = withClauses;
     }
 
     public List<WithClause> getWithClauses() {
