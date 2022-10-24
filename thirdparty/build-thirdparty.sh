@@ -1345,8 +1345,13 @@ build_hdfs3() {
     cd "${BUILD_DIR}"
     rm -rf ./*
 
+    if [[ "$(uname -m)" == "aarch64" ]]; then
+        SSE_OPTION='-DENABLE_SSE=OFF'
+    else
+        SSE_OPTION='-DENABLE_SSE=ON'
+    fi
     cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF \
+        -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF "${SSE_OPTION}" \
         -DProtobuf_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" \
         -DProtobuf_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DProtobuf_LIBRARIES="${TP_INSTALL_DIR}/lib/libprotoc.a" \
