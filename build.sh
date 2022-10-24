@@ -289,8 +289,8 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
-if [[ "${DISABLE_JAVA_UDF}" == "ON" ]]; then
-    BUILD_JAVA_UDF=0
+if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
+    DISABLE_JAVA_UDF='OFF'
 fi
 
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
@@ -298,6 +298,10 @@ if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
 fi
 
 if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
+    BUILD_JAVA_UDF=0
+fi
+
+if [[ "${DISABLE_JAVA_UDF}" == "ON" ]]; then
     BUILD_JAVA_UDF=0
 fi
 
