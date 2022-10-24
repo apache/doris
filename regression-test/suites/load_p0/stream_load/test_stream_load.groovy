@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_stream_load", "p0") {
-    // todo: test stream load
     sql "show tables"
 
     def tableName = "test_stream_load_strict"
@@ -186,11 +185,13 @@ suite("test_stream_load", "p0") {
     def tableName5 = "test_bitmap_and_hll"
     def tableName6 = "test_unique_key"
     def tableName7 = "test_unique_key_with_delete"
+    def tableName8 = "test_array"
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """ DROP TABLE IF EXISTS ${tableName5} """
     sql """ DROP TABLE IF EXISTS ${tableName6} """
     sql """ DROP TABLE IF EXISTS ${tableName7} """
+    sql """ DROP TABLE IF EXISTS ${tableName8} """
     sql """
     CREATE TABLE ${tableName3} (
       `k1` int(11) NULL,
@@ -263,6 +264,26 @@ suite("test_stream_load", "p0") {
     DISTRIBUTED BY HASH(`k1`) BUCKETS 3
     PROPERTIES (
     "function_column.sequence_type" = "int",
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql """
+    CREATE TABLE ${tableName8} (
+      `k1` INT(11) NULL COMMENT "",
+      `k2` ARRAY<SMALLINT> NULL COMMENT "",
+      `k3` ARRAY<INT(11)> NULL COMMENT "",
+      `k4` ARRAY<BIGINT> NULL COMMENT "",
+      `k5` ARRAY<CHAR> NULL COMMENT "",
+      `k6` ARRAY<VARCHAR(20)> NULL COMMENT "",
+      `k7` ARRAY<DATE> NULL COMMENT "", 
+      `k8` ARRAY<DATETIME> NULL COMMENT "",
+      `k9` ARRAY<FLOAT> NULL COMMENT "",
+      `k10` ARRAY<DOUBLE> NULL COMMENT "",
+      `k11` ARRAY<DECIMAL(20, 6)> NULL COMMENT ""
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );
     """
@@ -550,4 +571,84 @@ suite("test_stream_load", "p0") {
     sql """truncate table ${tableName7}"""
     sql """sync"""
 
+    // ===== test array stream load
+    // malformat without strictmode
+    streamLoad {
+        table "${tableName8}"
+
+        set 'column_separator', '|'
+
+        file 'array_malformat.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(5, json.NumberTotalRows)
+            assertEquals(5, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all101 "SELECT * from ${tableName8}" // 5
+    sql """truncate table ${tableName8}"""
+    sql """sync"""
+
+    // malformat with strictmode
+    streamLoad {
+        table "${tableName8}"
+
+        set 'column_separator', '|'
+        set 'strict_mode', 'true'
+
+        file 'array_malformat.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(5, json.NumberTotalRows)
+            assertEquals(3, json.NumberLoadedRows)
+            assertEquals(2, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+
+    // normal load
+    streamLoad {
+        table "${tableName8}"
+
+        set 'column_separator', '|'
+
+        file 'array_normal.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(9, json.NumberTotalRows)
+            assertEquals(9, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    order_qt_all102 "SELECT * from ${tableName8}" // 8
+    sql """truncate table ${tableName8}"""
+    sql """sync"""
 }
+

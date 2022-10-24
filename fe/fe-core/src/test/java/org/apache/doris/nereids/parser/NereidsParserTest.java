@@ -19,6 +19,8 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -42,7 +44,7 @@ public class NereidsParserTest extends ParserTestBase {
     public void testParseMultiple() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "SELECT b FROM test;SELECT a FROM test;";
-        List<LogicalPlan> logicalPlanList = nereidsParser.parseMultiple(sql);
+        List<Pair<LogicalPlan, StatementContext>> logicalPlanList = nereidsParser.parseMultiple(sql);
         Assertions.assertEquals(2, logicalPlanList.size());
     }
 

@@ -69,7 +69,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
             Map<Long, HMSExternalTable> tmpIdToTbl = Maps.newHashMap();
             for (String tableName : tableNames) {
                 long tblId;
-                if (tableNameToId.containsKey(tableName)) {
+                if (tableNameToId != null && tableNameToId.containsKey(tableName)) {
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     HMSExternalTable table = idToTbl.get(tblId);

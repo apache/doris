@@ -253,6 +253,13 @@ Status VOlapScanNode::open(RuntimeState* state) {
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtimefilter;
+        // If all targets are local, scan node will use hash node's runtime filter, and we don't
+        // need to allocate memory again
+        if (runtime_filter->has_remote_target()) {
+            if (auto bf = runtime_filter->get_bloomfilter()) {
+                RETURN_IF_ERROR(bf->init_with_fixed_length());
+            }
+        }
         bool ready = runtime_filter->is_ready();
         if (!ready) {
             ready = runtime_filter->await();
@@ -699,8 +706,12 @@ Status VOlapScanNode::build_key_ranges_and_filters() {
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
-                    RETURN_IF_ERROR(
-                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    // make a copy or range and pass to extend_scan_key, keep the range unchanged
+                    // because extend_scan_key method may change the first parameter.
+                    // but the original range may be converted to olap filters, if it's not a exact_range.
+                    auto temp_range = range;
+                    RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
+                                                               &exact_range));
                     if (exact_range) {
                         _column_value_ranges.erase(iter->first);
                     }

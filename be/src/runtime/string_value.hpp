@@ -51,4 +51,9 @@ inline StringValue StringValue::trim() const {
     return StringValue(ptr + begin, end - begin + 1);
 }
 
+inline int64_t StringValue::find_first_of(char c) const {
+    const char* p = static_cast<const char*>(memchr(ptr, c, len));
+    return p == nullptr ? -1 : p - ptr;
+}
+
 } // namespace doris

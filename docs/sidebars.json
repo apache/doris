@@ -163,7 +163,8 @@
                 "advanced/using-hll",
                 "advanced/variables",
                 "advanced/time-zone",
-                "advanced/small-file-mgr"
+                "advanced/small-file-mgr",
+                "advanced/cold_hot_separation"
             ]
         },
         {
@@ -179,6 +180,7 @@
                         "ecosystem/external-table/hudi-external-table",
                         "ecosystem/external-table/iceberg-of-doris",
                         "ecosystem/external-table/odbc-of-doris",
+                        "ecosystem/external-table/jdbc-of-doris",
                         "ecosystem/external-table/hive-of-doris"
                     ]
                 },
@@ -257,8 +259,10 @@
                                 "sql-manual/sql-functions/array-functions/array_avg",
                                 "sql-manual/sql-functions/array-functions/size",
                                 "sql-manual/sql-functions/array-functions/array_distinct",
+                                "sql-manual/sql-functions/array-functions/array_difference",
                                 "sql-manual/sql-functions/array-functions/array_union",
-                                "sql-manual/sql-functions/array-functions/array_sum"
+                                "sql-manual/sql-functions/array-functions/array_sum",
+                                "sql-manual/sql-functions/array-functions/array_join"
                             ]
                         },
                         {
@@ -387,6 +391,7 @@
                                 "sql-manual/sql-functions/string-functions/split_part",
                                 "sql-manual/sql-functions/string-functions/money_format",
                                 "sql-manual/sql-functions/string-functions/parse_url",
+                                "sql-manual/sql-functions/string-functions/extract_url_parameter",
                                 {
                                     "type": "category",
                                     "label": "Fuzzy Match",
@@ -657,7 +662,8 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY"
                                     ]
                                 },
                                 {
@@ -845,7 +851,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ALTER",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-TABLE",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET"
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-POLICY"
                             ]
                         },
                         {

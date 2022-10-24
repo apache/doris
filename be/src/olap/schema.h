@@ -112,8 +112,7 @@ public:
 
     static vectorized::IColumn::MutablePtr get_predicate_column_ptr(FieldType type);
 
-    static vectorized::IColumn::MutablePtr get_predicate_column_nullable_ptr(FieldType type,
-                                                                             bool is_null = false);
+    static vectorized::IColumn::MutablePtr get_predicate_column_nullable_ptr(const Field& field);
 
     const std::vector<Field*>& columns() const { return _cols; }
 

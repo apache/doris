@@ -67,7 +67,7 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
             Map<Long, EsExternalTable> tmpIdToTbl = Maps.newHashMap();
             for (String tableName : tableNames) {
                 long tblId;
-                if (tableNameToId.containsKey(tableName)) {
+                if (tableNameToId != null && tableNameToId.containsKey(tableName)) {
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     EsExternalTable table = idToTbl.get(tblId);

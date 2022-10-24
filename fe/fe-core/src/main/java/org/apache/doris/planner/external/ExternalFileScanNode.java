@@ -278,11 +278,33 @@ public class ExternalFileScanNode extends ExternalScanNode {
             ParamCreateContext context = contexts.get(i);
             FileScanProviderIf scanProvider = scanProviders.get(i);
             setDefaultValueExprs(scanProvider, context);
+            setColumnPositionMappingForTextFile(scanProvider, context);
             finalizeParamsForLoad(context, analyzer);
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
         }
+    }
+
+    private void setColumnPositionMappingForTextFile(FileScanProviderIf scanProvider, ParamCreateContext context)
+            throws UserException {
+        if (type != Type.QUERY) {
+            return;
+        }
+        TableIf tbl = scanProvider.getTargetTable();
+        List<Integer> columnIdxs = Lists.newArrayList();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (!slot.isMaterialized()) {
+                continue;
+            }
+            String colName = slot.getColumn().getName();
+            int idx = tbl.getBaseColumnIdxByName(colName);
+            if (idx == -1) {
+                throw new UserException("Column " + colName + " not found in table " + tbl.getName());
+            }
+            columnIdxs.add(idx);
+        }
+        context.params.setColumnIdxs(columnIdxs);
     }
 
     protected void setDefaultValueExprs(FileScanProviderIf scanProvider, ParamCreateContext context)
@@ -320,7 +342,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 default:
                     Preconditions.checkState(false, type);
             }
-            // if slot desc is null, which mean it is a unrelated slot, just skip.
+            // if slot desc is null, which mean it is an unrelated slot, just skip.
             // eg:
             // (a, b, c) set (x=a, y=b, z=c)
             // c does not exist in file, the z will be filled with null, even if z has default value.
@@ -498,6 +520,4 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
-
-
 

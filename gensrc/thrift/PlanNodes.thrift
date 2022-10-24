@@ -289,6 +289,8 @@ struct TFileScanRangeParams {
     14: optional list<Types.TNetworkAddress> broker_addresses
     15: optional TFileAttributes file_attributes
     16: optional Exprs.TExpr pre_filter_exprs
+    // For csv query task, same the column index in file, order by dest_tuple
+    17: optional list<i32> column_idxs
 }
 
 struct TFileRangeDesc {

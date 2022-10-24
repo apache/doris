@@ -214,7 +214,16 @@ visible_functions = [
     [['array_distinct'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_STRING',    ['ARRAY_STRING'], '', '', '', 'vec', ''],
-    
+
+    [['array_difference'], 'ARRAY_SMALLINT',  ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_INT',       ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_BIGINT',    ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_LARGEINT',  ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+
     [['array_sort'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
     [['array_sort'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
     [['array_sort'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
@@ -2137,6 +2146,7 @@ visible_functions = [
     [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions10split_partEPN9doris_udf15FunctionContextERKNS1_9StringValES6_RKNS1_6IntValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
+     [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],'','', '', 'vec', ''],
 
     # Longtext function
     [['substr', 'substring'], 'STRING', ['STRING', 'INT'],
@@ -2422,7 +2432,7 @@ visible_functions = [
         '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'],
-        '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris15BitmapFunctions20to_bitmap_with_checkEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['bitmap_hash'], 'BITMAP', ['VARCHAR'],
         '_ZN5doris15BitmapFunctions11bitmap_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE',

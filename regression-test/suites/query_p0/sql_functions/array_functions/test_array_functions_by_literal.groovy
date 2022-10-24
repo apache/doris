@@ -17,7 +17,6 @@
 
 suite("test_array_functions_by_literal") {
     sql "set enable_vectorized_engine = true"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
     // array_contains function
     qt_sql "select array_contains([1,2,3], 1)"
@@ -126,4 +125,18 @@ suite("test_array_functions_by_literal") {
     qt_sql "select [1,2,3][0:]"
     qt_sql "select [1,2,3][-5:]"
     qt_sql "select [true, false, false][2:]"
+
+    // array_join function 
+    qt_sql "select array_join([1, 2, 3], '_')"
+    qt_sql "select array_join(['1', '2', '3', null], '_')"
+    qt_sql "select array_join([null, '1', '2', '3', null], '_')"
+    qt_sql "select array_join(['', '2', '3'], '_')"
+    qt_sql "select array_join(['1', '2', ''], '_')"
+    qt_sql "select array_join(['1', '2', '', null], '_')"
+    qt_sql "select array_join(['', '', '3'], '_')"
+    qt_sql "select array_join(['1', '2', '', ''], '_')"
+    qt_sql "select array_join([null, null, '1', '2', '', '', null], '_')"
+    qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
+    qt_sql "select array_join([''], '_')"
+    qt_sql "select array_join(['', ''], '_')"
 }

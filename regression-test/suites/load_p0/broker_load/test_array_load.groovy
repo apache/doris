@@ -21,9 +21,6 @@ suite("test_array_load", "p0") {
     def testTable01 = "tbl_test_array_load01"
     
     def create_test_table = {testTablex, enable_vectorized_flag ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-        
         if (enable_vectorized_flag) {
             sql """ set enable_vectorized_engine = true """
         } else {
@@ -68,9 +65,6 @@ suite("test_array_load", "p0") {
     }
 
     def create_test_table01 = {testTablex ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable01} (
               `k1` INT(11) NULL COMMENT "",
@@ -277,7 +271,7 @@ suite("test_array_load", "p0") {
         qt_select "select * from ${testTable01} order by k1"
 
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable01}")
+        // try_sql("DROP TABLE IF EXISTS ${testTable01}")
     }
 
     // if 'enableHdfs' in regression-conf.groovy has been set to true,

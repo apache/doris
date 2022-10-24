@@ -17,7 +17,6 @@
 
 suite("test_aggregate_collect") {
     sql "set enable_vectorized_engine = true"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
     def tableName = "collect_test"
     sql "DROP TABLE IF EXISTS ${tableName}"

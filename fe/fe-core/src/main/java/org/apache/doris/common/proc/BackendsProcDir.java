@@ -52,6 +52,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
+            .add("HeartbeatFailureCounter")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -178,6 +179,8 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(backend.getVersion());
             // status
             backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
+            // heartbeat failure counter
+            backendInfo.add(backend.getHeartbeatFailureCounter());
 
             comparableBackendInfos.add(backendInfo);
         }

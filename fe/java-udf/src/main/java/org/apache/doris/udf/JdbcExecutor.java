@@ -163,7 +163,13 @@ public class JdbcExecutor {
     }
 
     public long convertDateTimeToLong(Object obj) {
-        LocalDateTime date = ((Timestamp) obj).toLocalDateTime();
+        LocalDateTime date;
+        // TODO: not for sure: https://bugs.mysql.com/bug.php?id=101413
+        if (obj instanceof LocalDateTime) {
+            date = (LocalDateTime) obj;
+        } else {
+            date = ((Timestamp) obj).toLocalDateTime();
+        }
         long time = UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 date.getHour(), date.getMinute(), date.getSecond(), false);
         return time;

@@ -34,7 +34,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
@@ -50,14 +50,26 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
     /**
      * ut before.
      */
-    @BeforeAll
-    public final void beforeAll() {
+    @BeforeEach
+    public final void beforeEach() {
         rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
                 ImmutableList.of(""));
         rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
     }
 
-    public void testLeft(JoinType joinType) {
+    @Test
+    public void oneSide() {
+        testLeft(JoinType.CROSS_JOIN);
+        testLeft(JoinType.INNER_JOIN);
+        testLeft(JoinType.LEFT_OUTER_JOIN);
+        testLeft(JoinType.LEFT_SEMI_JOIN);
+        testLeft(JoinType.LEFT_ANTI_JOIN);
+        testRight(JoinType.RIGHT_OUTER_JOIN);
+        testRight(JoinType.RIGHT_SEMI_JOIN);
+        testRight(JoinType.RIGHT_ANTI_JOIN);
+    }
+
+    private void testLeft(JoinType joinType) {
         Expression whereCondition1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression whereCondition2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(50));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
@@ -78,7 +90,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                 );
     }
 
-    public void testRight(JoinType joinType) {
+    private void testRight(JoinType joinType) {
         Expression whereCondition1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression whereCondition2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(50));
         Expression whereCondition = ExpressionUtils.and(whereCondition1, whereCondition2);
@@ -97,18 +109,6 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
                                         .when(filter -> filter.getPredicates().equals(whereCondition))
                         )
                 );
-    }
-
-    @Test
-    public void oneSide() {
-        testLeft(JoinType.CROSS_JOIN);
-        testLeft(JoinType.INNER_JOIN);
-        testLeft(JoinType.LEFT_OUTER_JOIN);
-        testLeft(JoinType.LEFT_SEMI_JOIN);
-        testLeft(JoinType.LEFT_ANTI_JOIN);
-        testRight(JoinType.RIGHT_OUTER_JOIN);
-        testRight(JoinType.RIGHT_SEMI_JOIN);
-        testRight(JoinType.RIGHT_ANTI_JOIN);
     }
 
     @Test

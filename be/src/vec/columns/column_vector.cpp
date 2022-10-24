@@ -313,6 +313,9 @@ const char* ColumnVector<T>::get_family_name() const {
 template <typename T>
 MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
 
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
@@ -386,6 +389,9 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
     }
 
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
     Container& res_data = res->get_data();
 
     res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
@@ -445,6 +451,9 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
     }
 
     auto res = this->create(limit);
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
     typename Self::Container& res_data = res->get_data();
     for (size_t i = 0; i < limit; ++i) res_data[i] = data[perm[i]];
 
@@ -458,9 +467,12 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
         LOG(FATAL) << "Size of offsets doesn't match size of column.";
     }
 
-    if (0 == size) return this->create();
-
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
+    if (0 == size) return res;
+
     typename Self::Container& res_data = res->get_data();
     res_data.reserve(offsets.back());
 

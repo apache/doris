@@ -39,14 +39,14 @@ usage() {
 Usage: $0 <options>
   Optional options:
      [no option]        build all components
-     --fe               build Frontend and Spark DPP application
-     --be               build Backend
-     --meta-tool        build Backend meta tool
-     --broker           build Broker
-     --audit            build audit loader
-     --spark-dpp        build Spark DPP application
-     --hive-udf         build Hive UDF library for Spark Load
-     --java-udf         build Java UDF library
+     --fe               build Frontend and Spark DPP application. Default ON.
+     --be               build Backend. Default ON.
+     --meta-tool        build Backend meta tool. Default OFF.
+     --broker           build Broker. Default ON.
+     --audit            build audit loader. Default ON.
+     --spark-dpp        build Spark DPP application. Default ON.
+     --hive-udf         build Hive UDF library for Spark Load. Default ON.
+     --java-udf         build Java UDF library. Default ON.
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -145,7 +145,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
     BUILD_SPARK_DPP=1
-    BUILD_JAVA_UDF=0 # TODO: open it when ready
+    BUILD_JAVA_UDF=1
     BUILD_HIVE_UDF=1
     CLEAN=0
 else
@@ -154,10 +154,13 @@ else
         --fe)
             BUILD_FE=1
             BUILD_SPARK_DPP=1
+            BUILD_JAVA_UDF=1
+            BUILD_HIVE_UDF=1
             shift
             ;;
         --be)
             BUILD_BE=1
+            BUILD_JAVA_UDF=1
             shift
             ;;
         --broker)
@@ -280,7 +283,7 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
 fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_JEMALLOC='ON'
+        USE_JEMALLOC='OFF'
     else
         USE_JEMALLOC='OFF'
     fi
@@ -295,6 +298,10 @@ fi
 
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
+fi
+
+if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
+    BUILD_JAVA_UDF=0
 fi
 
 echo "Get params:
