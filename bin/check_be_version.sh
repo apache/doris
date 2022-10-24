@@ -21,7 +21,7 @@ set -eo pipefail
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
-    PATH="$(brew --repo)/opt/gnu-getopt/bin:${PATH}"
+    PATH="$(brew --prefix)/opt/gnu-getopt/bin:${PATH}"
     export PATH
 fi
 
