@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -249,11 +248,11 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
     @Test
     public void testCTEWithAnExistedTableOrViewName() {
         SlotReference suppkeyInV1 = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
-            false, ImmutableList.of("V1"));
+                false, ImmutableList.of("V1"));
         SlotReference suppkeyInV2 = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
                 false, ImmutableList.of("V2"));
         SlotReference suppkeyInSupplier = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
-            false, ImmutableList.of("default_cluster:test", "supplier"));
+                false, ImmutableList.of("default_cluster:test", "supplier"));
         PlanChecker.from(connectContext)
                 .analyze(sql5)
                 .matches(
