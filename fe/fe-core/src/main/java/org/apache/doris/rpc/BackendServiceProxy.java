@@ -64,7 +64,7 @@ public class BackendServiceProxy {
         }
 
         static BackendServiceProxy get() {
-            return proxies[count.addAndGet(1) % PROXY_NUM];
+            return proxies[Math.abs(count.addAndGet(1) % PROXY_NUM)];
         }
     }
 
