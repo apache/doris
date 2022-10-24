@@ -366,6 +366,10 @@ public class PlanChecker {
         return this;
     }
 
+    public String treeString() {
+        return cascadesContext.getMemo().copyOut().treeString();
+    }
+
     public PlanChecker printlnAllTree() {
         System.out.println("--------------------------------");
         for (Plan plan : cascadesContext.getMemo().copyOutAll()) {

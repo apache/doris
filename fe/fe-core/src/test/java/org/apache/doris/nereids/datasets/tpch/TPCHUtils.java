@@ -128,7 +128,7 @@ public class TPCHUtils {
             + "    p_partkey\n"
             + "limit 100;";
 
-    public static String Q3 = "select\n"
+    public static final String Q3 = "select\n"
             + "        l_orderkey,\n"
             + "        sum(l_extendedprice * (1 - l_discount)) as revenue,\n"
             + "        o_orderdate,\n"
@@ -176,7 +176,7 @@ public class TPCHUtils {
             + "    o_orderdate\n"
             + "limit 10;";
 
-    public static String Q4 = "select\n"
+    public static final String Q4 = "select\n"
             + "        o_orderpriority,\n"
             + "        count(*) as order_count\n"
             + "from\n"
@@ -219,7 +219,7 @@ public class TPCHUtils {
             + "order by\n"
             + "    o_orderpriority;";
 
-    public static String Q5 = "select\n"
+    public static final String Q5 = "select\n"
             + "        n_name,\n"
             + "        sum(l_extendedprice * (1 - l_discount)) as revenue\n"
             + "from\n"
@@ -244,7 +244,7 @@ public class TPCHUtils {
             + "order by\n"
             + "        revenue desc;";
 
-    public static String Q6 = "select\n"
+    public static final String Q6 = "select\n"
             + "        sum(l_extendedprice * l_discount) as revenue\n"
             + "from\n"
             + "        lineitem\n"
@@ -254,7 +254,7 @@ public class TPCHUtils {
             + "        and l_discount between 0.06 - 0.01 and 0.06 + 0.01\n"
             + "        and l_quantity < 24;";
 
-    public static String Q7 = "select\n"
+    public static final String Q7 = "select\n"
             + "        supp_nation,\n"
             + "        cust_nation,\n"
             + "        l_year,\n"

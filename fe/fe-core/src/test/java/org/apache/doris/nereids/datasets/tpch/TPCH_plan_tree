@@ -1,0 +1,976 @@
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=false) */
+    l_returnflag,
+    l_linestatus,
+    sum(l_quantity) as sum_qty,
+    sum(l_extendedprice) as sum_base_price,
+    sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
+    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
+    avg(l_quantity) as avg_qty,
+    avg(l_extendedprice) as avg_price,
+    avg(l_discount) as avg_disc,
+    count(*) as count_order
+from
+    lineitem
+where
+    l_shipdate <= date '1998-12-01' - interval '90' day
+group by
+    l_returnflag,
+    l_linestatus
+order by
+    l_returnflag,
+    l_linestatus;
+
+LogicalSort ( orderKeys=[l_returnflag#17, l_linestatus#18] )
++--LogicalSelectHint (set_var(exec_mem_limit='8589934592', parallel_fragment_exec_instance_num='8', enable_vectorized_engine='1', batch_size='4096', disable_join_reorder='0', enable_cost_based_join_reorder='0', enable_projection='0'))
+   +--LogicalProject ( projects=[l_returnflag#17, l_linestatus#18, sum(l_quantity)#30 AS `sum_qty`#0, sum(l_extendedprice)#27 AS `sum_base_price`#1, sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))#25 AS `sum_disc_price`#2, sum(((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) * (CAST(1 AS DECIMAL(15, 2)) + l_tax)))#32 AS `sum_charge`#3, avg(l_quantity)#28 AS `avg_qty`#4, avg(l_extendedprice)#29 AS `avg_price`#5, avg(l_discount)#26 AS `avg_disc`#6, count(*)#33 AS `count_order`#7] )
+      +--LogicalAggregate ( phase=LOCAL, outputExpr=[l_linestatus#18, l_returnflag#17, sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))#24) AS `sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))`#25, avg(l_discount#15) AS `avg(l_discount)`#26, sum(l_extendedprice#14) AS `sum(l_extendedprice)`#27, avg(l_quantity#13) AS `avg(l_quantity)`#28, avg(l_extendedprice#14) AS `avg(l_extendedprice)`#29, sum(l_quantity#13) AS `sum(l_quantity)`#30, sum(((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) * (CAST(1 AS DECIMAL(15, 2)) + l_tax))#31) AS `sum(((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) * (CAST(1 AS DECIMAL(15, 2)) + l_tax)))`#32, count(*) AS `count(*)`#33], groupByExpr=[l_returnflag#17, l_linestatus#18] )
+         +--LogicalProject ( projects=[l_returnflag#17, l_linestatus#18, (l_extendedprice#14 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#15)) AS `(l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))`#24, l_discount#15, l_extendedprice#14, l_quantity#13, l_extendedprice#14, l_quantity#13, ((l_extendedprice#14 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#15)) * (CAST(1 AS DECIMAL(15, 2)) + l_tax#16)) AS `((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) * (CAST(1 AS DECIMAL(15, 2)) + l_tax))`#31] )
+            +--LogicalFilter ( predicates=(l_shipdate#8 <= 1998-09-02 00:00:00) )
+               +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#8, l_orderkey#9, l_linenumber#10, l_partkey#11, l_suppkey#12, l_quantity#13, l_extendedprice#14, l_discount#15, l_tax#16, l_returnflag#17, l_linestatus#18, l_commitdate#19, l_receiptdate#20, l_shipinstruct#21, l_shipmode#22, l_comment#23], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
+select
+        s_acctbal,
+        s_name,
+        n_name,
+        p_partkey,
+        p_mfgr,
+        s_address,
+        s_phone,
+        s_comment
+from
+        part,
+        supplier,
+        partsupp,
+        nation,
+        region
+where
+        p_partkey = ps_partkey
+        and s_suppkey = ps_suppkey
+        and p_size = 15
+        and p_type like '%BRASS'
+        and s_nationkey = n_nationkey
+        and n_regionkey = r_regionkey
+        and r_name = 'EUROPE'
+        and ps_supplycost = (
+                select
+                        min(ps_supplycost)
+                from
+                        partsupp,
+                        supplier,
+                        nation,
+                        region
+                where
+                        p_partkey = ps_partkey
+                        and s_suppkey = ps_suppkey
+                        and s_nationkey = n_nationkey
+                        and n_regionkey = r_regionkey
+                        and r_name = 'EUROPE'
+        )
+order by
+        s_acctbal desc,
+        n_name,
+        s_name,
+        p_partkey
+limit 100;
+
+LogicalLimit ( limit=100, offset=0 )
++--LogicalSort ( orderKeys=[s_acctbal#14, n_name#22, s_name#10, p_partkey#0] )
+   +--LogicalProject ( projects=[s_acctbal#14, s_name#10, n_name#22, p_partkey#0, p_mfgr#2, s_address#11, s_phone#13, s_comment#15] )
+      +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(ps_supplycost#19 = min(ps_supplycost)#47), (p_partkey#0 = ps_partkey#28)], otherJoinCondition=[] )
+         |--LogicalProject ( projects=[p_partkey#0, p_mfgr#2, ps_supplycost#19, s_name#10, s_address#11, s_phone#13, s_acctbal#14, s_comment#15, n_name#22] )
+         |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(n_regionkey#23 = r_regionkey#25)], otherJoinCondition=[] )
+         |     |--LogicalProject ( projects=[p_partkey#0, p_mfgr#2, ps_supplycost#19, s_name#10, s_address#11, s_phone#13, s_acctbal#14, s_comment#15, n_name#22, n_regionkey#23] )
+         |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#12 = n_nationkey#21)], otherJoinCondition=[] )
+         |     |     |--LogicalProject ( projects=[p_partkey#0, p_mfgr#2, ps_supplycost#19, s_name#10, s_address#11, s_nationkey#12, s_phone#13, s_acctbal#14, s_comment#15] )
+         |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_suppkey#9 = ps_suppkey#17)], otherJoinCondition=[] )
+         |     |     |     |--LogicalProject ( projects=[p_partkey#0, p_mfgr#2, ps_suppkey#17, ps_supplycost#19] )
+         |     |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(p_partkey#0 = ps_partkey#16)], otherJoinCondition=[] )
+         |     |     |     |     |--LogicalProject ( projects=[p_partkey#0, p_mfgr#2] )
+         |     |     |     |     |  +--LogicalFilter ( predicates=((p_size#5 = 15) AND (p_type#4 like '%BRASS')) )
+         |     |     |     |     |     +--LogicalOlapScan ( qualified=default_cluster:tpch.part, output=[p_partkey#0, p_name#1, p_mfgr#2, p_brand#3, p_type#4, p_size#5, p_container#6, p_retailprice#7, p_comment#8], candidateIndexIds=[10450], selectedIndexId=10450, preAgg=ON )
+         |     |     |     |     +--LogicalProject ( projects=[ps_partkey#16, ps_suppkey#17, ps_supplycost#19] )
+         |     |     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.partsupp, output=[ps_partkey#16, ps_suppkey#17, ps_availqty#18, ps_supplycost#19, ps_comment#20], candidateIndexIds=[10398], selectedIndexId=10398, preAgg=ON )
+         |     |     |     +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#9, s_name#10, s_address#11, s_nationkey#12, s_phone#13, s_acctbal#14, s_comment#15], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+         |     |     +--LogicalProject ( projects=[n_nationkey#21, n_name#22, n_regionkey#23] )
+         |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#21, n_name#22, n_regionkey#23, n_comment#24], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+         |     +--LogicalProject ( projects=[r_regionkey#25] )
+         |        +--LogicalFilter ( predicates=(CAST(r_name AS STRING) = 'EUROPE') )
+         |           +--LogicalOlapScan ( qualified=default_cluster:tpch.region, output=[r_regionkey#25, r_name#26, r_comment#27], candidateIndexIds=[10584], selectedIndexId=10584, preAgg=ON )
+         +--LogicalProject ( projects=[min(ps_supplycost)#48 AS `min(ps_supplycost)`#47, ps_partkey#28] )
+            +--LogicalAggregate ( phase=LOCAL, outputExpr=[ps_partkey#28, min(ps_supplycost#31) AS `min(ps_supplycost)`#48], groupByExpr=[ps_partkey#28] )
+               +--LogicalProject ( projects=[ps_partkey#28, ps_supplycost#31] )
+                  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(n_regionkey#42 = r_regionkey#44)], otherJoinCondition=[] )
+                     |--LogicalProject ( projects=[ps_partkey#28, ps_supplycost#31, n_regionkey#42] )
+                     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#36 = n_nationkey#40)], otherJoinCondition=[] )
+                     |     |--LogicalProject ( projects=[ps_partkey#28, ps_supplycost#31, s_nationkey#36] )
+                     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_suppkey#33 = ps_suppkey#29)], otherJoinCondition=[] )
+                     |     |     |--LogicalProject ( projects=[ps_partkey#28, ps_suppkey#29, ps_supplycost#31] )
+                     |     |     |  +--LogicalOlapScan ( qualified=default_cluster:tpch.partsupp, output=[ps_partkey#28, ps_suppkey#29, ps_availqty#30, ps_supplycost#31, ps_comment#32], candidateIndexIds=[10398], selectedIndexId=10398, preAgg=ON )
+                     |     |     +--LogicalProject ( projects=[s_suppkey#33, s_nationkey#36] )
+                     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#33, s_name#34, s_address#35, s_nationkey#36, s_phone#37, s_acctbal#38, s_comment#39], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+                     |     +--LogicalProject ( projects=[n_nationkey#40, n_regionkey#42] )
+                     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#40, n_name#41, n_regionkey#42, n_comment#43], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+                     +--LogicalProject ( projects=[r_regionkey#44] )
+                        +--LogicalFilter ( predicates=(CAST(r_name AS STRING) = 'EUROPE') )
+                           +--LogicalOlapScan ( qualified=default_cluster:tpch.region, output=[r_regionkey#44, r_name#45, r_comment#46], candidateIndexIds=[10584], selectedIndexId=10584, preAgg=ON )
+---------------------
+select
+        l_orderkey,
+        sum(l_extendedprice * (1 - l_discount)) as revenue,
+        o_orderdate,
+        o_shippriority
+from
+        customer,
+        orders,
+        lineitem
+where
+        c_mktsegment = 'BUILDING'
+        and c_custkey = o_custkey
+        and l_orderkey = o_orderkey
+        and o_orderdate < date '1995-03-15'
+        and l_shipdate > date '1995-03-15'
+group by
+        l_orderkey,
+        o_orderdate,
+        o_shippriority
+order by
+        revenue desc,
+        o_orderdate
+limit 10;
+
+LogicalLimit ( limit=10, offset=0 )
++--LogicalSort ( orderKeys=[revenue#0, o_orderdate#10] )
+   +--LogicalProject ( projects=[l_orderkey#19, sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))#35 AS `revenue`#0, o_orderdate#10, o_shippriority#16] )
+      +--LogicalAggregate ( phase=LOCAL, outputExpr=[l_orderkey#19, o_orderdate#10, o_shippriority#16, sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))#34) AS `sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))`#35], groupByExpr=[l_orderkey#19, o_orderdate#10, o_shippriority#16] )
+         +--LogicalProject ( projects=[l_orderkey#19, o_orderdate#10, o_shippriority#16, (l_extendedprice#24 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#25)) AS `(l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))`#34] )
+            +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(l_orderkey#19 = o_orderkey#9)], otherJoinCondition=[] )
+               |--LogicalProject ( projects=[o_orderkey#9, o_orderdate#10, o_shippriority#16] )
+               |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(c_custkey#1 = o_custkey#11)], otherJoinCondition=[] )
+               |     |--LogicalProject ( projects=[c_custkey#1] )
+               |     |  +--LogicalFilter ( predicates=(CAST(c_mktsegment AS STRING) = 'BUILDING') )
+               |     |     +--LogicalOlapScan ( qualified=default_cluster:tpch.customer, output=[c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acctbal#6, c_mktsegment#7, c_comment#8], candidateIndexIds=[10501], selectedIndexId=10501, preAgg=ON )
+               |     +--LogicalProject ( projects=[o_orderkey#9, o_orderdate#10, o_custkey#11, o_shippriority#16] )
+               |        +--LogicalFilter ( predicates=(o_orderdate#10 < 1995-03-15) )
+               |           +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#9, o_orderdate#10, o_custkey#11, o_orderstatus#12, o_totalprice#13, o_orderpriority#14, o_clerk#15, o_shippriority#16, o_comment#17], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+               +--LogicalProject ( projects=[l_orderkey#19, l_extendedprice#24, l_discount#25] )
+                  +--LogicalFilter ( predicates=(l_shipdate#18 > 1995-03-15) )
+                     +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#18, l_orderkey#19, l_linenumber#20, l_partkey#21, l_suppkey#22, l_quantity#23, l_extendedprice#24, l_discount#25, l_tax#26, l_returnflag#27, l_linestatus#28, l_commitdate#29, l_receiptdate#30, l_shipinstruct#31, l_shipmode#32, l_comment#33], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
+select
+        o_orderpriority,
+        count(*) as order_count
+from
+        orders
+where
+        o_orderdate >= date '1993-07-01'
+        and o_orderdate < date '1993-10-01'
+        and exists (
+                select
+                        *
+                from
+                        lineitem
+                where
+                        l_orderkey = o_orderkey
+                        and l_commitdate < l_receiptdate
+        )
+group by
+        o_orderpriority
+order by
+        o_orderpriority;
+
+LogicalSort ( orderKeys=[o_orderpriority#6] )
++--LogicalProject ( projects=[o_orderpriority#6, count(*)#26 AS `order_count`#0] )
+   +--LogicalAggregate ( phase=LOCAL, outputExpr=[o_orderpriority#6, count(*) AS `count(*)`#26], groupByExpr=[o_orderpriority#6] )
+      +--LogicalProject ( projects=[o_orderpriority#6] )
+         +--LogicalJoin ( type=LEFT_SEMI_JOIN, hashJoinCondition=[(l_orderkey#11 = o_orderkey#1)], otherJoinCondition=[] )
+            |--LogicalFilter ( predicates=((o_orderdate#2 >= 1993-07-01) AND (o_orderdate#2 < 1993-10-01)) )
+            |  +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#1, o_orderdate#2, o_custkey#3, o_orderstatus#4, o_totalprice#5, o_orderpriority#6, o_clerk#7, o_shippriority#8, o_comment#9], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+            +--LogicalProject ( projects=[l_orderkey#11] )
+               +--LogicalFilter ( predicates=(l_commitdate#21 < l_receiptdate#22) )
+                  +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#10, l_orderkey#11, l_linenumber#12, l_partkey#13, l_suppkey#14, l_quantity#15, l_extendedprice#16, l_discount#17, l_tax#18, l_returnflag#19, l_linestatus#20, l_commitdate#21, l_receiptdate#22, l_shipinstruct#23, l_shipmode#24, l_comment#25], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
+select
+        n_name,
+        sum(l_extendedprice * (1 - l_discount)) as revenue
+from
+        customer,
+        orders,
+        lineitem,
+        supplier,
+        nation,
+        region
+where
+        c_custkey = o_custkey
+        and l_orderkey = o_orderkey
+        and l_suppkey = s_suppkey
+        and c_nationkey = s_nationkey
+        and s_nationkey = n_nationkey
+        and n_regionkey = r_regionkey
+        and r_name = 'ASIA'
+        and o_orderdate >= date '1994-01-01'
+        and o_orderdate < date '1995-01-01'
+group by
+        n_name
+order by
+        revenue desc;
+
+LogicalSort ( orderKeys=[revenue#0] )
++--LogicalProject ( projects=[n_name#42, sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))#49 AS `revenue`#0] )
+   +--LogicalAggregate ( phase=LOCAL, outputExpr=[n_name#42, sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))#48) AS `sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))`#49], groupByExpr=[n_name#42] )
+      +--LogicalProject ( projects=[n_name#42, (l_extendedprice#24 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#25)) AS `(l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))`#48] )
+         +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(n_regionkey#43 = r_regionkey#45)], otherJoinCondition=[] )
+            |--LogicalProject ( projects=[l_extendedprice#24, l_discount#25, n_name#42, n_regionkey#43] )
+            |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#37 = n_nationkey#41)], otherJoinCondition=[] )
+            |     |--LogicalProject ( projects=[l_extendedprice#24, l_discount#25, s_nationkey#37] )
+            |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(l_suppkey#22 = s_suppkey#34), (c_nationkey#4 = s_nationkey#37)], otherJoinCondition=[] )
+            |     |     |--LogicalProject ( projects=[c_nationkey#4, l_suppkey#22, l_extendedprice#24, l_discount#25] )
+            |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(l_orderkey#19 = o_orderkey#9)], otherJoinCondition=[] )
+            |     |     |     |--LogicalProject ( projects=[c_nationkey#4, o_orderkey#9] )
+            |     |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(c_custkey#1 = o_custkey#11)], otherJoinCondition=[] )
+            |     |     |     |     |--LogicalProject ( projects=[c_custkey#1, c_nationkey#4] )
+            |     |     |     |     |  +--LogicalOlapScan ( qualified=default_cluster:tpch.customer, output=[c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acctbal#6, c_mktsegment#7, c_comment#8], candidateIndexIds=[10501], selectedIndexId=10501, preAgg=ON )
+            |     |     |     |     +--LogicalProject ( projects=[o_orderkey#9, o_custkey#11] )
+            |     |     |     |        +--LogicalFilter ( predicates=((o_orderdate#10 >= 1994-01-01) AND (o_orderdate#10 < 1995-01-01)) )
+            |     |     |     |           +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#9, o_orderdate#10, o_custkey#11, o_orderstatus#12, o_totalprice#13, o_orderpriority#14, o_clerk#15, o_shippriority#16, o_comment#17], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+            |     |     |     +--LogicalProject ( projects=[l_orderkey#19, l_suppkey#22, l_extendedprice#24, l_discount#25] )
+            |     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#18, l_orderkey#19, l_linenumber#20, l_partkey#21, l_suppkey#22, l_quantity#23, l_extendedprice#24, l_discount#25, l_tax#26, l_returnflag#27, l_linestatus#28, l_commitdate#29, l_receiptdate#30, l_shipinstruct#31, l_shipmode#32, l_comment#33], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+            |     |     +--LogicalProject ( projects=[s_suppkey#34, s_nationkey#37] )
+            |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#34, s_name#35, s_address#36, s_nationkey#37, s_phone#38, s_acctbal#39, s_comment#40], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+            |     +--LogicalProject ( projects=[n_nationkey#41, n_name#42, n_regionkey#43] )
+            |        +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#41, n_name#42, n_regionkey#43, n_comment#44], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+            +--LogicalProject ( projects=[r_regionkey#45] )
+               +--LogicalFilter ( predicates=(CAST(r_name AS STRING) = 'ASIA') )
+                  +--LogicalOlapScan ( qualified=default_cluster:tpch.region, output=[r_regionkey#45, r_name#46, r_comment#47], candidateIndexIds=[10584], selectedIndexId=10584, preAgg=ON )
+---------------------
+select
+        sum(l_extendedprice * l_discount) as revenue
+from
+        lineitem
+where
+        l_shipdate >= date '1994-01-01'
+        and l_shipdate < date '1995-01-01'
+        and l_discount between 0.06 - 0.01 and 0.06 + 0.01
+        and l_quantity < 24;
+
+LogicalProject ( projects=[sum((l_extendedprice * l_discount))#18 AS `revenue`#0] )
++--LogicalAggregate ( phase=LOCAL, outputExpr=[sum((l_extendedprice * l_discount)#17) AS `sum((l_extendedprice * l_discount))`#18], groupByExpr=[] )
+   +--LogicalProject ( projects=[(l_extendedprice#7 * l_discount#8) AS `(l_extendedprice * l_discount)`#17] )
+      +--LogicalFilter ( predicates=(((((l_shipdate#1 >= 1994-01-01) AND (l_shipdate#1 < 1995-01-01)) AND (l_discount#8 >= (0.06 - 0.01))) AND (l_discount#8 <= (0.06 + 0.01))) AND (l_quantity#6 < 24.0)) )
+         +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#1, l_orderkey#2, l_linenumber#3, l_partkey#4, l_suppkey#5, l_quantity#6, l_extendedprice#7, l_discount#8, l_tax#9, l_returnflag#10, l_linestatus#11, l_commitdate#12, l_receiptdate#13, l_shipinstruct#14, l_shipmode#15, l_comment#16], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
+select
+        supp_nation,
+        cust_nation,
+        l_year,
+        sum(volume) as revenue
+from
+        (
+                select
+                        n1.n_name as supp_nation,
+                        n2.n_name as cust_nation,
+                        extract(year from l_shipdate) as l_year,
+                        l_extendedprice * (1 - l_discount) as volume
+                from
+                        supplier,
+                        lineitem,
+                        orders,
+                        customer,
+                        nation n1,
+                        nation n2
+                where
+                        s_suppkey = l_suppkey
+                        and o_orderkey = l_orderkey
+                        and c_custkey = o_custkey
+                        and s_nationkey = n1.n_nationkey
+                        and c_nationkey = n2.n_nationkey
+                        and (
+                                (n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY')
+                                or (n1.n_name = 'GERMANY' and n2.n_name = 'FRANCE')
+                        )
+                        and l_shipdate between date '1995-01-01' and date '1996-12-31'
+        ) as shipping
+group by
+        supp_nation,
+        cust_nation,
+        l_year
+order by
+        supp_nation,
+        cust_nation,
+        l_year;
+
+LogicalSort ( orderKeys=[supp_nation#0, cust_nation#1, l_year#2] )
++--LogicalProject ( projects=[supp_nation#0, cust_nation#1, l_year#2, sum(volume)#53 AS `revenue`#4] )
+   +--LogicalAggregate ( phase=LOCAL, outputExpr=[l_year#2, supp_nation#0, cust_nation#1, sum(volume#3) AS `sum(volume)`#53], groupByExpr=[supp_nation#0, cust_nation#1, l_year#2] )
+      +--LogicalProject ( projects=[n_name#46 AS `supp_nation`#0, n_name#50 AS `cust_nation`#1, year(l_shipdate#12) AS `l_year`#2, (l_extendedprice#18 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#19)) AS `volume`#3] )
+         +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(c_nationkey#40 = n_nationkey#49)], otherJoinCondition=[(((CAST(n_name AS STRING) = 'FRANCE') AND (CAST(n_name AS STRING) = 'GERMANY')) OR ((CAST(n_name AS STRING) = 'GERMANY') AND (CAST(n_name AS STRING) = 'FRANCE')))] )
+            |--LogicalProject ( projects=[l_shipdate#12, l_extendedprice#18, l_discount#19, c_nationkey#40, n_name#46] )
+            |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#8 = n_nationkey#45)], otherJoinCondition=[] )
+            |     |--LogicalProject ( projects=[s_nationkey#8, l_shipdate#12, l_extendedprice#18, l_discount#19, c_nationkey#40] )
+            |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(c_custkey#37 = o_custkey#30)], otherJoinCondition=[] )
+            |     |     |--LogicalProject ( projects=[s_nationkey#8, l_shipdate#12, l_extendedprice#18, l_discount#19, o_custkey#30] )
+            |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(o_orderkey#28 = l_orderkey#13)], otherJoinCondition=[] )
+            |     |     |     |--LogicalProject ( projects=[s_nationkey#8, l_shipdate#12, l_orderkey#13, l_extendedprice#18, l_discount#19] )
+            |     |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_suppkey#5 = l_suppkey#16)], otherJoinCondition=[] )
+            |     |     |     |     |--LogicalProject ( projects=[s_suppkey#5, s_nationkey#8] )
+            |     |     |     |     |  +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#5, s_name#6, s_address#7, s_nationkey#8, s_phone#9, s_acctbal#10, s_comment#11], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+            |     |     |     |     +--LogicalProject ( projects=[l_shipdate#12, l_orderkey#13, l_suppkey#16, l_extendedprice#18, l_discount#19] )
+            |     |     |     |        +--LogicalFilter ( predicates=((l_shipdate#12 >= 1995-01-01) AND (l_shipdate#12 <= 1996-12-31)) )
+            |     |     |     |           +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#12, l_orderkey#13, l_linenumber#14, l_partkey#15, l_suppkey#16, l_quantity#17, l_extendedprice#18, l_discount#19, l_tax#20, l_returnflag#21, l_linestatus#22, l_commitdate#23, l_receiptdate#24, l_shipinstruct#25, l_shipmode#26, l_comment#27], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+            |     |     |     +--LogicalProject ( projects=[o_orderkey#28, o_custkey#30] )
+            |     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#28, o_orderdate#29, o_custkey#30, o_orderstatus#31, o_totalprice#32, o_orderpriority#33, o_clerk#34, o_shippriority#35, o_comment#36], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+            |     |     +--LogicalProject ( projects=[c_custkey#37, c_nationkey#40] )
+            |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.customer, output=[c_custkey#37, c_name#38, c_address#39, c_nationkey#40, c_phone#41, c_acctbal#42, c_mktsegment#43, c_comment#44], candidateIndexIds=[10501], selectedIndexId=10501, preAgg=ON )
+            |     +--LogicalProject ( projects=[n_nationkey#45, n_name#46] )
+            |        +--LogicalFilter ( predicates=((CAST(n_name AS STRING) = 'FRANCE') OR (CAST(n_name AS STRING) = 'GERMANY')) )
+            |           +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#45, n_name#46, n_regionkey#47, n_comment#48], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+            +--LogicalProject ( projects=[n_nationkey#49, n_name#50] )
+               +--LogicalFilter ( predicates=((CAST(n_name AS STRING) = 'GERMANY') OR (CAST(n_name AS STRING) = 'FRANCE')) )
+                  +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#49, n_name#50, n_regionkey#51, n_comment#52], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+---------------------
+select
+        o_year,
+        sum(case
+                when nation = 'BRAZIL' then volume
+                else 0
+        end) / sum(volume) as mkt_share
+from
+        (
+                select
+                        extract(year from o_orderdate) as o_year,
+                        l_extendedprice * (1 - l_discount) as volume,
+                        n2.n_name as nation
+                from
+                        part,
+                        supplier,
+                        lineitem,
+                        orders,
+                        customer,
+                        nation n1,
+                        nation n2,
+                        region
+                where
+                        p_partkey = l_partkey
+                        and s_suppkey = l_suppkey
+                        and l_orderkey = o_orderkey
+                        and o_custkey = c_custkey
+                        and c_nationkey = n1.n_nationkey
+                        and n1.n_regionkey = r_regionkey
+                        and r_name = 'AMERICA'
+                        and s_nationkey = n2.n_nationkey
+                        and o_orderdate between date '1995-01-01' and date '1996-12-31'
+                        and p_type = 'ECONOMY ANODIZED STEEL'
+        ) as all_nations
+group by
+        o_year
+order by
+        o_year;
+
+LogicalSort ( orderKeys=[o_year#0] )
++--LogicalProject ( projects=[o_year#0, (CAST(sum(CASE  WHEN (CAST(nation AS STRING) = CAST('BRAZIL' AS STRING)) THEN volume ELSE CAST(0 AS DECIMAL(15, 2)) END) AS DECIMAL(38, 18)) / CAST(sum(volume) AS DECIMAL(38, 18))) AS `mkt_share`#3] )
+   +--LogicalAggregate ( phase=LOCAL, outputExpr=[o_year#0, sum(CASE  WHEN (CAST(nation AS STRING) = CAST('BRAZIL' AS STRING)) THEN volume ELSE CAST(0 AS DECIMAL(15, 2)) END#64) AS `sum(CASE  WHEN (CAST(nation AS STRING) = CAST('BRAZIL' AS STRING)) THEN volume ELSE CAST(0 AS DECIMAL(15, 2)) END)`#65, sum(volume#1) AS `sum(volume)`#66], groupByExpr=[o_year#0] )
+      +--LogicalProject ( projects=[year(o_orderdate#37) AS `o_year`#0, CASE  WHEN (CAST(n_name AS STRING) = CAST('BRAZIL' AS STRING)) THEN (l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) ELSE CAST(0 AS DECIMAL(15, 2)) END AS `CASE  WHEN (CAST(nation AS STRING) = CAST('BRAZIL' AS STRING)) THEN volume ELSE CAST(0 AS DECIMAL(15, 2)) END`#64, (l_extendedprice#26 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#27)) AS `volume`#1] )
+         +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(n_regionkey#55 = r_regionkey#61)], otherJoinCondition=[] )
+            |--LogicalProject ( projects=[l_extendedprice#26, l_discount#27, o_orderdate#37, n_regionkey#55, n_name#58] )
+            |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#16 = n_nationkey#57)], otherJoinCondition=[] )
+            |     |--LogicalProject ( projects=[l_extendedprice#26, l_discount#27, s_nationkey#16, o_orderdate#37, n_regionkey#55] )
+            |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(c_nationkey#48 = n_nationkey#53)], otherJoinCondition=[] )
+            |     |     |--LogicalProject ( projects=[l_extendedprice#26, l_discount#27, s_nationkey#16, o_orderdate#37, c_nationkey#48] )
+            |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(o_custkey#38 = c_custkey#45)], otherJoinCondition=[] )
+            |     |     |     |--LogicalProject ( projects=[l_extendedprice#26, l_discount#27, s_nationkey#16, o_orderdate#37, o_custkey#38] )
+            |     |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(l_orderkey#21 = o_orderkey#36)], otherJoinCondition=[] )
+            |     |     |     |     |--LogicalProject ( projects=[l_orderkey#21, l_extendedprice#26, l_discount#27, s_nationkey#16] )
+            |     |     |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_suppkey#13 = l_suppkey#24)], otherJoinCondition=[] )
+            |     |     |     |     |     |--LogicalProject ( projects=[l_orderkey#21, l_suppkey#24, l_extendedprice#26, l_discount#27] )
+            |     |     |     |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(p_partkey#4 = l_partkey#23)], otherJoinCondition=[] )
+            |     |     |     |     |     |     |--LogicalProject ( projects=[p_partkey#4] )
+            |     |     |     |     |     |     |  +--LogicalFilter ( predicates=(CAST(p_type AS STRING) = 'ECONOMY ANODIZED STEEL') )
+            |     |     |     |     |     |     |     +--LogicalOlapScan ( qualified=default_cluster:tpch.part, output=[p_partkey#4, p_name#5, p_mfgr#6, p_brand#7, p_type#8, p_size#9, p_container#10, p_retailprice#11, p_comment#12], candidateIndexIds=[10450], selectedIndexId=10450, preAgg=ON )
+            |     |     |     |     |     |     +--LogicalProject ( projects=[l_orderkey#21, l_partkey#23, l_suppkey#24, l_extendedprice#26, l_discount#27] )
+            |     |     |     |     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#20, l_orderkey#21, l_linenumber#22, l_partkey#23, l_suppkey#24, l_quantity#25, l_extendedprice#26, l_discount#27, l_tax#28, l_returnflag#29, l_linestatus#30, l_commitdate#31, l_receiptdate#32, l_shipinstruct#33, l_shipmode#34, l_comment#35], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+            |     |     |     |     |     +--LogicalProject ( projects=[s_suppkey#13, s_nationkey#16] )
+            |     |     |     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#13, s_name#14, s_address#15, s_nationkey#16, s_phone#17, s_acctbal#18, s_comment#19], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+            |     |     |     |     +--LogicalProject ( projects=[o_orderkey#36, o_orderdate#37, o_custkey#38] )
+            |     |     |     |        +--LogicalFilter ( predicates=((o_orderdate#37 >= 1995-01-01) AND (o_orderdate#37 <= 1996-12-31)) )
+            |     |     |     |           +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#36, o_orderdate#37, o_custkey#38, o_orderstatus#39, o_totalprice#40, o_orderpriority#41, o_clerk#42, o_shippriority#43, o_comment#44], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+            |     |     |     +--LogicalProject ( projects=[c_custkey#45, c_nationkey#48] )
+            |     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.customer, output=[c_custkey#45, c_name#46, c_address#47, c_nationkey#48, c_phone#49, c_acctbal#50, c_mktsegment#51, c_comment#52], candidateIndexIds=[10501], selectedIndexId=10501, preAgg=ON )
+            |     |     +--LogicalProject ( projects=[n_nationkey#53, n_regionkey#55] )
+            |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#53, n_name#54, n_regionkey#55, n_comment#56], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+            |     +--LogicalProject ( projects=[n_nationkey#57, n_name#58] )
+            |        +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#57, n_name#58, n_regionkey#59, n_comment#60], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+            +--LogicalProject ( projects=[r_regionkey#61] )
+               +--LogicalFilter ( predicates=(CAST(r_name AS STRING) = 'AMERICA') )
+                  +--LogicalOlapScan ( qualified=default_cluster:tpch.region, output=[r_regionkey#61, r_name#62, r_comment#63], candidateIndexIds=[10584], selectedIndexId=10584, preAgg=ON )
+---------------------
+select
+        nation,
+        o_year,
+        sum(amount) as sum_profit
+from
+        (
+                select
+                        n_name as nation,
+                        extract(year from o_orderdate) as o_year,
+                        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
+                from
+                        part,
+                        supplier,
+                        lineitem,
+                        partsupp,
+                        orders,
+                        nation
+                where
+                        s_suppkey = l_suppkey
+                        and ps_suppkey = l_suppkey
+                        and ps_partkey = l_partkey
+                        and p_partkey = l_partkey
+                        and o_orderkey = l_orderkey
+                        and s_nationkey = n_nationkey
+                        and p_name like '%green%'
+        ) as profit
+group by
+        nation,
+        o_year
+order by
+        nation,
+        o_year desc;
+
+LogicalSort ( orderKeys=[nation#0, o_year#1] )
++--LogicalProject ( projects=[nation#0, o_year#1, sum(amount)#54 AS `sum_profit`#3] )
+   +--LogicalAggregate ( phase=LOCAL, outputExpr=[nation#0, o_year#1, sum(amount#2) AS `sum(amount)`#54], groupByExpr=[nation#0, o_year#1] )
+      +--LogicalProject ( projects=[n_name#51 AS `nation`#0, year(o_orderdate#42) AS `o_year`#1, ((l_extendedprice#26 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#27)) - (ps_supplycost#39 * l_quantity#25)) AS `amount`#2] )
+         +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#16 = n_nationkey#50)], otherJoinCondition=[] )
+            |--LogicalProject ( projects=[l_quantity#25, l_extendedprice#26, l_discount#27, s_nationkey#16, ps_supplycost#39, o_orderdate#42] )
+            |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(o_orderkey#41 = l_orderkey#21)], otherJoinCondition=[] )
+            |     |--LogicalProject ( projects=[l_orderkey#21, l_quantity#25, l_extendedprice#26, l_discount#27, s_nationkey#16, ps_supplycost#39] )
+            |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(ps_suppkey#37 = l_suppkey#24), (ps_partkey#36 = l_partkey#23)], otherJoinCondition=[] )
+            |     |     |--LogicalProject ( projects=[l_orderkey#21, l_partkey#23, l_suppkey#24, l_quantity#25, l_extendedprice#26, l_discount#27, s_nationkey#16] )
+            |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_suppkey#13 = l_suppkey#24)], otherJoinCondition=[] )
+            |     |     |     |--LogicalProject ( projects=[l_orderkey#21, l_partkey#23, l_suppkey#24, l_quantity#25, l_extendedprice#26, l_discount#27] )
+            |     |     |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(p_partkey#4 = l_partkey#23)], otherJoinCondition=[] )
+            |     |     |     |     |--LogicalProject ( projects=[p_partkey#4] )
+            |     |     |     |     |  +--LogicalFilter ( predicates=(p_name#5 like '%green%') )
+            |     |     |     |     |     +--LogicalOlapScan ( qualified=default_cluster:tpch.part, output=[p_partkey#4, p_name#5, p_mfgr#6, p_brand#7, p_type#8, p_size#9, p_container#10, p_retailprice#11, p_comment#12], candidateIndexIds=[10450], selectedIndexId=10450, preAgg=ON )
+            |     |     |     |     +--LogicalProject ( projects=[l_orderkey#21, l_partkey#23, l_suppkey#24, l_quantity#25, l_extendedprice#26, l_discount#27] )
+            |     |     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#20, l_orderkey#21, l_linenumber#22, l_partkey#23, l_suppkey#24, l_quantity#25, l_extendedprice#26, l_discount#27, l_tax#28, l_returnflag#29, l_linestatus#30, l_commitdate#31, l_receiptdate#32, l_shipinstruct#33, l_shipmode#34, l_comment#35], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+            |     |     |     +--LogicalProject ( projects=[s_suppkey#13, s_nationkey#16] )
+            |     |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#13, s_name#14, s_address#15, s_nationkey#16, s_phone#17, s_acctbal#18, s_comment#19], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+            |     |     +--LogicalProject ( projects=[ps_partkey#36, ps_suppkey#37, ps_supplycost#39] )
+            |     |        +--LogicalOlapScan ( qualified=default_cluster:tpch.partsupp, output=[ps_partkey#36, ps_suppkey#37, ps_availqty#38, ps_supplycost#39, ps_comment#40], candidateIndexIds=[10398], selectedIndexId=10398, preAgg=ON )
+            |     +--LogicalProject ( projects=[o_orderkey#41, o_orderdate#42] )
+            |        +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#41, o_orderdate#42, o_custkey#43, o_orderstatus#44, o_totalprice#45, o_orderpriority#46, o_clerk#47, o_shippriority#48, o_comment#49], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+            +--LogicalProject ( projects=[n_nationkey#50, n_name#51] )
+               +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#50, n_name#51, n_regionkey#52, n_comment#53], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+---------------------
+select
+        c_custkey,
+        c_name,
+        sum(l_extendedprice * (1 - l_discount)) as revenue,
+        c_acctbal,
+        n_name,
+        c_address,
+        c_phone,
+        c_comment
+from
+        customer,
+        orders,
+        lineitem,
+        nation
+where
+        c_custkey = o_custkey
+        and l_orderkey = o_orderkey
+        and o_orderdate >= date '1993-10-01'
+        and o_orderdate < date '1994-01-01'
+        and l_returnflag = 'R'
+        and c_nationkey = n_nationkey
+group by
+        c_custkey,
+        c_name,
+        c_acctbal,
+        c_phone,
+        n_name,
+        c_address,
+        c_comment
+order by
+        revenue desc
+limit 20;
+
+LogicalLimit ( limit=20, offset=0 )
++--LogicalSort ( orderKeys=[revenue#0] )
+   +--LogicalProject ( projects=[c_custkey#1, c_name#2, sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))#39 AS `revenue`#0, c_acctbal#6, n_name#35, c_address#3, c_phone#5, c_comment#8] )
+      +--LogicalAggregate ( phase=LOCAL, outputExpr=[c_name#2, n_name#35, c_address#3, c_phone#5, c_acctbal#6, c_comment#8, c_custkey#1, sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))#38) AS `sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))`#39], groupByExpr=[c_custkey#1, c_name#2, c_acctbal#6, c_phone#5, n_name#35, c_address#3, c_comment#8] )
+         +--LogicalProject ( projects=[c_custkey#1, c_name#2, c_acctbal#6, c_phone#5, n_name#35, c_address#3, c_comment#8, (l_extendedprice#24 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#25)) AS `(l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))`#38] )
+            +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(c_nationkey#4 = n_nationkey#34)], otherJoinCondition=[] )
+               |--LogicalProject ( projects=[c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acctbal#6, c_comment#8, l_extendedprice#24, l_discount#25] )
+               |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(l_orderkey#19 = o_orderkey#9)], otherJoinCondition=[] )
+               |     |--LogicalProject ( projects=[c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acctbal#6, c_comment#8, o_orderkey#9] )
+               |     |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(c_custkey#1 = o_custkey#11)], otherJoinCondition=[] )
+               |     |     |--LogicalProject ( projects=[c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acctbal#6, c_comment#8] )
+               |     |     |  +--LogicalOlapScan ( qualified=default_cluster:tpch.customer, output=[c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acctbal#6, c_mktsegment#7, c_comment#8], candidateIndexIds=[10501], selectedIndexId=10501, preAgg=ON )
+               |     |     +--LogicalProject ( projects=[o_orderkey#9, o_custkey#11] )
+               |     |        +--LogicalFilter ( predicates=((o_orderdate#10 >= 1993-10-01) AND (o_orderdate#10 < 1994-01-01)) )
+               |     |           +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#9, o_orderdate#10, o_custkey#11, o_orderstatus#12, o_totalprice#13, o_orderpriority#14, o_clerk#15, o_shippriority#16, o_comment#17], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+               |     +--LogicalProject ( projects=[l_orderkey#19, l_extendedprice#24, l_discount#25] )
+               |        +--LogicalFilter ( predicates=(l_returnflag#27 = 'R') )
+               |           +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#18, l_orderkey#19, l_linenumber#20, l_partkey#21, l_suppkey#22, l_quantity#23, l_extendedprice#24, l_discount#25, l_tax#26, l_returnflag#27, l_linestatus#28, l_commitdate#29, l_receiptdate#30, l_shipinstruct#31, l_shipmode#32, l_comment#33], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+               +--LogicalProject ( projects=[n_nationkey#34, n_name#35] )
+                  +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#34, n_name#35, n_regionkey#36, n_comment#37], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+---------------------
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=2, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
+    ps_partkey,
+    sum(ps_supplycost * ps_availqty) as value
+from
+    partsupp,
+    supplier,
+    nation
+where
+    ps_suppkey = s_suppkey
+    and s_nationkey = n_nationkey
+    and n_name = 'GERMANY'
+group by
+    ps_partkey having
+        sum(ps_supplycost * ps_availqty) > (
+            select
+                sum(ps_supplycost * ps_availqty) * 0.0001000000
+            from
+                partsupp,
+                supplier,
+                nation
+            where
+                ps_suppkey = s_suppkey
+                and s_nationkey = n_nationkey
+                and n_name = 'GERMANY'
+        )
+order by
+    value desc;
+
+LogicalSort ( orderKeys=[value#0] )
++--LogicalSelectHint (set_var(exec_mem_limit='8589934592', parallel_fragment_exec_instance_num='2', enable_vectorized_engine='1', batch_size='4096', disable_join_reorder='0', enable_cost_based_join_reorder='1', enable_projection='1'))
+   +--LogicalProject ( projects=[ps_partkey#1, value#0] )
+      +--LogicalJoin ( type=CROSS_JOIN, hashJoinCondition=[], otherJoinCondition=[(value#0 > (sum((ps_supplycost * ps_availqty)) * 0.0001000000)#33)] )
+         |--LogicalProject ( projects=[ps_partkey#1, sum((ps_supplycost * CAST(ps_availqty AS DECIMAL(15, 2))))#37 AS `value`#0] )
+         |  +--LogicalAggregate ( phase=LOCAL, outputExpr=[ps_partkey#1, sum((ps_supplycost * CAST(ps_availqty AS DECIMAL(15, 2)))#36) AS `sum((ps_supplycost * CAST(ps_availqty AS DECIMAL(15, 2))))`#37], groupByExpr=[ps_partkey#1] )
+         |     +--LogicalProject ( projects=[ps_partkey#1, (ps_supplycost#4 * CAST(ps_availqty AS DECIMAL(15, 2))) AS `(ps_supplycost * CAST(ps_availqty AS DECIMAL(15, 2)))`#36] )
+         |        +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#9 = n_nationkey#13)], otherJoinCondition=[] )
+         |           |--LogicalProject ( projects=[ps_partkey#1, ps_availqty#3, ps_supplycost#4, s_nationkey#9] )
+         |           |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(ps_suppkey#2 = s_suppkey#6)], otherJoinCondition=[] )
+         |           |     |--LogicalProject ( projects=[ps_partkey#1, ps_suppkey#2, ps_availqty#3, ps_supplycost#4] )
+         |           |     |  +--LogicalOlapScan ( qualified=default_cluster:tpch.partsupp, output=[ps_partkey#1, ps_suppkey#2, ps_availqty#3, ps_supplycost#4, ps_comment#5], candidateIndexIds=[10398], selectedIndexId=10398, preAgg=ON )
+         |           |     +--LogicalProject ( projects=[s_suppkey#6, s_nationkey#9] )
+         |           |        +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#6, s_name#7, s_address#8, s_nationkey#9, s_phone#10, s_acctbal#11, s_comment#12], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+         |           +--LogicalProject ( projects=[n_nationkey#13] )
+         |              +--LogicalFilter ( predicates=(CAST(n_name AS STRING) = 'GERMANY') )
+         |                 +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#13, n_name#14, n_regionkey#15, n_comment#16], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+         +--LogicalAssertNumRows ( assertNumRowsElement=AssertNumRowsElement ( desiredNumOfRows: =1, assertion: =EQ ) )
+            +--LogicalProject ( projects=[(sum((ps_supplycost * CAST(ps_availqty AS DECIMAL(15, 2))))#35 * 0.0001000000) AS `(sum((ps_supplycost * ps_availqty)) * 0.0001000000)`#33] )
+               +--LogicalAggregate ( phase=LOCAL, outputExpr=[sum((ps_supplycost * CAST(ps_availqty AS DECIMAL(15, 2)))#34) AS `sum((ps_supplycost * CAST(ps_availqty AS DECIMAL(15, 2))))`#35], groupByExpr=[] )
+                  +--LogicalProject ( projects=[(ps_supplycost#20 * CAST(ps_availqty AS DECIMAL(15, 2))) AS `(ps_supplycost * CAST(ps_availqty AS DECIMAL(15, 2)))`#34] )
+                     +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#25 = n_nationkey#29)], otherJoinCondition=[] )
+                        |--LogicalProject ( projects=[ps_availqty#19, ps_supplycost#20, s_nationkey#25] )
+                        |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(ps_suppkey#18 = s_suppkey#22)], otherJoinCondition=[] )
+                        |     |--LogicalProject ( projects=[ps_suppkey#18, ps_availqty#19, ps_supplycost#20] )
+                        |     |  +--LogicalOlapScan ( qualified=default_cluster:tpch.partsupp, output=[ps_partkey#17, ps_suppkey#18, ps_availqty#19, ps_supplycost#20, ps_comment#21], candidateIndexIds=[10398], selectedIndexId=10398, preAgg=ON )
+                        |     +--LogicalProject ( projects=[s_suppkey#22, s_nationkey#25] )
+                        |        +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#22, s_name#23, s_address#24, s_nationkey#25, s_phone#26, s_acctbal#27, s_comment#28], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+                        +--LogicalProject ( projects=[n_nationkey#29] )
+                           +--LogicalFilter ( predicates=(CAST(n_name AS STRING) = 'GERMANY') )
+                              +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#29, n_name#30, n_regionkey#31, n_comment#32], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+---------------------
+select
+        l_shipmode,
+        sum(case
+                when o_orderpriority = '1-URGENT'
+                        or o_orderpriority = '2-HIGH'
+                        then 1
+                else 0
+        end) as high_line_count,
+        sum(case
+                when o_orderpriority <> '1-URGENT'
+                        and o_orderpriority <> '2-HIGH'
+                        then 1
+                else 0
+        end) as low_line_count
+from
+        orders,
+        lineitem
+where
+        o_orderkey = l_orderkey
+        and l_shipmode in ('MAIL', 'SHIP')
+        and l_commitdate < l_receiptdate
+        and l_shipdate < l_commitdate
+        and l_receiptdate >= date '1994-01-01'
+        and l_receiptdate < date '1995-01-01'
+group by
+        l_shipmode
+order by
+        l_shipmode;
+
+LogicalSort ( orderKeys=[l_shipmode#25] )
++--LogicalProject ( projects=[l_shipmode#25, sum(CASE  WHEN ((CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING)) OR (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING))) THEN 1 ELSE 0 END)#28 AS `high_line_count`#0, sum(CASE  WHEN (( not (CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING))) AND ( not (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING)))) THEN 1 ELSE 0 END)#30 AS `low_line_count`#1] )
+   +--LogicalAggregate ( phase=LOCAL, outputExpr=[l_shipmode#25, sum(CASE  WHEN ((CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING)) OR (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING))) THEN 1 ELSE 0 END#27) AS `sum(CASE  WHEN ((CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING)) OR (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING))) THEN 1 ELSE 0 END)`#28, sum(CASE  WHEN (( not (CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING))) AND ( not (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING)))) THEN 1 ELSE 0 END#29) AS `sum(CASE  WHEN (( not (CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING))) AND ( not (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING)))) THEN 1 ELSE 0 END)`#30], groupByExpr=[l_shipmode#25] )
+      +--LogicalProject ( projects=[l_shipmode#25, CASE  WHEN ((CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING)) OR (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING))) THEN 1 ELSE 0 END AS `CASE  WHEN ((CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING)) OR (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING))) THEN 1 ELSE 0 END`#27, CASE  WHEN (( not (CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING))) AND ( not (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING)))) THEN 1 ELSE 0 END AS `CASE  WHEN (( not (CAST(o_orderpriority AS STRING) = CAST('1-URGENT' AS STRING))) AND ( not (CAST(o_orderpriority AS STRING) = CAST('2-HIGH' AS STRING)))) THEN 1 ELSE 0 END`#29] )
+         +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(o_orderkey#2 = l_orderkey#12)], otherJoinCondition=[] )
+            |--LogicalProject ( projects=[o_orderkey#2, o_orderpriority#7] )
+            |  +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#2, o_orderdate#3, o_custkey#4, o_orderstatus#5, o_totalprice#6, o_orderpriority#7, o_clerk#8, o_shippriority#9, o_comment#10], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+            +--LogicalProject ( projects=[l_orderkey#12, l_shipmode#25] )
+               +--LogicalFilter ( predicates=((((CAST(l_shipmode AS STRING) IN ('MAIL', 'SHIP') AND (l_commitdate#22 < l_receiptdate#23)) AND (l_shipdate#11 < l_commitdate#22)) AND (l_receiptdate#23 >= 1994-01-01)) AND (l_receiptdate#23 < 1995-01-01)) )
+                  +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#11, l_orderkey#12, l_linenumber#13, l_partkey#14, l_suppkey#15, l_quantity#16, l_extendedprice#17, l_discount#18, l_tax#19, l_returnflag#20, l_linestatus#21, l_commitdate#22, l_receiptdate#23, l_shipinstruct#24, l_shipmode#25, l_comment#26], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
+select
+        c_count,
+        count(*) as custdist
+from
+        (
+                select
+                        c_custkey,
+                        count(o_orderkey) c_count
+                from
+                        customer left outer join orders on
+                                c_custkey = o_custkey
+                                and o_comment not like '%special%requests%'
+                group by
+                        c_custkey
+        ) as c_orders
+group by
+        c_count
+order by
+        custdist desc,
+        c_count desc;
+
+LogicalSort ( orderKeys=[custdist#1, c_count#0] )
++--LogicalProject ( projects=[c_count#0, count(*)#19 AS `custdist`#1] )
+   +--LogicalAggregate ( phase=LOCAL, outputExpr=[c_count#0, count(*) AS `count(*)`#19], groupByExpr=[c_count#0] )
+      +--LogicalProject ( projects=[count(o_orderkey)#20 AS `c_count`#0] )
+         +--LogicalAggregate ( phase=LOCAL, outputExpr=[c_custkey#2, count(o_orderkey#10) AS `count(o_orderkey)`#20], groupByExpr=[c_custkey#2] )
+            +--LogicalProject ( projects=[c_custkey#2, o_orderkey#10] )
+               +--LogicalJoin ( type=LEFT_OUTER_JOIN, hashJoinCondition=[(c_custkey#2 = o_custkey#12)], otherJoinCondition=[] )
+                  |--LogicalProject ( projects=[c_custkey#2] )
+                  |  +--LogicalOlapScan ( qualified=default_cluster:tpch.customer, output=[c_custkey#2, c_name#3, c_address#4, c_nationkey#5, c_phone#6, c_acctbal#7, c_mktsegment#8, c_comment#9], candidateIndexIds=[10501], selectedIndexId=10501, preAgg=ON )
+                  +--LogicalProject ( projects=[o_orderkey#10, o_custkey#12] )
+                     +--LogicalFilter ( predicates=( not (o_comment#18 like '%special%requests%')) )
+                        +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#10, o_orderdate#11, o_custkey#12, o_orderstatus#13, o_totalprice#14, o_orderpriority#15, o_clerk#16, o_shippriority#17, o_comment#18], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+---------------------
+select
+        100.00 * sum(case
+                when p_type like 'PROMO%'
+                        then l_extendedprice * (1 - l_discount)
+                else 0
+        end) / sum(l_extendedprice * (1 - l_discount)) as promo_revenue
+from
+        lineitem,
+        part
+where
+        l_partkey = p_partkey
+        and l_shipdate >= date '1995-09-01'
+        and l_shipdate < date '1995-10-01';
+
+LogicalProject ( projects=[(CAST((100.00 * sum(CASE  WHEN (p_type like 'PROMO%') THEN (l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) ELSE CAST(0 AS DECIMAL(15, 2)) END)) AS DECIMAL(38, 18)) / CAST(sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))) AS DECIMAL(38, 18))) AS `promo_revenue`#0] )
++--LogicalAggregate ( phase=LOCAL, outputExpr=[sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))#26) AS `sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))`#27, sum(CASE  WHEN (p_type like 'PROMO%') THEN (l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) ELSE CAST(0 AS DECIMAL(15, 2)) END#28) AS `sum(CASE  WHEN (p_type like 'PROMO%') THEN (l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) ELSE CAST(0 AS DECIMAL(15, 2)) END)`#29], groupByExpr=[] )
+   +--LogicalProject ( projects=[(l_extendedprice#7 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#8)) AS `(l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))`#26, CASE  WHEN (p_type like 'PROMO%') THEN (l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) ELSE CAST(0 AS DECIMAL(15, 2)) END AS `CASE  WHEN (p_type like 'PROMO%') THEN (l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)) ELSE CAST(0 AS DECIMAL(15, 2)) END`#28] )
+      +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(l_partkey#4 = p_partkey#17)], otherJoinCondition=[] )
+         |--LogicalProject ( projects=[l_partkey#4, l_extendedprice#7, l_discount#8] )
+         |  +--LogicalFilter ( predicates=((l_shipdate#1 >= 1995-09-01) AND (l_shipdate#1 < 1995-10-01)) )
+         |     +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#1, l_orderkey#2, l_linenumber#3, l_partkey#4, l_suppkey#5, l_quantity#6, l_extendedprice#7, l_discount#8, l_tax#9, l_returnflag#10, l_linestatus#11, l_commitdate#12, l_receiptdate#13, l_shipinstruct#14, l_shipmode#15, l_comment#16], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+         +--LogicalProject ( projects=[p_partkey#17, p_type#21] )
+            +--LogicalOlapScan ( qualified=default_cluster:tpch.part, output=[p_partkey#17, p_name#18, p_mfgr#19, p_brand#20, p_type#21, p_size#22, p_container#23, p_retailprice#24, p_comment#25], candidateIndexIds=[10450], selectedIndexId=10450, preAgg=ON )
+---------------------
+select
+        p_brand,
+        p_type,
+        p_size,
+        count(distinct ps_suppkey) as supplier_cnt
+from
+        partsupp,
+        part
+where
+        p_partkey = ps_partkey
+        and p_brand <> 'Brand#45'
+        and p_type not like 'MEDIUM POLISHED%'
+        and p_size in (49, 14, 23, 45, 19, 3, 36, 9)
+        and ps_suppkey not in (
+                select
+                        s_suppkey
+                from
+                        supplier
+                where
+                        s_comment like '%Customer%Complaints%'
+        )
+group by
+        p_brand,
+        p_type,
+        p_size
+order by
+        supplier_cnt desc,
+        p_brand,
+        p_type,
+        p_size;
+
+LogicalSort ( orderKeys=[supplier_cnt#0, p_brand#9, p_type#10, p_size#11] )
++--LogicalProject ( projects=[p_brand#9, p_type#10, p_size#11, count(distinct ps_suppkey)#22 AS `supplier_cnt`#0] )
+   +--LogicalAggregate ( phase=LOCAL, outputExpr=[p_brand#9, p_type#10, p_size#11, count(distinct ps_suppkey#2) AS `count(distinct ps_suppkey)`#22], groupByExpr=[p_brand#9, p_type#10, p_size#11] )
+      +--LogicalProject ( projects=[ps_suppkey#2, p_brand#9, p_type#10, p_size#11] )
+         +--LogicalJoin ( type=LEFT_ANTI_JOIN, hashJoinCondition=[(ps_suppkey#2 = s_suppkey#15)], otherJoinCondition=[] )
+            |--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(p_partkey#6 = ps_partkey#1)], otherJoinCondition=[] )
+            |  |--LogicalOlapScan ( qualified=default_cluster:tpch.partsupp, output=[ps_partkey#1, ps_suppkey#2, ps_availqty#3, ps_supplycost#4, ps_comment#5], candidateIndexIds=[10398], selectedIndexId=10398, preAgg=ON )
+            |  +--LogicalFilter ( predicates=((( not (CAST(p_brand AS STRING) = 'Brand#45')) AND ( not (p_type#10 like 'MEDIUM POLISHED%'))) AND p_size#11 IN (49, 14, 23, 45, 19, 3, 36, 9)) )
+            |     +--LogicalOlapScan ( qualified=default_cluster:tpch.part, output=[p_partkey#6, p_name#7, p_mfgr#8, p_brand#9, p_type#10, p_size#11, p_container#12, p_retailprice#13, p_comment#14], candidateIndexIds=[10450], selectedIndexId=10450, preAgg=ON )
+            +--LogicalProject ( projects=[s_suppkey#15] )
+               +--LogicalFilter ( predicates=(s_comment#21 like '%Customer%Complaints%') )
+                  +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#15, s_name#16, s_address#17, s_nationkey#18, s_phone#19, s_acctbal#20, s_comment#21], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+---------------------
+select
+        sum(l_extendedprice) / 7.0 as avg_yearly
+from
+        lineitem,
+        part
+where
+        p_partkey = l_partkey
+        and p_brand = 'Brand#23'
+        and p_container = 'MED BOX'
+        and l_quantity < (
+                select
+                        0.2 * avg(l_quantity)
+                from
+                        lineitem
+                where
+                        l_partkey = p_partkey
+        );
+
+LogicalProject ( projects=[(CAST(sum(l_extendedprice) AS DECIMAL(38, 18)) / CAST(7.0 AS DECIMAL(38, 18))) AS `avg_yearly`#0] )
++--LogicalAggregate ( phase=LOCAL, outputExpr=[sum(l_extendedprice#7) AS `sum(l_extendedprice)`#43], groupByExpr=[] )
+   +--LogicalProject ( projects=[l_extendedprice#7] )
+      +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(l_partkey#29 = p_partkey#17)], otherJoinCondition=[(l_quantity#6 < (0.2 * avg(l_quantity))#42)] )
+         |--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(p_partkey#17 = l_partkey#4)], otherJoinCondition=[] )
+         |  |--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#1, l_orderkey#2, l_linenumber#3, l_partkey#4, l_suppkey#5, l_quantity#6, l_extendedprice#7, l_discount#8, l_tax#9, l_returnflag#10, l_linestatus#11, l_commitdate#12, l_receiptdate#13, l_shipinstruct#14, l_shipmode#15, l_comment#16], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+         |  +--LogicalFilter ( predicates=((CAST(p_brand AS STRING) = 'Brand#23') AND (CAST(p_container AS STRING) = 'MED BOX')) )
+         |     +--LogicalOlapScan ( qualified=default_cluster:tpch.part, output=[p_partkey#17, p_name#18, p_mfgr#19, p_brand#20, p_type#21, p_size#22, p_container#23, p_retailprice#24, p_comment#25], candidateIndexIds=[10450], selectedIndexId=10450, preAgg=ON )
+         +--LogicalProject ( projects=[(0.2 * avg(l_quantity)#44) AS `(0.2 * avg(l_quantity))`#42, l_partkey#29] )
+            +--LogicalAggregate ( phase=LOCAL, outputExpr=[l_partkey#29, avg(l_quantity#31) AS `avg(l_quantity)`#44], groupByExpr=[l_partkey#29] )
+               +--LogicalProject ( projects=[l_partkey#29, l_quantity#31] )
+                  +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#26, l_orderkey#27, l_linenumber#28, l_partkey#29, l_suppkey#30, l_quantity#31, l_extendedprice#32, l_discount#33, l_tax#34, l_returnflag#35, l_linestatus#36, l_commitdate#37, l_receiptdate#38, l_shipinstruct#39, l_shipmode#40, l_comment#41], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
+select
+        c_name,
+        c_custkey,
+        o_orderkey,
+        o_orderdate,
+        o_totalprice,
+        sum(l_quantity)
+from
+        customer,
+        orders,
+        lineitem
+where
+        o_orderkey in (
+                select
+                        l_orderkey
+                from
+                        lineitem
+                group by
+                        l_orderkey having
+                                sum(l_quantity) > 300
+        )
+        and c_custkey = o_custkey
+        and o_orderkey = l_orderkey
+group by
+        c_name,
+        c_custkey,
+        o_orderkey,
+        o_orderdate,
+        o_totalprice
+order by
+        o_totalprice desc,
+        o_orderdate
+limit 100;
+
+LogicalLimit ( limit=100, offset=0 )
++--LogicalSort ( orderKeys=[o_totalprice#12, o_orderdate#9] )
+   +--LogicalProject ( projects=[c_name#1, c_custkey#0, o_orderkey#8, o_orderdate#9, o_totalprice#12, sum(l_quantity)#51 AS `sum(l_quantity)`#50] )
+      +--LogicalAggregate ( phase=LOCAL, outputExpr=[o_orderkey#8, o_orderdate#9, o_totalprice#12, c_custkey#0, c_name#1, sum(l_quantity#22) AS `sum(l_quantity)`#51], groupByExpr=[c_name#1, c_custkey#0, o_orderkey#8, o_orderdate#9, o_totalprice#12] )
+         +--LogicalProject ( projects=[c_custkey#0, c_name#1, o_orderkey#8, o_orderdate#9, o_totalprice#12, l_quantity#22] )
+            +--LogicalJoin ( type=LEFT_SEMI_JOIN, hashJoinCondition=[(o_orderkey#8 = l_orderkey#34)], otherJoinCondition=[] )
+               |--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(o_orderkey#8 = l_orderkey#18)], otherJoinCondition=[] )
+               |  |--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(c_custkey#0 = o_custkey#10)], otherJoinCondition=[] )
+               |  |  |--LogicalOlapScan ( qualified=default_cluster:tpch.customer, output=[c_custkey#0, c_name#1, c_address#2, c_nationkey#3, c_phone#4, c_acctbal#5, c_mktsegment#6, c_comment#7], candidateIndexIds=[10501], selectedIndexId=10501, preAgg=ON )
+               |  |  +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#8, o_orderdate#9, o_custkey#10, o_orderstatus#11, o_totalprice#12, o_orderpriority#13, o_clerk#14, o_shippriority#15, o_comment#16], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+               |  +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#17, l_orderkey#18, l_linenumber#19, l_partkey#20, l_suppkey#21, l_quantity#22, l_extendedprice#23, l_discount#24, l_tax#25, l_returnflag#26, l_linestatus#27, l_commitdate#28, l_receiptdate#29, l_shipinstruct#30, l_shipmode#31, l_comment#32], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+               +--LogicalProject ( projects=[l_orderkey#34] )
+                  +--LogicalFilter ( predicates=(sum(l_quantity)#52 > 300.0) )
+                     +--LogicalAggregate ( phase=LOCAL, outputExpr=[l_orderkey#34, sum(l_quantity#38) AS `sum(l_quantity)`#52], groupByExpr=[l_orderkey#34] )
+                        +--LogicalProject ( projects=[l_orderkey#34, l_quantity#38] )
+                           +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#33, l_orderkey#34, l_linenumber#35, l_partkey#36, l_suppkey#37, l_quantity#38, l_extendedprice#39, l_discount#40, l_tax#41, l_returnflag#42, l_linestatus#43, l_commitdate#44, l_receiptdate#45, l_shipinstruct#46, l_shipmode#47, l_comment#48], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
+select
+        sum(l_extendedprice* (1 - l_discount)) as revenue
+from
+        lineitem,
+        part
+where
+        (
+                p_partkey = l_partkey
+                and p_brand = 'Brand#12'
+                and p_container in ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+                and l_quantity >= 1 and l_quantity <= 1 + 10
+                and p_size between 1 and 5
+                and l_shipmode in ('AIR', 'AIR REG')
+                and l_shipinstruct = 'DELIVER IN PERSON'
+        )
+        or
+        (
+                p_partkey = l_partkey
+                and p_brand = 'Brand#23'
+                and p_container in ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+                and l_quantity >= 10 and l_quantity <= 10 + 10
+                and p_size between 1 and 10
+                and l_shipmode in ('AIR', 'AIR REG')
+                and l_shipinstruct = 'DELIVER IN PERSON'
+        )
+        or
+        (
+                p_partkey = l_partkey
+                and p_brand = 'Brand#34'
+                and p_container in ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+                and l_quantity >= 20 and l_quantity <= 20 + 10
+                and p_size between 1 and 15
+                and l_shipmode in ('AIR', 'AIR REG')
+                and l_shipinstruct = 'DELIVER IN PERSON'
+        );
+
+LogicalProject ( projects=[sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))#27 AS `revenue`#0] )
++--LogicalAggregate ( phase=LOCAL, outputExpr=[sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))#26) AS `sum((l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount)))`#27], groupByExpr=[] )
+   +--LogicalProject ( projects=[(l_extendedprice#7 * (CAST(1 AS DECIMAL(15, 2)) - l_discount#8)) AS `(l_extendedprice * (CAST(1 AS DECIMAL(15, 2)) - l_discount))`#26] )
+      +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(p_partkey#17 = l_partkey#4)], otherJoinCondition=[(((((((CAST(p_brand AS STRING) = 'Brand#12') AND CAST(p_container AS STRING) IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')) AND (l_quantity#6 >= 1.0)) AND (l_quantity#6 <= 11.0)) AND (p_size#22 <= 5)) OR (((((CAST(p_brand AS STRING) = 'Brand#23') AND CAST(p_container AS STRING) IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')) AND (l_quantity#6 >= 10.0)) AND (l_quantity#6 <= 20.0)) AND (p_size#22 <= 10))) OR (((((CAST(p_brand AS STRING) = 'Brand#34') AND CAST(p_container AS STRING) IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')) AND (l_quantity#6 >= 20.0)) AND (l_quantity#6 <= 30.0)) AND (p_size#22 <= 15)))] )
+         |--LogicalProject ( projects=[l_partkey#4, l_quantity#6, l_extendedprice#7, l_discount#8] )
+         |  +--LogicalFilter ( predicates=(((CAST(l_shipinstruct AS STRING) = 'DELIVER IN PERSON') AND CAST(l_shipmode AS STRING) IN ('AIR', 'AIR REG')) AND ((((l_quantity#6 >= 1.0) AND (l_quantity#6 <= 11.0)) OR ((l_quantity#6 >= 10.0) AND (l_quantity#6 <= 20.0))) OR ((l_quantity#6 >= 20.0) AND (l_quantity#6 <= 30.0)))) )
+         |     +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#1, l_orderkey#2, l_linenumber#3, l_partkey#4, l_suppkey#5, l_quantity#6, l_extendedprice#7, l_discount#8, l_tax#9, l_returnflag#10, l_linestatus#11, l_commitdate#12, l_receiptdate#13, l_shipinstruct#14, l_shipmode#15, l_comment#16], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+         +--LogicalProject ( projects=[p_partkey#17, p_brand#20, p_size#22, p_container#23] )
+            +--LogicalFilter ( predicates=((p_size#22 >= 1) AND (((((CAST(p_brand AS STRING) = 'Brand#12') AND CAST(p_container AS STRING) IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')) AND (p_size#22 <= 5)) OR (((CAST(p_brand AS STRING) = 'Brand#23') AND CAST(p_container AS STRING) IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')) AND (p_size#22 <= 10))) OR (((CAST(p_brand AS STRING) = 'Brand#34') AND CAST(p_container AS STRING) IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')) AND (p_size#22 <= 15)))) )
+               +--LogicalOlapScan ( qualified=default_cluster:tpch.part, output=[p_partkey#17, p_name#18, p_mfgr#19, p_brand#20, p_type#21, p_size#22, p_container#23, p_retailprice#24, p_comment#25], candidateIndexIds=[10450], selectedIndexId=10450, preAgg=ON )
+---------------------
+select
+        s_name,
+        s_address
+from
+        supplier,
+        nation
+where
+        s_suppkey in (
+                select
+                        ps_suppkey
+                from
+                        partsupp
+                where
+                        ps_partkey in (
+                                select
+                                        p_partkey
+                                from
+                                        part
+                                where
+                                        p_name like 'forest%'
+                        )
+                        and ps_availqty > (
+                                select
+                                        0.5 * sum(l_quantity)
+                                from
+                                        lineitem
+                                where
+                                        l_partkey = ps_partkey
+                                        and l_suppkey = ps_suppkey
+                                        and l_shipdate >= date '1994-01-01'
+                                        and l_shipdate < date '1995-01-01'
+                        )
+        )
+        and s_nationkey = n_nationkey
+        and n_name = 'CANADA'
+order by
+        s_name;
+
+LogicalSort ( orderKeys=[s_name#1] )
++--LogicalProject ( projects=[s_name#1, s_address#2] )
+   +--LogicalJoin ( type=LEFT_SEMI_JOIN, hashJoinCondition=[(s_suppkey#0 = ps_suppkey#12)], otherJoinCondition=[] )
+      |--LogicalProject ( projects=[s_suppkey#0, s_name#1, s_address#2] )
+      |  +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#3 = n_nationkey#7)], otherJoinCondition=[] )
+      |     |--LogicalProject ( projects=[s_suppkey#0, s_name#1, s_address#2, s_nationkey#3] )
+      |     |  +--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#0, s_name#1, s_address#2, s_nationkey#3, s_phone#4, s_acctbal#5, s_comment#6], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+      |     +--LogicalProject ( projects=[n_nationkey#7] )
+      |        +--LogicalFilter ( predicates=(CAST(n_name AS STRING) = 'CANADA') )
+      |           +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#7, n_name#8, n_regionkey#9, n_comment#10], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+      +--LogicalProject ( projects=[ps_suppkey#12] )
+         +--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(l_partkey#28 = ps_partkey#11), (l_suppkey#29 = ps_suppkey#12)], otherJoinCondition=[(CAST(ps_availqty AS DECIMAL(11, 1)) > CAST((0.5 * sum(l_quantity)) AS DECIMAL(11, 1)))] )
+            |--LogicalProject ( projects=[ps_partkey#11, ps_suppkey#12, ps_availqty#13] )
+            |  +--LogicalJoin ( type=LEFT_SEMI_JOIN, hashJoinCondition=[(ps_partkey#11 = p_partkey#16)], otherJoinCondition=[] )
+            |     |--LogicalOlapScan ( qualified=default_cluster:tpch.partsupp, output=[ps_partkey#11, ps_suppkey#12, ps_availqty#13, ps_supplycost#14, ps_comment#15], candidateIndexIds=[10398], selectedIndexId=10398, preAgg=ON )
+            |     +--LogicalProject ( projects=[p_partkey#16] )
+            |        +--LogicalFilter ( predicates=(p_name#17 like 'forest%') )
+            |           +--LogicalOlapScan ( qualified=default_cluster:tpch.part, output=[p_partkey#16, p_name#17, p_mfgr#18, p_brand#19, p_type#20, p_size#21, p_container#22, p_retailprice#23, p_comment#24], candidateIndexIds=[10450], selectedIndexId=10450, preAgg=ON )
+            +--LogicalProject ( projects=[(0.5 * sum(l_quantity)#42) AS `(0.5 * sum(l_quantity))`#41, l_partkey#28, l_suppkey#29] )
+               +--LogicalAggregate ( phase=LOCAL, outputExpr=[l_partkey#28, l_suppkey#29, sum(l_quantity#30) AS `sum(l_quantity)`#42], groupByExpr=[l_partkey#28, l_suppkey#29] )
+                  +--LogicalProject ( projects=[l_partkey#28, l_suppkey#29, l_quantity#30] )
+                     +--LogicalFilter ( predicates=((l_shipdate#25 >= 1994-01-01) AND (l_shipdate#25 < 1995-01-01)) )
+                        +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#25, l_orderkey#26, l_linenumber#27, l_partkey#28, l_suppkey#29, l_quantity#30, l_extendedprice#31, l_discount#32, l_tax#33, l_returnflag#34, l_linestatus#35, l_commitdate#36, l_receiptdate#37, l_shipinstruct#38, l_shipmode#39, l_comment#40], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
+select
+        s_name,
+        count(*) as numwait
+from
+        supplier,
+        lineitem l1,
+        orders,
+        nation
+where
+        s_suppkey = l1.l_suppkey
+        and o_orderkey = l1.l_orderkey
+        and o_orderstatus = 'F'
+        and l1.l_receiptdate > l1.l_commitdate
+        and exists (
+                select
+                        *
+                from
+                        lineitem l2
+                where
+                        l2.l_orderkey = l1.l_orderkey
+                        and l2.l_suppkey <> l1.l_suppkey
+        )
+        and not exists (
+                select
+                        *
+                from
+                        lineitem l3
+                where
+                        l3.l_orderkey = l1.l_orderkey
+                        and l3.l_suppkey <> l1.l_suppkey
+                        and l3.l_receiptdate > l3.l_commitdate
+        )
+        and s_nationkey = n_nationkey
+        and n_name = 'SAUDI ARABIA'
+group by
+        s_name
+order by
+        numwait desc,
+        s_name
+limit 100;
+
+LogicalLimit ( limit=100, offset=0 )
++--LogicalSort ( orderKeys=[numwait#0, s_name#2] )
+   +--LogicalProject ( projects=[s_name#2, count(*)#69 AS `numwait`#0] )
+      +--LogicalAggregate ( phase=LOCAL, outputExpr=[s_name#2, count(*) AS `count(*)`#69], groupByExpr=[s_name#2] )
+         +--LogicalProject ( projects=[s_name#2] )
+            +--LogicalJoin ( type=LEFT_ANTI_JOIN, hashJoinCondition=[(l_orderkey#54 = l_orderkey#9)], otherJoinCondition=[( not (l_suppkey#57 = l_suppkey#12))] )
+               |--LogicalProject ( projects=[s_suppkey#1, s_name#2, s_address#3, s_nationkey#4, s_phone#5, s_acctbal#6, s_comment#7, l_shipdate#8, l_orderkey#9, l_linenumber#10, l_partkey#11, l_suppkey#12, l_quantity#13, l_extendedprice#14, l_discount#15, l_tax#16, l_returnflag#17, l_linestatus#18, l_commitdate#19, l_receiptdate#20, l_shipinstruct#21, l_shipmode#22, l_comment#23, o_orderkey#24, o_orderdate#25, o_custkey#26, o_orderstatus#27, o_totalprice#28, o_orderpriority#29, o_clerk#30, o_shippriority#31, o_comment#32, n_nationkey#33, n_name#34, n_regionkey#35, n_comment#36] )
+               |  +--LogicalJoin ( type=LEFT_SEMI_JOIN, hashJoinCondition=[(l_orderkey#38 = l_orderkey#9)], otherJoinCondition=[( not (l_suppkey#41 = l_suppkey#12))] )
+               |     |--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_nationkey#4 = n_nationkey#33)], otherJoinCondition=[] )
+               |     |  |--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(o_orderkey#24 = l_orderkey#9)], otherJoinCondition=[] )
+               |     |  |  |--LogicalJoin ( type=INNER_JOIN, hashJoinCondition=[(s_suppkey#1 = l_suppkey#12)], otherJoinCondition=[] )
+               |     |  |  |  |--LogicalOlapScan ( qualified=default_cluster:tpch.supplier, output=[s_suppkey#1, s_name#2, s_address#3, s_nationkey#4, s_phone#5, s_acctbal#6, s_comment#7], candidateIndexIds=[10552], selectedIndexId=10552, preAgg=ON )
+               |     |  |  |  +--LogicalFilter ( predicates=(l_receiptdate#20 > l_commitdate#19) )
+               |     |  |  |     +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#8, l_orderkey#9, l_linenumber#10, l_partkey#11, l_suppkey#12, l_quantity#13, l_extendedprice#14, l_discount#15, l_tax#16, l_returnflag#17, l_linestatus#18, l_commitdate#19, l_receiptdate#20, l_shipinstruct#21, l_shipmode#22, l_comment#23], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+               |     |  |  +--LogicalFilter ( predicates=(o_orderstatus#27 = 'F') )
+               |     |  |     +--LogicalOlapScan ( qualified=default_cluster:tpch.orders, output=[o_orderkey#24, o_orderdate#25, o_custkey#26, o_orderstatus#27, o_totalprice#28, o_orderpriority#29, o_clerk#30, o_shippriority#31, o_comment#32], candidateIndexIds=[10203], selectedIndexId=10203, preAgg=ON )
+               |     |  +--LogicalFilter ( predicates=(CAST(n_name AS STRING) = 'SAUDI ARABIA') )
+               |     |     +--LogicalOlapScan ( qualified=default_cluster:tpch.nation, output=[n_nationkey#33, n_name#34, n_regionkey#35, n_comment#36], candidateIndexIds=[10579], selectedIndexId=10579, preAgg=ON )
+               |     +--LogicalProject ( projects=[l_orderkey#38, l_suppkey#41] )
+               |        +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#37, l_orderkey#38, l_linenumber#39, l_partkey#40, l_suppkey#41, l_quantity#42, l_extendedprice#43, l_discount#44, l_tax#45, l_returnflag#46, l_linestatus#47, l_commitdate#48, l_receiptdate#49, l_shipinstruct#50, l_shipmode#51, l_comment#52], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+               +--LogicalProject ( projects=[l_orderkey#54, l_suppkey#57] )
+                  +--LogicalFilter ( predicates=(l_receiptdate#65 > l_commitdate#64) )
+                     +--LogicalOlapScan ( qualified=default_cluster:tpch.lineitem, output=[l_shipdate#53, l_orderkey#54, l_linenumber#55, l_partkey#56, l_suppkey#57, l_quantity#58, l_extendedprice#59, l_discount#60, l_tax#61, l_returnflag#62, l_linestatus#63, l_commitdate#64, l_receiptdate#65, l_shipinstruct#66, l_shipmode#67, l_comment#68], candidateIndexIds=[10007], selectedIndexId=10007, preAgg=ON )
+---------------------
