@@ -36,7 +36,6 @@ import java.util.List;
 public class ApplyRuleJob extends Job {
     private final GroupExpression groupExpression;
     private final Rule rule;
-    private final boolean exploredOnly;
 
     /**
      * Constructor of ApplyRuleJob.
@@ -49,7 +48,6 @@ public class ApplyRuleJob extends Job {
         super(JobType.APPLY_RULE, context);
         this.groupExpression = groupExpression;
         this.rule = rule;
-        this.exploredOnly = false;
     }
 
     @Override
@@ -73,11 +71,6 @@ public class ApplyRuleJob extends Job {
 
                 GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
-                    if (exploredOnly) {
-                        pushJob(new ExploreGroupExpressionJob(newGroupExpression, context));
-                        pushJob(new DeriveStatsJob(newGroupExpression, context));
-                        continue;
-                    }
                     pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
                     pushJob(new DeriveStatsJob(newGroupExpression, context));
                 } else {

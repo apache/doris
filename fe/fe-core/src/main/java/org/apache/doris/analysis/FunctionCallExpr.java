@@ -812,6 +812,35 @@ public class FunctionCallExpr extends Expr {
 
     }
 
+    private void analyzeArrayFunction(Analyzer analyzer) throws AnalysisException {
+        if (fnName.getFunction().equalsIgnoreCase("array_distinct")
+                || fnName.getFunction().equalsIgnoreCase("array_max")
+                || fnName.getFunction().equalsIgnoreCase("array_min")
+                || fnName.getFunction().equalsIgnoreCase("array_sum")
+                || fnName.getFunction().equalsIgnoreCase("array_avg")
+                || fnName.getFunction().equalsIgnoreCase("array_product")
+                || fnName.getFunction().equalsIgnoreCase("array_union")
+                || fnName.getFunction().equalsIgnoreCase("array_except")
+                || fnName.getFunction().equalsIgnoreCase("array_intersect")
+                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")) {
+            Type[] childTypes = collectChildReturnTypes();
+            Type compatibleType = childTypes[0];
+            for (int i = 1; i < childTypes.length; ++i) {
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
+                if (compatibleType == Type.INVALID) {
+                    throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+                }
+            }
+            // Make sure BE doesn't see any TYPE_NULL exprs
+            if (compatibleType.isNull()) {
+                compatibleType = Type.BOOLEAN;
+            }
+            for (int i = 0; i < childTypes.length; i++) {
+                uncheckedCastChild(compatibleType, i);
+            }
+        }
+    }
+
     // Provide better error message for some aggregate builtins. These can be
     // a bit more user friendly than a generic function not found.
     // TODO: should we bother to do this? We could also improve the general
@@ -902,6 +931,8 @@ public class FunctionCallExpr extends Expr {
         }
 
         analyzeBuiltinAggFunction(analyzer);
+
+        analyzeArrayFunction(analyzer);
 
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             if (this.children.isEmpty()) {
@@ -1250,7 +1281,7 @@ public class FunctionCallExpr extends Expr {
 
         if (this.type instanceof ArrayType) {
             ArrayType arrayType = (ArrayType) type;
-            // Now Array type do not support ARRAY<NOT_NULL>, set it too true temporarily
+            // Now Array type do not support ARRAY<NOT_NULL>, set it to true temporarily
             boolean containsNull = true;
             for (Expr child : children) {
                 Type childType = child.getType();
