@@ -429,8 +429,9 @@ public class QueryProfileAction extends RestBaseController {
         Map<String, String> result = Maps.newHashMap();
         if (!dataList.isEmpty()) {
             try {
-                String profile = JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("profile").getAsString();
-                result.put("profile", profile);
+                String key = format.equals("graph") ? "graph" : "profile";
+                String profile = JsonParser.parseString(dataList.get(0)).getAsJsonObject().get(key).getAsString();
+                result.put(key, profile);
             } catch (Exception e) {
                 return ResponseEntityBuilder.badRequest(e.getMessage());
             }
