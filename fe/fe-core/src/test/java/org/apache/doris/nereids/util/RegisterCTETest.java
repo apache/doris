@@ -58,7 +58,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public class RegisterCTETest extends TestWithFeService implements PatternMatchSupported {
 
@@ -209,7 +208,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                                     .when(FieldChecker.check("groupByExpressions", ImmutableList.of(region1))),
                                 any()
                             ).when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition", Optional.of(
+                                .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                     new EqualTo(region1, region2)
                                 )))
                         ).when(FieldChecker.check("projects", ImmutableList.of(region1, count)))
@@ -218,9 +217,9 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
     @Test
     public void testCTEWithAlias() {
-        SlotReference skInCTE1 = new SlotReference(new ExprId(7), "sk", VarcharType.INSTANCE,
+        SlotReference skInCTE1 = new SlotReference(new ExprId(7), "sk", IntegerType.INSTANCE,
                 false, ImmutableList.of("cte1"));
-        SlotReference skInCTE2 = new SlotReference(new ExprId(15), "sk", VarcharType.INSTANCE,
+        SlotReference skInCTE2 = new SlotReference(new ExprId(15), "sk", IntegerType.INSTANCE,
                 false, ImmutableList.of("cte2"));
         Alias skAlias = new Alias(new ExprId(7),
                 new SlotReference(new ExprId(0), "s_suppkey", IntegerType.INSTANCE,
@@ -233,7 +232,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                             logicalProject().when(FieldChecker.check("projects", ImmutableList.of(skAlias))),
                             logicalProject().when(FieldChecker.check("projects", ImmutableList.of(skInCTE2)))
                         ).when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                            .when(FieldChecker.check("otherJoinCondition", Optional.of(
+                            .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                 new EqualTo(skInCTE1, skInCTE2)
                             )))
                     ).when(FieldChecker.check("projects", ImmutableList.of(skInCTE1, skInCTE2)))
