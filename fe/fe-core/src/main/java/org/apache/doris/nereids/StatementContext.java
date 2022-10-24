@@ -19,8 +19,8 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.rules.analysis.CTEContext;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
