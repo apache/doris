@@ -887,6 +887,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        // TODO: impl real logic of drop multi-table MaterializedView here.
         if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
             if (Env.getCurrentEnv().getMtmvJobManager().getJob(table.getName()) != null) {
                 long jobId = Env.getCurrentEnv().getMtmvJobManager().getJob(table.getName()).getId();
@@ -2099,7 +2100,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             throw e;
         }
-        // create mv builder when is multi-table MaterializedView
+
+        // TODO: impl the real logic of create multi-table MaterializedView here.
         if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
             Env.getCurrentEnv().getMtmvJobManager().createJob(MTMVJobFactory.buildJob((MaterializedView) olapTable),
                     false);

@@ -859,7 +859,7 @@ public class Env {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
-        // 7. start mtmv scheduler
+        // 7. start mtmv jobManager
         mtmvJobManager.start();
     }
 
@@ -1947,7 +1947,7 @@ public class Env {
     }
 
     /**
-     * Load mtmv schedule jobs.
+     * Load mtmv jobManager.
      **/
     public long loadMtmvJobManager(DataInputStream in, long checksum) throws IOException {
         if (Config.enable_mtmv_scheduler_framework) {

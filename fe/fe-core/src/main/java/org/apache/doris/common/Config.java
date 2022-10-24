@@ -1784,7 +1784,7 @@ public class Config extends ConfigBase {
     public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
 
     /*
-     * mtmv scheduler framework is still under dev, remote this config when it is graduate.
+     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
      */
     @ConfField(mutable = true)
     public static boolean enable_mtmv_scheduler_framework = false;
