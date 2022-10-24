@@ -231,7 +231,7 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::build_side_output_column(
                     mcol[i + column_offset]->insert_indices_from(column, _build_block_rows.data(),
                                                                  _build_block_rows.data() + size);
                 } else {
-                    mcol[i + column_offset]->resize(size);
+                    mcol[i + column_offset]->insert_many_defaults(size);
                 }
             }
         } else {
@@ -267,7 +267,7 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::build_side_output_column(
                         }
                     }
                 } else {
-                    mcol[i + column_offset]->resize(size);
+                    mcol[i + column_offset]->insert_many_defaults(size);
                 }
             }
         }
@@ -300,7 +300,7 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::probe_side_output_column(
                 column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
             }
         } else {
-            mcol[i]->resize(size);
+            mcol[i]->insert_many_defaults(size);
         }
     }
 
