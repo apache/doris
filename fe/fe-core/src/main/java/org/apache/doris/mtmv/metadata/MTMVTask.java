@@ -19,7 +19,7 @@ package org.apache.doris.mtmv.metadata;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mtmv.MtmvUtils;
+import org.apache.doris.mtmv.MTMVUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -28,7 +28,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class MtmvTask implements Writable {
+public class MTMVTask implements Writable {
     // also named query id in ConnectContext
     @SerializedName("taskId")
     private String taskId;
@@ -43,7 +43,7 @@ public class MtmvTask implements Writable {
     private long finishTime;
 
     @SerializedName("state")
-    private MtmvUtils.TaskState state = MtmvUtils.TaskState.PENDING;
+    private MTMVUtils.TaskState state = MTMVUtils.TaskState.PENDING;
 
     @SerializedName("dbName")
     private String dbName;
@@ -102,11 +102,11 @@ public class MtmvTask implements Writable {
         this.finishTime = finishTime;
     }
 
-    public MtmvUtils.TaskState getState() {
+    public MTMVUtils.TaskState getState() {
         return state;
     }
 
-    public void setState(MtmvUtils.TaskState state) {
+    public void setState(MTMVUtils.TaskState state) {
         this.state = state;
     }
 
@@ -174,9 +174,9 @@ public class MtmvTask implements Writable {
         this.retryTimes = retryTimes;
     }
 
-    public static MtmvTask read(DataInput in) throws IOException {
+    public static MTMVTask read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, MtmvTask.class);
+        return GsonUtils.GSON.fromJson(json, MTMVTask.class);
     }
 
     @Override

@@ -17,21 +17,13 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.MaterializedView;
-import org.apache.doris.mtmv.MtmvUtils.TriggerMode;
-import org.apache.doris.mtmv.metadata.MtmvJob;
-import org.apache.doris.mtmv.metadata.MtmvJob.JobSchedule;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.TimeUnit;
+public class MTMVTaskProcessor {
+    private static final Logger LOG = LogManager.getLogger(MTMVTaskProcessor.class);
 
-public class MtmvJobFactory {
-    public static MtmvJob buildJob(MaterializedView materializedView) {
-        MtmvJob job = new MtmvJob(materializedView.getName());
-        JobSchedule jobSchedule = new JobSchedule(System.currentTimeMillis() / 1000, 1, TimeUnit.MINUTES);
-        job.setSchedule(jobSchedule);
-        job.setTriggerMode(TriggerMode.PERIODICAL);
-        job.setDbName("fake");
-        job.setDefinition("select * from fake");
-        return job;
+    void process(MTMVTaskContext context) throws Exception {
+        LOG.info("run mv logic here.");
     }
 }

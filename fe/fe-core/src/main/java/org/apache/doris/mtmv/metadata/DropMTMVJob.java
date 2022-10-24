@@ -28,21 +28,25 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class MtmvCheckpointData implements Writable {
-    @SerializedName("jobs")
-    public List<MtmvJob> jobs;
+public class DropMTMVJob implements Writable {
+    @SerializedName("jobIds")
+    List<Long> jobIds;
 
-    @SerializedName("tasks")
-    public List<MtmvTask> tasks;
+    public DropMTMVJob(List<Long> jobIds) {
+        this.jobIds = jobIds;
+    }
+
+    public List<Long> getJobIds() {
+        return jobIds;
+    }
+
+    public static DropMTMVJob read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropMTMVJob.class);
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    public static MtmvCheckpointData read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, MtmvCheckpointData.class);
     }
 }

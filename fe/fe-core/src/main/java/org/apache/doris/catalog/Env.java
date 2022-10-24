@@ -164,7 +164,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mtmv.MtmvJobManager;
+import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
@@ -433,7 +433,7 @@ public class Env {
 
     private PolicyMgr policyMgr;
 
-    private MtmvJobManager mtmvJobManager;
+    private MTMVJobManager mtmvJobManager;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -496,7 +496,7 @@ public class Env {
         return catalogMgr;
     }
 
-    public MtmvJobManager getMtmvJobManager() {
+    public MTMVJobManager getMtmvJobManager() {
         return mtmvJobManager;
     }
 
@@ -628,7 +628,7 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
-        this.mtmvJobManager = new MtmvJobManager();
+        this.mtmvJobManager = new MTMVJobManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1951,9 +1951,9 @@ public class Env {
      **/
     public long loadMtmvJobManager(DataInputStream in, long checksum) throws IOException {
         if (Config.enable_mtmv_scheduler_framework) {
-            this.mtmvJobManager = MtmvJobManager.read(in, checksum);
+            this.mtmvJobManager = MTMVJobManager.read(in, checksum);
+            LOG.info("finished replay mtmv job and tasks from image");
         }
-        LOG.info("finished replay job and tasks from image");
         return checksum;
     }
 
@@ -2233,6 +2233,7 @@ public class Env {
     public long saveMtmvJobManager(CountingDataOutputStream out, long checksum) throws IOException {
         if (Config.enable_mtmv_scheduler_framework) {
             Env.getCurrentEnv().getMtmvJobManager().write(out, checksum);
+            LOG.info("Save mtmv job and tasks to image");
         }
         return checksum;
     }

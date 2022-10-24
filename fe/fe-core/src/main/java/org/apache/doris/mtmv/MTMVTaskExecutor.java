@@ -19,9 +19,9 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
-import org.apache.doris.mtmv.MtmvUtils.TaskState;
-import org.apache.doris.mtmv.metadata.MtmvJob;
-import org.apache.doris.mtmv.metadata.MtmvTask;
+import org.apache.doris.mtmv.MTMVUtils.TaskState;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.thrift.TUniqueId;
@@ -36,8 +36,8 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Future;
 
-public class MtmvTaskExecutor implements Comparable<MtmvTaskExecutor> {
-    private static final Logger LOG = LogManager.getLogger(MtmvTaskExecutor.class);
+public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
+    private static final Logger LOG = LogManager.getLogger(MTMVTaskExecutor.class);
 
     private long jobId;
 
@@ -45,13 +45,13 @@ public class MtmvTaskExecutor implements Comparable<MtmvTaskExecutor> {
 
     private Future<?> future;
 
-    private MtmvJob job;
+    private MTMVJob job;
 
     private ConnectContext ctx;
 
-    private MtmvTaskProcessor processor;
+    private MTMVTaskProcessor processor;
 
-    private MtmvTask task;
+    private MTMVTask task;
 
     public long getJobId() {
         return jobId;
@@ -61,11 +61,11 @@ public class MtmvTaskExecutor implements Comparable<MtmvTaskExecutor> {
         this.jobId = jobId;
     }
 
-    public MtmvJob getJob() {
+    public MTMVJob getJob() {
         return job;
     }
 
-    public void setJob(MtmvJob job) {
+    public void setJob(MTMVJob job) {
         this.job = job;
     }
 
@@ -85,17 +85,17 @@ public class MtmvTaskExecutor implements Comparable<MtmvTaskExecutor> {
         this.future = future;
     }
 
-    public MtmvTaskProcessor getProcessor() {
+    public MTMVTaskProcessor getProcessor() {
         return processor;
     }
 
-    public void setProcessor(MtmvTaskProcessor processor) {
+    public void setProcessor(MTMVTaskProcessor processor) {
         this.processor = processor;
     }
 
     public boolean executeTask() throws Exception {
-        MtmvTaskContext taskContext = new MtmvTaskContext();
-        taskContext.setDefinition(task.getDefinition());
+        MTMVTaskContext taskContext = new MTMVTaskContext();
+        taskContext.setQuery(task.getDefinition());
         ctx = new ConnectContext();
         ctx.setDatabase(job.getDbName());
         ctx.setQualifiedUser(task.getUser());
@@ -129,12 +129,12 @@ public class MtmvTaskExecutor implements Comparable<MtmvTaskExecutor> {
         return ctx;
     }
 
-    public MtmvTask getTask() {
+    public MTMVTask getTask() {
         return task;
     }
 
-    public MtmvTask initTask(String taskId, Long createTime) {
-        MtmvTask task = new MtmvTask();
+    public MTMVTask initTask(String taskId, Long createTime) {
+        MTMVTask task = new MTMVTask();
         task.setTaskId(taskId);
         task.setJobName(job.getName());
         if (createTime == null) {
@@ -152,7 +152,7 @@ public class MtmvTaskExecutor implements Comparable<MtmvTaskExecutor> {
     }
 
     @Override
-    public int compareTo(@NotNull MtmvTaskExecutor task) {
+    public int compareTo(@NotNull MTMVTaskExecutor task) {
         if (this.getTask().getPriority() != task.getTask().getPriority()) {
             return task.getTask().getPriority() - this.getTask().getPriority();
         } else {
@@ -168,7 +168,7 @@ public class MtmvTaskExecutor implements Comparable<MtmvTaskExecutor> {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        MtmvTaskExecutor task = (MtmvTaskExecutor) o;
+        MTMVTaskExecutor task = (MTMVTaskExecutor) o;
         return this.task.getDefinition().equals(task.getTask().getDefinition());
     }
 

@@ -28,12 +28,12 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class DropMtmvTask implements Writable {
+public class DropMTMVTask implements Writable {
 
     @SerializedName("taskIds")
     List<String> taskIds;
 
-    public DropMtmvTask(List<String> taskIdList) {
+    public DropMTMVTask(List<String> taskIdList) {
         this.taskIds = taskIdList;
     }
 
@@ -41,8 +41,8 @@ public class DropMtmvTask implements Writable {
         return taskIds;
     }
 
-    public static DropMtmvTask read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DropMtmvTask.class);
+    public static DropMTMVTask read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropMTMVTask.class);
     }
 
     @Override

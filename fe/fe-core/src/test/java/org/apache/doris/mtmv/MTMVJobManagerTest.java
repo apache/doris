@@ -18,9 +18,9 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.mtmv.MtmvUtils.JobState;
-import org.apache.doris.mtmv.metadata.ChangeMvmtJob;
-import org.apache.doris.mtmv.metadata.MtmvJob;
+import org.apache.doris.mtmv.MTMVUtils.JobState;
+import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -28,21 +28,21 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
-public class MtmvJobManagerTest extends TestWithFeService {
+public class MTMVJobManagerTest extends TestWithFeService {
 
     @Test
     public void testSampleCase() throws DdlException {
-        MtmvJobManager jobManager = new MtmvJobManager();
+        MTMVJobManager jobManager = new MTMVJobManager();
         jobManager.start();
-        MtmvJob job = MtmvUtilsTest.createDummyJob();
+        MTMVJob job = MTMVUtilsTest.createDummyJob();
         jobManager.createJob(job, false);
         Assertions.assertEquals(1, jobManager.showAllJobs().size());
-        MtmvJob resultJob = jobManager.getJob("dummy");
+        MTMVJob resultJob = jobManager.getJob("dummy");
         Assertions.assertEquals("dummy", resultJob.getName());
         Assertions.assertEquals(JobState.ACTIVE, resultJob.getState());
         long jobId = resultJob.getId();
-        ChangeMvmtJob changeMvmtJob = new ChangeMvmtJob(jobId, JobState.PAUSE);
-        jobManager.updateJob(changeMvmtJob, false);
+        ChangeMTMVJob changeMTMVJob = new ChangeMTMVJob(jobId, JobState.PAUSE);
+        jobManager.updateJob(changeMTMVJob, false);
         resultJob = jobManager.getJob("dummy");
         Assertions.assertEquals("dummy", resultJob.getName());
         Assertions.assertEquals(JobState.PAUSE, resultJob.getState());
@@ -52,23 +52,23 @@ public class MtmvJobManagerTest extends TestWithFeService {
 
     @Test
     public void testSchedulerJob() throws DdlException, InterruptedException {
-        MtmvJobManager jobManager = new MtmvJobManager();
+        MTMVJobManager jobManager = new MTMVJobManager();
         jobManager.start();
-        MtmvJob job = MtmvUtilsTest.createSchedulerJob();
+        MTMVJob job = MTMVUtilsTest.createSchedulerJob();
         jobManager.createJob(job, false);
-        Assertions.assertEquals(1, jobManager.showJobs(MtmvUtilsTest.dbName).size());
+        Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
         Thread.sleep(5000L);
         Assertions.assertTrue(jobManager.getTaskManager().getAllHistory().size() > 1);
     }
 
     @Test
     public void testOnceJob() throws DdlException, InterruptedException {
-        MtmvJobManager jobManager = new MtmvJobManager();
+        MTMVJobManager jobManager = new MTMVJobManager();
         jobManager.start();
-        MtmvJob job = MtmvUtilsTest.createOnceJob();
+        MTMVJob job = MTMVUtilsTest.createOnceJob();
         jobManager.createJob(job, false);
-        Assertions.assertEquals(1, jobManager.showJobs(MtmvUtilsTest.dbName).size());
-        while (!jobManager.getJob(MtmvUtilsTest.O_JOB).getState().equals(JobState.COMPLETE)) {
+        Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
+        while (!jobManager.getJob(MTMVUtilsTest.O_JOB).getState().equals(JobState.COMPLETE)) {
             Thread.sleep(10000);
             System.out.println("Loop    once");
         }

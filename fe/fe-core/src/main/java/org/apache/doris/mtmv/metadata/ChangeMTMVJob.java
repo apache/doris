@@ -19,7 +19,7 @@ package org.apache.doris.mtmv.metadata;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mtmv.MtmvUtils.TaskState;
+import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -28,40 +28,29 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class AlterMtmvTask implements Writable {
-
+public class ChangeMTMVJob implements Writable {
     @SerializedName("jobId")
     private long jobId;
 
-    @SerializedName("taskId")
-    private String taskId;
-
-    @SerializedName("finishTime")
-    private long finishTime;
+    @SerializedName("lastModifyTime")
+    private long lastModifyTime;
 
     @SerializedName("fromStatus")
-    TaskState fromStatus;
+    JobState fromStatus;
 
     @SerializedName("toStatus")
-    TaskState toStatus;
+    JobState toStatus;
 
     @SerializedName("errorCode")
-    private int errorCode = -1;
+    private int errorCode;
 
     @SerializedName("errorMessage")
-    private String errorMessage = "";
+    private String errorMessage;
 
-
-    public AlterMtmvTask(long jobId, MtmvTask task, TaskState fromStatus, TaskState toStatus) {
+    public ChangeMTMVJob(long jobId, JobState toStatus) {
         this.jobId = jobId;
-        this.taskId = task.getTaskId();
-        this.fromStatus = fromStatus;
         this.toStatus = toStatus;
-        this.finishTime = task.getFinishTime();
-        if (toStatus == TaskState.FAILED) {
-            errorCode = task.getErrorCode();
-            errorMessage = task.getErrorMessage();
-        }
+        this.lastModifyTime = System.currentTimeMillis();
     }
 
     public long getJobId() {
@@ -72,57 +61,33 @@ public class AlterMtmvTask implements Writable {
         this.jobId = jobId;
     }
 
-    public String getTaskId() {
-        return taskId;
+    public long getLastModifyTime() {
+        return lastModifyTime;
     }
 
-    public void setTaskId(String taskId) {
-        this.taskId = taskId;
+    public void setLastModifyTime(long lastModifyTime) {
+        this.lastModifyTime = lastModifyTime;
     }
 
-    public TaskState getFromStatus() {
+    public JobState getFromStatus() {
         return fromStatus;
     }
 
-    public void setFromStatus(TaskState fromStatus) {
+    public void setFromStatus(JobState fromStatus) {
         this.fromStatus = fromStatus;
     }
 
-    public TaskState getToStatus() {
+    public JobState getToStatus() {
         return toStatus;
     }
 
-    public void setToStatus(TaskState toStatus) {
+    public void setToStatus(JobState toStatus) {
         this.toStatus = toStatus;
     }
 
-    public int getErrorCode() {
-        return errorCode;
-    }
-
-    public void setErrorCode(int errorCode) {
-        this.errorCode = errorCode;
-    }
-
-    public String getErrorMessage() {
-        return errorMessage;
-    }
-
-    public void setErrorMessage(String errorMessage) {
-        this.errorMessage = errorMessage;
-    }
-
-    public long getFinishTime() {
-        return finishTime;
-    }
-
-    public void setFinishTime(long finishTime) {
-        this.finishTime = finishTime;
-    }
-
-    public static AlterMtmvTask read(DataInput in) throws IOException {
+    public static ChangeMTMVJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, AlterMtmvTask.class);
+        return GsonUtils.GSON.fromJson(json, ChangeMTMVJob.class);
     }
 
     @Override

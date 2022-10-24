@@ -17,45 +17,20 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.mtmv.MTMVUtils.TaskPriority;
 
-import java.util.Map;
+public class MTMVTaskExecuteParams {
+    private int priority = TaskPriority.LOW.value();
 
-public class MtmvTaskContext {
-    ConnectContext ctx;
-    String definition;
-    String remoteIp;
-    Map<String, String> properties;
+    public MTMVTaskExecuteParams() {
 
-    public ConnectContext getCtx() {
-        return ctx;
     }
 
-    public void setCtx(ConnectContext ctx) {
-        this.ctx = ctx;
+    public MTMVTaskExecuteParams(int priority) {
+        this.priority = priority;
     }
 
-    public String getDefinition() {
-        return definition;
-    }
-
-    public void setDefinition(String definition) {
-        this.definition = definition;
-    }
-
-    public String getRemoteIp() {
-        return remoteIp;
-    }
-
-    public void setRemoteIp(String remoteIp) {
-        this.remoteIp = remoteIp;
-    }
-
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    public void setProperties(Map<String, String> properties) {
-        this.properties = properties;
+    public int getPriority() {
+        return priority;
     }
 }

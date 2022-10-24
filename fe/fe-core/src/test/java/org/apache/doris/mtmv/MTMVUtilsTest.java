@@ -17,9 +17,9 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.mtmv.MtmvUtils.TriggerMode;
-import org.apache.doris.mtmv.metadata.MtmvJob;
-import org.apache.doris.mtmv.metadata.MtmvJob.JobSchedule;
+import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVJob.JobSchedule;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -29,27 +29,27 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.concurrent.TimeUnit;
 
-public class MtmvUtilsTest {
+public class MTMVUtilsTest {
     public static final String dbName = "test";
     public static final String S_JOB = "SchedulerJob";
     public static final String O_JOB = "OnceJob";
 
-    public static MtmvJob createDummyJob() {
-        MtmvJob job = new MtmvJob("dummy");
+    public static MTMVJob createDummyJob() {
+        MTMVJob job = new MTMVJob("dummy");
         job.setDbName(dbName);
         return job;
     }
 
-    public static MtmvJob createOnceJob() {
-        MtmvJob job = new MtmvJob("");
+    public static MTMVJob createOnceJob() {
+        MTMVJob job = new MTMVJob("");
         job.setTriggerMode(TriggerMode.ONCE);
         job.setDbName(dbName);
         job.setName(O_JOB);
         return job;
     }
 
-    public static MtmvJob createSchedulerJob() {
-        MtmvJob job = new MtmvJob("");
+    public static MTMVJob createSchedulerJob() {
+        MTMVJob job = new MTMVJob("");
         JobSchedule jobSchedule = new JobSchedule(System.currentTimeMillis() / 1000, 1, TimeUnit.SECONDS);
         job.setSchedule(jobSchedule);
         job.setTriggerMode(TriggerMode.PERIODICAL);
@@ -60,13 +60,13 @@ public class MtmvUtilsTest {
 
     @Test
     public void testGetDelaySeconds() {
-        MtmvJob job = MtmvUtilsTest.createDummyJob();
+        MTMVJob job = MTMVUtilsTest.createDummyJob();
 
         // 2022-10-03 15:00:00
         JobSchedule jobSchedule = new JobSchedule(1664780400L, 1, TimeUnit.HOURS);
         job.setSchedule(jobSchedule);
 
-        Assertions.assertEquals(0, MtmvUtils.getDelaySeconds(job));
+        Assertions.assertEquals(0, MTMVUtils.getDelaySeconds(job));
 
         // 2222-10-03 15:00:00
         jobSchedule = new JobSchedule(7976127600L, 1, TimeUnit.HOURS);
@@ -74,16 +74,16 @@ public class MtmvUtilsTest {
 
         // 2022-10-03 16:00:00
         LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochSecond(1664784000L), ZoneId.systemDefault());
-        Assertions.assertEquals(7976127600L - 1664784000L, MtmvUtils.getDelaySeconds(job, time));
+        Assertions.assertEquals(7976127600L - 1664784000L, MTMVUtils.getDelaySeconds(job, time));
 
         // 2022-10-03 15:00:00
         jobSchedule = new JobSchedule(1664780400L, 1, TimeUnit.HOURS);
         job.setSchedule(jobSchedule);
         // 2222-10-03 15:00:00
         job.setLastModifyTime(1664780400L + 1L);
-        Assertions.assertEquals(1L, MtmvUtils.getDelaySeconds(job, time));
+        Assertions.assertEquals(1L, MTMVUtils.getDelaySeconds(job, time));
 
         job.setLastModifyTime(1664780400L - 1L);
-        Assertions.assertEquals(0L, MtmvUtils.getDelaySeconds(job, time));
+        Assertions.assertEquals(0L, MTMVUtils.getDelaySeconds(job, time));
     }
 }

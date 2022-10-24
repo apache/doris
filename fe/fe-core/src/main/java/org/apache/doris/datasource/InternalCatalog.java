@@ -142,7 +142,7 @@ import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
-import org.apache.doris.mtmv.MtmvJobFactory;
+import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -2101,7 +2101,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         // create mv builder when is multi-table MaterializedView
         if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
-            Env.getCurrentEnv().getMtmvJobManager().createJob(MtmvJobFactory.buildJob((MaterializedView) olapTable),
+            Env.getCurrentEnv().getMtmvJobManager().createJob(MTMVJobFactory.buildJob((MaterializedView) olapTable),
                     false);
         }
     }

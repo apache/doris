@@ -19,10 +19,10 @@ package org.apache.doris.mtmv.metadata;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mtmv.MtmvUtils;
-import org.apache.doris.mtmv.MtmvUtils.JobState;
-import org.apache.doris.mtmv.MtmvUtils.TaskRetryPolicy;
-import org.apache.doris.mtmv.MtmvUtils.TriggerMode;
+import org.apache.doris.mtmv.MTMVUtils;
+import org.apache.doris.mtmv.MTMVUtils.JobState;
+import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
+import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -36,7 +36,7 @@ import java.time.ZoneId;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public class MtmvJob implements Writable {
+public class MTMVJob implements Writable {
     @SerializedName("id")
     private long id;
 
@@ -45,11 +45,11 @@ public class MtmvJob implements Writable {
 
     // set default to MANUAL is for compatibility
     @SerializedName("triggerMode")
-    private MtmvUtils.TriggerMode triggerMode = MtmvUtils.TriggerMode.MANUAL;
+    private MTMVUtils.TriggerMode triggerMode = MTMVUtils.TriggerMode.MANUAL;
 
     // set default to UNKNOWN is for compatibility
     @SerializedName("state")
-    private MtmvUtils.JobState state = MtmvUtils.JobState.UNKNOWN;
+    private MTMVUtils.JobState state = MTMVUtils.JobState.UNKNOWN;
 
     @SerializedName("schedule")
     private JobSchedule schedule;
@@ -79,14 +79,14 @@ public class MtmvJob implements Writable {
     @SerializedName("lastModifyTime")
     private long lastModifyTime;
 
-    public MtmvJob(String name) {
+    public MTMVJob(String name) {
         this.name = name;
         this.createTime = System.currentTimeMillis();
     }
 
-    public static MtmvJob read(DataInput in) throws IOException {
+    public static MTMVJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, MtmvJob.class);
+        return GsonUtils.GSON.fromJson(json, MTMVJob.class);
     }
 
     @Override

@@ -17,8 +17,8 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.mtmv.MtmvUtils.TaskState;
-import org.apache.doris.mtmv.metadata.MtmvTask;
+import org.apache.doris.mtmv.MTMVUtils.TaskState;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,15 +27,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-public class MtmvTaskExecutorPool {
-    private static final Logger LOG = LogManager.getLogger(MtmvTaskExecutorPool.class);
+public class MTMVTaskExecutorPool {
+    private static final Logger LOG = LogManager.getLogger(MTMVTaskExecutorPool.class);
     private final ExecutorService taskPool = Executors.newCachedThreadPool();
 
-    public void executeTask(MtmvTaskExecutor taskExecutor) {
+    public void executeTask(MTMVTaskExecutor taskExecutor) {
         if (taskExecutor == null) {
             return;
         }
-        MtmvTask task = taskExecutor.getTask();
+        MTMVTask task = taskExecutor.getTask();
         if (task == null) {
             return;
         }

@@ -48,11 +48,11 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
-import org.apache.doris.mtmv.metadata.AlterMtmvTask;
-import org.apache.doris.mtmv.metadata.DropMtmvJob;
-import org.apache.doris.mtmv.metadata.DropMtmvTask;
-import org.apache.doris.mtmv.metadata.MtmvJob;
-import org.apache.doris.mtmv.metadata.MtmvTask;
+import org.apache.doris.mtmv.metadata.AlterMTMVTask;
+import org.apache.doris.mtmv.metadata.DropMTMVJob;
+import org.apache.doris.mtmv.metadata.DropMTMVTask;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
@@ -699,27 +699,27 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_MTMV_JOB: {
-                data = MtmvJob.read(in);
+                data = MTMVJob.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_MTMV_JOB: {
-                data = DropMtmvJob.read(in);
+                data = DropMTMVJob.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_CREATE_MTMV_TASK: {
-                data = MtmvTask.read(in);
+                data = MTMVTask.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_ALTER_MTMV_TASK: {
-                data = AlterMtmvTask.read(in);
+                data = AlterMTMVTask.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_MTMV_TASK: {
-                data = DropMtmvTask.read(in);
+                data = DropMTMVTask.read(in);
                 isRead = true;
                 break;
             }

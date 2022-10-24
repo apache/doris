@@ -17,14 +17,14 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.mtmv.metadata.MtmvJob;
+import org.apache.doris.mtmv.metadata.MTMVJob;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 
-public class MtmvUtils {
+public class MTMVUtils {
 
     public enum TriggerMode {
         MANUAL, ONCE, PERIODICAL, ON_COMMIT
@@ -80,12 +80,12 @@ public class MtmvUtils {
         }
     }
 
-    public static long getDelaySeconds(MtmvJob job) {
+    public static long getDelaySeconds(MTMVJob job) {
         return getDelaySeconds(job, LocalDateTime.now());
     }
 
     // this method only for test
-    public static long getDelaySeconds(MtmvJob job, LocalDateTime now) {
+    public static long getDelaySeconds(MTMVJob job, LocalDateTime now) {
         long lastModifyTime = job.getLastModifyTime();
         long nextTime = 0;
         // if set lastModifyTime, use lastModifyTime otherwise use the start time.
@@ -102,12 +102,12 @@ public class MtmvUtils {
         return delaySeconds < 0 ? 0 : delaySeconds;
     }
 
-    public static MtmvTaskExecutor buildTask(MtmvJob job) {
-        MtmvTaskExecutor taskExecutor = new MtmvTaskExecutor();
+    public static MTMVTaskExecutor buildTask(MTMVJob job) {
+        MTMVTaskExecutor taskExecutor = new MTMVTaskExecutor();
         taskExecutor.setJobId(job.getId());
         taskExecutor.setProperties(job.getProperties());
         taskExecutor.setJob(job);
-        taskExecutor.setProcessor(new MtmvTaskProcessor());
+        taskExecutor.setProcessor(new MTMVTaskProcessor());
 
         return taskExecutor;
     }
