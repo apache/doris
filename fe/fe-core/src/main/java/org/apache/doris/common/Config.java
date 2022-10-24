@@ -455,7 +455,7 @@ public class Config extends ConfigBase {
      * In order not to wait too long for create table(index), set a max timeout.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_create_table_timeout_second = 60;
+    public static int max_create_table_timeout_second = 3600;
 
     /**
      * Maximal waiting time for all publish version tasks of one transaction to be finished
