@@ -203,6 +203,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveCatalog",
                         CountingDataOutputStream.class, long.class);
                 break;
+            case "jobManager":
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadJobManager", DataInputStream.class,
+                        long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveJobManager",
+                        CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }
