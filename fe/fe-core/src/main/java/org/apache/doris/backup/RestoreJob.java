@@ -672,7 +672,7 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // Reset properties to correct values.
-                    remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable);
+                    remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, replicaAlloc);
 
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
