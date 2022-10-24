@@ -363,6 +363,7 @@ public class PlanChecker {
 
     public PlanChecker printlnTree() {
         System.out.println(cascadesContext.getMemo().copyOut().treeString());
+        System.out.println("-----------------------------");
         return this;
     }
 
