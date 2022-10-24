@@ -90,4 +90,4 @@ fi
 
 chmod 755 "${DORIS_HOME}/lib/doris_be"
 
-${DORIS_HOME}/lib/doris_be --version
+"${DORIS_HOME}"/lib/doris_be --version
