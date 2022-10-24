@@ -23,12 +23,14 @@
 #include <cerrno>
 
 #include <aws/core/Aws.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/core/utils/HashingUtils.h>
+#include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
+#include <aws/s3/S3Client.h>
 
 #include "common/compiler_util.h"
 #include "common/status.h"
@@ -38,11 +40,20 @@
 #include "io/fs/s3_file_system.h"
 #include "util/doris_metrics.h"
 
+using Aws::S3::Model::CompletedPart;
+using Aws::S3::Model::CompletedMultipartUpload;
+using Aws::S3::Model::CompleteMultipartUploadRequest;
+using Aws::S3::Model::CreateMultipartUploadRequest;
+using Aws::S3::Model::DeleteObjectRequest;
+using Aws::S3::Model::UploadPartRequest;
+using Aws::S3::Model::UploadPartOutcome;
+
 namespace doris {
 namespace io {
 
-S3FileWriter::S3FileWriter(FileSystemPtr fs, Path path)
-        : FileWriter(std::move(path)), _fs(fs) {
+S3FileWriter::S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client,
+                           const S3Conf& s3_conf)
+        : FileWriter(std::move(path)), _client(client), _s3_conf(s3_conf) {
     DorisMetrics::instance()->s3_file_open_writing->increment(1);
     DorisMetrics::instance()->s3_file_writer_total->increment(1);
 }
@@ -59,27 +70,37 @@ Status S3FileWriter::close() {
 
 Status S3FileWriter::abort() {
     RETURN_IF_ERROR(_close(false));
-    return fs->delete_file(_path);
+
+    DeleteObjectRequest request;
+    request.WithBucket(_s3_conf.bucket).WithKey(_path.native());
+
+    auto outcome = _client->DeleteObject(request);
+    if (outcome.IsSuccess() ||
+        outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+        return Status::OK();
+    }
+    return Status::IOError("failed to delete object(endpoint={}, bucket={}, key={}): {}",
+                           _s3_conf.endpoint, _s3_conf.bucket, _path.native(),
+                           outcome.GetError().GetMessage());
 }
 
 Status S3FileWriter::_open() {
-    std::string key = _fs->get_key(_path.native());
-    Aws::S3::Model::CreateMultipartUploadRequest create_request;
-    create_request.SetBucket(_fs->s3_conf().bucket.c_str());
-    create_request.SetKey(key.c_str());
+    CreateMultipartUploadRequest create_request;
+    create_request.SetBucket(_s3_conf.bucket.c_str());
+    create_request.SetKey(_path.native().c_str());
     create_request.SetContentType("text/plain");
 
-    auto outcome = s3_client.CreateMultipartUpload(create_request);
+    auto outcome = _client->CreateMultipartUpload(create_request);
 
     if (outcome.IsSuccess()) {
-        _upload_id = createMultipartUploadOutcome.GetResult().GetUploadId();
-        LOG(INFO) << "create multi part upload successfully (endpoint=" << _fs->s3_conf().endpoint
-                  << ", bucket=" << _fs->s3_conf().bucket << ", key=" << key << ") upload_id: "
-                  << _upload_id;
+        _upload_id = outcome.GetResult().GetUploadId();
+        LOG(INFO) << "create multi part upload successfully (endpoint=" << _s3_conf.endpoint
+                  << ", bucket=" << _s3_conf.bucket << ", key=" << _path.native()
+                  << ") upload_id: " << _upload_id;
         return Status::OK();
     }
     return Status::IOError("failed to create multi part upload (endpoint={}, bucket={}, key={}): {}",
-                           _fs->s3_conf().endpoint, _fs->s3_conf().bucket, key,
+                           _s3_conf.endpoint, _s3_conf.bucket, _path.native(),
                            outcome.GetError().GetMessage());
 }
 
@@ -98,48 +119,72 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
         _is_open = true;
     }
 
-    size_t bytes_req = 0;
-    struct iovec iov[data_cnt];
     for (size_t i = 0; i < data_cnt; i++) {
         const Slice& result = data[i];
-        bytes_req += result.size;
-        ++_cur_part_num;
 
-        // start upload
-        std::string key = _fs->get_key(_path.native());
-        Aws::S3::Model::UploadPartRequest upload_request;
-        upload_request.WithBucket(_fs->s3_conf().bucket.c_str()).WithKey(key.c_str())
-                .WithPartNumber(_cur_part_num).WithUploadId(upload_id.c_str());
+        while (_cur_data_offset + result.size - _appended_data_offset > MAX_SIZE_EACH_PART) {
+            int append_size = MAX_SIZE_EACH_PART - _cur_data_offset;
+            if (append_size > 0) {
+                memcpy(_cur_data + _cur_data_offset, result.data() + _appended_data_offset,
+                       append_size);
+            }
+            RETURN_IF_ERROR(_upload_part(std::string(_cur_data, MAX_SIZE_EACH_PART)));
+            _cur_data_offset = 0;
+            _appended_data_offset += append_size;
 
-        std::shared_ptr<Aws::StringStream> stream_ptr =
-                Aws::MakeShared<Aws::StringStream>("WriteStream::Upload" /* log id */, data.to_string());
+            _bytes_appended += append_size;
+        }
 
-        upload_request.SetBody(stream_ptr);
+        // _cur_data is not full after result is appended.
+        int append_size = result.size - _appended_data_offset;
+        if (append_size > 0) {
+            memcpy(_cur_data + _cur_data_offset, result.data() + _appended_data_offset,
+                   append_size);
+        }
+        _cur_data_offset += append_size;
+        _appended_data_offset = 0;
 
-        Aws::Utils::ByteBuffer part_md5(
-                Aws::Utils::HashingUtils::CalculateMD5(*stream_ptr));
-        upload_request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+        _bytes_appended += append_size;
+    }
+    return Status::OK();
+}
 
-        auto start_pos = stream_ptr->tellg();
-        stream_ptr->seekg(0LL, stream_ptr->end);
-        upload_request.SetContentLength(static_cast<long>(stream_ptr->tellg()));
-        stream_ptr->seekg(start_pos);
+Status S3FileWriter::_upload_part(const std::string& str) {
+    ++_cur_part_num;
 
-        auto upload_part_callable = _fs->client().UploadPartCallable(upload_request);
+    UploadPartRequest upload_request;
+    upload_request.WithBucket(_s3_conf.bucket.c_str()).WithKey(_path.native().c_str())
+            .WithPartNumber(_cur_part_num).WithUploadId(_upload_id.c_str());
 
-        UploadPartOutcome upload_part_outcome = upload_part_callable.get();
-        CompletedPart completed_part;
-        completed_part.SetPartNumber(_cur_part_num);
-        auto etag = upload_part_outcome.GetResult().GetETag();
-        DCHECK(etag.empty());
-        completed_part.SetETag(etag);
-        _completed_parts.emplace_back(completed_part);
+    std::shared_ptr<Aws::StringStream> stream_ptr = Aws::MakeShared<Aws::StringStream>(str);
 
+    upload_request.SetBody(stream_ptr);
 
-        iov[i] = {result.data, result.size};
+    Aws::Utils::ByteBuffer part_md5(
+            Aws::Utils::HashingUtils::CalculateMD5(*stream_ptr));
+    upload_request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+
+    auto start_pos = stream_ptr->tellg();
+    stream_ptr->seekg(0LL, stream_ptr->end);
+    upload_request.SetContentLength(static_cast<long>(stream_ptr->tellg()));
+    stream_ptr->seekg(start_pos);
+
+    auto upload_part_callable = _client->UploadPartCallable(upload_request);
+
+    UploadPartOutcome upload_part_outcome = upload_part_callable.get();
+    if (!upload_part_outcome.IsSuccess()) {
+        return Status::IOError("failed to upload part (endpoint={}, bucket={}, key={}, "
+                               "part_num = {}): {}",
+                               _s3_conf.endpoint, _s3_conf.bucket, _path.native(),
+                               _cur_part_num, compute_outcome.GetError().GetMessage());
     }
 
-    _bytes_appended += bytes_req;
+    std::shared_ptr<CompletedPart> completed_part = std::make_shared<CompletedPart>();
+    completed_part->SetPartNumber(_cur_part_num);
+    auto etag = upload_part_outcome.GetResult().GetETag();
+    DCHECK(etag.empty());
+    completed_part->SetETag(etag);
+    _completed_parts.emplace_back(completed_part);
     return Status::OK();
 }
 
@@ -156,23 +201,26 @@ Status S3FileWriter::_close(bool sync) {
         return Status::OK();
     }
     if (sync && _is_open) {
-        std::string key = _fs->get_key(_path.native());
-        Aws::S3::Model::CompleteMultipartUploadRequest complete_request;
-        complete_request.WithBucket(_fs->s3_conf().bucket.c_str()).WithKey(key.c_str())
+        if (_cur_data_offset > 0) {
+            RETURN_IF_ERROR(_upload_part(std::string(_cur_data, _cur_data_offset)));
+        }
+
+        CompleteMultipartUploadRequest complete_request;
+        complete_request.WithBucket(_s3_conf.bucket.c_str()).WithKey(_path.native().c_str())
                 .WithUploadId(_upload_id.c_str());
 
         CompletedMultipartUpload completed_upload;
-        for (CompletedPart part : _completed_parts) {
-            completed_upload.AddParts(part);
+        for (std::shared_ptr<CompletedPart> part : _completed_parts) {
+            completed_upload.AddParts(*part);
         }
 
         complete_request.WithMultipartUpload(completed_upload);
 
-        auto compute_outcome = _fs->client().CompleteMultipartUpload(complete_request);
+        auto compute_outcome = _client->CompleteMultipartUpload(complete_request);
 
         if (!compute_outcome.IsSuccess()) {
             return Status::IOError("failed to create multi part upload (endpoint={}, bucket={}, key={}): {}",
-                                   _fs->s3_conf().endpoint, _fs->s3_conf().bucket, key,
+                                   _s3_conf.endpoint, _s3_conf.bucket, _path.native(),
                                    compute_outcome.GetError().GetMessage());
         }
         _is_open = false;
@@ -183,8 +231,8 @@ Status S3FileWriter::_close(bool sync) {
     DorisMetrics::instance()->s3_file_created_total->increment(1);
     DorisMetrics::instance()->s3_bytes_written_total->increment(_bytes_appended);
 
-    LOG(INFO) << "complete multi part upload successfully (endpoint=" << _fs->s3_conf().endpoint
-              << ", bucket=" << _fs->s3_conf().bucket << ", key=" << key << ") upload_id: "
+    LOG(INFO) << "complete multi part upload successfully (endpoint=" << _s3_conf.endpoint
+              << ", bucket=" << _s3_conf.bucket << ", key=" << _path.native() << ") upload_id: "
               << _upload_id;
     return Status::OK();
 }

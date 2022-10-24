@@ -21,13 +21,22 @@
 #include <list>
 
 #include "io/fs/file_writer.h"
+#include "util/s3_util.h"
+
+namespace Aws::S3 {
+namespace Model {
+class CompletedPart;
+}
+class S3Client;
+} // namespace Aws::S3
 
 namespace doris {
 namespace io {
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(FileSystemPtr fs, Path path, int fd);
+    S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client,
+                 const S3Conf& s3_conf);
     ~S3FileWriter() override;
 
     Status close() override;
@@ -49,14 +58,32 @@ private:
 
     Status _open();
 
+    Status _upload_part(const std::string& str);
+
 private:
-    std::shared_ptr<S3FileSystem> _fs = nullptr;
+
+    // max size of each part when uploading: 5MB
+    static const int MAX_SIZE_EACH_PART = 5 * 1024 * 1024;
+
+    std::shared_ptr<Aws::S3::S3Client> _client;
+    S3Conf _s3_conf;
     std::string _upload_id;
     bool _is_open = false;
-    size_t _bytes_appended = 0;
     bool _closed = false;
+    size_t _bytes_appended = 0;
+
+    // _cur_data is used to collect data in function appendv(const Slice* data, size_t data_cnt),
+    // a _cur_data may contain data in several appendv() until _cur_data is full.
+    // Then_cur_data_offset will be set when data is appended to _cur_data,
+    // next data will be memcpy to _cur_data_offset position.
+    // _appended_data_offset will be set when data in one appendv() is split, which is
+    // used in next part to be uploaded.
+    int8_t _cur_data[MAX_SIZE_EACH_PART];
+    int _cur_data_offset = 0;
+    int _appended_data_offset = 0;
+    // Current Part Num for CompletedPart
     int _cur_part_num = 0;
-    std::list<CompletedPart> _completed_parts;
+    std::list<std::shared_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 };
 
 } // namespace io

@@ -36,6 +36,7 @@
 #include "gutil/strings/stringpiece.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
+#include "io/fs/s3_file_writer.h"
 
 namespace doris {
 namespace io {
@@ -137,7 +138,7 @@ Status S3FileSystem::batch_upload(const std::vector<Path>& local_paths,
 }
 
 Status S3FileSystem::create_file(const Path& path, FileWriterPtr* writer) {
-    *writer = std::make_unique<S3FileWriter>(std::unique_ptr<S3FileWriter>(this), std::string(path));
+    *writer = std::make_unique<S3FileWriter>(Path(get_key(path)), get_client(), _s3_conf);
     return Status::OK();
 }
 
