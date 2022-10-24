@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -63,6 +64,13 @@ public class PartitionDesc {
             throw new AnalysisException("No partition columns.");
         }
 
+        // `analyzeUniqueKeyMergeOnWrite` would modify `properties`, which will be used later,
+        // so we just clone a properties map here.
+        boolean enableUniqueKeyMergeOnWrite = false;
+        if (otherProperties != null) {
+            enableUniqueKeyMergeOnWrite =
+                PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(Maps.newHashMap(otherProperties));
+        }
         Set<String> partColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (String partitionCol : partitionColNames) {
             if (!partColNames.add(partitionCol)) {
@@ -72,7 +80,8 @@ public class PartitionDesc {
             boolean found = false;
             for (ColumnDef columnDef : columnDefs) {
                 if (columnDef.getName().equals(partitionCol)) {
-                    if (!columnDef.isKey() && columnDef.getAggregateType() != AggregateType.NONE) {
+                    if (!columnDef.isKey() && (columnDef.getAggregateType() != AggregateType.NONE
+                            || enableUniqueKeyMergeOnWrite)) {
                         throw new AnalysisException("The partition column could not be aggregated column");
                     }
                     if (columnDef.getType().isFloatingPointType()) {
