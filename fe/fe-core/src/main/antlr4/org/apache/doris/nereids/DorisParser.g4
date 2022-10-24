@@ -49,8 +49,8 @@ singleStatement
     ;
 
 statement
-    : cte? query                                                            #statementDefault
-    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)? query            #explain
+    : cte? query                                                        #statementDefault
+    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)? query        #explain
     ;
 
 //  -----------------Query-----------------

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -79,6 +80,10 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
             + "cte2 AS (SELECT sk FROM cte1 WHERE sk < 3)"
             + "SELECT * FROM cte1 JOIN cte2 ON cte1.sk = cte2.sk";
 
+    private final String sql5 = "WITH V1 AS (SELECT s_suppkey FROM supplier), "
+            + "V2 AS (SELECT s_suppkey FROM V1)"
+            + "SELECT * FROM V2";
+
     private final List<String> testSql = ImmutableList.of(
             sql1, sql2, sql3, sql4
     );
@@ -88,6 +93,8 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         createDatabase("test");
         useDatabase("test");
         SSBUtils.createTables(this);
+        createView("CREATE VIEW V1 AS SELECT * FROM part");
+        createView("CREATE VIEW V2 AS SELECT * FROM part");
     }
 
     @Override
@@ -237,6 +244,27 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                             )))
                     ).when(FieldChecker.check("projects", ImmutableList.of(skInCTE1, skInCTE2)))
                 );
+    }
+
+    @Test
+    public void testCTEWithAnExistedTableOrViewName() {
+        SlotReference suppkeyInV1 = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
+            false, ImmutableList.of("V1"));
+        SlotReference suppkeyInV2 = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
+                false, ImmutableList.of("V2"));
+        SlotReference suppkeyInSupplier = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
+            false, ImmutableList.of("default_cluster:test", "supplier"));
+        PlanChecker.from(connectContext)
+                .analyze(sql5)
+                .matches(
+                    logicalProject(
+                        logicalProject(
+                            logicalProject()
+                                .when(FieldChecker.check("projects", ImmutableList.of(suppkeyInSupplier)))
+                        ).when(FieldChecker.check("projects", ImmutableList.of(suppkeyInV1)))
+                    ).when(FieldChecker.check("projects", ImmutableList.of(suppkeyInV2)))
+                );
+
     }
 
 
