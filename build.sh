@@ -83,7 +83,7 @@ clean_be() {
 
     # "build.sh --clean" just cleans and exits, however CMAKE_BUILD_DIR is set
     # while building be.
-    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    CMAKE_BUILD_TYPE="${BUILD_TYPE:-ASAN}"
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
 
     rm -rf "${CMAKE_BUILD_DIR}"
@@ -366,7 +366,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
-    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    CMAKE_BUILD_TYPE="${BUILD_TYPE:-ASAN}"
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
     if [[ "${CLEAN}" -eq 1 ]]; then
@@ -496,6 +496,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         "${DORIS_OUTPUT}/udf/include"
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
+    cp -r -p "${DORIS_HOME}/bin/check_be_version.sh" "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
 
     # Fix Killed: 9 error on MacOS (arm64).
