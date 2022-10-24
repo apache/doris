@@ -216,5 +216,35 @@ suite("cte") {
         ON cte1.sk = cte2.sk
     """
 
+    test {
+        sql = "WITH cte1 (a1, A1) AS (SELECT * FROM supplier) SELECT * FROM cte1"
+
+        exception = "Duplicated CTE column alias"
+    }
+
+    test {
+        sql = "WITH cte1 (a1, a2) AS (SELECT s_suppkey FROM supplier) SELECT * FROM cte1"
+
+        exception = "CTE [cte1] returns 2 columns, but 1 labels were specified"
+    }
+
+    test {
+        sql = "WITH cte1 AS (SELECT * FROM cte2), cte2 AS (SELECT * FROM supplier) SELECT * FROM cte1, cte2"
+
+        exception = "[cte2] does not exist in database"
+    }
+
+    test {
+        sql = "WITH cte1 AS (SELECT * FROM not_existed_table) SELECT * FROM supplier"
+
+        exception = "[not_existed_table] does not exist in database"
+    }
+
+    test {
+        sql = "WITH cte1 AS (SELECT * FROM supplier), cte1 AS (SELECT * FROM part) SELECT * FROM cte1"
+
+        exception = "[cte1] cannot be used more than once"
+    }
+
 }
 
