@@ -44,9 +44,7 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    //TODO: now the input have no limit, so it's column or const number
-    //But we maybe could set the step argument is const not column, this could impl the vector_const()
-    bool use_default_implementation_for_constants() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override {
         return {get_number_of_arguments()};
