@@ -215,7 +215,12 @@ public class PolicyMgr implements Writable {
     }
 
     public List<Policy> getCopiedPoliciesByType(PolicyTypeEnum policyType) {
-        return ImmutableList.copyOf(getPoliciesByType(policyType));
+        readLock();
+        try {
+            return ImmutableList.copyOf(getPoliciesByType(policyType));
+        } finally {
+            readUnlock();
+        }
     }
 
     private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
