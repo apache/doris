@@ -190,10 +190,9 @@ public class SlotRef extends Expr {
         if (type.equals(Type.BOOLEAN)) {
             selectivity = DEFAULT_SELECTIVITY;
         }
-        if (tblName == null) {
-            if (StringUtils.isNotEmpty(desc.getParent().getAlias())) {
-                tblName = new TableName(null, null, desc.getParent().getAlias());
-            }
+        if (tblName == null && StringUtils.isNotEmpty(desc.getParent().getLastAlias())
+                && !desc.getParent().getLastAlias().equals(desc.getParent().getTable().getName())) {
+            tblName = new TableName(null, null, desc.getParent().getLastAlias());
         }
     }
 
