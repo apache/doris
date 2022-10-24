@@ -508,6 +508,11 @@ suite("test_join", "query,p0") {
             right outer join ${tbName3} c on a.k3 = c.k3 and b.k1 = c.k1 + 1 and c.k3 > 0 
             order by isnull(a.k1), 1, 2, 3, 4, 5 limit 65535"""
 
+    // right outer join with other join predicates
+    qt_right_outer_join_wih_other_pred """
+        select a.k2, b.k2, c.k2 from test a left join test b on a.k2 = b.k2 right join baseall c on b.k2 = c.k1 and 1 = 2 order by 1, 2, 3;
+    """
+
     // full outer join
     for (s in selected) {
         sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 

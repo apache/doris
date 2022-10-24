@@ -495,6 +495,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
             if constexpr (ignore_null && need_null_map_for_probe) {
                 if ((*null_map)[probe_index]) {
                     _items_counts[probe_index++] = (uint32_t)0;
+                    all_match_one = false;
                     continue;
                 }
             }
