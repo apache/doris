@@ -72,10 +72,10 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string
 BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                        RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, tablet_path, std::move(rowset_meta)) {
-    if (rowset_meta->is_local()) {
+    if (_rowset_meta->is_local()) {
         _rowset_dir = tablet_path;
     } else {
-        _rowset_dir = remote_tablet_path(rowset_meta->tablet_id());
+        _rowset_dir = remote_tablet_path(_rowset_meta->tablet_id());
     }
 }
 

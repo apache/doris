@@ -292,6 +292,7 @@ protected:
 
     TabletSchemaSPtr _schema;
 
+    std::string _tablet_path;
     std::string _rowset_dir;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor

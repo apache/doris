@@ -81,7 +81,7 @@ public class MetaService extends RestBaseController {
 
         String versionStr = request.getParameter(VERSION);
 
-        if (Strings.isNullOrEmpty(versionStr)) {
+        if (Strings.isNullOrEmpty(versionStr)) {    
             return ResponseEntityBuilder.badRequest("Miss version parameter");
         }
 

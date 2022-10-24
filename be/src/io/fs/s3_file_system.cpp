@@ -137,7 +137,8 @@ Status S3FileSystem::batch_upload(const std::vector<Path>& local_paths,
 }
 
 Status S3FileSystem::create_file(const Path& path, FileWriterPtr* writer) {
-    return Status::NotSupported("not support");
+    *writer = std::make_unique<S3FileWriter>(std::unique_ptr<S3FileWriter>(this), std::string(path));
+    return Status::OK();
 }
 
 Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
