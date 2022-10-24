@@ -383,7 +383,6 @@ public class MtmvJobManager {
     public long write(DataOutputStream dos, long checksum) throws IOException {
         MtmvCheckpointData data = new MtmvCheckpointData();
         data.jobs = new ArrayList<>(nameToJobMap.values());
-        checksum ^= data.jobs.size();
         data.tasks = taskManager.showTasks(null);
         String s = GsonUtils.GSON.toJson(data);
         Text.writeString(dos, s);

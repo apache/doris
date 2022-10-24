@@ -1947,9 +1947,9 @@ public class Env {
     }
 
     /**
-     * Load schedule jobs.
+     * Load mtmv schedule jobs.
      **/
-    public long loadJobManager(DataInputStream in, long checksum) throws IOException {
+    public long loadMtmvJobManager(DataInputStream in, long checksum) throws IOException {
         if (Config.enable_mtmv_scheduler_framework) {
             this.mtmvJobManager = MtmvJobManager.read(in, checksum);
         }
@@ -2230,7 +2230,7 @@ public class Env {
         return checksum;
     }
 
-    public long saveJobManager(CountingDataOutputStream out, long checksum) throws IOException {
+    public long saveMtmvJobManager(CountingDataOutputStream out, long checksum) throws IOException {
         if (Config.enable_mtmv_scheduler_framework) {
             Env.getCurrentEnv().getMtmvJobManager().write(out, checksum);
         }
