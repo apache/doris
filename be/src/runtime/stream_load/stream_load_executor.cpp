@@ -145,18 +145,23 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     }
     request.__set_request_id(ctx->id.to_thrift());
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnBeginResult result;
+    Status status;
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
+        status = Status::ServiceUnavailable("Have not get FE Master heartbeat yet");
+    } else {
 #ifndef BE_TEST
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->loadTxnBegin(result, request);
-            }));
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxnBegin(result, request);
+                }));
 #else
-    result = k_stream_load_begin_result;
+        result = k_stream_load_begin_result;
 #endif
-    Status status(result.status);
+        status = Status(result.status);
+    }
     if (!status.ok()) {
         LOG(WARNING) << "begin transaction failed, errmsg=" << status.get_error_msg()
                      << ctx->brief();
