@@ -40,13 +40,6 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     Status status = Status::OK();
     std::string status_result;
 
-    if (config::disable_stream_load_2pc) {
-        status = Status::InternalError("Two phase commit (2PC) for stream load was disabled");
-        status_result = status.to_json();
-        HttpChannel::send_reply(req, HttpStatus::OK, status_result);
-        return;
-    }
-
     StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->ref();
     req->set_handler_ctx(ctx);
