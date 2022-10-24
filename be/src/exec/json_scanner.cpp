@@ -485,19 +485,19 @@ Status JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator val
         break;
     case rapidjson::Type::kNumberType:
         if (value->IsUint()) {
-            wbytes = sprintf((char*)tmp_buf, "%u", value->GetUint());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%u", value->GetUint());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else if (value->IsInt()) {
-            wbytes = sprintf((char*)tmp_buf, "%d", value->GetInt());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value->GetInt());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else if (value->IsUint64()) {
-            wbytes = sprintf((char*)tmp_buf, "%" PRIu64, value->GetUint64());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRIu64, value->GetUint64());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else if (value->IsInt64()) {
-            wbytes = sprintf((char*)tmp_buf, "%" PRId64, value->GetInt64());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRId64, value->GetInt64());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         } else {
-            wbytes = sprintf((char*)tmp_buf, "%f", value->GetDouble());
+            wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%f", value->GetDouble());
             _fill_slot(tuple, desc, tuple_pool, tmp_buf, wbytes);
         }
         break;
