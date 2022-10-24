@@ -47,6 +47,7 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _total_rows(0),
           _value_allocator(_value_buffer, sizeof(_value_buffer)),
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
+          _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _scanner_eof(scanner_eof) {
     _file_format_type = _params.format_type;
 
@@ -202,7 +203,6 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
                     JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
                     _parsed_jsonpaths.push_back(std::move(parsed_paths));
                 }
-                return Status::OK();
             }
         } else {
             return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
