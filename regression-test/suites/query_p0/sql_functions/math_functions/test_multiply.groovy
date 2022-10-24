@@ -18,7 +18,7 @@
 suite("test_multiply") {
     sql """ set enable_vectorized_engine = true """
 
-    def tableName = "tbl_test_cast_array_function"
+    def tableName = "test_multiply"
     sql """ CREATE TABLE `${tableName}` (
         `user_id` LARGEINT NOT NULL COMMENT "用户id",
         `col2` DECIMAL(27,9) COMMENT "数据灌入日期时间",
