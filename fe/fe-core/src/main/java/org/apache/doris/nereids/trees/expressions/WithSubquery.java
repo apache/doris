@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.DataType;
 
 import java.util.Objects;
 
@@ -29,6 +32,25 @@ public class WithSubquery extends SubqueryExpr implements LeafExpression {
 
     public WithSubquery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery cannot be null"));
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        throw new UnboundException("not support");
+    }
+
+    @Override
+    public String toSql() {
+        return " (WITHSUBQUERY) " + super.toSql();
+    }
+
+    @Override
+    public String toString() {
+        return " (WITHSUBQUERY) " + super.toString();
+    }
+
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitWithSubquery(this, context);
     }
 
 }

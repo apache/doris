@@ -264,8 +264,9 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
             PlanChecker.from(connectContext).checkPlannerResult(sql);
         }, "Not throw expected exception.");
-        Assertions.assertTrue(exception.getMessage().contains("The number of column labels must be "
-                    + "smaller or equal to the number of returned columns"));
+        System.out.println(exception.getMessage());
+        Assertions.assertTrue(exception.getMessage().contains("CTE [cte1] returns 2 columns, "
+                + "but 1 labels were specified."));
     }
 
     @Test

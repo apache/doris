@@ -163,7 +163,6 @@ public abstract class TestWithFeService {
     protected CascadesContext createCascadesContext(String sql) {
         StatementContext statementCtx = createStatementCtx(sql);
         LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
-        System.out.println(initPlan.treeString());
         return CascadesContext.newContext(statementCtx, initPlan);
     }
 
