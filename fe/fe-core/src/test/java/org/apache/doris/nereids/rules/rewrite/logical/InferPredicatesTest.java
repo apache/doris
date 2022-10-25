@@ -522,4 +522,52 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
 
         System.out.println(plan.treeString());
     }
+
+    @Test
+    public void inferPredicatesTest20() {
+        String sql = "select * from student left join score on student.id = score.sid and score.sid > 1 inner join course on course.id = score.sid";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalJoin(
+                                                logicalOlapScan(),
+                                                logicalFilter(
+                                                        logicalOlapScan()
+                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                        ),
+                                        logicalOlapScan()
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void inferPredicatesTest21() {
+        String sql = "select * from student,score,course where student.id = score.sid and score.sid = course.id and score.sid > 1";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalJoin(
+                                                logicalFilter(
+                                                        logicalOlapScan()
+                                                ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                                                logicalFilter(
+                                                        logicalOlapScan()
+                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                                        ),
+                                        logicalFilter(
+                                                logicalOlapScan()
+                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
+                                )
+                        )
+                );
+    }
 }
