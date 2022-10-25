@@ -40,7 +40,7 @@ public class StatementContext {
 
     private StatementBase parsedStatement;
 
-    private CTEContext cteContext = new CTEContext();
+    private CTEContext cteContext;
 
     public StatementContext() {
     }
@@ -85,6 +85,10 @@ public class StatementContext {
 
     public CTEContext getCteContext() {
         return cteContext;
+    }
+
+    public void setCteContext(CTEContext cteContext) {
+        this.cteContext = cteContext;
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {
