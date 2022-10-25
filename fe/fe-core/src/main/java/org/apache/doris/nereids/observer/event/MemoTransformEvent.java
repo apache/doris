@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.observer.event;
 
+import org.apache.doris.nereids.observer.Event;
 import org.apache.doris.nereids.rules.Rule;
 
-public class MemoTransformEvent {
+/**
+ * memo transform event
+ */
+public class MemoTransformEvent extends Event {
     private final long before;
     private final long after;
     private final Rule rule;

@@ -23,6 +23,10 @@ package org.apache.doris.nereids.observer;
 public abstract class Event implements Cloneable {
     private final long stateId;
 
+    protected Event() {
+        this.stateId = -1;
+    }
+
     protected Event(long stateId) {
         this.stateId = stateId;
     }

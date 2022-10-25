@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.observer.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.observer.Event;
 
 /**
  * state event
  */
-public class StateEvent {
+public abstract class StateEvent extends Event {
     private final GroupExpression groupExpression;
 
     public StateEvent(GroupExpression groupExpression) {

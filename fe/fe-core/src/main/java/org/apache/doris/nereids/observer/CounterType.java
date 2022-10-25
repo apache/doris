@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.observer;
 
 /**
- *
+ * counter type
  */
 public enum CounterType {
-    PLAN_CONSTRUCTOR
+    PLAN_CONSTRUCTOR,
+    EXPRESSION_TRANSFORM,
+    JOB_EXECUTION,
+    EXPRESSION_CONSTRUCTOR,
+    FUNCTION_CALL,
 }

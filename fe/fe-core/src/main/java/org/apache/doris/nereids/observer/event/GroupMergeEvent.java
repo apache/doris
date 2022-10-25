@@ -19,10 +19,14 @@ package org.apache.doris.nereids.observer.event;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.observer.Event;
 
 import java.util.List;
 
-public class GroupMergeEvent {
+/**
+ * group merge event
+ */
+public class GroupMergeEvent extends Event {
     private final Group source;
     private final Group destination;
     private final List<GroupExpression> needReplaceGroupExpressions;

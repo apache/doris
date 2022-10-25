@@ -15,28 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
+package org.apache.doris.nereids.observer;
 
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.observer.Event;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.observer.event.CounterEvent;
+import org.apache.doris.nereids.observer.event.TransformEvent;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-/**
- * transform event
- */
-public class TransformEvent extends Event {
-    private final GroupExpression groupExpression;
-    private final Plan before;
-    private final List<Plan> afters;
-    private final RuleType ruleType;
+public class EventTest {
+    private final EventChannel channel = new EventChannel(
+            ImmutableList.of(),
+            ImmutableList.of()
+    );
+    private final List<EventProducer> producers = ImmutableList.of(
+            new EventProducer(TransformEvent.class, channel),
+            new EventProducer(CounterEvent.class, channel)
+    );
 
-    public TransformEvent(GroupExpression groupExpression, Plan before, List<Plan> afters, RuleType ruleType) {
-        this.groupExpression = groupExpression;
-        this.before = before;
-        this.afters = afters;
-        this.ruleType = ruleType;
+    @Test
+    public void testEvent() throws Exception {
+        channel.start();
+        for (int i = 0; i < 10; ++i) {
+            producers.get(i % 2).log(1);
+        }
+        channel.stop();
     }
 }

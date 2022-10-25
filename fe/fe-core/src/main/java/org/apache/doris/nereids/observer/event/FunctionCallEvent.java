@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.observer.event;
 
+import org.apache.doris.nereids.observer.Event;
+
 /**
- *
+ * function call event
  */
-public class FunctionCallEvent {
+public class FunctionCallEvent extends Event {
     private final String callFuncNameAndLine;
 
     public FunctionCallEvent(String callFuncNameAndLine) {

@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.observer.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.observer.Event;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
-public class EnforcerEvent {
+/**
+ * enforcer event
+ */
+public class EnforcerEvent extends Event {
     private final GroupExpression groupExpression;
     private final PhysicalPlan enforce;
     private final PhysicalProperties before;

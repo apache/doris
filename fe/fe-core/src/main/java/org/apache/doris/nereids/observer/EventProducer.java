@@ -22,9 +22,9 @@ package org.apache.doris.nereids.observer;
  */
 public class EventProducer {
     private final EventChannel channel;
-    private final Class<Event> eventClass;
+    private final Class<? extends Event> eventClass;
 
-    public EventProducer(Class<Event> eventClass, EventChannel channel) {
+    public EventProducer(Class<? extends Event> eventClass, EventChannel channel) {
         this.channel = channel;
         this.eventClass = eventClass;
     }
