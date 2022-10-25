@@ -46,7 +46,7 @@ class Node {
         return plan;
     }
 
-    public void addEdge(Edge edge) {
+    public void attachEdge(Edge edge) {
         if (edge.isSimple()) {
             simpleEdges.add(edge);
             edge.getLeft().stream().forEach(index -> simpleNeighborhood.set(index));

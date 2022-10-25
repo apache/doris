@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join.hypergraph;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -25,9 +24,9 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 public class HyperGraph {
@@ -66,7 +65,8 @@ public class HyperGraph {
             return;
         }
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin<? extends Plan, ? extends Plan>) plan;
-        // Now we only support inner join and cross join
+        // Now we only support inner join
+        // TODO: Other joins can be added according CD-C algorithm
         if (join.getJoinType() != JoinType.INNER_JOIN) {
             nodes.add(new Node(nodes.size(), plan));
             return;
@@ -90,7 +90,6 @@ public class HyperGraph {
         return bitSet;
     }
     private void addEdge(LogicalJoin<? extends Plan, ? extends Plan> join) {
-        // TODO: according the type of join, add more edge
         Edge edge = new Edge(edges.size(), join);
         for (Expression expression : join.getHashJoinConjuncts()) {
             EqualTo equal = (EqualTo) expression;
@@ -101,11 +100,45 @@ public class HyperGraph {
         for (Expression expression : join.getOtherJoinConjuncts()) {
             edge.addConstraintNode(findNode(expression.getInputSlots()));
         }
+
+        edge.getReferenceNodes().stream().forEach(index -> nodes.get(index).attachEdge(edge));
+        edges.add(edge);
+        edges.add(edge.reverse());
     }
 
-    @Override
-    public String toString() {
-        // TODO: print the graph and visualization
-        throw new RuntimeException("not implemented");
+    /**
+     For the given hyperGraph, make a textual representation in the form
+     of a dotty graph. You can save this to a file and then use Graphviz
+     to render this it a graphical representation of the hyperGraph for
+     easier debugging, e.g. like this:
+
+     dot -Tps graph.dot > graph.ps
+     display graph.ps
+     */
+    public String toDottyHyperGraph() {
+        // TODO: finish it
+        StringBuilder builder = new StringBuilder();
+        builder.append(String.format("digraph G {  # %d edges\n", edges.size() / 2));
+        List<String> names = new ArrayList<>();
+        for (Node node : nodes) {
+            String name = node.plan.getType().name();
+            while (names.contains(name)) {
+                name += "_";
+            }
+            if (!name.equals(node.plan.getType().name())) {
+                builder.append(String.format("  %s [label=\"%s\"];\n", name,
+                    node.plan.getType().name()));
+            }
+            names.add(name);
+        }
+        for (int i = 0; i < edges.size(); i += 2) {
+            if (edges.get(i).isSimple()) {
+                // TODO
+            } else {
+                // TODO
+            }
+        }
+        builder.append("}\n");
+        return builder.toString();
     }
 }

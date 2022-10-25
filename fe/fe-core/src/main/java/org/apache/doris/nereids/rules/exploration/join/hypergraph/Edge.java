@@ -60,5 +60,21 @@ class Edge {
     public BitSet getRight() {
         return right;
     }
+
+    public BitSet getReferenceNodes() {
+        // TODO: do we need consider constraints
+        BitSet bitSet = new BitSet();
+        bitSet.or(left);
+        bitSet.or(right);
+        return bitSet;
+    }
+
+    public Edge reverse() {
+        Edge new_edge = new Edge(index, join);
+        new_edge.addLeftNode(right);
+        new_edge.addRightNode(left);
+        new_edge.addConstraintNode(constraints);
+        return new_edge;
+    }
 }
 
