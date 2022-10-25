@@ -54,6 +54,13 @@ suite("test_group_by_constant") {
             when (inc_day = date_sub(curdate(), interval 8 day)) then 'B'
             when (inc_day = date_sub(curdate(), interval 365 day)) then 'C'
             else 'D'
+        end
+        order by
+        case
+            when (inc_day = date_sub(curdate(), interval 1 day)) then 'A'
+            when (inc_day = date_sub(curdate(), interval 8 day)) then 'B'
+            when (inc_day = date_sub(curdate(), interval 365 day)) then 'C'
+            else 'D'
         end;
     """
 
@@ -68,6 +75,8 @@ suite("test_group_by_constant") {
         from
         table_group_by_constant
         group by
+        val
+        order by
         val;
     """
 
