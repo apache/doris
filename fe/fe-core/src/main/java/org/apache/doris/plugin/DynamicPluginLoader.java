@@ -49,7 +49,6 @@ public class DynamicPluginLoader extends PluginLoader {
     protected Path installPath;
 
     protected String expectedMd5sum;
-
     // for processing install stmt
     DynamicPluginLoader(String pluginDir, String source, String expectedMd5sum) {
         super(pluginDir, source);
@@ -208,7 +207,7 @@ public class DynamicPluginLoader extends PluginLoader {
 
         Class<? extends Plugin> pluginClass;
         try {
-            pluginClass = loader.loadClass(pluginInfo.getClassName()).asSubclass(Plugin.class);
+             pluginClass = loader.loadClass(pluginInfo.getClassName()).asSubclass(Plugin.class);
         } catch (ClassNotFoundException e) {
             throw new UserException("Could not find plugin class [" + pluginInfo.getClassName() + "]", e);
         }
