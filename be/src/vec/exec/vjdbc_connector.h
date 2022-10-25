@@ -40,9 +40,9 @@ class JdbcConnector : public TableConnector {
 public:
     JdbcConnector(const JdbcConnectorParam& param);
 
-    ~JdbcConnector() override;
+    ~JdbcConnector() override = default;
 
-    Status open() override;
+    Status open(RuntimeState* state, bool read = false) override;
 
     Status query() override;
 
@@ -55,6 +55,8 @@ public:
     Status begin_trans() override; // should be call after connect and before query or init_to_write
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
+
+    Status close() override;
 
 private:
     Status _register_func_id(JNIEnv* env);
@@ -71,7 +73,8 @@ private:
     jclass _executor_string_clazz;
     jobject _executor_obj;
     jmethodID _executor_ctor_id;
-    jmethodID _executor_query_id;
+    jmethodID _executor_write_id;
+    jmethodID _executor_read_id;
     jmethodID _executor_has_next_id;
     jmethodID _executor_get_blocks_id;
     jmethodID _executor_close_id;

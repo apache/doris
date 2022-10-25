@@ -17,6 +17,7 @@
 
 #include "vec/exec/vjdbc_connector.h"
 #ifdef LIBJVM
+#include "common/status.h"
 #include "exec/table_connector.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
@@ -30,7 +31,7 @@ namespace doris {
 namespace vectorized {
 const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/udf/JdbcExecutor";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
-const char* JDBC_EXECUTOR_QUERYSQL_SIGNATURE = "(Ljava/lang/String;)I";
+const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
 const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
@@ -41,22 +42,26 @@ const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
         : TableConnector(param.tuple_desc, param.query_string), _conn_param(param) {}
 
-JdbcConnector::~JdbcConnector() {
+Status JdbcConnector::close() {
     if (!_is_open) {
-        return;
+        return Status::OK();
     }
     if (_is_in_transaction) {
-        abort_trans();
+        RETURN_IF_ERROR(abort_trans());
     }
     JNIEnv* env;
-    Status status;
-    RETURN_IF_STATUS_ERROR(status, JniUtil::GetJNIEnv(&env));
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    env->DeleteGlobalRef(_executor_clazz);
+    env->DeleteGlobalRef(_executor_list_clazz);
+    env->DeleteGlobalRef(_executor_object_clazz);
+    env->DeleteGlobalRef(_executor_string_clazz);
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
-    RETURN_IF_STATUS_ERROR(status, JniUtil::GetJniExceptionMsg(env));
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteGlobalRef(_executor_obj);
+    return Status::OK();
 }
 
-Status JdbcConnector::open() {
+Status JdbcConnector::open(RuntimeState* state, bool read) {
     if (_is_open) {
         LOG(INFO) << "this scanner of jdbc already opened";
         return Status::OK();
@@ -87,11 +92,13 @@ Status JdbcConnector::open() {
                 std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
                 _conn_param.driver_checksum, &local_location));
         TJdbcExecutorCtorParams ctor_params;
-        ctor_params.__set_jar_location_path(local_location);
+        ctor_params.__set_statement(_sql_str);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
         ctor_params.__set_jdbc_driver_class(_conn_param.driver_class);
+        ctor_params.__set_batch_size(read ? state->batch_size() : 0);
+        ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -121,7 +128,7 @@ Status JdbcConnector::query() {
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     jstring query_sql = env->NewStringUTF(_sql_str.c_str());
     jint colunm_count = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
-                                                     _executor_query_id, query_sql);
+                                                     _executor_read_id, query_sql);
     env->DeleteLocalRef(query_sql);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
@@ -164,10 +171,14 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
         for (int row = 0; row < num_rows; ++row) {
             jobject cur_data = env->CallObjectMethod(column_data, _executor_get_list_id, row);
             _convert_column_data(env, cur_data, slot_desc, columns[column_index].get());
+            env->DeleteLocalRef(cur_data);
         }
+        env->DeleteLocalRef(column_data);
 
         materialized_column_index++;
     }
+    // All Java objects returned by JNI functions are local references.
+    env->DeleteLocalRef(block_obj);
     return JniUtil::GetJniExceptionMsg(env);
 }
 
@@ -186,8 +197,9 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
 
     RETURN_IF_ERROR(register_id(_executor_clazz, "<init>", JDBC_EXECUTOR_CTOR_SIGNATURE,
                                 _executor_ctor_id));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "querySQL", JDBC_EXECUTOR_QUERYSQL_SIGNATURE,
-                                _executor_query_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "write", JDBC_EXECUTOR_WRITE_SIGNATURE,
+                                _executor_write_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "read", "()I", _executor_read_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "close", JDBC_EXECUTOR_CLOSE_SIGNATURE,
                                 _executor_close_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "hasNext", JDBC_EXECUTOR_HAS_NEXT_SIGNATURE,
@@ -317,7 +329,7 @@ Status JdbcConnector::exec_write_sql(const std::u16string& insert_stmt,
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     jstring query_sql = env->NewString((const jchar*)insert_stmt.c_str(), insert_stmt.size());
-    env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_query_id, query_sql);
+    env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_write_id, query_sql);
     env->DeleteLocalRef(query_sql);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     return Status::OK();
@@ -332,6 +344,7 @@ std::string JdbcConnector::_jobject_to_string(JNIEnv* env, jobject jobj) {
     std::string str = std::string((char*)pBytes, length);
     env->ReleaseByteArrayElements(stringJbytes, pBytes, JNI_ABORT);
     env->DeleteLocalRef(stringJbytes);
+    env->DeleteLocalRef(jstr);
     return str;
 }
 
