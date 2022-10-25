@@ -201,7 +201,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputTupleDesc = generateTupleDesc(slotList, null, context);
         } else {
             // In the distinct agg scenario, global shares local's desc
-            AggregationNode localAggNode = (AggregationNode) inputPlanFragment.getPlanRoot().getChild(0);
+            AggregationNode localAggNode;
+            if (inputPlanFragment.getPlanRoot() instanceof ExchangeNode) {
+                localAggNode = (AggregationNode) inputPlanFragment.getPlanRoot().getChild(0);
+            } else {
+                // If the group by expr hits the partition key, there may be no exchange node
+                localAggNode = (AggregationNode) inputPlanFragment.getPlanRoot();
+            }
             outputTupleDesc = localAggNode.getAggInfo().getOutputTupleDesc();
         }
 
