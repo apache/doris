@@ -51,6 +51,10 @@ using Aws::S3::Model::UploadPartOutcome;
 namespace doris {
 namespace io {
 
+// max size of each part when uploading: 5MB
+static const int MAX_SIZE_EACH_PART = 5 * 1024 * 1024;
+static const char* STREAM_TAG = "S3FileWriter";
+
 S3FileWriter::S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client,
                            const S3Conf& s3_conf)
         : FileWriter(std::move(path)), _client(client), _s3_conf(s3_conf) {
@@ -71,11 +75,11 @@ Status S3FileWriter::close() {
 Status S3FileWriter::abort() {
     RETURN_IF_ERROR(_close());
 
-    DeleteObjectRequest request;
-    request.WithBucket(_s3_conf.bucket).WithKey(_path.native());
-
-    auto outcome = _client->DeleteObject(request);
+    AbortMultipartUploadRequest request;
+    request.WithBucket(_s3_conf.bucket).WithKey(_path.native()).WithUploadId(_upload_id);
+    auto outcome = _client->AbortMultipartUpload(request);
     if (outcome.IsSuccess() ||
+        outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_UPLOAD ||
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return Status::OK();
     }
@@ -86,8 +90,7 @@ Status S3FileWriter::abort() {
 
 Status S3FileWriter::_open() {
     CreateMultipartUploadRequest create_request;
-    create_request.SetBucket(_s3_conf.bucket.c_str());
-    create_request.SetKey(_path.native().c_str());
+    create_request.WithBucket(_s3_conf.bucket).WithKey(_path.native());
     create_request.SetContentType("text/plain");
 
     _reset_stream();
@@ -141,8 +144,8 @@ Status S3FileWriter::_upload_part() {
     ++_cur_part_num;
 
     UploadPartRequest upload_request;
-    upload_request.WithBucket(_s3_conf.bucket.c_str()).WithKey(_path.native().c_str())
-            .WithPartNumber(_cur_part_num).WithUploadId(_upload_id.c_str());
+    upload_request.WithBucket(_s3_conf.bucket).WithKey(_path.native())
+            .WithPartNumber(_cur_part_num).WithUploadId(_upload_id);
 
     upload_request.SetBody(_stream_ptr);
 
@@ -191,11 +194,11 @@ Status S3FileWriter::_close() {
         return Status::OK();
     }
     if (_is_open) {
-        RETURN_IF_ERROR(_upload_part(std::string(_cur_data, _cur_data_offset)));
+        RETURN_IF_ERROR(_upload_part()));
 
         CompleteMultipartUploadRequest complete_request;
-        complete_request.WithBucket(_s3_conf.bucket.c_str()).WithKey(_path.native().c_str())
-                .WithUploadId(_upload_id.c_str());
+        complete_request.WithBucket(_s3_conf.bucket).WithKey(_path.native())
+                .WithUploadId(_upload_id);
 
         CompletedMultipartUpload completed_upload;
         for (std::shared_ptr<CompletedPart> part : _completed_parts) {

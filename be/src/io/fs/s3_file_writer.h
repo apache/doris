@@ -33,10 +33,6 @@ class S3Client;
 namespace doris {
 namespace io {
 
-// max size of each part when uploading: 5MB
-static const int MAX_SIZE_EACH_PART = 5 * 1024 * 1024;
-static const char* STREAM_TAG = "S3FileWriter";
-
 class S3FileWriter final : public FileWriter {
 public:
     S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client,
@@ -62,8 +58,9 @@ private:
 
     Status _open();
 
-    Status _upload_part(const std::string& str);
+    Status _upload_part();
 
+    void _reset_stream();
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;
     S3Conf _s3_conf;
