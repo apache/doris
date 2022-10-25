@@ -661,6 +661,9 @@ public class OlapScanNode extends ScanNode {
                     errs.add(replica.getId() + "'s backend " + replica.getBackendId() + " does not exist or not alive");
                     continue;
                 }
+                if (!backend.isMixNode()) {
+                    continue;
+                }
                 if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
                     String err = String.format(
                             "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",

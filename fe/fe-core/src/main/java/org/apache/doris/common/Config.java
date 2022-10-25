@@ -1789,6 +1789,14 @@ public class Config extends ConfigBase {
     public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
 
     /**
+     * The candidate of the backend node for federation query such as hive table and es table query.
+     * If the backend of computation role is less than this value, it will acquire some mix backend.
+     * If the computation backend is enough, federation query will only assign to computation backend.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int backend_num_for_federation = 3;
+
+    /**
      * Max query profile num.
      */
     @ConfField(mutable = true, masterOnly = false)
