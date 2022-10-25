@@ -24,6 +24,7 @@
 
 #include <aws/core/Aws.h>
 #include <aws/core/utils/HashingUtils.h>
+#include <aws/s3/model/AbortMultipartUploadRequest.h>
 #include <aws/s3/model/CreateMultipartUploadRequest.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
