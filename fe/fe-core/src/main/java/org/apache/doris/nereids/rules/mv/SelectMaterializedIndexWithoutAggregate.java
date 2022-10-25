@@ -65,7 +65,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // project with filter that cannot be pushdown.
                 // Filter(Project(Scan))
-                logicalFilter(logicalProject(logicalOlapScan().whenNot(LogicalOlapScan::isIndexSelected)))
+                logicalFilter(logicalProject(logicalOlapScan().when(this::shouldSelectIndex)))
                         .then(filter -> {
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
@@ -95,7 +95,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // only scan.
                 logicalOlapScan()
-                        .whenNot(LogicalOlapScan::isIndexSelected)
+                        .when(this::shouldSelectIndex)
                         .then(scan -> select(scan, scan::getOutputSet, ImmutableList::of))
                         .toRule(RuleType.MATERIALIZED_INDEX_SCAN)
         );
