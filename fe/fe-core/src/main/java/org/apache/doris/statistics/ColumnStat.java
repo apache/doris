@@ -30,14 +30,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -261,14 +258,14 @@ public class ColumnStat {
                     return Double.parseDouble(columnValue);
                 case DATE:
                 case DATEV2:
-                    return LocalDate.parse(columnValue).atStartOfDay()
-                            .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
+                    org.apache.doris.nereids.trees.expressions.literal.DateLiteral literal =
+                            new org.apache.doris.nereids.trees.expressions.literal.DateLiteral(columnValue);
+                    return literal.getDouble();
+
                 case DATETIMEV2:
                 case DATETIME:
-                    DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-                    return LocalDateTime
-                            .parse(columnValue, timeFormatter)
-                            .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
+                    DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
+                    return dateTimeLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
                     return convertStringToDouble(columnValue);
