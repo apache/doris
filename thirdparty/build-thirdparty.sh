@@ -1345,10 +1345,10 @@ build_hdfs3() {
     cd "${BUILD_DIR}"
     rm -rf ./*
 
-    if [[ "$(uname -m)" == "aarch64" ]]; then
-        SSE_OPTION='-DENABLE_SSE=OFF'
-    else
+    if [[ "$(uname -m)" == "x86_64" ]]; then
         SSE_OPTION='-DENABLE_SSE=ON'
+    else
+        SSE_OPTION='-DENABLE_SSE=OFF'
     fi
     cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF "${SSE_OPTION}" \
