@@ -452,11 +452,7 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    MVN_PARAMS="-DskipTests"
-    if [[ "$(uname -s)" = 'Darwin' ]]; then
-      MVN_PARAMS="${MVN_PARAMS} -Dos.arch=x86_64"
-    fi
-    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} ${MVN_PARAMS}
+    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
     cd "${DORIS_HOME}"
 fi
 
