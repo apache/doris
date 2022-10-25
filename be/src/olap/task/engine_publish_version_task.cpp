@@ -37,6 +37,7 @@ EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publi
 OLAPStatus EnginePublishVersionTask::finish() {
     OLAPStatus res = OLAP_SUCCESS;
     int64_t transaction_id = _publish_version_req.transaction_id;
+    OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
 
     // each partition
@@ -154,7 +155,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
     }
 
     LOG(INFO) << "finish to publish version on transaction."
-              << "transaction_id=" << transaction_id
+              << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
               << ", error_tablet_size=" << _error_tablet_ids->size();
     return res;
 }
