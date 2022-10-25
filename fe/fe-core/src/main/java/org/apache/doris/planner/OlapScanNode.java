@@ -1203,4 +1203,9 @@ public class OlapScanNode extends ScanNode {
     public String getReasonOfPreAggregation() {
         return reasonOfPreAggregation;
     }
+
+    @VisibleForTesting
+    public String getSelectedIndexName() {
+        return olapTable.getIndexNameById(selectedIndexId);
+    }
 }
