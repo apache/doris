@@ -40,15 +40,13 @@ public class StatementContext {
 
     private StatementBase parsedStatement;
 
-    private CTEContext cteContext;
+    private CTEContext cteContext = new CTEContext();
 
     public StatementContext() {
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
-        this.connectContext = connectContext;
-        this.originStatement = originStatement;
-        this.cteContext = new CTEContext();
+        this(connectContext, originStatement, new CTEContext());
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement, CTEContext cteContext) {
