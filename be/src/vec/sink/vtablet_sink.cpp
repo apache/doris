@@ -714,6 +714,9 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
         for (size_t j = 0; j < column->size(); ++j) {
             if (!filter_bitmap->Get(j)) {
+                if (is_nullable && column_ptr && column_ptr->is_null_at(j)) {
+                    continue;
+                }
                 auto str_val = column_string->get_data_at(j);
                 bool invalid = str_val.size == 0;
                 if (invalid) {
