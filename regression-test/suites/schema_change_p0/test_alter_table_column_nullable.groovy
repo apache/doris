@@ -26,7 +26,7 @@ suite("test_alter_table_column_nullable") {
     sql "DROP TABLE IF EXISTS ${tbName}"
     // char not null to null
     sql """
-            CREATE TABLE ${tbName} (
+            CREATE TABLE IF NOT EXISTS ${tbName} (
                 k1 INT NOT NULL,
                 value1 varchar(16) NOT NULL
             )
@@ -65,7 +65,7 @@ suite("test_alter_table_column_nullable") {
     // int not null to null, linked schema change
     sql "DROP TABLE ${tbName}"
     sql """
-            CREATE TABLE ${tbName} (
+            CREATE TABLE IF NOT EXISTS ${tbName} (
                 k1 INT NOT NULL,
                 value1 INT NOT NULL
             )
@@ -101,7 +101,7 @@ suite("test_alter_table_column_nullable") {
     // char not null to int not null, data loss
     sql "DROP TABLE ${tbName}"
     sql """
-            CREATE TABLE ${tbName} (
+            CREATE TABLE IF NOT EXISTS ${tbName} (
                 k1 INT NOT NULL,
                 value1 varchar(16) NOT NULL
             )
@@ -131,7 +131,7 @@ suite("test_alter_table_column_nullable") {
     // char not null to int not null OK
     sql "DROP TABLE ${tbName}"
     sql """
-            CREATE TABLE ${tbName} (
+            CREATE TABLE IF NOT EXISTS ${tbName} (
                 k1 INT NOT NULL,
                 value1 varchar(16) NOT NULL
             )

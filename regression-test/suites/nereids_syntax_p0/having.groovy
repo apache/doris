@@ -23,7 +23,7 @@ suite("test_nereids_having") {
     sql "DROP TABLE IF EXISTS test_nereids_having_tbl"
 
     sql """
-        CREATE TABLE test_nereids_having_tbl (
+        CREATE TABLE IF NOT EXISTS test_nereids_having_tbl (
             pk INT,
             a1 INT,
             a2 INT

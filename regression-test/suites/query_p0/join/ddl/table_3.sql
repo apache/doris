@@ -1,4 +1,4 @@
-CREATE TABLE `table_3` (
+CREATE TABLE IF NOT EXISTS `table_3` (
   `id` bigint(20) NOT NULL,
   `plat_id` int(11) NOT NULL,
   `company_id` varchar(180) NOT NULL,

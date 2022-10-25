@@ -27,7 +27,7 @@ Type before bug fix: varchar(*)
 
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-         CREATE TABLE ${tableName} (
+         CREATE TABLE IF NOT EXISTS ${tableName} (
              `id` int,
              `name` varchar(32) 
          ) ENGINE=OLAP

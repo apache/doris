@@ -22,7 +22,7 @@ suite("test_sort") {
     """
 
     sql """
-        CREATE TABLE `test_sort_table` (
+        CREATE TABLE IF NOT EXISTS `test_sort_table` (
           `p_partkey` int(11) NOT NULL COMMENT "",
           `p_name` varchar(23) NOT NULL COMMENT "",
           `p_mfgr` varchar(7) NOT NULL COMMENT "",

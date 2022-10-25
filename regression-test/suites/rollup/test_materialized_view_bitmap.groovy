@@ -23,7 +23,7 @@ suite("test_materialized_view_bitmap", "rollup") {
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
-            CREATE TABLE ${tbName1}(
+            CREATE TABLE IF NOT EXISTS ${tbName1}(
                 k1 BOOLEAN NOT NULL,
                 k2 TINYINT NOT NULL,
                 k3 SMALLINT NOT NULL

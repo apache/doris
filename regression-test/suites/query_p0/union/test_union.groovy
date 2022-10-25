@@ -257,7 +257,7 @@ suite("test_union") {
     // test_union_different_schema
     def new_union_table = "union_different_schema_table"
     sql"""drop table if exists ${new_union_table}"""
-    sql"""create table ${new_union_table}(k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
+    sql"""create table if not exists ${new_union_table}(k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
         k4 date NULL, k5 datetime NULL, 
         k6 double sum) engine=olap 
         distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""

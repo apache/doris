@@ -18,7 +18,7 @@
 suite("test_pushdown_constant") {
  sql """ DROP TABLE IF EXISTS `test_pushdown_constant` """
  sql """
-     CREATE TABLE `test_pushdown_constant` (
+     CREATE TABLE IF NOT EXISTS `test_pushdown_constant` (
          `id` int
      ) ENGINE=OLAP
      AGGREGATE KEY(`id`)

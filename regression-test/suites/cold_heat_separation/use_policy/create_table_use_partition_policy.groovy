@@ -21,7 +21,7 @@
 
 suite("create_table_use_partion_policy") {
     def create_table_partion_use_not_create_policy = try_sql """
-        CREATE TABLE create_table_partion_use_not_create_policy
+        CREATE TABLE IF NOT EXISTS create_table_partion_use_not_create_policy
         (
             k1 DATE,
             k2 INT,
@@ -96,7 +96,7 @@ suite("create_table_use_partion_policy") {
 
     // success
     def create_table_partition_use_created_policy = try_sql """
-        CREATE TABLE create_table_partion_use_created_policy
+        CREATE TABLE IF NOT EXISTS create_table_partion_use_created_policy
         (
             k1 DATE,
             k2 INT,
@@ -114,7 +114,7 @@ suite("create_table_use_partion_policy") {
     """
 
     def create_table_partition_use_created_policy_1 = try_sql """
-        CREATE TABLE create_table_partion_use_created_policy_1
+        CREATE TABLE IF NOT EXISTS create_table_partion_use_created_policy_1
         (
             k1 DATEV2,
             k2 INT,
@@ -132,7 +132,7 @@ suite("create_table_use_partion_policy") {
     """
 
     def create_table_partition_use_created_policy_2 = try_sql """
-        CREATE TABLE create_table_partion_use_created_policy_2
+        CREATE TABLE IF NOT EXISTS create_table_partion_use_created_policy_2
         (
             k1 DATETIMEV2(3),
             k2 INT,

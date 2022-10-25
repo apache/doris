@@ -22,7 +22,7 @@ suite("test_bitmap_index_load") {
     drop TABLE if exists `${tbName}` force;
     """
     sql """
-    CREATE TABLE `${tbName}` (
+    CREATE TABLE IF NOT EXISTS `${tbName}` (
         `a` decimal(12, 6) NOT NULL
         ) ENGINE = OLAP
         DUPLICATE KEY(`a`)
