@@ -100,6 +100,10 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
     private void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
         StatsDeriveResult originStats = groupExpression.getOwnerGroup().getStatistics();
+        /*
+        in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
+        we record the lowest expression cost as group cost to avoid missing this group.
+        */
         if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
             groupExpression.getOwnerGroup().setStatistics(stats);
         }

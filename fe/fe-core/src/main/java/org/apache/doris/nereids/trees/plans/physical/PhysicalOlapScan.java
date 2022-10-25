@@ -106,7 +106,7 @@ public class PhysicalOlapScan extends PhysicalRelation {
         return Utils.toSqlString("PhysicalOlapScan",
                 "qualified", Utils.qualifiedName(qualifier, olapTable.getName()),
                 "output", getOutput(),
-                "stats=", statsDeriveResult
+                "stats", statsDeriveResult
         );
     }
 

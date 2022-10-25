@@ -48,11 +48,29 @@ import java.util.List;
  * Inspired by Presto.
  */
 public class CostCalculator {
-    static final double cpuWeight = 1;
-    static final double memorWeight = 1;
-    static final double networkWeight = 1.5;
-    static final double penaltyWeight = 0.5;
-    static final double heavyOperatorPunishFactor = 6.0;
+    static final double CPU_WEIGHT = 1;
+    static final double MEMORY_WEIGHT = 1;
+    static final double NETWORK_WEIGHT = 1.5;
+    /**
+     * Except stats information, there are some special criteria in doris.
+     * For example, in hash join cluster, BE could build hash tables
+     * in parallel for left deep tree. And hence, we need to punish right deep tree.
+     * penalyWeight is the factor of punishment.
+     * The punishment is denoted by stats.penalty.
+     */
+    static final double PENALTY_WEIGHT = 0.5;
+    /**
+     * The intuition behind `HEAVY_OPERATOR_PUNISH_FACTOR` is we need to avoid this form of join patterns:
+     * Plan1: L join ( AGG1(A) join AGG2(B))
+     * But
+     * Plan2: L join AGG1(A) join AGG2(B) is welcomed.
+     * AGG is time-consuming operator. From the perspective of rowCount, nereids may choose Plan1,
+     * because `Agg1 join Agg2` generates few tuples. But in Plan1, Agg1 and Agg2 are done in serial, in Plan2, Agg1 and
+     * Agg2 are done in parallel. And hence, Plan1 should be punished.
+     *
+     * An example is tpch q15.
+     */
+    static final double HEAVY_OPERATOR_PUNISH_FACTOR = 6.0;
 
     /**
      * Constructor.
@@ -62,7 +80,7 @@ public class CostCalculator {
         CostEstimator costCalculator = new CostEstimator();
         CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
         groupExpression.setCostEstimate(costEstimate);
-        CostWeight costWeight = new CostWeight(cpuWeight, memorWeight, networkWeight, penaltyWeight);
+        CostWeight costWeight = new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT, PENALTY_WEIGHT);
         return costWeight.calculate(costEstimate);
     }
 
@@ -194,7 +212,7 @@ public class CostCalculator {
             pattern2: (L join1 Agg1) join2 agg2
             in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
             */
-            double penalty = CostCalculator.heavyOperatorPunishFactor
+            double penalty = CostCalculator.HEAVY_OPERATOR_PUNISH_FACTOR
                     * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
             if (buildStats.getWidth() >= 2) {
                 //penalty for right deep tree

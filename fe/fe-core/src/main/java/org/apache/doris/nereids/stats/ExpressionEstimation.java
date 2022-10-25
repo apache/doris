@@ -62,8 +62,18 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
         return expr.accept(this, context);
     }
 
+    //TODO: case-when need to re-implemented
+    @Override
     public ColumnStat visitCaseWhen(CaseWhen caseWhen, StatsDeriveResult context) {
-        throw new RuntimeException("ExpressionEstimation case-when not implemented");
+        ColumnStat columnStat = new ColumnStat();
+        columnStat.setNdv(caseWhen.getWhenClauses().size() + 1);
+        columnStat.setSelectivity(1.0);
+        columnStat.setMinValue(0);
+        columnStat.setMaxValue(Double.MAX_VALUE);
+        columnStat.setAvgSizeByte(8);
+        columnStat.setNumNulls(0);
+        columnStat.setMaxSizeByte(8);
+        return columnStat;
     }
 
     public ColumnStat visitCast(Cast cast, StatsDeriveResult context) {
