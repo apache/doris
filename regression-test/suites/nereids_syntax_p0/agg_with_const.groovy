@@ -38,6 +38,7 @@ suite("agg_with_const") {
 
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql """sync"""
     qt_select """
         select count(2) + 1, sum(2) + sum(col1) from agg_with_const_tbl
     """

@@ -50,7 +50,8 @@ suite("test_outfile_separator") {
     }
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "outfile_test_separator"
-    def outFilePath = """${context.file.parent}/test_outfile_separator"""
+    def uuid = UUID.randomUUID().toString()
+    def outFilePath = """/tmp/test_outfile_separator_${uuid}"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
