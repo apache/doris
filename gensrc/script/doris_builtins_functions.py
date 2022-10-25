@@ -166,6 +166,23 @@ visible_functions = [
     [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
 
+
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_DATETIMEV2'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_DATEV2'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+    [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_STRING'], '', '', '', 'vec', ''],
+
     [['countequal'], 'BIGINT', ['ARRAY_BOOLEAN', 'BOOLEAN'], '', '', '', 'vec', ''],
     [['countequal'], 'BIGINT', ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
     [['countequal'], 'BIGINT', ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
