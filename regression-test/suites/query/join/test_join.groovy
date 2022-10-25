@@ -836,6 +836,10 @@ suite("test_join", "query,p0") {
         check2_doris(res21, res22)
     }
 
+    qt_cross_join2 """
+        select t1.k1 from ${tbName1} t1 cross join ${tbName1} t2 where t1.k1 = t2.k1 + 1 group by t1.k1 order by t1.k1;
+    """
+
     // right semi join
     List right_selected = ["b.k1, b.k2, b.k3, b.k4, b.k5", "count(b.k1), count(b.k2), count(b.k4), count(b.k3), count(*)"]
     for (s in right_selected){
