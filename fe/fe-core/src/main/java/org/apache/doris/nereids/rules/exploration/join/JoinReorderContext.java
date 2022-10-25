@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.iceberg.expressions.False;
+
 /**
  * JoinReorderContext for Duplicate free.
  * Paper:
@@ -36,6 +38,7 @@ public class JoinReorderContext {
     private boolean hasRightAssociate = false;
     private boolean hasLeftAssociate = false;
 
+    boolean ordered = false;
     public JoinReorderContext() {
     }
 
@@ -110,4 +113,6 @@ public class JoinReorderContext {
     public void setHasCommuteZigZag(boolean hasCommuteZigZag) {
         this.hasCommuteZigZag = hasCommuteZigZag;
     }
+
+    public boolean isOrdered() {return ordered;}
 }

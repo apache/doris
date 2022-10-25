@@ -254,4 +254,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, children.get(0), children.get(1),
                 joinReorderContext);
     }
+
+    public boolean isOrdered() {
+        return joinReorderContext.isOrdered();
+    }
 }

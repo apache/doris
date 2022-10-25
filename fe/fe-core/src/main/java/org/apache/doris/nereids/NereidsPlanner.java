@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
@@ -27,11 +28,13 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderRule;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -129,6 +132,8 @@ public class NereidsPlanner extends Planner {
 
         deriveStats();
 
+        // We need to do join reorder before cascades and after deriving stats
+        joinReorder();
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
         // cascades style optimize phase.
 
@@ -164,6 +169,10 @@ public class NereidsPlanner extends Planner {
         cascadesContext.pushJob(
                 new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+    }
+
+    private void joinReorder() {
+        new RewriteTopDownJob(getRoot(),(new JoinReorderRule()).buildRules() , cascadesContext.getCurrentJobContext()).execute();
     }
 
     /**
