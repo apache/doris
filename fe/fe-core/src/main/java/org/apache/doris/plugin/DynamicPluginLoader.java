@@ -111,14 +111,15 @@ public class DynamicPluginLoader extends PluginLoader {
 
         movePlugin();
 
-        plugin = dynamicLoadPlugin(true);
-
-        pluginInstallValid();
-
-        pluginContext.setPluginPath(installPath.toString());
         try {
+            plugin = dynamicLoadPlugin(true);
+
+            pluginInstallValid();
+
+            pluginContext.setPluginPath(installPath.toString());
+
             plugin.init(pluginInfo, pluginContext);
-        } catch (Error e) {
+        } catch (Throwable e) {
             throw new UserException(e.getMessage());
         }
     }
@@ -152,7 +153,7 @@ public class DynamicPluginLoader extends PluginLoader {
     /**
      * reload plugin if plugin has already been installed, else will re-install.
      * Notice that this method will create a new instance of plugin.
-     * 
+     *
      * @throws PluginException
      */
     public void reload() throws IOException, UserException {
