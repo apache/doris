@@ -152,6 +152,7 @@ set(VEC_FILES
   functions/array/function_array_intersect.cpp
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
+  functions/array/function_array_enumerate.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
