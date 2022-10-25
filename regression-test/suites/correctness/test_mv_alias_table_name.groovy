@@ -21,10 +21,10 @@ exception throw before bug fix:  Unknown column 'mv_bitmap_union_mh' in 'default
 */
 suite("test_mv_alias_table_name") {
     sql """
-        DROP TABLE IF EXISTS test.original_table;
+        DROP TABLE IF EXISTS original_table;
     """
     sql """
-        CREATE TABLE test.original_table
+        CREATE TABLE original_table
         (
             day date,
             aid bigint,
@@ -43,19 +43,19 @@ suite("test_mv_alias_table_name") {
         select day,aid,lid,
             bitmap_union(to_bitmap(mh)) as wu,     
             bitmap_union(to_bitmap(my)) as mu 
-        from test.original_table 
+        from original_table 
         group by day, aid, lid;
     """
 
     sql """
-        insert into test.original_table values('2022-10-16', 1665710553, 1665710553, 1665710553, 1665700553, 1665700553);
+        insert into original_table values('2022-10-16', 1665710553, 1665710553, 1665710553, 1665700553, 1665700553);
     """
 
     sleep(2000)
 
     sql """
         select t0.aid, t0.lid, count(distinct mh), count(distinct my) 
-        from test.original_table t0 
+        from original_table t0 
         where t0.day = '2022-10-16' and t0.lid > 0 group by t0.aid, t0.lid;
     """
 
