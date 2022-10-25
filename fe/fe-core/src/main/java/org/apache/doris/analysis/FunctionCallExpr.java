@@ -1223,6 +1223,11 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
+        if (this.type.isDecimalV2()) {
+            this.type = Type.MAX_DECIMALV2_TYPE;
+            fn.setReturnType(Type.MAX_DECIMALV2_TYPE);
+        }
+
         if (this.type.isDecimalV3()) {
             // DECIMAL need to pass precision and scale to be
             if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction())
