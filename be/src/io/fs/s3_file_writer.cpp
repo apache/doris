@@ -41,6 +41,7 @@
 #include "io/fs/s3_file_system.h"
 #include "util/doris_metrics.h"
 
+using Aws::S3::Model::AbortMultipartUploadRequest
 using Aws::S3::Model::CompletedPart;
 using Aws::S3::Model::CompletedMultipartUpload;
 using Aws::S3::Model::CompleteMultipartUploadRequest;
@@ -74,19 +75,21 @@ Status S3FileWriter::close() {
 }
 
 Status S3FileWriter::abort() {
-    RETURN_IF_ERROR(_close());
-
     AbortMultipartUploadRequest request;
     request.WithBucket(_s3_conf.bucket).WithKey(_path.native()).WithUploadId(_upload_id);
     auto outcome = _client->AbortMultipartUpload(request);
     if (outcome.IsSuccess() ||
         outcome.GetError().GetErrorType() == Aws::S3::S3Errors::NO_SUCH_UPLOAD ||
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+        LOG(INFO) << "Abort multipart upload successfully. endpoint=" << _s3_conf.endpoint
+                  << ", bucket=" << _s3_conf.bucket << ", key=" << _path.native()
+                  << ", upload_id=" << _upload_id;
         return Status::OK();
     }
-    return Status::IOError("failed to delete object(endpoint={}, bucket={}, key={}): {}",
+    return Status::IOError("failed to abort multipart upload(endpoint={}, bucket={}, key={},"
+                                   " upload_id={}): {}",
                            _s3_conf.endpoint, _s3_conf.bucket, _path.native(),
-                           outcome.GetError().GetMessage());
+                           _upload_id, outcome.GetError().GetMessage());
 }
 
 Status S3FileWriter::_open() {
@@ -195,7 +198,7 @@ Status S3FileWriter::_close() {
         return Status::OK();
     }
     if (_is_open) {
-        RETURN_IF_ERROR(_upload_part()));
+        RETURN_IF_ERROR(_upload_part());
 
         CompleteMultipartUploadRequest complete_request;
         complete_request.WithBucket(_s3_conf.bucket).WithKey(_path.native())
