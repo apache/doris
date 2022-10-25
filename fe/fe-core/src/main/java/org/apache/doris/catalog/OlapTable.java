@@ -1434,7 +1434,7 @@ public class OlapTable extends Table {
                 Map<Tag, List<Long>> tag2beIds = Maps.newHashMap();
                 for (long beId : replicaBackendIds) {
                     Backend be = infoService.getBackend(beId);
-                    if (be == null) {
+                    if (be == null || !be.isMixNode()) {
                         continue;
                     }
                     short num = currentReplicaAlloc.getOrDefault(be.getLocationTag(), (short) 0);
@@ -1896,7 +1896,7 @@ public class OlapTable extends Table {
                     Map<Tag, Short> curMap = Maps.newHashMap();
                     for (Replica replica : tablet.getReplicas()) {
                         Backend be = infoService.getBackend(replica.getBackendId());
-                        if (be == null) {
+                        if (be == null || !be.isMixNode()) {
                             continue;
                         }
                         short num = curMap.getOrDefault(be.getLocationTag(), (short) 0);

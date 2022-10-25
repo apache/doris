@@ -857,6 +857,10 @@ CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 // so as to avoid occupying the execution thread for a long time.
 CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 
+// Node role tag for backend. Mix role is the default role, and computation role have no
+// any tablet.
+CONF_String(be_node_role, "mix");
+
 // Hide webserver page for safety.
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
