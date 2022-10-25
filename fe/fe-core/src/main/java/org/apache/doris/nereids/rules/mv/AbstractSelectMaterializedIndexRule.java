@@ -50,6 +50,17 @@ import java.util.stream.Stream;
  * Base class for selecting materialized index rules.
  */
 public abstract class AbstractSelectMaterializedIndexRule {
+    protected boolean shouldSelectIndex(LogicalOlapScan scan) {
+        switch (scan.getTable().getKeysType()) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+            case DUP_KEYS:
+                return !scan.isIndexSelected();
+            default:
+                return false;
+        }
+    }
+
     /**
      * 1. indexes have all the required columns.
      * 2. find matching key prefix most.

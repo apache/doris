@@ -74,7 +74,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         return ImmutableList.of(
                 // only agg above scan
                 // Aggregate(Scan)
-                logicalAggregate(logicalOlapScan().when(LogicalOlapScan::shouldSelectIndex)).then(agg -> {
+                logicalAggregate(logicalOlapScan().when(this::shouldSelectIndex)).then(agg -> {
                     LogicalOlapScan scan = agg.child();
                     Pair<PreAggStatus, List<Long>> result = select(
                             scan,
@@ -89,7 +89,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                 // filter could push down scan.
                 // Aggregate(Filter(Scan))
-                logicalAggregate(logicalFilter(logicalOlapScan().when(LogicalOlapScan::shouldSelectIndex)))
+                logicalAggregate(logicalFilter(logicalOlapScan().when(this::shouldSelectIndex)))
                         .then(agg -> {
                             LogicalFilter<LogicalOlapScan> filter = agg.child();
                             LogicalOlapScan scan = filter.child();
@@ -112,7 +112,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                 // column pruning or other projections such as alias, etc.
                 // Aggregate(Project(Scan))
-                logicalAggregate(logicalProject(logicalOlapScan().when(LogicalOlapScan::shouldSelectIndex)))
+                logicalAggregate(logicalProject(logicalOlapScan().when(this::shouldSelectIndex)))
                         .then(agg -> {
                             LogicalProject<LogicalOlapScan> project = agg.child();
                             LogicalOlapScan scan = project.child();
@@ -134,7 +134,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // filter could push down and project.
                 // Aggregate(Project(Filter(Scan)))
                 logicalAggregate(logicalProject(logicalFilter(logicalOlapScan()
-                        .when(LogicalOlapScan::shouldSelectIndex)))).then(agg -> {
+                        .when(this::shouldSelectIndex)))).then(agg -> {
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = agg.child();
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
@@ -157,7 +157,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // filter can't push down
                 // Aggregate(Filter(Project(Scan)))
                 logicalAggregate(logicalFilter(logicalProject(logicalOlapScan()
-                        .when(LogicalOlapScan::shouldSelectIndex)))).then(agg -> {
+                        .when(this::shouldSelectIndex)))).then(agg -> {
                             LogicalFilter<LogicalProject<LogicalOlapScan>> filter = agg.child();
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
@@ -334,16 +334,18 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             return checkAggFunc(sum, AggregateType.SUM, extractSlotId(sum.child()), context, false);
         }
 
+        // TODO: select count(xxx) for duplicated-keys table.
         @Override
         public PreAggStatus visitCount(Count count, CheckContext context) {
-            Optional<ExprId> exprIdOpt = extractSlotId(count.child());
-            // Only count(distinct key_column) is supported.
-            if (count.isDistinct() && exprIdOpt.isPresent() && context.exprIdToKeyColumn.containsKey(exprIdOpt.get())) {
-                return PreAggStatus.on();
-            } else {
-                return PreAggStatus.off(String.format(
-                        "Count distinct is only valid for key columns, but meet %s.", count.toSql()));
+            // Now count(distinct key_column) is only supported for aggregate-keys and unique-keys OLAP table.
+            if (count.isDistinct()) {
+                Optional<ExprId> exprIdOpt = extractSlotId(count.child(0));
+                if (exprIdOpt.isPresent() && context.exprIdToKeyColumn.containsKey(exprIdOpt.get())) {
+                    return PreAggStatus.on();
+                }
             }
+            return PreAggStatus.off(String.format(
+                    "Count distinct is only valid for key columns, but meet %s.", count.toSql()));
         }
 
         private PreAggStatus checkAggFunc(

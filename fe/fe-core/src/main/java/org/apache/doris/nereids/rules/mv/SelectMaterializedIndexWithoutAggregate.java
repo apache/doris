@@ -55,7 +55,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         return ImmutableList.of(
                 // project with pushdown filter.
                 // Project(Filter(Scan))
-                logicalProject(logicalFilter(logicalOlapScan().whenNot(LogicalOlapScan::isIndexSelected)))
+                logicalProject(logicalFilter(logicalOlapScan().when(this::shouldSelectIndex)))
                         .then(project -> {
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
@@ -76,7 +76,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // scan with filters could be pushdown.
                 // Filter(Scan)
-                logicalFilter(logicalOlapScan().whenNot(LogicalOlapScan::isIndexSelected))
+                logicalFilter(logicalOlapScan().when(this::shouldSelectIndex))
                         .then(filter -> {
                             LogicalOlapScan scan = filter.child();
                             return filter.withChildren(select(scan, ImmutableSet::of, filter::getConjuncts));
@@ -85,7 +85,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // project and scan.
                 // Project(Scan)
-                logicalProject(logicalOlapScan().whenNot(LogicalOlapScan::isIndexSelected))
+                logicalProject(logicalOlapScan().when(this::shouldSelectIndex))
                         .then(project -> {
                             LogicalOlapScan scan = project.child();
                             return project.withChildren(
@@ -119,7 +119,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 OlapTable table = scan.getTable();
                 long baseIndexId = table.getBaseIndexId();
                 int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
-                // No on aggregate on scan.
+                // No aggregate on scan.
                 // So only base index and indexes that have all the keys could be used.
                 List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
                         .filter(index -> index.getId() == baseIndexId

@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -74,7 +73,7 @@ public class LogicalOlapScan extends LogicalRelation {
     public LogicalOlapScan(RelationId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIdList, boolean partitionPruned, List<Long> candidateIndexIds,
-            boolean rollupSelected, PreAggStatus preAggStatus) {
+            boolean indexSelected, PreAggStatus preAggStatus) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties, selectedPartitionIdList);
         // TODO: use CBO manner to select best index id, according to index's statistics info,
@@ -87,7 +86,7 @@ public class LogicalOlapScan extends LogicalRelation {
         }
         this.partitionPruned = partitionPruned;
         this.candidateIndexIds = candidateIndexIds;
-        this.indexSelected = rollupSelected;
+        this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
     }
 
@@ -170,20 +169,6 @@ public class LogicalOlapScan extends LogicalRelation {
 
     public PreAggStatus getPreAggStatus() {
         return preAggStatus;
-    }
-
-    /**
-     * Should apply {@link SelectMaterializedIndexWithAggregate} or not.
-     */
-    public boolean shouldSelectIndex() {
-        switch (((OlapTable) table).getKeysType()) {
-            case AGG_KEYS:
-            case UNIQUE_KEYS:
-            case DUP_KEYS:
-                return !indexSelected;
-            default:
-                return false;
-        }
     }
 
     @VisibleForTesting
