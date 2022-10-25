@@ -350,6 +350,7 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     modules+=("spark-dpp")
 fi
 if [[ "${BUILD_JAVA_UDF}" -eq 1 ]]; then
+    modules+=("fe-common")
     modules+=("java-udf")
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
@@ -451,7 +452,11 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
+    MVN_PARAMS="-DskipTests"
+    if [[ "$(uname -s)" = 'Darwin' ]]; then
+      MVN_PARAMS="${MVN_PARAMS} -Dos.arch=x86_64"
+    fi
+    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} ${MVN_PARAMS}
     cd "${DORIS_HOME}"
 fi
 
