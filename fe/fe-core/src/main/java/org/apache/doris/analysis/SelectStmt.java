@@ -1406,7 +1406,15 @@ public class SelectStmt extends QueryStmt {
         }
         if (orderByElements != null) {
             for (OrderByElement orderByElem : orderByElements) {
+                // we must make sure the expr is analyzed before rewrite
+                try {
+                    orderByElem.getExpr().analyze(analyzer);
+                } catch (AnalysisException ex) {
+                    //ignore any exception
+                }
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
+                // after rewrite, need reset the analyze status for later re-analyze
+                orderByElem.getExpr().reset();
             }
         }
     }
