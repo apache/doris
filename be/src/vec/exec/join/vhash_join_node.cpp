@@ -350,7 +350,21 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
         while (probe_index < probe_rows) {
             if constexpr (ignore_null && need_null_map_for_probe) {
                 if ((*null_map)[probe_index]) {
-                    _items_counts[probe_index++] = (uint32_t)0;
+                    if constexpr (probe_all) {
+                        _items_counts[probe_index++] = (uint32_t)1;
+                        // only full outer / left outer need insert the data of right table
+                        if (LIKELY(current_offset < _build_block_rows.size())) {
+                            _build_block_offsets[current_offset] = -1;
+                            _build_block_rows[current_offset] = -1;
+                        } else {
+                            _build_block_offsets.emplace_back(-1);
+                            _build_block_rows.emplace_back(-1);
+                        }
+                        ++current_offset;
+                    }
+                    else {
+                        _items_counts[probe_index++] = (uint32_t)0;
+                    }
                     all_match_one = false;
                     continue;
                 }
@@ -472,6 +486,8 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
     using KeyGetter = typename HashTableType::State;
     using Mapped = typename HashTableType::Mapped;
     if constexpr (std::is_same_v<Mapped, RowRefListWithFlags>) {
+        constexpr auto probe_all = JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
+                               JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
         KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
         int right_col_idx = _join_node->_left_table_data_types.size();
@@ -494,7 +510,21 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
             // ignore null rows
             if constexpr (ignore_null && need_null_map_for_probe) {
                 if ((*null_map)[probe_index]) {
-                    _items_counts[probe_index++] = (uint32_t)0;
+                    if constexpr (probe_all) {
+                        _items_counts[probe_index++] = (uint32_t)1;
+                        // only full outer / left outer need insert the data of right table
+                        if (LIKELY(current_offset < _build_block_rows.size())) {
+                            _build_block_offsets[current_offset] = -1;
+                            _build_block_rows[current_offset] = -1;
+                        } else {
+                            _build_block_offsets.emplace_back(-1);
+                            _build_block_rows.emplace_back(-1);
+                        }
+                        ++current_offset;
+                    }
+                    else {
+                        _items_counts[probe_index++] = (uint32_t)0;
+                    }
                     all_match_one = false;
                     continue;
                 }
@@ -1048,6 +1078,9 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
             std::vector<int> res_col_ids(probe_expr_ctxs_sz);
             RETURN_IF_ERROR(_do_evaluate(_probe_block, _probe_expr_ctxs, *_probe_expr_call_timer,
                                          res_col_ids));
+            if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+                _probe_column_convert_to_null = _convert_block_to_null(_probe_block);
+            }
             // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
             //  so we have to initialize this flag by the first probe block.
             if (!_has_set_need_null_map_for_probe) {
@@ -1075,9 +1108,6 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                     _hash_table_variants);
 
             RETURN_IF_ERROR(st);
-            if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-                _probe_column_convert_to_null = _convert_block_to_null(_probe_block);
-            }
         }
     }
 
@@ -1397,6 +1427,9 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     ColumnUInt8::MutablePtr null_map_val;
     std::vector<int> res_col_ids(_build_expr_ctxs.size());
     RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
+    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+        _convert_block_to_null(block);
+    }
     // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
     //  so we have to initialize this flag by the first build block.
     if (!_has_set_need_null_map_for_build) {
@@ -1441,9 +1474,6 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
             make_bool_variant(_build_unique), make_bool_variant(has_runtime_filter),
             make_bool_variant(_need_null_map_for_build));
 
-    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _convert_block_to_null(block);
-    }
     return st;
 }
 
