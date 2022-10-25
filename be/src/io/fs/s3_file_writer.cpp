@@ -41,7 +41,7 @@
 #include "io/fs/s3_file_system.h"
 #include "util/doris_metrics.h"
 
-using Aws::S3::Model::AbortMultipartUploadRequest
+using Aws::S3::Model::AbortMultipartUploadRequest;
 using Aws::S3::Model::CompletedPart;
 using Aws::S3::Model::CompletedMultipartUpload;
 using Aws::S3::Model::CompleteMultipartUploadRequest;
