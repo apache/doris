@@ -496,6 +496,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         "${DORIS_OUTPUT}/udf/include"
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
+    cp -r -p "${DORIS_HOME}/bin/check_be_version.sh" "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
 
     # Fix Killed: 9 error on MacOS (arm64).
