@@ -58,24 +58,10 @@
 
 namespace doris::vectorized {
 
-inline size_t get_utf8_byte_length(unsigned char byte) {
-    size_t char_size = 0;
-    if (byte < 0xC0) {
-        char_size = 1;
-    } else if (byte >= 0xF0) {
-        char_size = 4;
-    } else if (byte >= 0xE0) {
-        char_size = 3;
-    } else {
-        char_size = 2;
-    }
-    return char_size;
-}
-
 inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
-        char_size = get_utf8_byte_length(str[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned)str[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -85,7 +71,7 @@ inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str
 inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned)(str.ptr)[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -95,7 +81,7 @@ inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index)
 inline size_t get_char_len(const StringValue& str, size_t end_pos) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < std::min(str.len, end_pos); i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned)(str.ptr)[i]];
         ++char_len;
     }
     return char_len;
@@ -192,7 +178,7 @@ private:
             size_t byte_pos = 0;
             index.clear();
             for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(raw_str)[j]);
+                char_size = UTF8_BYTE_LENGTH[(unsigned)(raw_str)[j]];
                 index.push_back(j);
                 if (start[i] > 0 && index.size() > start[i] + len[i]) {
                     break;
