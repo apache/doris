@@ -78,3 +78,4 @@ pg_14_port=5442
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 hms_port=9183
+hdfs_port=8120
