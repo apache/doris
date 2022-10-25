@@ -190,11 +190,17 @@
 -- !select9 --
 10	beijing	2345671
 20	shanghai	2345672
+30	hangzhou	2345673
+40	shenzhen	2345674
+50	guangzhou	2345675
 200	changsha	3456789
 
 -- !select9 --
 10	beijing	2345671
 20	shanghai	2345672
+30	hangzhou	2345673
+40	shenzhen	2345674
+50	guangzhou	2345675
 200	changsha	3456789
 
 -- !select10 --
@@ -276,10 +282,50 @@
 -- !select14 --
 10	2345671	\N
 20	2345672	\N
+30	2345673	\N
+40	2345674	\N
+50	2345675	\N
 200	changsha	3456789
 
 -- !select14 --
 10	2345671	\N
 20	2345672	\N
+30	2345673	\N
+40	2345674	\N
+50	2345675	\N
+200	changsha	3456789
+
+-- !select15 --
+10	beijing	2345671
+20	shanghai	2345672
+30	hangzhou	2345673
+40	shenzhen	2345674
+50	guangzhou	2345675
+200	changsha	3456789
+
+-- !select15 --
+10	beijing	2345671
+20	shanghai	2345672
+30	hangzhou	2345673
+40	shenzhen	2345674
+50	guangzhou	2345675
+200	changsha	3456789
+
+-- !select16 --
+1	xihu	2345671
+2	xiaoshan	2345672
+3	binjiang	2345673
+4	shangcheng	2345674
+5	tonglu	2345675
+6	fuyang	2345676
+200	changsha	3456789
+
+-- !select16 --
+1	xihu	2345671
+2	xiaoshan	2345672
+3	binjiang	2345673
+4	shangcheng	2345674
+5	tonglu	2345675
+6	fuyang	2345676
 200	changsha	3456789
 

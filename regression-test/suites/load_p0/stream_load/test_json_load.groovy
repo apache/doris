@@ -628,6 +628,60 @@ suite("test_json_load", "p0") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+
+    // case15: apply jsonpaths & exprs & json_root
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        
+        create_test_table1.call(testTable)
+        
+        load_json_data.call('false', '', 'true', 'json', 'id, code, city, id= id * 10', '[\"$.id\", \"$.code\", \"$.city\"]',
+                            '$.item', '', 'true', 'nest_json.json')
+
+        sql "sync"
+        qt_select15 "select * from ${testTable} order by id"
+
+        // test new json reader
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        
+        create_test_table1.call(testTable)
+        
+        load_json_data.call('true', '', 'true', 'json', 'id, code, city, id= id * 10', '[\"$.id\", \"$.code\", \"$.city\"]',
+                            '$.item', '', 'true', 'nest_json.json')
+
+        sql "sync"
+        qt_select15 "select * from ${testTable} order by id"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // case16: apply jsonpaths & exprs & json_root
+     try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        
+        create_test_table1.call(testTable)
+        
+        load_json_data.call('false', 'true', '', 'json', 'id, code, city', '[\"$.id\", \"$.code\", \"$.city[2]\"]',
+                            '$.item', '', 'true', 'nest_json_array.json')
+
+        sql "sync"
+        qt_select16 "select * from ${testTable} order by id"
+
+        // test new json reader
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        
+        create_test_table1.call(testTable)
+        
+        load_json_data.call('true', 'true', '', 'json', 'id, code, city', '[\"$.id\", \"$.code\", \"$.city[2]\"]',
+                            '$.item', '', 'true', 'nest_json_array.json')
+
+        sql "sync"
+        qt_select16 "select * from ${testTable} order by id"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
     
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
