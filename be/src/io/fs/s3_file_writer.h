@@ -33,6 +33,10 @@ class S3Client;
 namespace doris {
 namespace io {
 
+// max size of each part when uploading: 5MB
+static const int MAX_SIZE_EACH_PART = 5 * 1024 * 1024;
+static const char* STREAM_TAG = "S3FileWriter";
+
 class S3FileWriter final : public FileWriter {
 public:
     S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client,
@@ -54,17 +58,13 @@ public:
     size_t bytes_appended() const override { return _bytes_appended; }
 
 private:
-    Status _close(bool sync);
+    Status _close();
 
     Status _open();
 
     Status _upload_part(const std::string& str);
 
 private:
-
-    // max size of each part when uploading: 5MB
-    static const int MAX_SIZE_EACH_PART = 5 * 1024 * 1024;
-
     std::shared_ptr<Aws::S3::S3Client> _client;
     S3Conf _s3_conf;
     std::string _upload_id;
@@ -72,15 +72,7 @@ private:
     bool _closed = false;
     size_t _bytes_appended = 0;
 
-    // _cur_data is used to collect data in function appendv(const Slice* data, size_t data_cnt),
-    // a _cur_data may contain data in several appendv() until _cur_data is full.
-    // Then_cur_data_offset will be set when data is appended to _cur_data,
-    // next data will be memcpy to _cur_data_offset position.
-    // _appended_data_offset will be set when data in one appendv() is split, which is
-    // used in next part to be uploaded.
-    int8_t _cur_data[MAX_SIZE_EACH_PART];
-    int _cur_data_offset = 0;
-    int _appended_data_offset = 0;
+    std::shared_ptr<Aws::StringStream> _stream_ptr;
     // Current Part Num for CompletedPart
     int _cur_part_num = 0;
     std::list<std::shared_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;

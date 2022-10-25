@@ -65,11 +65,11 @@ S3FileWriter::~S3FileWriter() {
 }
 
 Status S3FileWriter::close() {
-    return _close(true);
+    return _close();
 }
 
 Status S3FileWriter::abort() {
-    RETURN_IF_ERROR(_close(false));
+    RETURN_IF_ERROR(_close());
 
     DeleteObjectRequest request;
     request.WithBucket(_s3_conf.bucket).WithKey(_path.native());
@@ -90,6 +90,7 @@ Status S3FileWriter::_open() {
     create_request.SetKey(_path.native().c_str());
     create_request.SetContentType("text/plain");
 
+    _reset_stream();
     auto outcome = _client->CreateMultipartUpload(create_request);
 
     if (outcome.IsSuccess()) {
@@ -121,62 +122,47 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
 
     for (size_t i = 0; i < data_cnt; i++) {
         const Slice& result = data[i];
-
-        while (_cur_data_offset + result.size - _appended_data_offset > MAX_SIZE_EACH_PART) {
-            int append_size = MAX_SIZE_EACH_PART - _cur_data_offset;
-            if (append_size > 0) {
-                memcpy(_cur_data + _cur_data_offset, result.data() + _appended_data_offset,
-                       append_size);
-            }
-            RETURN_IF_ERROR(_upload_part(std::string(_cur_data, MAX_SIZE_EACH_PART)));
-            _cur_data_offset = 0;
-            _appended_data_offset += append_size;
-
-            _bytes_appended += append_size;
-        }
-
-        // _cur_data is not full after result is appended.
-        int append_size = result.size - _appended_data_offset;
-        if (append_size > 0) {
-            memcpy(_cur_data + _cur_data_offset, result.data() + _appended_data_offset,
-                   append_size);
-        }
-        _cur_data_offset += append_size;
-        _appended_data_offset = 0;
-
-        _bytes_appended += append_size;
+        _stream_ptr->write(result.data, result.size);
+        _bytes_appended += result.size;
+        auto start_pos = _stream_ptr->tellg();
+        _stream_ptr->seekg(0LL, _stream_ptr->end);
+        _stream_ptr->seekg(start_pos);
+    }
+    if (_stream_ptr->str().size() >= MAX_SIZE_EACH_PART) {
+        RETURN_IF_ERROR(_upload_part());
     }
     return Status::OK();
 }
 
-Status S3FileWriter::_upload_part(const std::string& str) {
+Status S3FileWriter::_upload_part() {
+    if (_stream_ptr->str().size() == 0) {
+        return Status::OK();
+    }
     ++_cur_part_num;
 
     UploadPartRequest upload_request;
     upload_request.WithBucket(_s3_conf.bucket.c_str()).WithKey(_path.native().c_str())
             .WithPartNumber(_cur_part_num).WithUploadId(_upload_id.c_str());
 
-    std::shared_ptr<Aws::StringStream> stream_ptr = Aws::MakeShared<Aws::StringStream>(str);
+    upload_request.SetBody(_stream_ptr);
 
-    upload_request.SetBody(stream_ptr);
-
-    Aws::Utils::ByteBuffer part_md5(
-            Aws::Utils::HashingUtils::CalculateMD5(*stream_ptr));
+    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*_stream_ptr));
     upload_request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
 
-    auto start_pos = stream_ptr->tellg();
-    stream_ptr->seekg(0LL, stream_ptr->end);
-    upload_request.SetContentLength(static_cast<long>(stream_ptr->tellg()));
-    stream_ptr->seekg(start_pos);
+    auto start_pos = _stream_ptr->tellg();
+    _stream_ptr->seekg(0LL, _stream_ptr->end);
+    upload_request.SetContentLength(static_cast<long>(_stream_ptr->tellg()));
+    _stream_ptr->seekg(start_pos);
 
     auto upload_part_callable = _client->UploadPartCallable(upload_request);
 
     UploadPartOutcome upload_part_outcome = upload_part_callable.get();
+    _reset_stream();
     if (!upload_part_outcome.IsSuccess()) {
         return Status::IOError("failed to upload part (endpoint={}, bucket={}, key={}, "
                                "part_num = {}): {}",
                                _s3_conf.endpoint, _s3_conf.bucket, _path.native(),
-                               _cur_part_num, compute_outcome.GetError().GetMessage());
+                               _cur_part_num, upload_part_outcome.GetError().GetMessage());
     }
 
     std::shared_ptr<CompletedPart> completed_part = std::make_shared<CompletedPart>();
@@ -188,22 +174,24 @@ Status S3FileWriter::_upload_part(const std::string& str) {
     return Status::OK();
 }
 
+void S3FileWriter::_reset_stream() {
+    _stream_ptr = Aws::MakeShared<Aws::StringStream>(STREAM_TAG, "");
+}
+
 Status S3FileWriter::finalize() {
     DCHECK(!_closed);
     if (_is_open) {
-        _close(true);
+        _close();
     }
     return Status::OK();
 }
 
-Status S3FileWriter::_close(bool sync) {
+Status S3FileWriter::_close() {
     if (_closed) {
         return Status::OK();
     }
-    if (sync && _is_open) {
-        if (_cur_data_offset > 0) {
-            RETURN_IF_ERROR(_upload_part(std::string(_cur_data, _cur_data_offset)));
-        }
+    if (_is_open) {
+        RETURN_IF_ERROR(_upload_part(std::string(_cur_data, _cur_data_offset)));
 
         CompleteMultipartUploadRequest complete_request;
         complete_request.WithBucket(_s3_conf.bucket.c_str()).WithKey(_path.native().c_str())
