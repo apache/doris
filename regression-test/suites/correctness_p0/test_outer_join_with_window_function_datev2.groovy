@@ -234,6 +234,8 @@ suite("test_outer_join_with_window_function_datev2") {
         values('abc', 'xyz', '1577946288488507', '1492704224', '421001', '421001', '2020-01-19 11:15:21', '9999-12-30 00:00:00', '-', '-');
     """
 
+    sql "sync"
+
     qt_select """
         SELECT online_detail.game_code,online_detail.plat_code,online_detail.playerid,online_detail.account,online_detail.org_sid , online_detail.ct_sid ,
         online_detail.login_time,if(online_detail.logout_time='9999-12-30 00:00:00',coalesce(logout.dt,online_detail.next_login_time),online_detail.logout_time) logout_time ,online_detail.next_login_time,online_detail.userid
