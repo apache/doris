@@ -1153,7 +1153,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 }
 
 void HashJoinNode::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_hash_table_build_thread");
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_probe_side_open_thread");
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     status->set_value(child(0)->open(state));

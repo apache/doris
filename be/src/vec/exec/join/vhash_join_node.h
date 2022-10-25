@@ -261,7 +261,7 @@ private:
     MutableColumnPtr _tuple_is_null_right_flag_column;
 
 private:
-    void _hash_table_build_thread(RuntimeState* state, std::promise<Status>* status);
+    void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status);
 
     Status _hash_table_build(RuntimeState* state);
 
