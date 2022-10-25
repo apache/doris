@@ -110,14 +110,8 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
             if constexpr (type == TYPE_JSONB) {
                 const auto json_val = column->get_data_at(i);
-                if (json_val.data == nullptr) {
-                    if (json_val.size == 0) {
-                        // 0x01 is a magic num, not useful actually, just for present ""
-                        char* tmp_val = reinterpret_cast<char*>(0x01);
-                        buf_ret = _buffer.push_string(tmp_val, json_val.size);
-                    } else {
-                        buf_ret = _buffer.push_null();
-                    }
+                if (json_val.data == nullptr || json_val.size == 0) {
+                    buf_ret = _buffer.push_null();
                 } else {
                     std::string json_str =
                             JsonbToJson::jsonb_to_json_string(json_val.data, json_val.size);
