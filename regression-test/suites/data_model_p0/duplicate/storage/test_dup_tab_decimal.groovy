@@ -22,7 +22,7 @@ suite("test_dup_tab_decimal") {
     sql "drop table if exists ${table1}"
 
     sql """
-CREATE TABLE `${table1}` (
+CREATE TABLE IF NOT EXISTS `${table1}` (
   `siteid` decimal(10, 5) NOT NULL COMMENT "",
   `citycode` decimal(10, 5) NOT NULL COMMENT "",
   `userid` decimal(10, 5) NOT NULL COMMENT "",

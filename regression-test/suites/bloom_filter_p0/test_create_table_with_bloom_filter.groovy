@@ -18,7 +18,7 @@
 suite("test_create_table_with_bloom_filter") {
     sql """DROP TABLE IF EXISTS test_bloom_filter"""
     sql """
-        CREATE TABLE test_bloom_filter( 
+        CREATE TABLE IF NOT EXISTS test_bloom_filter( 
             tinyint_key TINYINT NOT NULL, 
             smallint_key SMALLINT NOT NULL, 
             int_key INT NOT NULL, 

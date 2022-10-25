@@ -1,5 +1,5 @@
 DROP TABLE IF EXISTS example_range_tbl;
-CREATE TABLE example_range_tbl
+CREATE TABLE IF NOT EXISTS example_range_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",

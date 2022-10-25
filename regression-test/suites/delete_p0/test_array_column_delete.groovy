@@ -22,7 +22,7 @@ suite("test_array_column_delete") {
     sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
-    sql """ CREATE TABLE ${tableName} (id INT NULL, c_array ARRAY<INT> NULL) ENGINE=OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 4 PROPERTIES ( "replication_allocation" = "tag.location.default: 1","in_memory" = "false","storage_format" = "V2") """
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName} (id INT NULL, c_array ARRAY<INT> NULL) ENGINE=OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 4 PROPERTIES ( "replication_allocation" = "tag.location.default: 1","in_memory" = "false","storage_format" = "V2") """
     sql """ insert into ${tableName} values(1, NULL),(2,[12,3]),(3,[]),(4,NULL),(5,NULL) """
     sql """ DELETE FROM ${tableName} WHERE c_array is NULL """
     qt_sql """ SELECT * FROM ${tableName} order by id """

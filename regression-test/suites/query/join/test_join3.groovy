@@ -25,9 +25,9 @@ suite("test_join3", "query,p0") {
     def tbName2 = "t2"
     def tbName3 = "t3"
 
-    sql """CREATE TABLE ${tbName1} (name varchar(255), n INTEGER) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");"""
-    sql """CREATE TABLE ${tbName2} (name varchar(255), n INTEGER) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");"""
-    sql """CREATE TABLE ${tbName3} (name varchar(255), n INTEGER) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");"""
+    sql """CREATE TABLE IF NOT EXISTS ${tbName1} (name varchar(255), n INTEGER) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");"""
+    sql """CREATE TABLE IF NOT EXISTS ${tbName2} (name varchar(255), n INTEGER) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");"""
+    sql """CREATE TABLE IF NOT EXISTS ${tbName3} (name varchar(255), n INTEGER) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");"""
 
     sql "INSERT INTO ${tbName1} VALUES ( 'bb', 11 );"
     sql "INSERT INTO ${tbName2} VALUES ( 'bb', 12 );"
