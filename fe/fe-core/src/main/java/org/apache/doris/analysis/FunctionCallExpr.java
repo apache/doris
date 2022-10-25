@@ -1082,6 +1082,11 @@ public class FunctionCallExpr extends Expr {
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("collect_list")
+                || fnName.getFunction().equalsIgnoreCase("collect_set")) {
+            fn.setReturnType(new ArrayType(getChild(0).type));
+        }
+
         applyAutoTypeConversionForDatetimeV2();
 
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
