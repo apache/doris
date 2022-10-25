@@ -276,12 +276,14 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         _reducing_mem_usage = true;
     }
 
+    Status st = Status::OK();
     for (auto writer : writers_to_flush) {
-        Status st = writer->wait_flush();
+        st = writer->wait_flush();
         if (!st.ok()) {
-            return Status::InternalError(
+            st =  Status::InternalError(
                     "failed to reduce mem consumption by flushing memtable. err: {}",
                     st.to_string());
+            break;
         }
     }
 
@@ -291,7 +293,7 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         _reduce_memory_cond.notify_all();
     }
 
-    return Status::OK();
+    return st;
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
