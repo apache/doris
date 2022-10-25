@@ -35,7 +35,8 @@ public:
     //  -- queue_size: the maximum size of the queue on which work items are offered. If the
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
-    PriorityWorkStealingThreadPool(uint32_t num_threads, uint32_t num_queues, uint32_t queue_size, const std::string& name)
+    PriorityWorkStealingThreadPool(uint32_t num_threads, uint32_t num_queues, uint32_t queue_size,
+                                   const std::string& name)
             : PriorityThreadPool(0, 0, name) {
         DCHECK_GT(num_queues, 0);
         DCHECK_GE(num_threads, num_queues);

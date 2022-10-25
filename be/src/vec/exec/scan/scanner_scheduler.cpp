@@ -77,8 +77,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
     // 3. remote scan thread pool
     _remote_scan_thread_pool.reset(
             new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                   config::doris_scanner_thread_pool_queue_size,
-                                   "remote_scan"));
+                                   config::doris_scanner_thread_pool_queue_size, "remote_scan"));
 
     _is_init = true;
     return Status::OK();
