@@ -61,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
@@ -118,6 +119,9 @@ public class FunctionCallExpr extends Expr {
 
     // TODO: this field will be removed when we support analyze aggregate function in the nereids framework.
     private boolean shouldFinalizeForNereids = true;
+
+    // this field is set by nereids, so we would not get arg types by the children.
+    private Optional<List<Type>> argTypesForNereids = Optional.empty();
 
     public void setAggFnParams(FunctionParams aggFnParams) {
         this.aggFnParams = aggFnParams;
@@ -200,6 +204,17 @@ public class FunctionCallExpr extends Expr {
             children.addAll(params.exprs());
         }
         originChildSize = children.size();
+    }
+
+    public FunctionCallExpr(String functionName, FunctionParams params, Optional<List<Type>> argTypes) {
+        this.fnName = new FunctionName(functionName);
+        this.fnParams = params;
+        this.isMergeAggFn = false;
+        if (fnParams.exprs() != null) {
+            children.addAll(fnParams.exprs());
+        }
+        this.originChildSize = children.size();
+        this.argTypesForNereids = argTypes;
     }
 
     // nereids constructor without finalize/analyze
@@ -1515,11 +1530,12 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
+        List<Type> argTypes = getArgTypesForNereids();
         // TODO: support other functions
         // TODO: Supports type conversion to match the type of the function's parameters
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             // Prevent the cast type in vector exec engine
-            Type childType = getChild(0).type.getMaxResolutionType();
+            Type childType = argTypes.get(0).getMaxResolutionType();
             fn = getBuiltinFunction(fnName.getFunction(), new Type[] {childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
@@ -1528,7 +1544,7 @@ public class FunctionCallExpr extends Expr {
             type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("substring")
                 || fnName.getFunction().equalsIgnoreCase("cast")) {
-            Type[] childTypes = getChildren().stream().map(t -> t.type).toArray(Type[]::new);
+            Type[] childTypes = argTypes.stream().toArray(Type[]::new);
             fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("year")
@@ -1536,17 +1552,23 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("min")
                 || fnName.getFunction().equalsIgnoreCase("avg")
                 || fnName.getFunction().equalsIgnoreCase("weekOfYear")) {
-            Type childType = getChild(0).type;
+            Type childType = argTypes.get(0);
             fn = getBuiltinFunction(fnName.getFunction(), new Type[] {childType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
         } else {
-            Type[] inputTypes = children.stream()
-                    .map(Expr::getType)
-                    .toArray(Type[]::new);
+            Type[] inputTypes = argTypes.stream().toArray(Type[]::new);
             // nereids already compute the correct signature, so we can find the
             fn = getBuiltinFunction(fnName.getFunction(), inputTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
+        }
+    }
+
+    private List<Type> getArgTypesForNereids() {
+        if (argTypesForNereids.isPresent()) {
+            return argTypesForNereids.get();
+        } else {
+            return Lists.newArrayList(collectChildReturnTypes());
         }
     }
 

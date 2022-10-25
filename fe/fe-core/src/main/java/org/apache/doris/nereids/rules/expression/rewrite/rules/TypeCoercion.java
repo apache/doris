@@ -57,10 +57,13 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     @Override
     public Expression visit(Expression expr, ExpressionRewriteContext ctx) {
         if (expr instanceof ImplicitCastInputTypes) {
-            return visitImplicitCastInputTypes(expr, ctx);
-        } else {
-            return super.visit(expr, ctx);
+            List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) expr).expectedInputTypes();
+            if (!expectedInputTypes.isEmpty()) {
+                return visitImplicitCastInputTypes(expr, expectedInputTypes, ctx);
+            }
         }
+
+        return super.visit(expr, ctx);
     }
 
     // TODO: add other expression visitor function to do type coercion if necessary.
@@ -157,9 +160,9 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
     /**
      * Do implicit cast for expression's children.
      */
-    private Expression visitImplicitCastInputTypes(Expression expr, ExpressionRewriteContext ctx) {
+    private Expression visitImplicitCastInputTypes(Expression expr,
+            List<AbstractDataType> expectedInputTypes, ExpressionRewriteContext ctx) {
         expr = expr.withChildren(child -> rewrite(child, ctx));
-        List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) expr).expectedInputTypes();
         List<Optional<DataType>> inputImplicitCastTypes = getInputImplicitCastTypes(
                 expr.children(), expectedInputTypes);
         return castInputs(expr, inputImplicitCastTypes);

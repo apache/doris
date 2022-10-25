@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -213,7 +215,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
     public void distinctAggregateWithGroupBy() {
         List<Expression> groupExpressionList = Lists.newArrayList(rStudent.getOutput().get(0).toSlot());
         List<NamedExpression> outputExpressionList = Lists.newArrayList(new Alias(
-                new Add(new Count(rStudent.getOutput().get(2).toSlot(), true),
+                new Add(new Count(AggregateParam.distinctAndGlobal(), rStudent.getOutput().get(2).toSlot()),
                         new IntegerLiteral(2)), "c"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
 
