@@ -64,9 +64,7 @@ public:
 
     std::u16string utf8_to_u16string(const char* first, const char* last);
 
-    virtual Status close() {
-        return Status::OK();
-    }
+    virtual Status close() { return Status::OK(); }
 
 protected:
     bool _is_open;
