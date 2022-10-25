@@ -14,8 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#pragma once
-
 #include <string_view>
 
 #include "vec/columns/column_array.h"
@@ -25,33 +23,26 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-class FunctionArraySlice : public IFunction {
+class FunctionArrayPopback : public IFunction {
 public:
-    static constexpr auto name = "array_slice";
-    static FunctionPtr create() { return std::make_shared<FunctionArraySlice>(); }
+    static constexpr auto name = "array_popback";
+    static FunctionPtr create() { return std::make_shared<FunctionArrayPopback>(); }
 
     /// Get function name.
     String get_name() const override { return name; }
 
-    bool is_variadic() const override { return true; }
+    bool is_variadic() const override { return false; }
 
-    size_t get_number_of_arguments() const override { return 0; }
+    size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))
                 << "First argument for function: " << name
                 << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
-        DCHECK(is_integer(arguments[1]))
-                << "Second argument for function: " << name << " should be Integer but it has type "
-                << arguments[1]->get_name() << ".";
-        if (arguments.size() > 2) {
-            DCHECK(is_integer(arguments[2]))
-                    << "Third argument for function: " << name
-                    << " should be Integer but it has type " << arguments[2]->get_name() << ".";
-        }
         return arguments[0];
     }
 
@@ -59,31 +50,35 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto array_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto offset_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        ColumnPtr length_column = nullptr;
-        if (arguments.size() > 2) {
-            length_column =
-                    block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        }
         // extract src array column
         ColumnArrayExecutionData src;
         if (!extract_column_array_info(*array_column, src)) {
             return Status::RuntimeError(
-                    fmt::format("execute failed, unsupported types for function {}({}, {})",
-                                get_name(), block.get_by_position(arguments[0]).type->get_name(),
-                                block.get_by_position(arguments[1]).type->get_name()));
+                    fmt::format("execute failed, unsupported types for function {}({})", get_name(),
+                                block.get_by_position(arguments[0]).type->get_name()));
         }
         // prepare dst array column
         bool is_nullable = src.nested_nullmap_data ? true : false;
         ColumnArrayMutableData dst = create_mutable_data(src.nested_col, is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
-        // execute
+        // start from 1
+        auto offset_column = ColumnInt64::create(array_column->size(), 1);
+        // len - 1
+        auto length_column = ColumnInt64::create();
+        for (size_t row = 0; row < src.offsets_ptr->size(); ++row) {
+            size_t off = (*src.offsets_ptr)[row - 1];
+            size_t len = (*src.offsets_ptr)[row] - off;
+            length_column->insert_value(len - 1);
+        }
         slice_array(dst, src, *offset_column, length_column.get());
         ColumnPtr res_column = assemble_column_array(dst);
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();
     }
 };
+
+void register_function_array_popback(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayPopback>();
+}
 
 } // namespace doris::vectorized
