@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.metrics;
 
-import java.io.IOException;
-import java.io.OutputStream;
 import java.io.PrintStream;
 
 /**
@@ -26,6 +24,7 @@ import java.io.PrintStream;
  */
 public class PrintConsumer extends EventConsumer {
     private final PrintStream printStream;
+
     public PrintConsumer(Class<? extends Event> targetClass, PrintStream printStream) {
         super(targetClass);
         this.printStream = printStream;
