@@ -294,7 +294,21 @@ if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
 fi
 
 if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
-    BUILD_JAVA_UDF=0
+    if [[ -z "${JAVA_HOME}" ]]; then
+        CAUSE='the environment variable JAVA_HOME is not set'
+    else
+        LIBJVM="$(find "${JAVA_HOME}/" -name 'libjvm.dylib')"
+        if [[ -z "${LIBJVM}" ]]; then
+            CAUSE="the library libjvm.dylib is missing"
+        elif [[ "$(file "${LIBJVM}" | awk '{print $NF}')" != "$(uname -m)" ]]; then
+            CAUSE='the architecture which the library libjvm.dylib is built for does not match'
+        fi
+    fi
+
+    if [[ -n "${CAUSE}" ]]; then
+        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with JAVA UDF due to ${CAUSE}.\033[0m"
+        BUILD_JAVA_UDF=0
+    fi
 fi
 
 if [[ "${DISABLE_JAVA_UDF}" == "ON" ]]; then
