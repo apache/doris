@@ -4031,7 +4031,7 @@ public class Env {
         }
     }
 
-    public void renameColumn(Database db, OlapTable table, String colName,
+    private void renameColumn(Database db, OlapTable table, String colName,
             String newColName, boolean isReplay) throws DdlException {
         if (table.getState() != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());

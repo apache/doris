@@ -36,11 +36,15 @@ public:
     ParquetColumnReader::Statistics statistics();
 
 private:
+    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* _batch_eof);
+
+private:
     doris::FileReader* _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
     const std::vector<ParquetReadColumn>& _read_columns;
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
+    int64_t _remaining_rows;
     int64_t _read_rows = 0;
     cctz::time_zone* _ctz;
 };
