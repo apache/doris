@@ -606,7 +606,7 @@ if (BUILD_JAVA_UDF)
     execute_process(COMMAND chmod 755 ${BASE_DIR}/../tools/find_libjvm.sh)
     execute_process(COMMAND ${BASE_DIR}/../tools/find_libjvm.sh OUTPUT_VARIABLE LIBJVM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
     FILE(GLOB_RECURSE LIB_JVM ${LIBJVM_PATH})
-    if(${LIB_JVM} STREQUAL "")
+    if("${LIB_JVM}" STREQUAL "")
         message(STATUS "Disable JAVA UDF because there is no libjvm found!")
     else()
         set(DORIS_DEPENDENCIES
