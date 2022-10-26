@@ -302,6 +302,183 @@ struct Substr2Impl {
     }
 };
 
+template <bool Reverse>
+class FunctionMaskPartial;
+class FunctionMask : public IFunction {
+public:
+    static constexpr auto name = "mask";
+    static constexpr unsigned char DEFAULT_UPPER_MASK = 'X';
+    static constexpr unsigned char DEFAULT_LOWER_MASK = 'x';
+    static constexpr unsigned char DEFAULT_NUMBER_MASK = 'n';
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionMask>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    bool is_variadic() const override { return true; }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK_GE(arguments.size(), 1);
+        DCHECK_LE(arguments.size(), 4);
+
+        char upper = DEFAULT_UPPER_MASK, lower = DEFAULT_LOWER_MASK, number = DEFAULT_NUMBER_MASK;
+
+        auto res = ColumnString::create();
+        const auto& source_column =
+                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+
+        if (arguments.size() > 1) {
+            auto& col = *block.get_by_position(arguments[1]).column;
+            auto string_ref = col.get_data_at(0);
+            if (string_ref.size > 0) upper = *string_ref.data;
+        }
+
+        if (arguments.size() > 2) {
+            auto& col = *block.get_by_position(arguments[2]).column;
+            auto string_ref = col.get_data_at(0);
+            if (string_ref.size > 0) lower = *string_ref.data;
+        }
+
+        if (arguments.size() > 3) {
+            auto& col = *block.get_by_position(arguments[3]).column;
+            auto string_ref = col.get_data_at(0);
+            if (string_ref.size > 0) number = *string_ref.data;
+        }
+
+        if (arguments.size() > 4) {
+            return Status::InvalidArgument(
+                    fmt::format("too many arguments for function {}", get_name()));
+        }
+
+        vector_mask(source_column, *res, upper, lower, number);
+
+        block.get_by_position(result).column = std::move(res);
+
+        return Status::OK();
+    }
+    friend class FunctionMaskPartial<true>;
+    friend class FunctionMaskPartial<false>;
+
+private:
+    static void vector_mask(const ColumnString& source, ColumnString& result, const char upper,
+                            const char lower, const char number) {
+        result.get_chars().resize(source.get_chars().size());
+        result.get_offsets().resize(source.get_offsets().size());
+        memcpy(result.get_offsets().data(), source.get_offsets().data(),
+               source.get_offsets().size() * sizeof(ColumnString::Offset));
+
+        const unsigned char* src = source.get_chars().data();
+        const size_t size = source.get_chars().size();
+        unsigned char* res = result.get_chars().data();
+        mask(src, size, upper, lower, number, res);
+    }
+
+    static void mask(const unsigned char* __restrict src, const size_t size,
+                     const unsigned char upper, const unsigned char lower,
+                     const unsigned char number, unsigned char* __restrict res) {
+        for (size_t i = 0; i != size; ++i) {
+            auto c = src[i];
+            if (c >= 'A' && c <= 'Z') {
+                res[i] = upper;
+            } else if (c >= 'a' && c <= 'z') {
+                res[i] = lower;
+            } else if (c >= '0' && c <= '9') {
+                res[i] = number;
+            } else {
+                res[i] = c;
+            }
+        }
+    }
+};
+
+template <bool Reverse>
+class FunctionMaskPartial : public IFunction {
+public:
+    static constexpr auto name = Reverse ? "mask_last_n" : "mask_first_n";
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionMaskPartial>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    bool is_variadic() const override { return true; }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK_GE(arguments.size(), 1);
+        DCHECK_LE(arguments.size(), 2);
+
+        int n = -1;
+
+        auto res = ColumnString::create();
+        const ColumnString& source_column =
+                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+
+        if (arguments.size() == 2) {
+            auto& col = *block.get_by_position(arguments[1]).column;
+            n = col.get_int(0);
+        } else if (arguments.size() > 2) {
+            return Status::InvalidArgument(
+                    fmt::format("too many arguments for function {}", get_name()));
+        }
+
+        if (n == -1) {
+            FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
+                                      FunctionMask::DEFAULT_LOWER_MASK,
+                                      FunctionMask::DEFAULT_NUMBER_MASK);
+        } else if (n > 0) {
+            vector(source_column, n, *res);
+        }
+
+        block.get_by_position(result).column = std::move(res);
+
+        return Status::OK();
+    }
+
+private:
+    static void vector(const ColumnString& src, int n, ColumnString& result) {
+        const auto num_rows = src.size();
+        auto* chars = src.get_chars().data();
+        auto* offsets = src.get_offsets().data();
+        result.get_chars().resize(src.get_chars().size());
+        result.get_offsets().resize(src.get_offsets().size());
+        memcpy(result.get_offsets().data(), src.get_offsets().data(),
+               src.get_offsets().size() * sizeof(ColumnString::Offset));
+        auto* res = result.get_chars().data();
+
+        for (ssize_t i = 0; i != num_rows; ++i) {
+            auto offset = offsets[i - 1];
+            int len = offsets[i] - offset;
+            if constexpr (Reverse) {
+                auto start = std::max(len - n, 0);
+                if (start > 0) memcpy(&res[offset], &chars[offset], start);
+                offset += start;
+            } else {
+                if (n < len) memcpy(&res[offset + n], &chars[offset + n], len - n);
+            }
+
+            len = std::min(n, len);
+            FunctionMask::mask(&chars[offset], len, FunctionMask::DEFAULT_UPPER_MASK,
+                               FunctionMask::DEFAULT_LOWER_MASK, FunctionMask::DEFAULT_NUMBER_MASK,
+                               &res[offset]);
+        }
+    }
+};
+
 class FunctionLeft : public IFunction {
 public:
     static constexpr auto name = "left";
