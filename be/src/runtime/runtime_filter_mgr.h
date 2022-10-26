@@ -32,6 +32,10 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
 class TUniqueId;
 class RuntimeFilter;
@@ -69,7 +73,8 @@ public:
                          const TQueryOptions& options, int node_id = -1);
 
     // update filter by remote
-    Status update_filter(const PPublishFilterRequest* request, const char* data);
+    Status update_filter(const PPublishFilterRequest* request,
+                         butil::IOBufAsZeroCopyInputStream* data);
 
     void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
 
@@ -113,7 +118,8 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request, const char* data);
+    Status merge(const PMergeFilterRequest* request,
+                 butil::IOBufAsZeroCopyInputStream* attach_data);
 
     UniqueId query_id() { return _query_id; }
 
