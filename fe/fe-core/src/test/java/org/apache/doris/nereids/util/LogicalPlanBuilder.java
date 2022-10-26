@@ -106,6 +106,13 @@ public class LogicalPlanBuilder {
         return from(join);
     }
 
+    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjucts) {
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
+                this.plan, right);
+        return from(join);
+    }
+
     public LogicalPlanBuilder hashJoinEmptyOn(LogicalPlan right, JoinType joinType) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(), this.plan, right);
         return from(join);
@@ -142,7 +149,8 @@ public class LogicalPlanBuilder {
         return from(agg);
     }
 
-    public LogicalPlanBuilder aggGroupUsingIndex(List<Integer> groupByKeysIndex, List<NamedExpression> outputExpresList) {
+    public LogicalPlanBuilder aggGroupUsingIndex(List<Integer> groupByKeysIndex,
+            List<NamedExpression> outputExpresList) {
         Builder<Expression> groupByBuilder = ImmutableList.builder();
         for (Integer index : groupByKeysIndex) {
             groupByBuilder.add(this.plan.getOutput().get(index));

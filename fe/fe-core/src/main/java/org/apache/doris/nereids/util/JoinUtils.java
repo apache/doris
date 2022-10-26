@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -285,28 +286,28 @@ public class JoinUtils {
     }
 
     /**
-     * replace hashJoinConjuncts by using slots map.
-     * TODO: just support `col1=col2`
+     * replace JoinConjuncts by using slots map.
+     * TODO: just support `col1 [cmp = > < ...] col2`
      */
-    public static List<Expression> replaceHashConjuncts(List<Expression> hashJoinConjuncts,
+    public static List<Expression> replaceJoinConjuncts(List<Expression> hashJoinConjuncts,
             Map<Slot, Slot> replaceMaps) {
         List<Expression> newHashJoinConjuncts = Lists.newArrayList();
         for (Expression hashJoinConjunct : hashJoinConjuncts) {
-            if (!(hashJoinConjunct instanceof EqualTo)) {
+            if (!(hashJoinConjunct instanceof ComparisonPredicate)) {
                 return null;
             }
-            EqualTo equalTo = (EqualTo) hashJoinConjunct;
-            if (!(equalTo.left() instanceof Slot) || !(equalTo.right() instanceof Slot)) {
+            ComparisonPredicate cmp = (ComparisonPredicate) hashJoinConjunct;
+            if (!(cmp.left() instanceof Slot) || !(cmp.right() instanceof Slot)) {
                 return null;
             }
 
-            Slot leftSlot = (Slot) equalTo.left();
+            Slot leftSlot = (Slot) cmp.left();
             leftSlot = replaceMaps.getOrDefault(leftSlot, leftSlot);
 
-            Slot rightSlot = (Slot) equalTo.right();
+            Slot rightSlot = (Slot) cmp.right();
             rightSlot = replaceMaps.getOrDefault(rightSlot, rightSlot);
 
-            if (leftSlot != equalTo.left() || rightSlot != equalTo.right()) {
+            if (leftSlot != cmp.left() || rightSlot != cmp.right()) {
                 newHashJoinConjuncts.add(new EqualTo(leftSlot, rightSlot));
             } else {
                 newHashJoinConjuncts.add(hashJoinConjunct);
