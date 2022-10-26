@@ -29,6 +29,9 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
@@ -88,6 +91,8 @@ public class RowPolicy extends Policy {
 
     private Expr wherePredicate = null;
 
+    private Expression wherePredicateForNereids = null;
+
     public RowPolicy() {
         super(PolicyTypeEnum.ROW);
     }
@@ -112,7 +117,7 @@ public class RowPolicy extends Policy {
         this.tableId = tableId;
         this.filterType = filterType;
         this.originStmt = originStmt;
-        this.wherePredicate = wherePredicate;
+        setWherePredicate(wherePredicate);
     }
 
     /**
@@ -134,7 +139,7 @@ public class RowPolicy extends Policy {
             SqlScanner input = new SqlScanner(new StringReader(originStmt), 0L);
             SqlParser parser = new SqlParser(input);
             CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
-            wherePredicate = stmt.getWherePredicate();
+            setWherePredicate(stmt.getWherePredicate());
         } catch (Exception e) {
             throw new IOException("table policy parse originStmt error", e);
         }
@@ -175,5 +180,30 @@ public class RowPolicy extends Policy {
     @Override
     public boolean isInvalid() {
         return (wherePredicate == null);
+    }
+
+    public void setWherePredicate(Expr expr) {
+        this.wherePredicate = expr;
+        this.wherePredicateForNereids = transformWherePredicate();
+    }
+
+    public Expression getWherePredicateForNereids() {
+        if (wherePredicateForNereids == null) {
+            wherePredicateForNereids = transformWherePredicate();
+        }
+        return wherePredicateForNereids;
+    }
+
+    private Expression transformWherePredicate() {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable() != null
+                && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()
+                && wherePredicate != null) {
+            NereidsParser nereidsParser = new NereidsParser();
+            String sql = wherePredicate.toSql();
+            return nereidsParser.parseExpression(sql);
+        } else {
+            return null;
+        }
     }
 }
