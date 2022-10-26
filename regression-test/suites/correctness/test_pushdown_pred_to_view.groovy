@@ -54,7 +54,7 @@ The same resolve error occurs when re-analyze v2.
      """
 
      qt_sql """
-         select * from ${viewName} as v1 join ${viewName} as v2 on v1.id=v2.id and v1.id>0;
+         select * from ${viewName} as v1 join ${viewName} as v2 where v1.id=v2.id and v1.id>0;
      """
      sql "DROP VIEW ${viewName}"
      sql "DROP TABLE ${tableName}"
