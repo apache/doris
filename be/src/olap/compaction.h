@@ -65,7 +65,7 @@ protected:
     Status modify_rowsets();
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(TabletSchemaSPtr schema);
+    Status construct_output_rowset_writer();
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
@@ -73,6 +73,11 @@ protected:
     Status find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                                             std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
+
+    bool handle_ordered_data_compaction();
+    Status do_compact_ordered_rowsets();
+    bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
+    void build_basic_info();
 
 protected:
     // the root tracker for this compaction
@@ -84,6 +89,8 @@ protected:
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
     int64_t _input_rowsets_size;
     int64_t _input_row_num;
+    int64_t _input_num_segments;
+    int64_t _input_index_size;
 
     RowsetSharedPtr _output_rowset;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
@@ -96,6 +103,7 @@ protected:
     int64_t _oldest_write_timestamp;
     int64_t _newest_write_timestamp;
     RowIdConversion _rowid_conversion;
+    TabletSchemaSPtr _cur_tablet_schema;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

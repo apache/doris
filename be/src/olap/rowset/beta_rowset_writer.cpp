@@ -226,6 +226,27 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
     return Status::OK();
 }
 
+RowsetSharedPtr BetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_rowset_meta) {
+    if (_rowset_meta->oldest_write_timestamp() == -1) {
+        _rowset_meta->set_oldest_write_timestamp(UnixSeconds());
+    }
+
+    if (_rowset_meta->newest_write_timestamp() == -1) {
+        _rowset_meta->set_newest_write_timestamp(UnixSeconds());
+    }
+
+    _build_rowset_meta_with_spec_field(_rowset_meta, spec_rowset_meta);
+    RowsetSharedPtr rowset;
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path,
+                                               _rowset_meta, &rowset);
+    if (!status.ok()) {
+        LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
+        return nullptr;
+    }
+    _already_built = true;
+    return rowset;
+}
+
 RowsetSharedPtr BetaRowsetWriter::build() {
     // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
     for (auto& file_writer : _file_writers) {
@@ -260,6 +281,37 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     return rowset;
 }
 
+bool BetaRowsetWriter::_is_segment_overlapping() {
+    std::string last;
+    for (auto segment_encode_key : _segments_encoded_key_bounds) {
+        auto cur_min = segment_encode_key.min_key();
+        auto cur_max = segment_encode_key.max_key();
+        if (cur_min < last) {
+            return true;
+        }
+        last = cur_max;
+    }
+    return false;
+}
+
+void BetaRowsetWriter::_build_rowset_meta_with_spec_field(
+        RowsetMetaSharedPtr rowset_meta, const RowsetMetaSharedPtr& spec_rowset_meta) {
+    rowset_meta->set_num_rows(spec_rowset_meta->num_rows());
+    rowset_meta->set_total_disk_size(spec_rowset_meta->total_disk_size());
+    rowset_meta->set_data_disk_size(spec_rowset_meta->total_disk_size());
+    rowset_meta->set_index_disk_size(spec_rowset_meta->index_disk_size());
+    // TODO write zonemap to meta
+    rowset_meta->set_empty(spec_rowset_meta->num_rows() == 0);
+    rowset_meta->set_creation_time(time(nullptr));
+    rowset_meta->set_num_segments(spec_rowset_meta->num_segments());
+    rowset_meta->set_segments_overlap(spec_rowset_meta->segments_overlap());
+    rowset_meta->set_rowset_state(spec_rowset_meta->rowset_state());
+
+    std::vector<KeyBoundsPB> segments_key_bounds;
+    spec_rowset_meta->get_segments_key_bounds(&segments_key_bounds);
+    rowset_meta->set_segments_key_bounds(segments_key_bounds);
+}
+
 void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta) {
     rowset_meta->set_num_rows(_num_rows_written);
     rowset_meta->set_total_disk_size(_total_data_size);
@@ -269,7 +321,7 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
     rowset_meta->set_empty(_num_rows_written == 0);
     rowset_meta->set_creation_time(time(nullptr));
     rowset_meta->set_num_segments(_num_segment);
-    if (_num_segment <= 1) {
+    if (!_is_segment_overlapping()) {
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
     if (_is_pending) {

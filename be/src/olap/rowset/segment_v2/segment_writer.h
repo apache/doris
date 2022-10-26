@@ -26,6 +26,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "olap/tablet_schema.h"
+#include "util/faststring.h"
 #include "vec/core/block.h"
 #include "vec/olap/olap_data_convertor.h"
 
@@ -99,8 +100,14 @@ private:
     Status _write_primary_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
+    // for short index key
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos, bool null_first = true);
+    // for unique-key merge on write and segment min_max key
+    std::string _full_encode_keys(
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+            bool null_first = true);
+    void set_min_max_key(const Slice& key);
 
 private:
     uint32_t _segment_id;
@@ -114,6 +121,7 @@ private:
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;
+    size_t _num_short_key_columns;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
@@ -125,6 +133,10 @@ private:
     std::vector<const KeyCoder*> _key_coders;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
+
+    bool _is_first_row = true;
+    faststring _min_key;
+    faststring _max_key;
 };
 
 } // namespace segment_v2
