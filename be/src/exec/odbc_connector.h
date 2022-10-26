@@ -54,7 +54,7 @@ public:
     explicit ODBCConnector(const ODBCConnectorParam& param);
     ~ODBCConnector() override;
 
-    Status open() override;
+    Status open(RuntimeState* state, bool read = false) override;
     // query for ODBC table
     Status query() override;
 

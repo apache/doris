@@ -88,7 +88,7 @@ Status NewOdbcScanner::open(RuntimeState* state) {
 
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
-    RETURN_IF_ERROR(_odbc_connector->open());
+    RETURN_IF_ERROR(_odbc_connector->open(state));
     RETURN_IF_ERROR(_odbc_connector->query());
     // check materialize slot num
 
