@@ -361,8 +361,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
                             _build_block_rows.emplace_back(-1);
                         }
                         ++current_offset;
-                    }
-                    else {
+                    } else {
                         _items_counts[probe_index++] = (uint32_t)0;
                     }
                     all_match_one = false;
@@ -487,7 +486,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
     using Mapped = typename HashTableType::Mapped;
     if constexpr (std::is_same_v<Mapped, RowRefListWithFlags>) {
         constexpr auto probe_all = JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
-                               JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
+                                   JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
         KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
         int right_col_idx = _join_node->_left_table_data_types.size();
@@ -512,6 +511,8 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
                 if ((*null_map)[probe_index]) {
                     if constexpr (probe_all) {
                         _items_counts[probe_index++] = (uint32_t)1;
+                        same_to_prev.emplace_back(false);
+                        visited_map.emplace_back(nullptr);
                         // only full outer / left outer need insert the data of right table
                         if (LIKELY(current_offset < _build_block_rows.size())) {
                             _build_block_offsets[current_offset] = -1;
@@ -521,8 +522,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
                             _build_block_rows.emplace_back(-1);
                         }
                         ++current_offset;
-                    }
-                    else {
+                    } else {
                         _items_counts[probe_index++] = (uint32_t)0;
                     }
                     all_match_one = false;
