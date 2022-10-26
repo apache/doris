@@ -153,7 +153,8 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
                 "phase", aggPhase,
                 "outputExpr", outputExpressions,
                 "groupByExpr", groupByExpressions,
-                "partitionExpr", partitionExpressions
+                "partitionExpr", partitionExpressions,
+                "stats", statsDeriveResult
         );
     }
 
