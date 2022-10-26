@@ -121,7 +121,10 @@ public class DataDescription {
     private String jsonPaths = "";
     private String jsonRoot = "";
     private boolean fuzzyParse = false;
-    private boolean readJsonByLine = false;
+    // the default must be true.
+    // So that for broker load, this is always true,
+    // and for stream load, it will set on demand.
+    private boolean readJsonByLine = true;
     private boolean numAsString = false;
 
     private String sequenceCol;
@@ -614,6 +617,10 @@ public class DataDescription {
 
     public boolean isLoadFromTable() {
         return !Strings.isNullOrEmpty(srcTableName);
+    }
+
+    public boolean isReadJsonByLine() {
+        return readJsonByLine;
     }
 
     /*
