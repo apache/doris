@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.catalog.Env;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -311,9 +309,6 @@ public class ConfigBase {
         ConfField anno = field.getAnnotation(ConfField.class);
         if (!anno.mutable()) {
             throw new DdlException("Config '" + key + "' is not mutable");
-        }
-        if (anno.masterOnly() && !Env.getCurrentEnv().isMaster()) {
-            throw new DdlException("Config '" + key + "' is master only");
         }
 
         try {

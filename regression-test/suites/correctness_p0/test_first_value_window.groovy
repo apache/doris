@@ -21,7 +21,7 @@ suite("test_first_value_window") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
             `myday` INT,
             `time_col` VARCHAR(40) NOT NULL,
             `state` INT

@@ -19,7 +19,7 @@ suite("test_select_stddev_variance_window") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-            CREATE TABLE `${tableName}` (
+            CREATE TABLE IF NOT EXISTS `${tableName}` (
             `k1` tinyint(4) NULL COMMENT "",
             `k2` smallint(6) NULL COMMENT "",
             `k3` int(11) NULL COMMENT "",

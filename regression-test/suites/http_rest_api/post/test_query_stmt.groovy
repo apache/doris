@@ -67,9 +67,9 @@ suite("test_query_stmt") {
     assertEquals(obj.msg, SUCCESS_MSG)
     assertEquals(obj.code, SUCCESS_CODE)
 
-    // test create table
+    // test create table if not exists
     def stmt2 = """
-        CREATE TABLE ${tableName}
+        CREATE TABLE IF NOT EXISTS ${tableName}
         (
             id TINYINT,
             name CHAR(10) NOT NULL DEFAULT "zs"

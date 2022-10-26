@@ -152,6 +152,7 @@ set(VEC_FILES
   functions/array/function_array_intersect.cpp
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
+  functions/array/function_array_enumerate.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -257,6 +258,7 @@ set(VEC_FILES
   exec/scan/new_es_scan_node.cpp
   exec/format/csv/csv_reader.cpp
   exec/format/orc/vorc_reader.cpp
+  exec/format/json/new_json_reader.cpp
   )
 
 add_library(Vec STATIC

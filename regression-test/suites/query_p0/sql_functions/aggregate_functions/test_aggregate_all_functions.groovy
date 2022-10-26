@@ -65,7 +65,7 @@ suite("test_aggregate_all_functions") {
     sql "DROP TABLE IF EXISTS ${tableName_03}"
 
     sql """
-	CREATE TABLE ${tableName_03} (
+	CREATE TABLE IF NOT EXISTS ${tableName_03} (
 	 `dt` int(11) NULL COMMENT "",
 	 `page` varchar(10) NULL COMMENT "",
 	 `user_id` bitmap BITMAP_UNION NULL COMMENT ""
@@ -81,7 +81,7 @@ suite("test_aggregate_all_functions") {
     sql "DROP TABLE IF EXISTS ${tableName_04}"
 
     sql """
-	CREATE TABLE ${tableName_04} (
+	CREATE TABLE IF NOT EXISTS ${tableName_04} (
 	 `dt` int(11) NULL COMMENT "",
 	 `page` varchar(10) NULL COMMENT "",
 	 `user_id_bitmap` bitmap BITMAP_UNION NULL COMMENT "",

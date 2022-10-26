@@ -19,7 +19,7 @@ suite("test_bloom_filter_is_not_null") {
 
     sql """drop TABLE if exists ${table_name}"""
 
-    sql """CREATE TABLE ${table_name} (
+    sql """CREATE TABLE IF NOT EXISTS ${table_name} (
       `a` varchar(150) NULL
     ) ENGINE=OLAP
     AGGREGATE KEY(`a`)

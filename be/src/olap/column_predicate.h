@@ -119,6 +119,7 @@ public:
 
 protected:
     uint32_t _column_id;
+    // TODO: the value is only in delete condition, better be template value
     bool _opposite;
 };
 

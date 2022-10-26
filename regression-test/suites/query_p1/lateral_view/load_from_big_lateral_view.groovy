@@ -21,7 +21,7 @@ suite("query_p1") {
     sql "CREATE DATABASE ${dbName}"
     sql "USE ${dbName}"
     sql """
-        CREATE TABLE `test` (
+        CREATE TABLE IF NOT EXISTS `test` (
         `k1` smallint NULL,
         `k2` int NULL,
         `k3` bigint NULL,

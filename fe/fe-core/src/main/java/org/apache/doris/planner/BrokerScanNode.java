@@ -77,7 +77,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -106,8 +105,6 @@ public class BrokerScanNode extends LoadScanNode {
             return 0;
         }
     }
-
-    private final Random random = new Random(System.currentTimeMillis());
 
     // File groups need to
     private List<TScanRangeLocations> locationsList;
@@ -430,15 +427,10 @@ public class BrokerScanNode extends LoadScanNode {
         // broker scan node is used for query or load
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needQueryAvailable().needLoadAvailable()
                 .addTags(tags).build();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (policy.isMatch(be)) {
-                backends.add(be);
-            }
-        }
+        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getIdToBackend().values()));
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
         }
-        Collections.shuffle(backends, random);
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {

@@ -306,6 +306,8 @@ struct TFileRangeDesc {
     5: optional i64 file_size;
     // columns parsed from file path should be after the columns read from file
     6: optional list<string> columns_from_path;
+    // column names from file path, in the same order with columns_from_path
+    7: optional list<string> columns_from_path_keys;
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

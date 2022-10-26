@@ -49,7 +49,8 @@ suite("test_outfile") {
         return
     }
     def tableName = "outfile_test"
-    def outFilePath = """${context.file.parent}/test_outfile"""
+    def uuid = UUID.randomUUID().toString()
+    def outFilePath = """/tmp/test_outfile_${uuid}"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -136,7 +137,7 @@ suite("test_outfile") {
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE IF NOT EXISTS ${tableName} (
           `k1` int(11) NOT NULL,
           `v1` hll HLL_UNION NOT NULL,
           `v2` int(11) SUM NOT NULL

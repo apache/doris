@@ -1,4 +1,4 @@
-create TABLE `bitmap_basic_agg` (
+create TABLE if not exists `bitmap_basic_agg` (
   `k1` int(11) NULL,
   `k2` bitmap BITMAP_UNION NULL
 )AGGREGATE KEY(`k1`)

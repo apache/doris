@@ -21,7 +21,7 @@
 
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-         CREATE TABLE ${tableName} ( `aa` int NULL COMMENT "", `bb` decimal(27,9) NULL COMMENT "" ) 
+         CREATE TABLE IF NOT EXISTS ${tableName} ( `aa` int NULL COMMENT "", `bb` decimal(27,9) NULL COMMENT "" ) 
          ENGINE=OLAP UNIQUE KEY(`aa`) DISTRIBUTED BY HASH(`aa`) BUCKETS 3 
          PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "in_memory" = "false", "storage_format" = "V2" );
      """

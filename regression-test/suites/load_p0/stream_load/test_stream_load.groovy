@@ -22,7 +22,7 @@ suite("test_stream_load", "p0") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE IF NOT EXISTS ${tableName} (
             `k1` bigint(20) NULL,
             `k2` bigint(20) NULL,
             `v1` tinyint(4) SUM NULL,
@@ -91,7 +91,7 @@ suite("test_stream_load", "p0") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE IF NOT EXISTS ${tableName} (
           `id` int(11) NULL,
           `value` varchar(64) NULL
         ) ENGINE=OLAP
@@ -136,7 +136,7 @@ suite("test_stream_load", "p0") {
     def tableName2 = "load_nullable_to_not_nullable"
     sql """ DROP TABLE IF EXISTS ${tableName2} """
     sql """
-    CREATE TABLE `${tableName2}` (
+    CREATE TABLE IF NOT EXISTS `${tableName2}` (
         k1 int(32) NOT NULL,
         k2 smallint NOT NULL,
         k3 int NOT NULL,
@@ -193,7 +193,7 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName7} """
     sql """ DROP TABLE IF EXISTS ${tableName8} """
     sql """
-    CREATE TABLE ${tableName3} (
+    CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
       `k2` tinyint(4) NULL,
       `k3` smallint(6) NULL,
@@ -215,7 +215,7 @@ suite("test_stream_load", "p0") {
     """
 
     sql """
-    CREATE TABLE ${tableName4} (
+    CREATE TABLE IF NOT EXISTS ${tableName4} (
       `k1` int(11) NULL,
       `k2` tinyint(4) NULL,
       `k3` smallint(6) NULL,
@@ -229,7 +229,7 @@ suite("test_stream_load", "p0") {
     """
 
     sql """
-    CREATE TABLE ${tableName5} (
+    CREATE TABLE IF NOT EXISTS ${tableName5} (
       `k1` int(11) NULL,
       `k2` tinyint(4) NULL,
       `v1` bitmap bitmap_union,
@@ -242,7 +242,7 @@ suite("test_stream_load", "p0") {
     """
 
     sql """
-    CREATE TABLE ${tableName6} (
+    CREATE TABLE IF NOT EXISTS ${tableName6} (
       `k1` int(11) NULL,
       `k2` tinyint(4) NULL,
       `v1` varchar(1024)
@@ -255,7 +255,7 @@ suite("test_stream_load", "p0") {
     """
 
     sql """
-    CREATE TABLE ${tableName7} (
+    CREATE TABLE IF NOT EXISTS ${tableName7} (
       `k1` int(11) NULL,
       `k2` tinyint(4) NULL,
       `v1` varchar(1024)
@@ -268,7 +268,7 @@ suite("test_stream_load", "p0") {
     );
     """
     sql """
-    CREATE TABLE ${tableName8} (
+    CREATE TABLE IF NOT EXISTS ${tableName8} (
       `k1` INT(11) NULL COMMENT "",
       `k2` ARRAY<SMALLINT> NULL COMMENT "",
       `k3` ARRAY<INT(11)> NULL COMMENT "",

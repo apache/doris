@@ -26,19 +26,15 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -50,24 +46,26 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
- * Select rollup index when aggregate is present.
+ * Select materialized index, i.e., both for rollup and materialized view when aggregate is present.
+ * TODO: optimize queries with aggregate not on top of scan directly, e.g., aggregate -> join -> scan
+ *   to use materialized index.
  */
 @Developing
-public class SelectRollupWithAggregate implements RewriteRuleFactory {
+public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterializedIndexRule
+        implements RewriteRuleFactory {
     ///////////////////////////////////////////////////////////////////////////
     // All the patterns
     ///////////////////////////////////////////////////////////////////////////
@@ -76,9 +74,9 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
         return ImmutableList.of(
                 // only agg above scan
                 // Aggregate(Scan)
-                logicalAggregate(logicalOlapScan().when(LogicalOlapScan::shouldSelectRollup)).then(agg -> {
+                logicalAggregate(logicalOlapScan().when(this::shouldSelectIndex)).then(agg -> {
                     LogicalOlapScan scan = agg.child();
-                    Pair<PreAggStatus, List<Long>> result = selectCandidateRollupIds(
+                    Pair<PreAggStatus, List<Long>> result = select(
                             scan,
                             agg.getInputSlots(),
                             ImmutableList.of(),
@@ -87,11 +85,11 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
                     return agg.withChildren(
                             scan.withMaterializedIndexSelected(result.key(), result.value())
                     );
-                }).toRule(RuleType.ROLLUP_AGG_SCAN),
+                }).toRule(RuleType.MATERIALIZED_INDEX_AGG_SCAN),
 
                 // filter could push down scan.
                 // Aggregate(Filter(Scan))
-                logicalAggregate(logicalFilter(logicalOlapScan().when(LogicalOlapScan::shouldSelectRollup)))
+                logicalAggregate(logicalFilter(logicalOlapScan().when(this::shouldSelectIndex)))
                         .then(agg -> {
                             LogicalFilter<LogicalOlapScan> filter = agg.child();
                             LogicalOlapScan scan = filter.child();
@@ -100,7 +98,7 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
                                     .addAll(filter.getInputSlots())
                                     .build();
 
-                            Pair<PreAggStatus, List<Long>> result = selectCandidateRollupIds(
+                            Pair<PreAggStatus, List<Long>> result = select(
                                     scan,
                                     requiredSlots,
                                     filter.getConjuncts(),
@@ -110,15 +108,15 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
                             return agg.withChildren(filter.withChildren(
                                     scan.withMaterializedIndexSelected(result.key(), result.value())
                             ));
-                        }).toRule(RuleType.ROLLUP_AGG_FILTER_SCAN),
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_FILTER_SCAN),
 
                 // column pruning or other projections such as alias, etc.
                 // Aggregate(Project(Scan))
-                logicalAggregate(logicalProject(logicalOlapScan().when(LogicalOlapScan::shouldSelectRollup)))
+                logicalAggregate(logicalProject(logicalOlapScan().when(this::shouldSelectIndex)))
                         .then(agg -> {
                             LogicalProject<LogicalOlapScan> project = agg.child();
                             LogicalOlapScan scan = project.child();
-                            Pair<PreAggStatus, List<Long>> result = selectCandidateRollupIds(
+                            Pair<PreAggStatus, List<Long>> result = select(
                                     scan,
                                     project.getInputSlots(),
                                     ImmutableList.of(),
@@ -131,18 +129,21 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
                                             scan.withMaterializedIndexSelected(result.key(), result.value())
                                     )
                             );
-                        }).toRule(RuleType.ROLLUP_AGG_PROJECT_SCAN),
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_PROJECT_SCAN),
 
                 // filter could push down and project.
                 // Aggregate(Project(Filter(Scan)))
                 logicalAggregate(logicalProject(logicalFilter(logicalOlapScan()
-                        .when(LogicalOlapScan::shouldSelectRollup)))).then(agg -> {
+                        .when(this::shouldSelectIndex)))).then(agg -> {
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = agg.child();
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
-                            Pair<PreAggStatus, List<Long>> result = selectCandidateRollupIds(
+                            Set<Slot> requiredSlots = Stream.concat(
+                                    project.getInputSlots().stream(), filter.getInputSlots().stream())
+                                    .collect(Collectors.toSet());
+                            Pair<PreAggStatus, List<Long>> result = select(
                                     scan,
-                                    agg.getInputSlots(),
+                                    requiredSlots,
                                     filter.getConjuncts(),
                                     extractAggFunctionAndReplaceSlot(agg, Optional.of(project)),
                                     ExpressionUtils.replace(agg.getGroupByExpressions(),
@@ -151,16 +152,16 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
                             return agg.withChildren(project.withChildren(filter.withChildren(
                                     scan.withMaterializedIndexSelected(result.key(), result.value())
                             )));
-                        }).toRule(RuleType.ROLLUP_AGG_PROJECT_FILTER_SCAN),
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_PROJECT_FILTER_SCAN),
 
                 // filter can't push down
                 // Aggregate(Filter(Project(Scan)))
                 logicalAggregate(logicalFilter(logicalProject(logicalOlapScan()
-                        .when(LogicalOlapScan::shouldSelectRollup)))).then(agg -> {
+                        .when(this::shouldSelectIndex)))).then(agg -> {
                             LogicalFilter<LogicalProject<LogicalOlapScan>> filter = agg.child();
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
-                            Pair<PreAggStatus, List<Long>> result = selectCandidateRollupIds(
+                            Pair<PreAggStatus, List<Long>> result = select(
                                     scan,
                                     project.getInputSlots(),
                                     ImmutableList.of(),
@@ -171,23 +172,22 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
                             return agg.withChildren(filter.withChildren(project.withChildren(
                                     scan.withMaterializedIndexSelected(result.key(), result.value())
                             )));
-                        }).toRule(RuleType.ROLLUP_AGG_FILTER_PROJECT_SCAN)
+                        }).toRule(RuleType.MATERIALIZED_INDEX_AGG_FILTER_PROJECT_SCAN)
         );
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    // Main entrance of select rollup
+    // Main entrance of select materialized index.
     ///////////////////////////////////////////////////////////////////////////
 
     /**
-     * Select candidate rollup ids.
+     * Select materialized index ids.
      * <p>
-     * 0. turn off pre agg, checking input aggregate functions and group by expressions, etc.
-     * 1. rollup contains all the required output slots.
-     * 2. match the most prefix index if pushdown predicates present.
-     * 3. sort the result matching rollup index ids.
+     * 1. find candidate indexes by pre-agg status: checking input aggregate functions and group by expressions
+     * and pushdown predicates.
+     * 2. filter and order the candidate indexes.
      */
-    private Pair<PreAggStatus, List<Long>> selectCandidateRollupIds(
+    private Pair<PreAggStatus, List<Long>> select(
             LogicalOlapScan scan,
             Set<Slot> requiredScanOutput,
             List<Expression> predicates,
@@ -197,204 +197,46 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
                 String.format("Scan's output (%s) should contains all the input required scan output (%s).",
                         scan.getOutput(), requiredScanOutput));
 
-        // 0. maybe turn off pre agg.
-        PreAggStatus preAggStatus = checkPreAggStatus(scan, predicates, aggregateFunctions, groupingExprs);
-        if (preAggStatus.isOff()) {
-            // return early if pre agg status if off.
-            return Pair.of(preAggStatus, ImmutableList.of(scan.getTable().getBaseIndexId()));
-        }
-
         OlapTable table = scan.getTable();
 
-        // Scan slot exprId -> slot name
-        Map<ExprId, String> exprIdToName = scan.getOutput()
-                .stream()
-                .collect(Collectors.toMap(NamedExpression::getExprId, NamedExpression::getName));
-
-        // get required column names in metadata.
-        Set<String> requiredColumnNames = requiredScanOutput
-                .stream()
-                .map(slot -> exprIdToName.get(slot.getExprId()))
-                .collect(Collectors.toSet());
-
-        // 1. filter rollup contains all the required columns by column name.
-        List<MaterializedIndex> containAllRequiredColumns = table.getVisibleIndex().stream()
-                .filter(rollup -> table.getSchemaByIndexId(rollup.getId(), true)
+        // 0. check pre-aggregation status.
+        final PreAggStatus preAggStatus;
+        final Stream<MaterializedIndex> checkPreAggResult;
+        switch (table.getKeysType()) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+                // Check pre-aggregation status by base index for aggregate-keys and unique-keys OLAP table.
+                preAggStatus = checkPreAggStatus(scan, table.getBaseIndexId(), predicates,
+                        aggregateFunctions, groupingExprs);
+                if (preAggStatus.isOff()) {
+                    // return early if pre agg status if off.
+                    return Pair.of(preAggStatus, ImmutableList.of(scan.getTable().getBaseIndexId()));
+                }
+                checkPreAggResult = table.getVisibleIndex().stream();
+                break;
+            case DUP_KEYS:
+                Map<Boolean, List<MaterializedIndex>> indexesGroupByIsBaseOrNot = table.getVisibleIndex()
                         .stream()
-                        .map(Column::getName)
-                        .collect(Collectors.toSet())
-                        .containsAll(requiredColumnNames)
-                ).collect(Collectors.toList());
+                        .collect(Collectors.groupingBy(index -> index.getId() == table.getBaseIndexId()));
 
-        Map<Boolean, Set<String>> split = filterCanUsePrefixIndexAndSplitByEquality(predicates, exprIdToName);
-        Set<String> equalColNames = split.getOrDefault(true, ImmutableSet.of());
-        Set<String> nonEqualColNames = split.getOrDefault(false, ImmutableSet.of());
-
-        // 2. find matching key prefix most.
-        List<MaterializedIndex> matchingKeyPrefixMost;
-        if (!(equalColNames.isEmpty() && nonEqualColNames.isEmpty())) {
-            List<MaterializedIndex> matchingResult = matchKeyPrefixMost(table, containAllRequiredColumns,
-                    equalColNames, nonEqualColNames);
-            matchingKeyPrefixMost = matchingResult.isEmpty() ? containAllRequiredColumns : matchingResult;
-        } else {
-            matchingKeyPrefixMost = containAllRequiredColumns;
-        }
-
-        List<Long> partitionIds = scan.getSelectedPartitionIds();
-        // 3. sort by row count, column count and index id.
-        List<Long> sortedIndexId = matchingKeyPrefixMost.stream()
-                .map(MaterializedIndex::getId)
-                .sorted(Comparator
-                        // compare by row count
-                        .comparing(rid -> partitionIds.stream()
-                                .mapToLong(pid -> table.getPartition(pid).getIndex((Long) rid).getRowCount())
-                                .sum())
-                        // compare by column count
-                        .thenComparing(rid -> table.getSchemaByIndexId((Long) rid).size())
-                        // compare by rollup index id
-                        .thenComparing(rid -> (Long) rid))
-                .collect(Collectors.toList());
-        return Pair.of(preAggStatus, sortedIndexId);
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Matching key prefix
-    ///////////////////////////////////////////////////////////////////////////
-    private List<MaterializedIndex> matchKeyPrefixMost(
-            OlapTable table,
-            List<MaterializedIndex> rollups,
-            Set<String> equalColumns,
-            Set<String> nonEqualColumns) {
-        TreeMap<Integer, List<MaterializedIndex>> collect = rollups.stream()
-                .collect(Collectors.toMap(
-                        rollup -> rollupKeyPrefixMatchCount(table, rollup, equalColumns, nonEqualColumns),
-                        Lists::newArrayList,
-                        (l1, l2) -> {
-                            l1.addAll(l2);
-                            return l1;
-                        },
-                        TreeMap::new)
+                // Duplicate-keys table could use base index and indexes that pre-aggregation status is on.
+                checkPreAggResult = Stream.concat(
+                        indexesGroupByIsBaseOrNot.get(true).stream(),
+                        indexesGroupByIsBaseOrNot.getOrDefault(false, ImmutableList.of())
+                                .stream()
+                                .filter(index -> checkPreAggStatus(scan, index.getId(), predicates,
+                                        aggregateFunctions, groupingExprs).isOn())
                 );
-        return collect.descendingMap().firstEntry().getValue();
-    }
 
-    private int rollupKeyPrefixMatchCount(
-            OlapTable table,
-            MaterializedIndex rollup,
-            Set<String> equalColNames,
-            Set<String> nonEqualColNames) {
-        int matchCount = 0;
-        for (Column column : table.getSchemaByIndexId(rollup.getId())) {
-            if (equalColNames.contains(column.getName())) {
-                matchCount++;
-            } else if (nonEqualColNames.contains(column.getName())) {
-                // Unequivalence predicate's columns can match only first column in rollup.
-                matchCount++;
+                // Pre-aggregation is set to `on` by default for duplicate-keys table.
+                preAggStatus = PreAggStatus.on();
                 break;
-            } else {
-                break;
-            }
-        }
-        return matchCount;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Split conjuncts into equal-to and non-equal-to.
-    ///////////////////////////////////////////////////////////////////////////
-
-    /**
-     * Filter the input conjuncts those can use prefix and split into 2 groups: is equal-to or non-equal-to predicate
-     * when comparing the key column.
-     */
-    private Map<Boolean, Set<String>> filterCanUsePrefixIndexAndSplitByEquality(
-            List<Expression> conjunct, Map<ExprId, String> exprIdToColName) {
-        return conjunct.stream()
-                .map(expr -> PredicateChecker.canUsePrefixIndex(expr, exprIdToColName))
-                .filter(result -> !result.equals(PrefixIndexCheckResult.FAILURE))
-                .collect(Collectors.groupingBy(
-                        result -> result.type == ResultType.SUCCESS_EQUAL,
-                        Collectors.mapping(result -> result.colName, Collectors.toSet())
-                ));
-    }
-
-    private enum ResultType {
-        FAILURE,
-        SUCCESS_EQUAL,
-        SUCCESS_NON_EQUAL,
-    }
-
-    private static class PrefixIndexCheckResult {
-        public static final PrefixIndexCheckResult FAILURE = new PrefixIndexCheckResult(null, ResultType.FAILURE);
-        private final String colName;
-        private final ResultType type;
-
-        private PrefixIndexCheckResult(String colName, ResultType result) {
-            this.colName = colName;
-            this.type = result;
+            default:
+                throw new RuntimeException("Not supported keys type: " + table.getKeysType());
         }
 
-        public static PrefixIndexCheckResult createEqual(String name) {
-            return new PrefixIndexCheckResult(name, ResultType.SUCCESS_EQUAL);
-        }
-
-        public static PrefixIndexCheckResult createNonEqual(String name) {
-            return new PrefixIndexCheckResult(name, ResultType.SUCCESS_NON_EQUAL);
-        }
-    }
-
-    /**
-     * Check if an expression could prefix key index.
-     */
-    private static class PredicateChecker extends ExpressionVisitor<PrefixIndexCheckResult, Map<ExprId, String>> {
-        private static final PredicateChecker INSTANCE = new PredicateChecker();
-
-        private PredicateChecker() {
-        }
-
-        public static PrefixIndexCheckResult canUsePrefixIndex(Expression expression,
-                Map<ExprId, String> exprIdToName) {
-            return expression.accept(INSTANCE, exprIdToName);
-        }
-
-        @Override
-        public PrefixIndexCheckResult visit(Expression expr, Map<ExprId, String> context) {
-            return PrefixIndexCheckResult.FAILURE;
-        }
-
-        @Override
-        public PrefixIndexCheckResult visitInPredicate(InPredicate in, Map<ExprId, String> context) {
-            Optional<ExprId> slotOrCastOnSlot = ExpressionUtils.isSlotOrCastOnSlot(in.getCompareExpr());
-            if (slotOrCastOnSlot.isPresent() && in.getOptions().stream().allMatch(Literal.class::isInstance)) {
-                return PrefixIndexCheckResult.createEqual(context.get(slotOrCastOnSlot.get()));
-            } else {
-                return PrefixIndexCheckResult.FAILURE;
-            }
-        }
-
-        @Override
-        public PrefixIndexCheckResult visitComparisonPredicate(ComparisonPredicate cp, Map<ExprId, String> context) {
-            if (cp instanceof EqualTo || cp instanceof NullSafeEqual) {
-                return check(cp, context, PrefixIndexCheckResult::createEqual);
-            } else {
-                return check(cp, context, PrefixIndexCheckResult::createNonEqual);
-            }
-        }
-
-        private PrefixIndexCheckResult check(ComparisonPredicate cp, Map<ExprId, String> exprIdToColumnName,
-                Function<String, PrefixIndexCheckResult> resultMapper) {
-            return check(cp).map(exprId -> resultMapper.apply(exprIdToColumnName.get(exprId)))
-                    .orElse(PrefixIndexCheckResult.FAILURE);
-        }
-
-        private Optional<ExprId> check(ComparisonPredicate cp) {
-            Optional<ExprId> exprId = check(cp.left(), cp.right());
-            return exprId.isPresent() ? exprId : check(cp.right(), cp.left());
-        }
-
-        private Optional<ExprId> check(Expression maybeSlot, Expression maybeConst) {
-            Optional<ExprId> exprIdOpt = ExpressionUtils.isSlotOrCastOnSlot(maybeSlot);
-            return exprIdOpt.isPresent() && maybeConst.isConstant() ? exprIdOpt : Optional.empty();
-        }
+        List<Long> sortedIndexId = filterAndOrder(checkPreAggResult, scan, requiredScanOutput, predicates);
+        return Pair.of(preAggStatus, sortedIndexId);
     }
 
     /**
@@ -434,10 +276,11 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
     ///////////////////////////////////////////////////////////////////////////
     private PreAggStatus checkPreAggStatus(
             LogicalOlapScan olapScan,
+            long indexId,
             List<Expression> predicates,
             List<AggregateFunction> aggregateFuncs,
             List<Expression> groupingExprs) {
-        CheckContext checkContext = new CheckContext(olapScan);
+        CheckContext checkContext = new CheckContext(olapScan, indexId);
         return checkAggregateFunctions(aggregateFuncs, checkContext)
                 .offOrElse(() -> checkGroupingExprs(groupingExprs, checkContext))
                 .offOrElse(() -> checkPredicates(predicates, checkContext));
@@ -491,6 +334,20 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
             return checkAggFunc(sum, AggregateType.SUM, extractSlotId(sum.child()), context, false);
         }
 
+        // TODO: select count(xxx) for duplicated-keys table.
+        @Override
+        public PreAggStatus visitCount(Count count, CheckContext context) {
+            // Now count(distinct key_column) is only supported for aggregate-keys and unique-keys OLAP table.
+            if (count.isDistinct()) {
+                Optional<ExprId> exprIdOpt = extractSlotId(count.child(0));
+                if (exprIdOpt.isPresent() && context.exprIdToKeyColumn.containsKey(exprIdOpt.get())) {
+                    return PreAggStatus.on();
+                }
+            }
+            return PreAggStatus.off(String.format(
+                    "Count distinct is only valid for key columns, but meet %s.", count.toSql()));
+        }
+
         private PreAggStatus checkAggFunc(
                 AggregateFunction aggFunc,
                 AggregateType matchingAggType,
@@ -532,18 +389,17 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
         public final Map<ExprId, Column> exprIdToKeyColumn;
         public final Map<ExprId, Column> exprIdToValueColumn;
 
-        public CheckContext(LogicalOlapScan scan) {
+        public CheckContext(LogicalOlapScan scan, long indexId) {
             // map<is_key, map<column_name, column>>
-            Map<Boolean, Map<String, Column>> nameToColumnGroupingByIsKey = scan.getTable().getBaseSchema()
+            Map<Boolean, Map<String, Column>> nameToColumnGroupingByIsKey
+                    = scan.getTable().getSchemaByIndexId(indexId)
                     .stream()
                     .collect(Collectors.groupingBy(
                             Column::isKey,
-                            Collectors.mapping(Function.identity(),
-                                    Collectors.toMap(Column::getName, Function.identity())
-                            )
+                            Collectors.toMap(Column::getName, Function.identity())
                     ));
             Map<String, Column> keyNameToColumn = nameToColumnGroupingByIsKey.get(true);
-            Map<String, Column> valueNameToColumn = nameToColumnGroupingByIsKey.get(false);
+            Map<String, Column> valueNameToColumn = nameToColumnGroupingByIsKey.getOrDefault(false, ImmutableMap.of());
             Map<String, ExprId> nameToExprId = scan.getOutput()
                     .stream()
                     .collect(Collectors.toMap(
@@ -571,7 +427,7 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
     private PreAggStatus checkGroupingExprs(
             List<Expression> groupingExprs,
             CheckContext checkContext) {
-        return checkHasNoValueTypeColumn(groupingExprs, checkContext,
+        return disablePreAggIfContainsAnyValueColumn(groupingExprs, checkContext,
                 "Grouping expression %s contains value column %s");
     }
 
@@ -581,14 +437,15 @@ public class SelectRollupWithAggregate implements RewriteRuleFactory {
     private PreAggStatus checkPredicates(
             List<Expression> predicates,
             CheckContext checkContext) {
-        return checkHasNoValueTypeColumn(predicates, checkContext,
+        return disablePreAggIfContainsAnyValueColumn(predicates, checkContext,
                 "Predicate %s contains value column %s");
     }
 
     /**
      * Check the input expressions have no referenced slot to underlying value type column.
      */
-    private PreAggStatus checkHasNoValueTypeColumn(List<Expression> exprs, CheckContext ctx, String errorMsg) {
+    private PreAggStatus disablePreAggIfContainsAnyValueColumn(List<Expression> exprs, CheckContext ctx,
+            String errorMsg) {
         Map<ExprId, Column> exprIdToValueColumn = ctx.exprIdToValueColumn;
         return exprs.stream()
                 .map(expr -> expr.getInputSlots()

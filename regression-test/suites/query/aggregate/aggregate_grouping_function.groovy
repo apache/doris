@@ -19,7 +19,7 @@ suite("aggregate_grouping_function") {
     sql "DROP TABLE IF EXISTS test_aggregate_grouping_function"
 
     sql """
-        CREATE TABLE `test_aggregate_grouping_function` (
+        CREATE TABLE IF NOT EXISTS `test_aggregate_grouping_function` (
         `dt_date` varchar(1000) NULL COMMENT "",
         `name` varchar(1000) NULL COMMENT "",
         `num1` bigint(20) SUM NOT NULL COMMENT "",
