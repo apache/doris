@@ -22,6 +22,7 @@
 #include <jni_md.h>
 #include <stdlib.h>
 
+#include "common/config.h"
 #include "gutil/once.h"
 #include "gutil/strings/substitute.h"
 
