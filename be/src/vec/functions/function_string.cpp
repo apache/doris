@@ -686,6 +686,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
     factory.register_function<FunctionStringMd5AndSM3<SM3Sum>>();
     factory.register_function<FunctionReplace>();
+    factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
+    factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
