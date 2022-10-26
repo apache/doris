@@ -29,17 +29,22 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * The graph is a join graph, whose node is the leaf plan and edge is a join operator.
+ * It's used for join ordering
+ */
 public class HyperGraph {
     List<Edge> edges;
     List<Node> nodes;
     // TODO: add system arg: limit
     Receiver receiver = new Receiver(100);
 
-    static public HyperGraph fromPlan(Plan plan) {
+    public static HyperGraph fromPlan(Plan plan) {
         HyperGraph graph = new HyperGraph();
         graph.buildGraph(plan);
         return graph;
     }
+
     public Plan toPlan() {
         BitSet bitSet = new BitSet();
         bitSet.set(0, nodes.size());
@@ -49,7 +54,6 @@ public class HyperGraph {
     public boolean simplify() {
         return false;
     }
-
 
     public boolean emitPlan() {
         return false;
@@ -76,11 +80,10 @@ public class HyperGraph {
         addEdge(join);
     }
 
-
     private BitSet findNode(Set<Slot> slots) {
         BitSet bitSet = new BitSet();
         for (Node node : nodes) {
-            for (Slot slot: node.plan.getOutput()) {
+            for (Slot slot : node.plan.getOutput()) {
                 if (slots.contains(slot)) {
                     bitSet.set(node.index);
                     break;
@@ -89,6 +92,7 @@ public class HyperGraph {
         }
         return bitSet;
     }
+
     private void addEdge(LogicalJoin<? extends Plan, ? extends Plan> join) {
         Edge edge = new Edge(edges.size(), join);
         for (Expression expression : join.getHashJoinConjuncts()) {
@@ -126,8 +130,7 @@ public class HyperGraph {
                 name += "_";
             }
             if (!name.equals(node.plan.getType().name())) {
-                builder.append(String.format("  %s [label=\"%s\"];\n", name,
-                    node.plan.getType().name()));
+                builder.append(String.format("  %s [label=\"%s\"];\n", name, node.plan.getType().name()));
             }
             names.add(name);
         }

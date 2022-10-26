@@ -1,3 +1,6 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
@@ -14,21 +17,34 @@
 
 package org.apache.doris.nereids.rules.exploration.join.hypergraph;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+
+import com.google.common.base.Preconditions;
 
 import java.util.BitSet;
 import java.util.HashMap;
 
+/**
+ * The Receiver is used for cached the plan that has been emit and build the new plan
+ */
 public class Receiver {
     // limit define the max number of csg-cmp pair in this Receiver
     int limit;
     HashMap<BitSet, Plan> planMap;
+
     Receiver(int limit) {
         this.limit = limit;
     }
 
+    /**
+     * Emit a new plan from bottom to top
+     *
+     * @param left the bitmap of left child tree
+     * @param right the bitmap of the right child tree
+     * @param edge the join operator
+     * @return the left and the right can be connected by the edge
+     */
     public boolean emitCsgCmp(BitSet left, BitSet right, Edge edge) {
         limit -= 1;
         if (limit < 0) {

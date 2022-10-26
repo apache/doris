@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
@@ -172,10 +171,14 @@ public class NereidsPlanner extends Planner {
     }
 
     private void joinReorder() {
-        new RewriteTopDownJob(getRoot(),(new JoinReorderRule()).buildRules() , cascadesContext.getCurrentJobContext()).execute();
+        new RewriteTopDownJob(
+            getRoot(),
+            (new JoinReorderRule()).buildRules(),
+            cascadesContext.getCurrentJobContext()
+        ).execute();
     }
 
-    /**
+    /**s
      * Cascades style optimize:
      * Perform equivalent logical plan exploration and physical implementation enumeration,
      * try to find best plan under the guidance of statistic information and cost model.

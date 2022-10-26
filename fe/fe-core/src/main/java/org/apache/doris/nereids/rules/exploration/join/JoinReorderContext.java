@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.iceberg.expressions.False;
-
 /**
  * JoinReorderContext for Duplicate free.
  * Paper:
@@ -37,6 +35,7 @@ public class JoinReorderContext {
     private boolean hasExchange = false;
     private boolean hasRightAssociate = false;
     private boolean hasLeftAssociate = false;
+
     public JoinReorderContext() {
     }
 

@@ -17,8 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.join.hypergraph;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.nereids.trees.plans.Plan;
+
+import com.google.common.collect.Lists;
 
 import java.util.BitSet;
 import java.util.List;

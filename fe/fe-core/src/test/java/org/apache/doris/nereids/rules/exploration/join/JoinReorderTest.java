@@ -38,13 +38,13 @@ class JoinReorderTest {
     @Test
     void testHyperGraph() {
         LogicalPlan joinCluster = new LogicalPlanBuilder(scan1)
-            .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
-            .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
-            .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
-            .hashJoinUsing(scan5, JoinType.INNER_JOIN, Pair.of(0, 0))
-            .build();
+                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .hashJoinUsing(scan5, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), joinCluster)
-            .applyTopDown(new JoinReorderRule());
+                .applyTopDown(new JoinReorderRule());
     }
 }

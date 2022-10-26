@@ -16,6 +16,7 @@
 // under the License.
 
 package org.apache.doris.nereids.rules.exploration.join.hypergraph;
+
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.BitSet;
@@ -29,6 +30,7 @@ class Edge {
     BitSet left = new BitSet(32);
     BitSet right = new BitSet(32);
     BitSet constraints = new BitSet(32);
+
     /**
      * Create simple edge.
      */
@@ -70,11 +72,11 @@ class Edge {
     }
 
     public Edge reverse() {
-        Edge new_edge = new Edge(index, join);
-        new_edge.addLeftNode(right);
-        new_edge.addRightNode(left);
-        new_edge.addConstraintNode(constraints);
-        return new_edge;
+        Edge newEdge = new Edge(index, join);
+        newEdge.addLeftNode(right);
+        newEdge.addRightNode(left);
+        newEdge.addConstraintNode(constraints);
+        return newEdge;
     }
 }
 
