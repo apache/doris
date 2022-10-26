@@ -178,7 +178,7 @@ public class NereidsPlanner extends Planner {
         ).execute();
     }
 
-    /**s
+    /**
      * Cascades style optimize:
      * Perform equivalent logical plan exploration and physical implementation enumeration,
      * try to find best plan under the guidance of statistic information and cost model.
