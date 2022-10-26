@@ -72,6 +72,7 @@ WITH BROKER broker_name
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
+  [PROPERTIES ("key1"="value1", ...)]
   ````
 
   - `[MERGE|APPEND|DELETE]`
@@ -127,6 +128,10 @@ WITH BROKER broker_name
   - `ORDER BY`
 
     Tables only for the Unique Key model. Used to specify the column in the imported data that represents the Sequence Col. Mainly used to ensure data order when importing.
+
+  - `PROPERTIES`
+
+    Specify some parameters of the imported format. For example, if the imported file is in `json` format, you can specify parameters such as `json_root`, `jsonpaths`, `fuzzy parse`, etc.
 
 - `WITH BROKER broker_name`
 
@@ -405,6 +410,55 @@ WITH BROKER broker_name
 
    `my_table` must be an Unqiue Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
 
+10. Import a batch of data from HDFS, specify the file format as `json`, and specify parameters of `json_root` and `jsonpaths`.
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.city, $.code]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+    ```
+
+    `jsonpaths` can be use with `column list` and `SET(column_mapping)`:
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (id, code, city)
+        SET (id = id * 10)
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.code, $.city]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+    ```
 ### Keywords
 
     BROKER, LOAD
