@@ -107,7 +107,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
         }
     }
 
-    while (true) {
+    while (columns[_child_slots.size()]->size() < state->batch_size()) {
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("VTableFunctionNode, while getting next batch."));
 
@@ -128,7 +128,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
             RETURN_IF_ERROR(_process_next_child_row());
         }
 
-        while (true) {
+        while (columns[_child_slots.size()]->size() < state->batch_size()) {
             int idx = _find_last_fn_eos_idx();
             if (idx == 0) {
                 // all table functions' results are exhausted, process next child row.
@@ -177,10 +177,6 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
 
             bool tmp = false;
             _fns[_fn_num - 1]->forward(&tmp);
-
-            if (columns[_child_slots.size()]->size() >= state->batch_size()) {
-                break;
-            }
         }
     }
 
