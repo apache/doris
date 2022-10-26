@@ -129,7 +129,7 @@ WITH BROKER broker_name
 
     Tables only for the Unique Key model. Used to specify the column in the imported data that represents the Sequence Col. Mainly used to ensure data order when importing.
 
-  - `PROPERTIES`
+  - `PROPERTIES ("key1"="value1", ...)`
 
     Specify some parameters of the imported format. For example, if the imported file is in `json` format, you can specify parameters such as `json_root`, `jsonpaths`, `fuzzy parse`, etc.
 

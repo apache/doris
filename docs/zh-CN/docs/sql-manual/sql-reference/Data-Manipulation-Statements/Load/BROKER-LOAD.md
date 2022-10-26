@@ -129,7 +129,7 @@ WITH BROKER broker_name
 
     仅针对 Unique Key 模型的表。用于指定导入数据中表示 Sequence Col 的列。主要用于导入时保证数据顺序。
 
-  - `PROPERTIES`
+  - `PROPERTIES ("key1"="value1", ...)`
 
     指定导入的format的一些参数。如导入的文件是`json`格式，则可以在这里指定`json_root`、`jsonpaths`、`fuzzy_parse`等参数。
 
