@@ -1662,15 +1662,14 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
                                     int64_t newest_write_timestamp,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
     return create_rowset_writer(version, rowset_state, overlap, tablet_schema,
-                                oldest_write_timestamp, newest_write_timestamp, nullptr,
-                                "", rowset_writer);
+                                oldest_write_timestamp, newest_write_timestamp, nullptr, "",
+                                rowset_writer);
 }
 
 Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                     const SegmentsOverlapPB& overlap,
                                     TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
-                                    int64_t newest_write_timestamp,
-                                    io::FileSystemPtr fs,
+                                    int64_t newest_write_timestamp, io::FileSystemPtr fs,
                                     const io::ResourceId& resource_id,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;

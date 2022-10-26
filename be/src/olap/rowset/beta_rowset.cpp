@@ -52,7 +52,7 @@ std::string BetaRowset::segment_cache_path(int segment_id) {
 }
 
 std::string BetaRowset::segment_file_path(const std::string& rowset_dir,
-                                           const RowsetId& rowset_id, int segment_id) {
+                                          const RowsetId& rowset_id, int segment_id) {
     // {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
     return fmt::format("{}/{}_{}.dat", rowset_dir, rowset_id.to_string(), segment_id);
 }

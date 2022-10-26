@@ -303,8 +303,7 @@ RowsetSharedPtr BetaRowsetWriter::build_tmp() {
 Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     int32_t segment_id = _num_segment.fetch_add(1);
-    auto path =
-            BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
+    auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);

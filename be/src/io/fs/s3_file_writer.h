@@ -35,8 +35,7 @@ namespace io {
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client,
-                 const S3Conf& s3_conf);
+    S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client, const S3Conf& s3_conf);
     ~S3FileWriter() override;
 
     Status close() override;
@@ -61,6 +60,7 @@ private:
     Status _upload_part();
 
     void _reset_stream();
+
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;
     S3Conf _s3_conf;

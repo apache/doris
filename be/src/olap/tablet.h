@@ -302,11 +302,9 @@ public:
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap,
-                                TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
-                                int64_t newest_write_timestamp,
-                                io::FileSystemPtr fs,
-                                const io::ResourceId& resource_id,
+                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
+                                int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
+                                io::FileSystemPtr fs, const io::ResourceId& resource_id,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,

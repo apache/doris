@@ -235,8 +235,10 @@ Status S3FileSystem::link_file(const Path& src, const Path& dest) {
     Aws::S3::Model::CopyObjectRequest request;
     auto src_key = get_key(src);
     auto dest_key = get_key(dest);
-    request.WithBucket(_s3_conf.bucket).WithCopySource(_s3_conf.bucket + "/" + src_key)
-            .WithKey(dest_key).WithBucket(_s3_conf.bucket);
+    request.WithBucket(_s3_conf.bucket)
+            .WithCopySource(_s3_conf.bucket + "/" + src_key)
+            .WithKey(dest_key)
+            .WithBucket(_s3_conf.bucket);
     auto outcome = client->CopyObject(request);
     if (!outcome.IsSuccess()) {
         LOG(WARNING) << "CopyObject failed: " << outcome.GetError().GetMessage();
@@ -244,8 +246,8 @@ Status S3FileSystem::link_file(const Path& src, const Path& dest) {
                                _s3_conf.endpoint, _s3_conf.bucket, src_key, dest_key,
                                outcome.GetError().GetMessage());
     }
-    LOG(INFO) << "CopyObject successfully. endpoint: " << _s3_conf.endpoint << ", bucket: "
-              << _s3_conf.bucket << ", " << src_key << " -> " << dest_key;
+    LOG(INFO) << "CopyObject successfully. endpoint: " << _s3_conf.endpoint
+              << ", bucket: " << _s3_conf.bucket << ", " << src_key << " -> " << dest_key;
     return Status::OK();
 }
 
