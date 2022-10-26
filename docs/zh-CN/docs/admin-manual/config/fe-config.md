@@ -1680,12 +1680,6 @@ mysql 中处理任务的最大线程数。
 
 mysql 中处理 io 事件的线程数。
 
-### `mysql_service_nio_enabled`
-
-默认值：true
-
-mysql 服务 nio 选项是否启用，默认启用
-
 ### `query_port`
 
 默认值：9030

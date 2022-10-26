@@ -1667,13 +1667,7 @@ Cluster name will be shown as the title of web page
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events. Only `mysql_service_nio_enabled` is true takes effect.
-
-### mysql_service_nio_enabled
-
-Default：true
-
-Whether FE starts the MySQL server based on NiO model. It is recommended to turn off this option when the query connection is less than 1000 or the concurrency scenario is not high
+When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 ### query_port
 
