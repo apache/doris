@@ -50,6 +50,7 @@ suite("test_nereids_grouping_sets") {
     """
 
     // grouping
+    // grouping sets
     order_qt_select "select k1+1, grouping(k1+1) from groupingSetsTable group by grouping sets((k1+1));";
     order_qt_select "select k1+1, grouping(k1+1) from groupingSetsTable group by grouping sets((k1+1), (k1), (k2));";
     order_qt_select "select k1+1, grouping(k1) from groupingSetsTable group by grouping sets((k1));";
@@ -59,8 +60,31 @@ suite("test_nereids_grouping_sets") {
     order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by grouping sets((k1+1)) having (k1+1) > 1;";
     order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by grouping sets((k1+1), (k1)) having (k1+1) > 1;";
 
+    // rollup
+    order_qt_select "select k1+1, grouping(k1+1) from groupingSetsTable group by rollup((k1+1));";
+    order_qt_select "select k1+1, grouping(k1+1) from groupingSetsTable group by rollup((k1+1), (k1), (k2));";
+    order_qt_select "select k1+1, grouping(k1) from groupingSetsTable group by rollup((k1));";
+    order_qt_select "select sum(k2), grouping(k1+1) from groupingSetsTable group by rollup((k1+1));";
+    order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by rollup((k1+1));";
+    order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by rollup((k1+1), (k1));";
+    order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by rollup((k1+1)) having (k1+1) > 1;";
+    order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by rollup((k1+1), (k1)) having (k1+1) > 1;";
+    order_qt_select "select k1, grouping(k1+1) from groupingSetsTable group by rollup(k1, k2, k3, k1+1)"
+
+    // cube
+    order_qt_select "select k1+1, grouping(k1+1) from groupingSetsTable group by cube((k1+1));";
+    order_qt_select "select k1+1, grouping(k1+1) from groupingSetsTable group by cube((k1+1), (k1), (k2));";
+    order_qt_select "select k1+1, grouping(k1) from groupingSetsTable group by cube((k1));";
+    order_qt_select "select sum(k2), grouping(k1+1) from groupingSetsTable group by cube((k1+1));";
+    order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by cube((k1+1));";
+    order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by cube((k1+1), (k1));";
+    order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by cube((k1+1)) having (k1+1) > 1;";
+    order_qt_select "select sum(k2+1), grouping(k1+1) from groupingSetsTable group by cube((k1+1), (k1)) having (k1+1) > 1;";
+    order_qt_select "select k1, grouping(k1+1) from groupingSetsTable group by cube(k1, k2, k3, k1+1)"
+
 
     // grouping_id
+    // grouping sets
     order_qt_select "select k1+1, grouping_id(k1+1) from groupingSetsTable group by grouping sets((k1+1));";
     order_qt_select "select k1+1, grouping_id(k1+1) from groupingSetsTable group by grouping sets((k1+1), (k1), (k2));";
     order_qt_select "select k1+1, grouping_id(k1) from groupingSetsTable group by grouping sets((k1));";
@@ -70,4 +94,26 @@ suite("test_nereids_grouping_sets") {
     order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by grouping sets((k1+1)) having (k1+1) > 1;";
     order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by grouping sets((k1+1), (k1)) having (k1+1) > 1;";
 
+    // rollup
+    order_qt_select "select k1+1, grouping_id(k1+1) from groupingSetsTable group by rollup((k1+1));";
+    order_qt_select "select k1+1, grouping_id(k1+1) from groupingSetsTable group by rollup((k1+1), (k1), (k2));";
+    order_qt_select "select k1+1, grouping_id(k1) from groupingSetsTable group by rollup((k1));";
+    order_qt_select "select sum(k2), grouping_id(k1+1) from groupingSetsTable group by rollup((k1+1));";
+    order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by rollup((k1+1));";
+    order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by rollup((k1+1), (k1));";
+    order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by rollup((k1+1)) having (k1+1) > 1;";
+    order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by rollup((k1+1), (k1)) having (k1+1) > 1;";
+    order_qt_select "select k1, grouping_id(k1+1) from groupingSetsTable group by rollup(k1, k2, k3, k1+1)"
+
+    // cube
+    order_qt_select "select k1+1, grouping_id(k1+1) from groupingSetsTable group by cube((k1+1));";
+    order_qt_select "select k1+1, grouping_id(k1+1) from groupingSetsTable group by cube((k1+1), (k1), (k2));";
+    order_qt_select "select k1+1, grouping_id(k1) from groupingSetsTable group by cube((k1));";
+    order_qt_select "select sum(k2), grouping_id(k1+1) from groupingSetsTable group by cube((k1+1));";
+    order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by cube((k1+1));";
+    order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by cube((k1+1), (k1));";
+    order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by cube((k1+1)) having (k1+1) > 1;";
+    order_qt_select "select sum(k2+1), grouping_id(k1+1) from groupingSetsTable group by cube((k1+1), (k1)) having (k1+1) > 1;";
+    order_qt_select "select k1, grouping_id(k1+1) from groupingSetsTable group by cube(k1, k2, k3, k1+1)"
+    
 }

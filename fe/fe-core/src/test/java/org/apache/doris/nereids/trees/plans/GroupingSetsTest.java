@@ -192,4 +192,79 @@ public class GroupingSetsTest extends TestWithFeService {
         PlanChecker.from(connectContext)
                 .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by rollup(k1+1) having (k1+1) > 1;");
     }
+
+    // cube
+    // grouping
+    @Test
+    public void testGrouping11() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1+1, grouping(k1+1) from t1 group by cube(k1+1);");
+    }
+
+    @Test
+    public void testGrouping12() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1+1, grouping(k1) from t1 group by cube(k1);");
+    }
+
+    @Test
+    public void testGrouping13() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2), grouping(k1) from t1 group by cube(k1);");
+    }
+
+    @Test
+    public void testGrouping14() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by cube(k1+1);");
+    }
+
+    @Test
+    public void testGrouping15() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by cube(k1+1, k1);");
+    }
+
+    @Test
+    public void testGroupingCubeWithHaving() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by cube(k1+1) having (k1+1) > 1;");
+    }
+
+    //grouping_id
+    @Test
+    public void testGroupingId11() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1+1, grouping(k1+1) from t1 group by cube(k1+1);");
+    }
+
+    @Test
+    public void testGroupingId12() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1+1, grouping(k1) from t1 group by cube(k1);");
+    }
+
+    @Test
+    public void testGroupingId13() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2), grouping(k1) from t1 group by cube(k1);");
+    }
+
+    @Test
+    public void testGroupingId14() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by cube(k1+1);");
+    }
+
+    @Test
+    public void testGroupingId15() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by cube(k1+1, k1);");
+    }
+
+    @Test
+    public void testGroupingIdCubeWithHaving() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by cube(k1+1) having (k1+1) > 1;");
+    }
 }
