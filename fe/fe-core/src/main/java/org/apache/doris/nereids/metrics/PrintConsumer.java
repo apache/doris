@@ -15,7 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
+package org.apache.doris.nereids.metrics;
 
-public class EventSwitchParser {
+/**
+ * print consumer
+ */
+public class PrintConsumer extends EventConsumer {
+    public PrintConsumer(Class<? extends Event> targetClass) {
+        super(targetClass);
+    }
+
+    @Override
+    public void consume(Event event) {
+        System.out.println(event.toString());
+    }
 }

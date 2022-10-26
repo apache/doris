@@ -15,27 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
+package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.observer.Event;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 /**
- * enforcer event
+ * cost state event
  */
-public class EnforcerEvent extends Event {
-    private final GroupExpression groupExpression;
-    private final PhysicalPlan enforce;
-    private final PhysicalProperties before;
-    private final PhysicalProperties after;
+public class CostStateEvent extends StateEvent {
+    private final double cost;
+    private final PhysicalProperties physicalProperties;
 
-    public EnforcerEvent(GroupExpression groupExpression, PhysicalPlan enforce, PhysicalProperties before,
-            PhysicalProperties after) {
-        this.groupExpression = groupExpression;
-        this.enforce = enforce;
-        this.before = before;
-        this.after = after;
+    public CostStateEvent(GroupExpression groupExpression, double cost, PhysicalProperties physicalProperties) {
+        super(groupExpression);
+        this.cost = cost;
+        this.physicalProperties = physicalProperties;
+    }
+
+    @Override
+    public String toString() {
+        return "CostStateEvent{"
+                + "cost=" + cost
+                + ", physicalProperties=" + physicalProperties
+                + '}';
     }
 }

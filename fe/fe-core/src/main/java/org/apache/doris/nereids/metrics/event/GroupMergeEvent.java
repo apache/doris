@@ -15,28 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
+package org.apache.doris.nereids.metrics.event;
 
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.observer.Event;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.metrics.Event;
 
 import java.util.List;
 
 /**
- * transform event
+ * group merge event
  */
-public class TransformEvent extends Event {
-    private final GroupExpression groupExpression;
-    private final Plan before;
-    private final List<Plan> afters;
-    private final RuleType ruleType;
+public class GroupMergeEvent extends Event {
+    private final Group source;
+    private final Group destination;
+    private final List<GroupExpression> needReplaceGroupExpressions;
 
-    public TransformEvent(GroupExpression groupExpression, Plan before, List<Plan> afters, RuleType ruleType) {
-        this.groupExpression = groupExpression;
-        this.before = before;
-        this.afters = afters;
-        this.ruleType = ruleType;
+    public GroupMergeEvent(Group source, Group destination, List<GroupExpression> needReplaceGroupExpressions) {
+        this.source = source;
+        this.destination = destination;
+        this.needReplaceGroupExpressions = needReplaceGroupExpressions;
+    }
+
+    @Override
+    public String toString() {
+        return "GroupMergeEvent{"
+                + "source=" + source
+                + ", destination=" + destination
+                + ", needReplaceGroupExpressions=" + needReplaceGroupExpressions
+                + '}';
     }
 }

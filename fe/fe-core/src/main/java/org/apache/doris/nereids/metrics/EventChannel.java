@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer;
+package org.apache.doris.nereids.metrics;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -46,8 +46,8 @@ public class EventChannel {
         }
     }
 
-    private Map<Class<Event>, Boolean> eventSwitch = Maps.newHashMap();
-    private Map<Class<Event>, EventProperties> properties = Maps.newHashMap();
+    private Map<Class<? extends Event>, Boolean> eventSwitch = Maps.newHashMap();
+    private Map<Class<? extends Event>, EventProperties> properties = Maps.newHashMap();
     private BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
     private boolean isStop = false;
     private Thread thread;
@@ -118,6 +118,11 @@ public class EventChannel {
                 thread.join();
             } catch (InterruptedException e) {
                 LOG.warn("join worker join failed.", e);
+            }
+        }
+        for (EventProperties property : properties.values()) {
+            for (EventConsumer consumer : property.getConsumers()) {
+                consumer.close();
             }
         }
     }

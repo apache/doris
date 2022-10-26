@@ -15,33 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer;
+package org.apache.doris.nereids.metrics;
 
 /**
- * event
+ * counter type
  */
-public abstract class Event implements Cloneable {
-    private final long stateId;
-
-    protected Event() {
-        this.stateId = -1;
-    }
-
-    protected Event(long stateId) {
-        this.stateId = stateId;
-    }
-
-    public final String toJson() {
-        return "[stateId=" + stateId + "]";
-    }
-
-    @Override
-    public final String toString() {
-        return toJson();
-    }
-
-    @Override
-    public Event clone() throws CloneNotSupportedException {
-        return (Event) super.clone();
-    }
+public enum CounterType {
+    PLAN_CONSTRUCTOR,
+    EXPRESSION_TRANSFORM,
+    JOB_EXECUTION,
+    EXPRESSION_CONSTRUCTOR,
+    FUNCTION_CALL,
 }

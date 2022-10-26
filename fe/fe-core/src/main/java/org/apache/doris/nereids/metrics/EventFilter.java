@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer;
+package org.apache.doris.nereids.metrics;
 
 /**
  * event filter
  */
-public abstract class EventFilter {
-    private final Class<Event> targetClass;
+public class EventFilter {
+    private final Class<? extends Event> targetClass;
 
-    protected EventFilter(Class<Event> targetClass) {
+    protected EventFilter(Class<? extends Event> targetClass) {
         this.targetClass = targetClass;
     }
 
@@ -31,7 +31,7 @@ public abstract class EventFilter {
         return event;
     }
 
-    public Class<Event> getTargetClass() {
+    public Class<? extends Event> getTargetClass() {
         return targetClass;
     }
 }

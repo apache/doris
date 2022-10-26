@@ -15,17 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
+package org.apache.doris.nereids.metrics.event;
 
-import org.apache.doris.nereids.observer.Event;
+import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.nereids.rules.Rule;
 
 /**
- * function call event
+ * memo transform event
  */
-public class FunctionCallEvent extends Event {
-    private final String callFuncNameAndLine;
+public class MemoTransformEvent extends Event {
+    private final long before;
+    private final long after;
+    private final Rule rule;
 
-    public FunctionCallEvent(String callFuncNameAndLine) {
-        this.callFuncNameAndLine = callFuncNameAndLine;
+    public MemoTransformEvent(long before, long after, Rule rule) {
+        this.before = before;
+        this.after = after;
+        this.rule = rule;
+    }
+
+    @Override
+    public String toString() {
+        return "MemoTransformEvent{"
+                + "before=" + before
+                + ", after=" + after
+                + ", rule=" + rule
+                + '}';
     }
 }

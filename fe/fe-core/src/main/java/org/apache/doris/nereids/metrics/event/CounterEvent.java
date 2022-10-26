@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
+package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.observer.CounterType;
-import org.apache.doris.nereids.observer.Event;
+import org.apache.doris.nereids.metrics.CounterType;
+import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
@@ -33,6 +33,9 @@ public class CounterEvent extends Event {
     private final GroupExpression groupExpression;
     private final Plan plan;
 
+    /**
+     * counter event
+     */
     public CounterEvent(long stateId, long count, CounterType counterType, Group group,
             GroupExpression groupExpression, Plan plan) {
         super(stateId);
@@ -41,5 +44,16 @@ public class CounterEvent extends Event {
         this.group = group;
         this.groupExpression = groupExpression;
         this.plan = plan;
+    }
+
+    @Override
+    public String toString() {
+        return "CounterEvent{"
+                + "count=" + count
+                + ", counterType=" + counterType
+                + ", group=" + group
+                + ", groupExpression=" + groupExpression
+                + ", plan=" + plan
+                + '}';
     }
 }

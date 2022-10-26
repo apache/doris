@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer;
+package org.apache.doris.nereids.metrics;
 
-import org.apache.doris.nereids.observer.event.CounterEvent;
-import org.apache.doris.nereids.observer.event.TransformEvent;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -27,8 +27,13 @@ import java.util.List;
 
 public class EventTest {
     private final EventChannel channel = new EventChannel(
-            ImmutableList.of(),
-            ImmutableList.of()
+            ImmutableList.of(
+                    new PrintConsumer(CounterEvent.class),
+                    new PrintConsumer(TransformEvent.class)),
+            ImmutableList.of(
+                    new EventFilter(CounterEvent.class),
+                    new EventFilter(CounterEvent.class),
+                    new EventFilter(TransformEvent.class))
     );
     private final List<EventProducer> producers = ImmutableList.of(
             new EventProducer(TransformEvent.class, channel),

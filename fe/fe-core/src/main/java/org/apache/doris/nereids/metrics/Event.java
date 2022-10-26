@@ -15,21 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer;
+package org.apache.doris.nereids.metrics;
 
 /**
- * consumer
+ * event
  */
-public abstract class EventConsumer {
-    private final Class<Event> targetClass;
+public abstract class Event implements Cloneable {
+    private final long stateId;
 
-    protected EventConsumer(Class<Event> targetClass) {
-        this.targetClass = targetClass;
+    protected Event() {
+        this.stateId = -1;
     }
 
-    public abstract void consume(Event event);
+    protected Event(long stateId) {
+        this.stateId = stateId;
+    }
 
-    public Class<Event> getTargetClass() {
-        return targetClass;
+    public final String toJson() {
+        return "[stateId=" + stateId + "]";
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
+    }
+
+    @Override
+    public Event clone() throws CloneNotSupportedException {
+        return (Event) super.clone();
     }
 }

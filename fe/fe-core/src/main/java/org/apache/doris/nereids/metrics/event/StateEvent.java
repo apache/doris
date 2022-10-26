@@ -15,19 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
+package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.nereids.metrics.Event;
 
 /**
- *
+ * state event
  */
-public class StatsStateEvent extends StateEvent {
-    private final StatsDeriveResult statsDeriveResult;
+public abstract class StateEvent extends Event {
+    private final GroupExpression groupExpression;
 
-    public StatsStateEvent(GroupExpression groupExpression, StatsDeriveResult statsDeriveResult) {
-        super(groupExpression);
-        this.statsDeriveResult = statsDeriveResult;
+    public StateEvent(GroupExpression groupExpression) {
+        this.groupExpression = groupExpression;
     }
 }

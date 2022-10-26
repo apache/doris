@@ -15,18 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
+package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.observer.Event;
+import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
+
+import java.util.List;
 
 /**
- * state event
+ * transform event
  */
-public abstract class StateEvent extends Event {
+public class TransformEvent extends Event {
     private final GroupExpression groupExpression;
+    private final Plan before;
+    private final List<Plan> afters;
+    private final RuleType ruleType;
 
-    public StateEvent(GroupExpression groupExpression) {
+    public TransformEvent(GroupExpression groupExpression, Plan before, List<Plan> afters, RuleType ruleType) {
         this.groupExpression = groupExpression;
+        this.before = before;
+        this.afters = afters;
+        this.ruleType = ruleType;
+    }
+
+    @Override
+    public String toString() {
+        return "TransformEvent{"
+                + "groupExpression=" + groupExpression
+                + ", before=" + before
+                + ", afters=" + afters
+                + ", ruleType=" + ruleType
+                + '}';
     }
 }

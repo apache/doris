@@ -15,21 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.observer.event;
-
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.PhysicalProperties;
+package org.apache.doris.nereids.metrics;
 
 /**
- * cost state event
+ * consumer
  */
-public class CostStateEvent extends StateEvent {
-    private final double cost;
-    private final PhysicalProperties physicalProperties;
+public class EventConsumer {
+    private final Class<? extends Event> targetClass;
 
-    public CostStateEvent(GroupExpression groupExpression, double cost, PhysicalProperties physicalProperties) {
-        super(groupExpression);
-        this.cost = cost;
-        this.physicalProperties = physicalProperties;
+    protected EventConsumer(Class<? extends Event> targetClass) {
+        this.targetClass = targetClass;
+    }
+
+    public void consume(Event event) {
+    }
+
+    public Class<? extends Event> getTargetClass() {
+        return targetClass;
+    }
+
+    public void close() {
     }
 }
