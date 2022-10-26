@@ -89,5 +89,4 @@ TEST(FunctionUrlTEST, ProtocolTest) {
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
-
 } // namespace doris::vectorized
