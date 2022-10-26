@@ -347,6 +347,7 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     modules+=("spark-dpp")
 fi
 if [[ "${BUILD_JAVA_UDF}" -eq 1 ]]; then
+    modules+=("fe-common")
     modules+=("java-udf")
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
