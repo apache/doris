@@ -428,23 +428,12 @@ public class SchemaTable extends Table {
                             .build()))
             .build();
 
-    public static Map<String, List<String>> COLUMNS_NAME_MAP = ImmutableMap.<String, List<String>>builder()
-            .put("backends", Lists.newArrayList(
-                    "BackendId", "Cluster", "IP", "HeartbeatPort", "BePort", "HttpPort", "BrpcPort",
-                    "LastStartTime", "LastHeartbeat", "Alive", "SystemDecommissioned", "ClusterDecommissioned",
-                    "TabletNum", "DataUsedCapacity", "AvailCapacity", "TotalCapacity", "UsedPct", "MaxDiskUsedPct",
-                    "RemoteUsedCapacity", "Tag", "ErrMsg", "Version", "Status"
-                    ))
-            .build();
-
     public static List<TSchemaTableStructure> getTableStructure(String tableName) {
-        Table schemaTable = TABLE_MAP.get(tableName);
         List<TSchemaTableStructure> tSchemaTableStructureList = Lists.newArrayList();
         switch (tableName) {
             case "backends": {
-                List<String> columnNames = COLUMNS_NAME_MAP.get(tableName);
-                for (String columnName : columnNames) {
-                    Column column = schemaTable.getColumn(columnName);
+                Table table = TABLE_MAP.get(tableName);
+                for (Column column : table.getFullSchema()) {
                     TSchemaTableStructure tSchemaTableStructure = new TSchemaTableStructure();
                     tSchemaTableStructure.setColumnName(column.getName());
                     tSchemaTableStructure.setType(column.getDataType().toThrift());
