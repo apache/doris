@@ -40,7 +40,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
-import java.util.Optional;
+import java.util.List;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PushdownJoinOtherConditionTest {
@@ -53,7 +53,8 @@ public class PushdownJoinOtherConditionTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
+        rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
+                ImmutableList.of(""));
         rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
     }
 
@@ -73,7 +74,7 @@ public class PushdownJoinOtherConditionTest {
 
         Expression pushSide1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression pushSide2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(50));
-        Expression condition = ExpressionUtils.and(pushSide1, pushSide2);
+        List<Expression> condition = ImmutableList.of(pushSide1, pushSide2);
 
         Plan left = rStudent;
         Plan right = rScore;
@@ -82,7 +83,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.of(condition), left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -105,7 +106,7 @@ public class PushdownJoinOtherConditionTest {
         Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
         LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
 
-        Assertions.assertEquals(condition, actualFilter.getPredicates());
+        Assertions.assertEquals(ExpressionUtils.and(condition), actualFilter.getPredicates());
     }
 
     @Test
@@ -120,9 +121,9 @@ public class PushdownJoinOtherConditionTest {
 
         Expression leftSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression rightSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression condition = ExpressionUtils.and(leftSide, rightSide);
+        List<Expression> condition = ImmutableList.of(leftSide, rightSide);
 
-        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.of(condition), rStudent, rScore);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, rStudent, rScore);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -155,7 +156,7 @@ public class PushdownJoinOtherConditionTest {
 
         Expression pushSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
         Expression reserveSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
-        Expression condition = ExpressionUtils.and(pushSide, reserveSide);
+        List<Expression> condition = ImmutableList.of(pushSide, reserveSide);
 
         Plan left = rStudent;
         Plan right = rScore;
@@ -164,7 +165,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, Lists.newArrayList(), Optional.of(condition), left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);

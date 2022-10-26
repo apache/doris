@@ -51,17 +51,36 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
      */
     public EsExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
         super(extCatalog, id, name);
-        init();
+    }
+
+    private synchronized void makeSureInitialized() {
+        if (!initialized) {
+            init();
+            initialized = true;
+        }
     }
 
     private void init() {
         List<String> tableNames = extCatalog.listTableNames(null, name);
         if (tableNames != null) {
+            Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
+            Map<Long, EsExternalTable> tmpIdToTbl = Maps.newHashMap();
             for (String tableName : tableNames) {
-                long tblId = Env.getCurrentEnv().getNextId();
-                tableNameToId.put(tableName, tblId);
-                idToTbl.put(tblId, new EsExternalTable(tblId, tableName, name, (EsExternalCatalog) extCatalog));
+                long tblId;
+                if (tableNameToId != null && tableNameToId.containsKey(tableName)) {
+                    tblId = tableNameToId.get(tableName);
+                    tmpTableNameToId.put(tableName, tblId);
+                    EsExternalTable table = idToTbl.get(tblId);
+                    table.setUnInitialized();
+                    tmpIdToTbl.put(tblId, table);
+                } else {
+                    tblId = Env.getCurrentEnv().getNextId();
+                    tmpTableNameToId.put(tableName, tblId);
+                    tmpIdToTbl.put(tblId, new EsExternalTable(tblId, tableName, name, (EsExternalCatalog) extCatalog));
+                }
             }
+            tableNameToId = tmpTableNameToId;
+            idToTbl = tmpIdToTbl;
         }
     }
 
@@ -73,11 +92,13 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
 
     @Override
     public List<EsExternalTable> getTables() {
+        makeSureInitialized();
         return new ArrayList<>(idToTbl.values());
     }
 
     @Override
     public EsExternalTable getTableNullable(String tableName) {
+        makeSureInitialized();
         if (!tableNameToId.containsKey(tableName)) {
             return null;
         }
@@ -86,6 +107,7 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
 
     @Override
     public EsExternalTable getTableNullable(long tableId) {
+        makeSureInitialized();
         return idToTbl.get(tableId);
     }
 }

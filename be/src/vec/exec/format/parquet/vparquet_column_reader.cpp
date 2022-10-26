@@ -126,7 +126,10 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
     MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
     NullMap& map_data_column = nullable_column->get_null_map_data();
     auto origin_size = map_data_column.size();
-    map_data_column.resize(origin_size + num_values);
+    {
+        SCOPED_RAW_TIMER(&_decode_null_map_time);
+        map_data_column.resize(origin_size + num_values);
+    }
 
     if (_chunk_reader->max_def_level() > 0) {
         LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
@@ -136,8 +139,11 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
             size_t loop_read = def_decoder.get_next_run(&def_level, num_values - has_read);
             bool is_null = def_level == 0;
             // fill NullMap
-            for (int i = 0; i < loop_read; ++i) {
-                map_data_column[origin_size + has_read + i] = (UInt8)is_null;
+            {
+                SCOPED_RAW_TIMER(&_decode_null_map_time);
+                for (int i = 0; i < loop_read; ++i) {
+                    map_data_column[origin_size + has_read + i] = (UInt8)is_null;
+                }
             }
             // decode data
             if (is_null) {
@@ -298,11 +304,14 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             size_t scan_values =
                     element_offsets[offset_index + scan_rows] - element_offsets[offset_index];
             // null array, should ignore the last offset in element_offsets
-            auto origin_size = map_data_column.size();
-            map_data_column.resize(origin_size + scan_rows);
-            for (int i = offset_index; i < offset_index + scan_rows; ++i) {
-                map_data_column[origin_size + i] =
-                        (UInt8)(definitions[element_offsets[i]] == _NULL_ARRAY);
+            {
+                SCOPED_RAW_TIMER(&_decode_null_map_time);
+                auto origin_size = map_data_column.size();
+                map_data_column.resize(origin_size + scan_rows);
+                for (int i = offset_index; i < offset_index + scan_rows; ++i) {
+                    map_data_column[origin_size + i] =
+                            (UInt8)(definitions[element_offsets[i]] == _NULL_ARRAY);
+                }
             }
             // fill array offset, should skip a value when parsing null array
             _fill_array_offset(data_column, element_offsets, offset_index, scan_rows);
@@ -344,23 +353,26 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
     level_t* definitions = _def_levels_buf.get();
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
             (*std::move(doris_column)).mutate().get());
-    NullMap& map_data_column = nullable_column->get_null_map_data();
     MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    size_t null_map_size = 0;
-    for (int i = _def_offset; i < _def_offset + read_values; ++i) {
-        // should skip _EMPTY_ARRAY and _NULL_ARRAY
-        if (definitions[i] == _CONCRETE_ELEMENT || definitions[i] == _NULL_ELEMENT) {
-            null_map_size++;
+    {
+        SCOPED_RAW_TIMER(&_decode_null_map_time);
+        NullMap& map_data_column = nullable_column->get_null_map_data();
+        size_t null_map_size = 0;
+        for (int i = _def_offset; i < _def_offset + read_values; ++i) {
+            // should skip _EMPTY_ARRAY and _NULL_ARRAY
+            if (definitions[i] == _CONCRETE_ELEMENT || definitions[i] == _NULL_ELEMENT) {
+                null_map_size++;
+            }
         }
-    }
-    auto origin_size = map_data_column.size();
-    map_data_column.resize(origin_size + null_map_size);
-    size_t null_map_idx = origin_size;
-    for (int i = _def_offset; i < _def_offset + read_values; ++i) {
-        if (definitions[i] == _CONCRETE_ELEMENT) {
-            map_data_column[null_map_idx++] = (UInt8) false;
-        } else if (definitions[i] == _NULL_ELEMENT) {
-            map_data_column[null_map_idx++] = (UInt8) true;
+        auto origin_size = map_data_column.size();
+        map_data_column.resize(origin_size + null_map_size);
+        size_t null_map_idx = origin_size;
+        for (int i = _def_offset; i < _def_offset + read_values; ++i) {
+            if (definitions[i] == _CONCRETE_ELEMENT) {
+                map_data_column[null_map_idx++] = (UInt8) false;
+            } else if (definitions[i] == _NULL_ELEMENT) {
+                map_data_column[null_map_idx++] = (UInt8) true;
+            }
         }
     }
     // column with null values

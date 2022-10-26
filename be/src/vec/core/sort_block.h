@@ -223,6 +223,8 @@ public:
             column.get_nested_column().sort_column(this, flags, perms, range, last_column);
         } else {
             const auto& null_map = column.get_null_map_data();
+            int limit = _limit;
+            std::vector<std::pair<size_t, size_t>> is_null_ranges;
             EqualRangeIterator iterator(flags, range.first, range.second);
             while (iterator.next()) {
                 int range_begin = iterator.range_begin;
@@ -259,15 +261,26 @@ public:
                         flags[not_null_range.first] = 0;
                     }
                     if (is_null_range.first < is_null_range.second) {
+                        // do not sort null values
                         std::fill(flags.begin() + is_null_range.first,
-                                  flags.begin() + is_null_range.second, 1);
+                                  flags.begin() + is_null_range.second, 0);
 
-                        flags[is_null_range.first] = 0;
+                        if (UNLIKELY(_limit > is_null_range.first &&
+                                     _limit <= is_null_range.second)) {
+                            _limit = is_null_range.second;
+                        }
+                        is_null_ranges.push_back(std::move(is_null_range));
                     }
                 }
             }
 
             column.get_nested_column().sort_column(this, flags, perms, range, last_column);
+            _limit = limit;
+            if (!last_column) {
+                for (const auto& nr : is_null_ranges) {
+                    std::fill(flags.begin() + nr.first + 1, flags.begin() + nr.second, 1);
+                }
+            }
         }
     }
 
@@ -388,8 +401,9 @@ private:
                 return a.inline_value > b.inline_value ? 1
                                                        : (a.inline_value < b.inline_value ? -1 : 0);
             } else {
-                return memcmp_small_allow_overflow15(a.inline_value.data, a.inline_value.size,
-                                                     b.inline_value.data, b.inline_value.size);
+                return memcmp_small_allow_overflow15(
+                        reinterpret_cast<const UInt8*>(a.inline_value.data), a.inline_value.size,
+                        reinterpret_cast<const UInt8*>(b.inline_value.data), b.inline_value.size);
             }
         };
 
@@ -452,7 +466,7 @@ private:
     }
 
     const ColumnWithSortDescription& _column_with_sort_desc;
-    const int _limit;
+    mutable int _limit;
     const int _nulls_direction;
     const int _direction;
 };

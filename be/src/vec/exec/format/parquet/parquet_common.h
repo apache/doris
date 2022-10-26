@@ -33,6 +33,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/format_common.h"
 
 namespace doris::vectorized {
 
@@ -63,30 +64,6 @@ struct ParquetInt96 {
     static const uint32_t JULIAN_EPOCH_OFFSET_DAYS;
     static const uint64_t MICROS_IN_DAY;
     static const uint64_t NANOS_PER_MICROSECOND;
-};
-
-struct DecimalScaleParams {
-    enum ScaleType {
-        NOT_INIT,
-        NO_SCALE,
-        SCALE_UP,
-        SCALE_DOWN,
-    };
-    ScaleType scale_type = ScaleType::NOT_INIT;
-    int32_t scale_factor = 1;
-
-    template <typename DecimalPrimitiveType>
-    static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
-        if constexpr (std::is_same_v<DecimalPrimitiveType, Int32>) {
-            return common::exp10_i32(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int64>) {
-            return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128>) {
-            return common::exp10_i128(n);
-        } else {
-            return DecimalPrimitiveType(1);
-        }
-    }
 };
 
 struct DecodeParams {
@@ -289,6 +266,7 @@ Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column, Type
         if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
             // nanoseconds will be ignored.
             v.set_microsecond((date_value % _decode_params->second_mask) * scale_to_micro);
+            // TODO: the precision of datetime v1
         }
         _FIXED_SHIFT_DATA_OFFSET();
     }
@@ -336,7 +314,7 @@ Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         value = BigEndian::ToHost128(value);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
@@ -361,7 +339,7 @@ Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_colum
         Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
@@ -430,7 +408,7 @@ Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
         value = BigEndian::ToHost128(value);
         if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
             value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             value /= scale_params.scale_factor;
         }
         auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);

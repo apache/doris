@@ -24,7 +24,7 @@ suite("test_materialized_view") {
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
-            CREATE TABLE ${tbName1}(
+            CREATE TABLE IF NOT EXISTS ${tbName1}(
                 record_id int, 
                 seller_id int, 
                 store_id int, 
@@ -35,7 +35,7 @@ suite("test_materialized_view") {
         """
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql """
-            CREATE TABLE ${tbName2}(
+            CREATE TABLE IF NOT EXISTS ${tbName2}(
                 record_id int, 
                 seller_id int, 
                 store_id int, 

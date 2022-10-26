@@ -102,53 +102,57 @@ void VSetOperationNode::refresh_hash_table() {
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    HashTableCtxType tmp_hash_table;
-                    bool is_need_shrink =
-                            arg.hash_table.should_be_shrink(_valid_element_in_hash_tbl);
-                    if (is_need_shrink) {
-                        tmp_hash_table.hash_table.init_buf_size(
-                                _valid_element_in_hash_tbl / arg.hash_table.get_factor() + 1);
-                    }
+                    if constexpr (std::is_same_v<typename HashTableCtxType::Mapped,
+                                                 RowRefListWithFlags>) {
+                        HashTableCtxType tmp_hash_table;
+                        bool is_need_shrink =
+                                arg.hash_table.should_be_shrink(_valid_element_in_hash_tbl);
+                        if (is_need_shrink) {
+                            tmp_hash_table.hash_table.init_buf_size(
+                                    _valid_element_in_hash_tbl / arg.hash_table.get_factor() + 1);
+                        }
 
-                    arg.init_once();
-                    auto& iter = arg.iter;
-                    auto iter_end = arg.hash_table.end();
-                    while (iter != iter_end) {
-                        auto& mapped = iter->get_second();
-                        auto it = mapped.begin();
+                        arg.init_once();
+                        auto& iter = arg.iter;
+                        auto iter_end = arg.hash_table.end();
+                        while (iter != iter_end) {
+                            auto& mapped = iter->get_second();
+                            auto it = mapped.begin();
 
-                        if constexpr (keep_matched) { //intersected
-                            if (it->visited) {
-                                it->visited = false;
-                                if (is_need_shrink) {
+                            if constexpr (keep_matched) { //intersected
+                                if (it->visited) {
+                                    it->visited = false;
+                                    if (is_need_shrink) {
+                                        tmp_hash_table.hash_table.insert(iter->get_value());
+                                    }
+                                    ++iter;
+                                } else {
+                                    if (!is_need_shrink) {
+                                        arg.hash_table.delete_zero_key(iter->get_first());
+                                        // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
+                                        // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
+                                        auto iter_prev = iter;
+                                        ++iter;
+                                        iter_prev->set_zero();
+                                    } else {
+                                        ++iter;
+                                    }
+                                }
+                            } else { //except
+                                if (!it->visited && is_need_shrink) {
                                     tmp_hash_table.hash_table.insert(iter->get_value());
                                 }
                                 ++iter;
-                            } else {
-                                if (!is_need_shrink) {
-                                    arg.hash_table.delete_zero_key(iter->get_first());
-                                    // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
-                                    // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
-                                    auto iter_prev = iter;
-                                    ++iter;
-                                    iter_prev->set_zero();
-                                } else {
-                                    ++iter;
-                                }
                             }
-                        } else { //except
-                            if (!it->visited && is_need_shrink) {
-                                tmp_hash_table.hash_table.insert(iter->get_value());
-                            }
-                            ++iter;
                         }
-                    }
 
-                    arg.inited = false;
-                    if (is_need_shrink) {
-                        arg.hash_table = std::move(tmp_hash_table.hash_table);
+                        arg.inited = false;
+                        if (is_need_shrink) {
+                            arg.hash_table = std::move(tmp_hash_table.hash_table);
+                        }
+                    } else {
+                        LOG(FATAL) << "FATAL: Invalid RowRefList";
                     }
-
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
@@ -179,24 +183,29 @@ struct HashTableProbe {
 
         KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz, nullptr);
 
-        for (; _probe_index < _probe_rows;) {
-            auto find_result = key_getter.find_key(hash_table_ctx.hash_table, _probe_index, _arena);
-            if (find_result.is_found()) { //if found, marked visited
-                auto it = find_result.get_mapped().begin();
-                if (!(it->visited)) {
-                    it->visited = true;
-                    if constexpr (is_intersected) //intersected
-                        _operation_node->_valid_element_in_hash_tbl++;
-                    else
-                        _operation_node->_valid_element_in_hash_tbl--; //except
+        if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
+            for (; _probe_index < _probe_rows;) {
+                auto find_result =
+                        key_getter.find_key(hash_table_ctx.hash_table, _probe_index, _arena);
+                if (find_result.is_found()) { //if found, marked visited
+                    auto it = find_result.get_mapped().begin();
+                    if (!(it->visited)) {
+                        it->visited = true;
+                        if constexpr (is_intersected) //intersected
+                            _operation_node->_valid_element_in_hash_tbl++;
+                        else
+                            _operation_node->_valid_element_in_hash_tbl--; //except
+                    }
                 }
+                _probe_index++;
             }
-            _probe_index++;
+        } else {
+            LOG(FATAL) << "Invalid RowRefListType!";
         }
         return Status::OK();
     }
 
-    void add_result_columns(RowRefList& value, int& block_size) {
+    void add_result_columns(RowRefListWithFlags& value, int& block_size) {
         auto it = value.begin();
         for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
             auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
@@ -213,18 +222,22 @@ struct HashTableProbe {
         auto& iter = hash_table_ctx.iter;
         auto block_size = 0;
 
-        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
-            auto& value = iter->get_second();
-            auto it = value.begin();
-            if constexpr (is_intersected) {
-                if (it->visited) { //intersected: have done probe, so visited values it's the result
-                    add_result_columns(value, block_size);
-                }
-            } else {
-                if (!it->visited) { //except: haven't visited values it's the needed result
-                    add_result_columns(value, block_size);
+        if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
+            for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
+                auto& value = iter->get_second();
+                auto it = value.begin();
+                if constexpr (is_intersected) {
+                    if (it->visited) { //intersected: have done probe, so visited values it's the result
+                        add_result_columns(value, block_size);
+                    }
+                } else {
+                    if (!it->visited) { //except: haven't visited values it's the needed result
+                        add_result_columns(value, block_size);
+                    }
                 }
             }
+        } else {
+            LOG(FATAL) << "Invalid RowRefListType!";
         }
 
         *eos = iter == hash_table_ctx.hash_table.end();

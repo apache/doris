@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -58,39 +57,37 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalJoin().then(join -> {
-            if (!join.getOtherJoinCondition().isPresent()) {
-                return null;
-            }
-            List<Expression> otherConjuncts = ExpressionUtils.extractConjunction(join.getOtherJoinCondition().get());
-            List<Expression> leftConjuncts = Lists.newArrayList();
-            List<Expression> rightConjuncts = Lists.newArrayList();
+        return logicalJoin()
+                .whenNot(join -> join.getOtherJoinConjuncts().isEmpty())
+                .then(join -> {
+                    List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
+                    List<Expression> remainingOther = Lists.newArrayList();
+                    List<Expression> leftConjuncts = Lists.newArrayList();
+                    List<Expression> rightConjuncts = Lists.newArrayList();
 
-            for (Expression otherConjunct : otherConjuncts) {
-                if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
-                        && allCoveredBy(otherConjunct, join.left().getOutputSet())) {
-                    leftConjuncts.add(otherConjunct);
-                }
-                if (PUSH_DOWN_RIGHT_VALID_TYPE.contains(join.getJoinType())
-                        && allCoveredBy(otherConjunct, join.right().getOutputSet())) {
-                    rightConjuncts.add(otherConjunct);
-                }
-            }
+                    for (Expression otherConjunct : otherJoinConjuncts) {
+                        if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
+                                && allCoveredBy(otherConjunct, join.left().getOutputSet())) {
+                            leftConjuncts.add(otherConjunct);
+                        } else if (PUSH_DOWN_RIGHT_VALID_TYPE.contains(join.getJoinType())
+                                && allCoveredBy(otherConjunct, join.right().getOutputSet())) {
+                            rightConjuncts.add(otherConjunct);
+                        } else {
+                            remainingOther.add(otherConjunct);
+                        }
+                    }
 
-            if (leftConjuncts.isEmpty() && rightConjuncts.isEmpty()) {
-                return null;
-            }
+                    if (leftConjuncts.isEmpty() && rightConjuncts.isEmpty()) {
+                        return null;
+                    }
 
-            otherConjuncts.removeAll(leftConjuncts);
-            otherConjuncts.removeAll(rightConjuncts);
+                    Plan left = PlanUtils.filterOrSelf(leftConjuncts, join.left());
+                    Plan right = PlanUtils.filterOrSelf(rightConjuncts, join.right());
 
-            Plan left = PlanUtils.filterOrSelf(leftConjuncts, join.left());
-            Plan right = PlanUtils.filterOrSelf(rightConjuncts, join.right());
+                    return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
+                            remainingOther, left, right);
 
-            return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
-                    ExpressionUtils.optionalAnd(otherConjuncts), left, right);
-
-        }).toRule(RuleType.PUSHDOWN_JOIN_OTHER_CONDITION);
+                }).toRule(RuleType.PUSHDOWN_JOIN_OTHER_CONDITION);
     }
 
     private boolean allCoveredBy(Expression predicate, Set<Slot> inputSlotSet) {

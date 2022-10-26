@@ -188,7 +188,7 @@ public:
         }
     }
 
-    static void to_lower(uint8_t* src, int64_t len, uint8_t* dst) {
+    static void to_lower(const uint8_t* src, int64_t len, uint8_t* dst) {
         if (len <= 0) {
             return;
         }
@@ -196,7 +196,7 @@ public:
         lowerUpper.transfer(src, src + len, dst);
     }
 
-    static void to_upper(uint8_t* src, int64_t len, uint8_t* dst) {
+    static void to_upper(const uint8_t* src, int64_t len, uint8_t* dst) {
         if (len <= 0) {
             return;
         }

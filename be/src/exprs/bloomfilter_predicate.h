@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -100,6 +101,10 @@ public:
         return init_with_fixed_length(filter_size);
     }
 
+    void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
+
+    Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
+
     Status init_with_fixed_length(int64_t bloom_filter_length) {
         if (_inited) {
             return Status::OK();
@@ -118,17 +123,42 @@ public:
     }
 
     Status merge(BloomFilterFuncBase* bloomfilter_func) {
-        auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-        if (bloomfilter_func == nullptr) {
-            _bloom_filter.reset(BloomFilterAdaptor::create());
+        // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
+        // call for `merge` function. So we just reuse this bloom filter, and we don't need to
+        // allocate memory again.
+        if (_inited) {
+            DCHECK(bloomfilter_func != nullptr);
+            auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+            if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
+                LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
+                             << _bloom_filter_alloced << ", expected allocated bytes = "
+                             << other_func->_bloom_filter_alloced;
+                return Status::InvalidArgument("bloom filter size invalid");
+            }
+            return _bloom_filter->merge(other_func->_bloom_filter.get());
         }
-        if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-            LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
-                         << _bloom_filter_alloced
-                         << ", expected allocated bytes = " << other_func->_bloom_filter_alloced;
-            return Status::InvalidArgument("bloom filter size invalid");
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            if (!_inited) {
+                auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+                DCHECK(_bloom_filter == nullptr);
+                DCHECK(bloomfilter_func != nullptr);
+                _bloom_filter = bloomfilter_func->_bloom_filter;
+                _bloom_filter_alloced = other_func->_bloom_filter_alloced;
+                _inited = true;
+                return Status::OK();
+            } else {
+                DCHECK(bloomfilter_func != nullptr);
+                auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+                if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
+                    LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
+                                 << _bloom_filter_alloced << ", expected allocated bytes = "
+                                 << other_func->_bloom_filter_alloced;
+                    return Status::InvalidArgument("bloom filter size invalid");
+                }
+                return _bloom_filter->merge(other_func->_bloom_filter.get());
+            }
         }
-        return _bloom_filter->merge(other_func->_bloom_filter.get());
     }
 
     Status assign(const char* data, int len) {
@@ -175,6 +205,7 @@ protected:
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited;
     std::mutex _lock;
+    int64_t _bloom_filter_length;
 };
 
 template <class T>
@@ -435,9 +466,7 @@ private:
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     bool _has_calculate_filter = false;
-    // loop size must be power of 2
-    constexpr static int64_t _loop_size = 8192;
     // if filter rate less than this, bloom filter will set always true
-    constexpr static double _expect_filter_rate = 0.2;
+    constexpr static double _expect_filter_rate = 0.4;
 };
 } // namespace doris

@@ -397,8 +397,9 @@ public class EsUtil {
             case "integer":
                 return Type.INT;
             case "long":
-            case "unsigned_long":
                 return Type.BIGINT;
+            case "unsigned_long":
+                return Type.LARGEINT;
             case "float":
             case "half_float":
                 return Type.FLOAT;

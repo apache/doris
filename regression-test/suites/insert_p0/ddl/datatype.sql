@@ -1,4 +1,4 @@
-CREATE TABLE `datatype` (
+CREATE TABLE IF NOT EXISTS `datatype` (
     c_bigint bigint,
     c_double double,
     c_string string,

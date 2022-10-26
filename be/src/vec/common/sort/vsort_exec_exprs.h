@@ -37,12 +37,6 @@ public:
     // Initialize the expressions from a TSortInfo using the specified pool.
     Status init(const TSortInfo& sort_info, ObjectPool* pool);
 
-    // Initialize the ordering and (optionally) materialization expressions from the thrift
-    // TExprs into the specified pool. sort_tuple_slot_exprs is NULL if the tuple is not
-    // materialized.
-    Status init(const std::vector<TExpr>& ordering_exprs,
-                const std::vector<TExpr>* sort_tuple_slot_exprs, ObjectPool* pool);
-
     // prepare all expressions used for sorting and tuple materialization.
     Status prepare(RuntimeState* state, const RowDescriptor& child_row_desc,
                    const RowDescriptor& output_row_desc);
@@ -69,6 +63,10 @@ public:
 
     bool need_materialize_tuple() const { return _materialize_tuple; }
 
+    const std::vector<bool>& get_convert_nullable_flags() const {
+        return _need_convert_to_nullable_flags;
+    }
+
 private:
     // Create two VExprContexts for evaluating over the TupleRows.
     std::vector<VExprContext*> _lhs_ordering_expr_ctxs;
@@ -83,11 +81,21 @@ private:
     // _materialize_tuple is true.
     std::vector<VExprContext*> _sort_tuple_slot_expr_ctxs;
 
+    // for some reason, _sort_tuple_slot_expr_ctxs is not-null but _lhs_ordering_expr_ctxs is nullable
+    // this flag list would be used to convert column to nullable.
+    std::vector<bool> _need_convert_to_nullable_flags;
+
     // Initialize directly from already-created VExprContexts. Callers should manually call
     // Prepare(), Open(), and Close() on input VExprContexts (instead of calling the
     // analogous functions in this class). Used for testing.
     Status init(const std::vector<VExprContext*>& lhs_ordering_expr_ctxs,
                 const std::vector<VExprContext*>& rhs_ordering_expr_ctxs);
+
+    // Initialize the ordering and (optionally) materialization expressions from the thrift
+    // TExprs into the specified pool. sort_tuple_slot_exprs is NULL if the tuple is not
+    // materialized.
+    Status init(const std::vector<TExpr>& ordering_exprs,
+                const std::vector<TExpr>* sort_tuple_slot_exprs, ObjectPool* pool);
 };
 
 } // namespace vectorized

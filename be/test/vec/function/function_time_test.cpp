@@ -1620,6 +1620,47 @@ TEST(VTimestampFunctionsTest, dayname_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, datetrunc_test) {
+    std::string func_name = "date_trunc";
+    {
+        InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::String};
+
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("second")},
+                             str_to_date_time("2022-10-08 11:44:23")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("minute")},
+                             str_to_date_time("2022-10-08 11:44:00")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("hour")},
+                             str_to_date_time("2022-10-08 11:00:00")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("day")},
+                             str_to_date_time("2022-10-08 00:00:00")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("month")},
+                             str_to_date_time("2022-10-01 00:00:00")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("year")},
+                             str_to_date_time("2022-01-01 00:00:00")}};
+
+        check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String};
+
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23.123"), std::string("second")},
+                             str_to_datetime_v2("2022-10-08 11:44:23.000", "%Y-%m-%d %H:%i:%s.%f")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("minute")},
+                             str_to_datetime_v2("2022-10-08 11:44:00", "%Y-%m-%d %H:%i:%s")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("hour")},
+                             str_to_datetime_v2("2022-10-08 11:00:00", "%Y-%m-%d %H:%i:%s")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("day")},
+                             str_to_datetime_v2("2022-10-08 00:00:00", "%Y-%m-%d %H:%i:%s")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("month")},
+                             str_to_datetime_v2("2022-10-01 00:00:00", "%Y-%m-%d %H:%i:%s")},
+                            {{std::string("2022-10-08 11:44:23"), std::string("year")},
+                             str_to_datetime_v2("2022-01-01 00:00:00", "%Y-%m-%d %H:%i:%s")}};
+
+        check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set);
+    }
+}
+
 TEST(VTimestampFunctionsTest, hours_add_v2_test) {
     std::string func_name = "hours_add";
 

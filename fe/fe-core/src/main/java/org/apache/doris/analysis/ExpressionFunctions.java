@@ -120,6 +120,7 @@ public enum ExpressionFunctions {
             if (!(invoker.getSignature().returnType.isDate() && signature.getReturnType().isDateV2())
                     && !(invoker.getSignature().returnType.isDatetime() && signature.getReturnType().isDatetimeV2())
                     && !(invoker.getSignature().returnType.isDecimalV2() && signature.getReturnType().isDecimalV3())
+                    && !(invoker.getSignature().returnType.isDecimalV2() && signature.getReturnType().isDecimalV2())
                     && !invoker.getSignature().returnType.equals(signature.getReturnType())) {
                 continue;
             }
@@ -135,6 +136,7 @@ public enum ExpressionFunctions {
                 if (!(argTypes1[i].isDate() && argTypes2[i].isDateV2())
                         && !(argTypes1[i].isDatetime() && argTypes2[i].isDatetimeV2())
                         && !(argTypes1[i].isDecimalV2() && argTypes2[i].isDecimalV3())
+                        && !(argTypes1[i].isDecimalV2() && argTypes2[i].isDecimalV2())
                         && !argTypes1[i].equals(argTypes2[i])) {
                     match = false;
                     break;

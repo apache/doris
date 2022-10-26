@@ -102,8 +102,6 @@ order by
     numwait desc,
     t4.s_name
 limit 100;
-
-
     """
 
 }

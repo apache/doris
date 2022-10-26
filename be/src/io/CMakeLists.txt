@@ -41,6 +41,7 @@ set(IO_FILES
     fs/s3_file_reader.cpp
     fs/s3_file_system.cpp
     fs/s3_file_writer.cpp
+    cache/dummy_file_cache.cpp
     cache/file_cache.cpp
     cache/file_cache_manager.cpp
     cache/sub_file_cache.cpp

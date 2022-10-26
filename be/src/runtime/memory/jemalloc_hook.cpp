@@ -18,6 +18,14 @@
 #include "jemalloc/jemalloc.h"
 #include "runtime/thread_context.h"
 
+#ifndef __THROW
+#if __cplusplus
+#define __THROW noexcept
+#else
+#define __THROW
+#endif
+#endif
+
 extern "C" {
 void* doris_malloc(size_t size) __THROW {
     MEM_MALLOC_HOOK(je_nallocx(size, 0));
@@ -37,7 +45,11 @@ void* doris_realloc(void* p, size_t size) __THROW {
     if (UNLIKELY(size == 0)) {
         return nullptr;
     }
+
+#if USE_MEM_TRACKER
     int64_t old_size = je_malloc_usable_size(p);
+#endif
+
     MEM_MALLOC_HOOK(je_nallocx(size, 0) - old_size);
     void* ptr = je_realloc(p, size);
     if (UNLIKELY(ptr == nullptr)) {
@@ -126,6 +138,7 @@ size_t doris_malloc_usable_size(void* ptr) __THROW {
     return ret;
 }
 
+#ifndef __APPLE__
 #define ALIAS(doris_fn) __attribute__((alias(#doris_fn), used))
 void* malloc(size_t size) __THROW ALIAS(doris_malloc);
 void free(void* p) __THROW ALIAS(doris_free);
@@ -138,4 +151,49 @@ void* valloc(size_t size) __THROW ALIAS(doris_valloc);
 void* pvalloc(size_t size) __THROW ALIAS(doris_pvalloc);
 int posix_memalign(void** r, size_t a, size_t s) __THROW ALIAS(doris_posix_memalign);
 size_t malloc_usable_size(void* ptr) __THROW ALIAS(doris_malloc_usable_size);
+#else
+void* malloc(size_t size) {
+    return doris_malloc(size);
+}
+
+void free(void* p) {
+    return doris_free(p);
+}
+
+void* realloc(void* p, size_t size) {
+    return doris_realloc(p, size);
+}
+
+void* calloc(size_t n, size_t size) {
+    return doris_calloc(n, size);
+}
+
+void cfree(void* ptr) {
+    return doris_cfree(ptr);
+}
+
+void* memalign(size_t align, size_t size) {
+    return doris_memalign(align, size);
+}
+
+void* aligned_alloc(size_t align, size_t size) {
+    return doris_aligned_alloc(align, size);
+}
+
+void* valloc(size_t size) {
+    return doris_valloc(size);
+}
+
+void* pvalloc(size_t size) {
+    return doris_pvalloc(size);
+}
+
+int posix_memalign(void** r, size_t a, size_t s) {
+    return doris_posix_memalign(r, a, s);
+}
+
+size_t malloc_usable_size(void* ptr) {
+    return doris_malloc_usable_size(ptr);
+}
+#endif
 }

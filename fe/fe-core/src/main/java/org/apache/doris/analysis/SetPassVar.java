@@ -22,7 +22,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -31,13 +30,12 @@ import com.google.common.base.Strings;
 
 public class SetPassVar extends SetVar {
     private UserIdentity userIdent;
-    private String passwdParam;
-    private byte[] passwdBytes;
+    private PassVar passVar;
 
     // The password in parameter is a hashed password.
-    public SetPassVar(UserIdentity userIdent, String passwd) {
+    public SetPassVar(UserIdentity userIdent, PassVar passVar) {
         this.userIdent = userIdent;
-        this.passwdParam = passwd;
+        this.passVar = passVar;
     }
 
     public UserIdentity getUserIdent() {
@@ -45,7 +43,7 @@ public class SetPassVar extends SetVar {
     }
 
     public byte[] getPassword() {
-        return passwdBytes;
+        return passVar.getScrambled();
     }
 
     @Override
@@ -68,7 +66,9 @@ public class SetPassVar extends SetVar {
         }
 
         // Check password
-        passwdBytes = MysqlPassword.checkPassword(passwdParam);
+        if (passVar != null) {
+            passVar.analyze();
+        }
 
         // check privs.
         // 1. this is user itself

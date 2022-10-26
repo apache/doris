@@ -152,18 +152,10 @@ public class Analyzer {
 
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
-
-    public boolean isInlineView() {
-        return isInlineView;
-    }
-
-    public void setInlineView(boolean inlineView) {
-        isInlineView = inlineView;
-    }
-
     // Flag indicating if this analyzer instance belongs to an inlineview.
     private boolean isInlineView = false;
 
+    private String explicitViewAlias;
     // Flag indicating whether this analyzer belongs to a WITH clause view.
     private boolean isWithClause = false;
 
@@ -519,6 +511,18 @@ public class Analyzer {
         return callDepth;
     }
 
+    public void setInlineView(boolean inlineView) {
+        isInlineView = inlineView;
+    }
+
+    public void setExplicitViewAlias(String alias) {
+        explicitViewAlias = alias;
+    }
+
+    public String getExplicitViewAlias() {
+        return explicitViewAlias;
+    }
+
     /**
      * Registers a local view definition with this analyzer. Throws an exception if a view
      * definition with the same alias has already been registered or if the number of
@@ -806,7 +810,7 @@ public class Analyzer {
             // ===================================================
             // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
             // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
-            if (d == null && isInlineView) {
+            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)) {
                 d = resolveColumnRef(colName);
             }
         }
@@ -1878,8 +1882,13 @@ public class Analyzer {
         Type compatibleType = exprs.get(0).getType();
         for (int i = 1; i < exprs.size(); ++i) {
             exprs.get(i).analyze(this);
-            // TODO(zc)
-            compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
+            if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
+                    && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
+                // If string literal can be converted to dateV2, we use datev2 as the compatible type
+                // instead of datetimev2.
+            } else {
+                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
+            }
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.mysql.MysqlServer;
 import org.apache.doris.mysql.nio.NMysqlServer;
 
 import org.apache.logging.log4j.LogManager;
@@ -32,21 +31,16 @@ public class QeService {
 
     private int port;
     // MySQL protocol service
-    private MysqlServer mysqlServer;
+    private NMysqlServer mysqlServer;
 
     @Deprecated
     public QeService(int port) {
         this.port = port;
     }
 
-    public QeService(int port, boolean nioEnabled, ConnectScheduler scheduler) {
-
+    public QeService(int port, ConnectScheduler scheduler) {
         this.port = port;
-        if (nioEnabled) {
-            mysqlServer = new NMysqlServer(port, scheduler);
-        } else {
-            mysqlServer = new MysqlServer(port, scheduler);
-        }
+        this.mysqlServer = new NMysqlServer(port, scheduler);
     }
 
     public void start() throws Exception {
@@ -64,13 +58,4 @@ public class QeService {
         }
         LOG.info("QE service start.");
     }
-
-    public MysqlServer getMysqlServer() {
-        return mysqlServer;
-    }
-
-    public void setMysqlServer(MysqlServer mysqlServer) {
-        this.mysqlServer = mysqlServer;
-    }
-
 }

@@ -37,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -81,7 +82,8 @@ public class OdbcTable extends Table {
     }
 
     private static String psqlProperName(String name) {
-        return "\"" + name + "\"";
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
     }
 
     public static String databaseProperName(TOdbcTableType tableType, String name) {

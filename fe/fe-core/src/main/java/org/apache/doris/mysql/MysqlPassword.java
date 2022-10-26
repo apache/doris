@@ -20,6 +20,7 @@ package org.apache.doris.mysql;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -278,5 +279,39 @@ public class MysqlPassword {
         }
 
         return passwd;
+    }
+
+    public static final String REG_NUMBER = ".*\\d+.*";
+    public static final String REG_UPPERCASE = ".*[A-Z]+.*";
+    public static final String REG_LOWERCASE = ".*[a-z]+.*";
+    public static final String REG_SYMBOL = ".*[~!@#$%^&*()_+|<>,.?/:;'\\[\\]{}\"]+.*";
+    public static final int MIN_PASSWORD_LEN = 8;
+
+    public static void validatePlainPassword(long validaPolicy, String text) throws AnalysisException {
+        if (validaPolicy == GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG) {
+            if (Strings.isNullOrEmpty(text) || text.length() < MIN_PASSWORD_LEN) {
+                throw new AnalysisException(
+                        "Violate password validation policy: STRONG. The password must be at least 8 characters");
+            }
+
+            int i = 0;
+            if (text.matches(REG_NUMBER)) {
+                i++;
+            }
+            if (text.matches(REG_LOWERCASE)) {
+                i++;
+            }
+            if (text.matches(REG_UPPERCASE)) {
+                i++;
+            }
+            if (text.matches(REG_SYMBOL)) {
+                i++;
+            }
+            if (i < 3) {
+                throw new AnalysisException(
+                        "Violate password validation policy: STRONG. The password must contain at least 3 types of "
+                                + "numbers, uppercase letters, lowercase letters and special characters.");
+            }
+        }
     }
 }

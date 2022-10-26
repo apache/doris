@@ -418,7 +418,7 @@ public:
               _filter_id(filter_id) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
-    Status init(const RuntimeFilterParams* params, bool init_bloom_filter) {
+    Status init(const RuntimeFilterParams* params) {
         _max_in_num = params->max_in_num;
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
@@ -432,20 +432,14 @@ public:
         case RuntimeFilterType::BLOOM_FILTER: {
             _is_bloomfilter = true;
             _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
-            if (init_bloom_filter) {
-                return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
-            } else {
-                return Status::OK();
-            }
+            _bloomfilter_func->set_length(params->bloom_filter_size);
+            return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             _hybrid_set.reset(create_set(_column_return_type));
             _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
-            if (init_bloom_filter) {
-                return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
-            } else {
-                return Status::OK();
-            }
+            _bloomfilter_func->set_length(params->bloom_filter_size);
+            return Status::OK();
         }
         default:
             return Status::InvalidArgument("Unknown Filter type");
@@ -469,11 +463,7 @@ public:
         }
     }
 
-    BloomFilterFuncBase* get_bloomfilter() const {
-        DCHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER ||
-               _filter_type == RuntimeFilterType::BLOOM_FILTER);
-        return _bloomfilter_func.get();
-    }
+    BloomFilterFuncBase* get_bloomfilter() const { return _bloomfilter_func.get(); }
 
     void insert(const void* data) {
         switch (_filter_type) {
@@ -1073,7 +1063,7 @@ Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRunt
     *res = pool->add(new IRuntimeFilter(state, pool));
     (*res)->set_role(role);
     UniqueId fragment_instance_id(state->fragment_instance_id());
-    return (*res)->init_with_desc(desc, query_options, fragment_instance_id, true, node_id);
+    return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id);
 }
 
 void IRuntimeFilter::insert(const void* data) {
@@ -1205,8 +1195,7 @@ BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                                      UniqueId fragment_instance_id, bool init_bloom_filter,
-                                      int node_id) {
+                                      UniqueId fragment_instance_id, int node_id) {
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
@@ -1254,7 +1243,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     }
 
     _wrapper = _pool->add(new RuntimePredicateWrapper(_state, _pool, &params));
-    return _wrapper->init(&params, init_bloom_filter);
+    return _wrapper->init(&params);
 }
 
 Status IRuntimeFilter::serialize(PMergeFilterRequest* request, void** data, int* len) {
@@ -1413,7 +1402,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
 
     switch (column_type) {
     case TYPE_BOOLEAN: {
-        batch_copy<int32_t>(filter, it, [](PColumnValue* column, const int32_t* value) {
+        batch_copy<bool>(filter, it, [](PColumnValue* column, const bool* value) {
             column->set_boolval(*value);
         });
         return;

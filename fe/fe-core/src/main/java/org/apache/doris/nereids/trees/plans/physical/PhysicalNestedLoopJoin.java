@@ -42,9 +42,9 @@ public class PhysicalNestedLoopJoin<
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public PhysicalNestedLoopJoin(JoinType joinType,
-            List<Expression> hashJoinConjuncts, Optional<Expression> condition,
+            List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
             LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts, condition,
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts,
                 Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
@@ -53,13 +53,12 @@ public class PhysicalNestedLoopJoin<
      *
      * @param joinType Which join type, left semi join, inner join...
      * @param hashJoinConjuncts conjunct list could use for build hash table in hash join
-     * @param condition join condition except hash join conjuncts
      */
     public PhysicalNestedLoopJoin(JoinType joinType,
-            List<Expression> hashJoinConjuncts, Optional<Expression> condition,
+            List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, condition,
+        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
@@ -68,13 +67,13 @@ public class PhysicalNestedLoopJoin<
      *
      * @param joinType Which join type, left semi join, inner join...
      * @param hashJoinConjuncts conjunct list could use for build hash table in hash join
-     * @param condition join condition except hash join conjuncts
      */
-    public PhysicalNestedLoopJoin(JoinType joinType, List<Expression> hashJoinConjuncts, Optional<Expression> condition,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, LEFT_CHILD_TYPE leftChild,
+    public PhysicalNestedLoopJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            StatsDeriveResult statsDeriveResult, LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, condition,
+        super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
                 groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
     }
 
@@ -88,7 +87,7 @@ public class PhysicalNestedLoopJoin<
         // TODO: Maybe we could pull up this to the abstract class in the future.
         return Utils.toSqlString("PhysicalNestedLoopJoin",
                 "type", joinType,
-                "otherJoinCondition", otherJoinCondition
+                "otherJoinCondition", otherJoinConjuncts
         );
     }
 
@@ -96,21 +95,21 @@ public class PhysicalNestedLoopJoin<
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinCondition, getLogicalProperties(), children.get(0), children.get(1));
+                hashJoinConjuncts, otherJoinConjuncts, getLogicalProperties(), children.get(0), children.get(1));
     }
 
     @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withGroupExpression(
             Optional<GroupExpression> groupExpression) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinCondition, groupExpression, getLogicalProperties(), left(), right());
+                hashJoinConjuncts, otherJoinConjuncts, groupExpression, getLogicalProperties(), left(), right());
     }
 
     @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withLogicalProperties(
             Optional<LogicalProperties> logicalProperties) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinCondition, Optional.empty(),
+                hashJoinConjuncts, otherJoinConjuncts, Optional.empty(),
                 logicalProperties.get(), left(), right());
     }
 
@@ -118,7 +117,7 @@ public class PhysicalNestedLoopJoin<
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinCondition, Optional.empty(),
+                hashJoinConjuncts, otherJoinConjuncts, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
     }
 }

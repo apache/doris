@@ -24,6 +24,7 @@
 #include "util/proto_util.h"
 #include "util/time.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_jsonb.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -353,7 +354,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         _add_block_closure->cntl.http_request().set_content_type("application/json");
 
         {
-            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, NULL,
                                                              &_add_block_closure->result,
                                                              _add_block_closure);
@@ -361,7 +362,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     } else {
         _add_block_closure->cntl.http_request().Clear();
         {
-            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
             _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
                                            &_add_block_closure->result, _add_block_closure);
         }
@@ -613,7 +614,11 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         const auto column_string =
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
 
-        size_t limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        size_t limit = config::string_type_length_soft_limit_bytes;
+        // when type.len is negative, std::min will return overflow value, so we need to check it
+        if (type.len > 0) {
+            limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        }
         for (size_t j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {
@@ -639,6 +644,22 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                         fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                     }
                     RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
+                }
+            }
+        }
+        break;
+    }
+    case TYPE_JSONB: {
+        const auto column_jsonb =
+                assert_cast<const vectorized::ColumnJsonb*>(real_column_ptr.get());
+        for (size_t j = 0; j < column->size(); ++j) {
+            if (!filter_bitmap->Get(j)) {
+                auto str_val = column_jsonb->get_data_at(j);
+                bool invalid = str_val.size == 0;
+                if (invalid) {
+                    error_msg.clear();
+                    fmt::format_to(error_msg, "{}", "jsonb with size 0 is invalid");
+                    RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
                 }
             }
         }

@@ -204,7 +204,7 @@ INTO OUTFILE "file_path"
     在cos上验证
     
         1. 不存在的path会自动创建
-            2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
+        2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
     
 6. 使用 s3 协议导出到 bos，并且并发导出开启。
     

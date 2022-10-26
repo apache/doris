@@ -126,14 +126,14 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
                 )
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter(expr, join);
+        LogicalFilter root = new LogicalFilter<>(expr, join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
                         logicalFilter()
                                 .when(filter -> verifySingleTableExpression2(filter.getPredicates()))
                 );
-        Assertions.assertTrue(studentGender != null);
+        Assertions.assertNotNull(studentGender);
     }
 
     private boolean verifySingleTableExpression2(Expression expr) {
@@ -163,14 +163,14 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
                 new EqualTo(studentGender, new IntegerLiteral(1))
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course);
-        LogicalFilter root = new LogicalFilter(expr, join);
+        LogicalFilter root = new LogicalFilter<>(expr, join);
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
                         logicalFilter()
                                 .when(filter -> verifySingleTableExpression3(filter.getPredicates()))
                 );
-        Assertions.assertTrue(studentGender != null);
+        Assertions.assertNotNull(studentGender);
     }
 
     private boolean verifySingleTableExpression3(Expression expr) {

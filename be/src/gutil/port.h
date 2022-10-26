@@ -12,7 +12,13 @@
 #include <string.h> // for memcpy()
 
 #if defined(__APPLE__)
-#include <unistd.h> // for getpagesize() on mac
+// for getpagesize() on mac
+#ifndef _POSIX_C_SOURCE
+#include <unistd.h>
+#else
+#include <mach/vm_page_size.h>
+#endif
+
 #elif defined(OS_CYGWIN)
 #include <malloc.h> // for memalign()
 #endif
@@ -227,7 +233,9 @@ namespace std {}     // namespace std
 using namespace std; // Just like VC++, we need a using here.
 
 // Doesn't exist on OSX; used in google.cc for send() to mean "no flags".
+#ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
+#endif
 
 // No SIGPWR on MacOSX.  SIGINFO seems suitably obscure.
 #undef GOOGLE_OBSCURE_SIGNAL
@@ -616,7 +624,12 @@ inline void* aligned_malloc(size_t size, int minimum_alignment) {
     // mac allocs are already 16-byte aligned.
     if (minimum_alignment <= 16) return malloc(size);
     // next, try to return page-aligned memory. perhaps overkill
-    if (minimum_alignment <= getpagesize()) return valloc(size);
+    #ifndef _POSIX_C_SOURCE
+    int page_size = getpagesize();
+    #else
+    int page_size = vm_page_size;
+    #endif
+    if (minimum_alignment <= page_size) return valloc(size);
     // give up
     return NULL;
 #elif defined(OS_CYGWIN)

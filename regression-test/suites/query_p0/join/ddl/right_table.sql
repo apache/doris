@@ -1,4 +1,4 @@
-CREATE TABLE right_table (
+CREATE TABLE IF NOT EXISTS right_table (
 k1 int(11) NULL COMMENT "",
 no varchar(50) NOT NULL COMMENT ""
 ) ENGINE=OLAP

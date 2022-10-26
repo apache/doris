@@ -37,8 +37,8 @@ JDBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 
 具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 
-
 #### 1. 通过JDBC_Resource来创建JDBC外表 
+
 ```sql
 CREATE EXTERNAL RESOURCE jdbc_resource
 properties (
@@ -112,6 +112,27 @@ set enable_odbc_transcation = true;
 | PostgreSQL版本 | PostgreSQL JDBC驱动版本 |
 | -------------- | ----------------------- |
 | 14.5           | postgresql-42.5.0.jar   |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_pg
+properties (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url"="jdbc:postgresql://127.0.0.1:5442/postgres?currentSchema=doris_test",
+    "driver_url"="http://127.0.0.1:8881/postgresql-42.5.0.jar",
+    "driver_class"="org.postgresql.Driver"
+);
+
+CREATE EXTERNAL TABLE `ext_pg` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+"resource" = "jdbc_pg",
+"table" = "pg_tbl",
+"table_type"="postgresql"
+);
+```
 
 #### 3.SQLServer测试
 | SQLserver版本 | SQLserver JDBC驱动版本     |

@@ -124,7 +124,7 @@ public:
     void Rewind(int num_bits);
 
     // Seek to a specific bit in the buffer
-    void SeekToBit(uint stream_position);
+    void SeekToBit(unsigned int stream_position);
 
     // Maximum byte length of a vlq encoded int
     static const int MAX_VLQ_BYTE_LEN = 5;

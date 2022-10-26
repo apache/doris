@@ -192,6 +192,7 @@ public class ConnectProcessor {
             } else if (ctx.getState().getStateType() == MysqlStateType.OK) {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd(ctx.getDatabase()).update(elapseMs);
                 if (elapseMs > Config.qe_slow_log_ms) {
                     String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                     ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
@@ -248,7 +249,7 @@ public class ConnectProcessor {
                 .setTimestamp(System.currentTimeMillis())
                 .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setDb(ctx.getDatabase())
+                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
@@ -264,10 +265,10 @@ public class ConnectProcessor {
                 try {
                     stmts = nereidsParser.parseSQL(originStmt);
                 } catch (Exception e) {
-                    nereidsParseException = e;
                     // TODO: We should catch all exception here until we support all query syntax.
-                    LOG.warn(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt, e);
+                    nereidsParseException = e;
+                    LOG.info(" Fallback to stale planner."
+                            + " Nereids cannot process this statement: \"{}\".", originStmt);
                 }
             }
             // stmts == null when Nereids cannot planner this query or Nereids is disabled.
@@ -283,7 +284,7 @@ public class ConnectProcessor {
                 parsedStmt = stmts.get(i);
                 if (parsedStmt instanceof SelectStmt) {
                     if (!ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                        throw new Exception(String.format("SQL: {}", parsedStmt.toSql()), nereidsParseException);
+                        throw new Exception(String.format("SQL: %s", parsedStmt.toSql()), nereidsParseException);
                     }
                 }
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
@@ -561,9 +562,6 @@ public class ConnectProcessor {
             }
             if (request.isSetQueryTimeout()) {
                 ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
-            }
-            if (request.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
             }
         }
 

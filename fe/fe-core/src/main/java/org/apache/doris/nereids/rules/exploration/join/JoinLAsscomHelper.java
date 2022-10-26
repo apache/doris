@@ -89,7 +89,7 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
             newLeftProjects.addAll(cOutputSet);
         }
         LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                newBottomHashJoinConjuncts, ExpressionUtils.optionalAnd(newBottomNonHashJoinConjuncts), a, c,
+                newBottomHashJoinConjuncts, newBottomNonHashJoinConjuncts, a, c,
                 bottomJoin.getJoinReorderContext());
         newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
         newBottomJoin.getJoinReorderContext().setHasCommute(false);
@@ -106,8 +106,7 @@ class JoinLAsscomHelper extends ThreeJoinHelper {
         }
 
         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                newTopHashJoinConjuncts,
-                ExpressionUtils.optionalAnd(newTopNonHashJoinConjuncts), left, right,
+                newTopHashJoinConjuncts, newTopNonHashJoinConjuncts, left, right,
                 topJoin.getJoinReorderContext());
         newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 

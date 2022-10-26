@@ -144,29 +144,41 @@ WITH BROKER broker_name
   )
   ```
 
-- `load_properties`
+  - `load_properties`
 
-  指定导入的相关参数。目前支持以下参数：
+    指定导入的相关参数。目前支持以下参数：
 
-  - `timeout`
+    - `timeout`
 
-    导入超时时间。默认为 4 小时。单位秒。
+      导入超时时间。默认为 4 小时。单位秒。
 
-  - `max_filter_ratio`
+    - `max_filter_ratio`
 
-    最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。取值范围为 0 到 1。
+      最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。取值范围为 0 到 1。
 
-  - `exec_mem_limit`
+    - `exec_mem_limit`
 
-    导入内存限制。默认为 2GB。单位为字节。
+      导入内存限制。默认为 2GB。单位为字节。
 
-  - `strict_mode`
+    - `strict_mode`
 
-    是否对数据进行严格限制。默认为 false。
+      是否对数据进行严格限制。默认为 false。
 
-  - `timezone`
+    - `timezone`
 
-    指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
+      指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
+
+    - `load_parallelism`
+
+      导入并发度，默认为1。调大导入并发度会启动多个执行计划同时执行导入任务，加快导入速度。 
+
+    - `send_batch_parallelism`
+    
+      用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
+    
+    - `load_to_single_tablet`
+      
+      布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
 ### Example
 

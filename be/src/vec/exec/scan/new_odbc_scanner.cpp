@@ -26,8 +26,8 @@ static const std::string NEW_SCANNER_TYPE = "NewOdbcScanner";
 
 namespace doris::vectorized {
 NewOdbcScanner::NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int64_t limit,
-                               MemTracker* mem_tracker, const TOdbcScanNode& odbc_scan_node)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, mem_tracker),
+                               const TOdbcScanNode& odbc_scan_node)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _is_init(false),
           _odbc_eof(false),
           _table_name(odbc_scan_node.table_name),
@@ -47,7 +47,6 @@ Status NewOdbcScanner::prepare(RuntimeState* state) {
         return Status::InternalError("input pointer is null.");
     }
 
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -89,7 +88,6 @@ Status NewOdbcScanner::open(RuntimeState* state) {
 
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(_odbc_connector->open());
     RETURN_IF_ERROR(_odbc_connector->query());
     // check materialize slot num

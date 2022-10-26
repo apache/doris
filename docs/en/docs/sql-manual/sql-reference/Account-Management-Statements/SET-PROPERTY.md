@@ -54,15 +54,13 @@ Super user privileges:
 
  exec_mem_limit: Limit the memory usage of the query. See the introduction to the session variable `exec_mem_limit` for details. -1 means not set.
 
- load_mem_limit: Limit imported memory usage. See the introduction to the session variable `load_mem_limit` for details. -1 means not set.
-
  resource.cpu_share: CPU resource allocation. (obsolete)
 
  load_cluster.{cluster_name}.priority: Assign priority to the specified cluster, which can be HIGH or NORMAL
 
  resource_tags: Specifies the user's resource tag permissions.
 
-    Note: If the three attributes `cpu_resource_limit`, `exec_mem_limit`, `load_mem_limit` are not set, the value in the session variable will be used by default.
+    Note: If the attributes `cpu_resource_limit`, `exec_mem_limit` are not set, the value in the session variable will be used by default.
 
 Ordinary user rights:
 
@@ -156,12 +154,6 @@ Data, etl program automatically retains the next use.
 
     ```sql
     SET PROPERTY FOR 'jack' 'exec_mem_limit' = '2147483648';
-    ````
-
-13. Modify the user's import memory usage limit, in bytes
-
-    ```sql
-    SET PROPERTY FOR 'jack' 'load_mem_limit' = '2147483648';
     ````
 
 ### Keywords

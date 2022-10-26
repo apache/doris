@@ -34,7 +34,7 @@ class NewOlapScanNode;
 class NewOlapScanner : public VScanner {
 public:
     NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   bool need_agg_finalize, const TPaloScanRange& scan_range, MemTracker* tracker);
+                   bool need_agg_finalize, const TPaloScanRange& scan_range);
 
     Status open(RuntimeState* state) override;
 

@@ -107,17 +107,18 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         store_paths.size() > 0) {
         _scan_thread_pool = new PriorityWorkStealingThreadPool(
                 config::doris_scanner_thread_pool_thread_num, store_paths.size(),
-                config::doris_scanner_thread_pool_queue_size);
+                config::doris_scanner_thread_pool_queue_size, "olap_scanner");
         LOG(INFO) << "scan thread pool use PriorityWorkStealingThreadPool";
     } else {
         _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                                   config::doris_scanner_thread_pool_queue_size);
+                                                   config::doris_scanner_thread_pool_queue_size,
+                                                   "olap_scanner");
         LOG(INFO) << "scan thread pool use PriorityThreadPool";
     }
 
-    _remote_scan_thread_pool =
-            new PriorityThreadPool(config::doris_remote_scanner_thread_pool_thread_num,
-                                   config::doris_remote_scanner_thread_pool_queue_size);
+    _remote_scan_thread_pool = new PriorityThreadPool(
+            config::doris_remote_scanner_thread_pool_thread_num,
+            config::doris_remote_scanner_thread_pool_queue_size, "remote_scan");
 
     ThreadPoolBuilder("LimitedScanThreadPool")
             .set_min_threads(config::doris_scanner_thread_pool_thread_num)
@@ -131,13 +132,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
 
-    ThreadPoolBuilder("DownloadCacheThreadPool")
-            .set_min_threads(config::download_cache_thread_pool_thread_num)
-            .set_max_threads(config::download_cache_thread_pool_thread_num)
-            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
-            .build(&_download_cache_thread_pool);
-    set_serial_download_cache_thread_token();
-    init_download_cache_buf();
+    init_download_cache_required_components();
 
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
@@ -208,7 +203,9 @@ Status ExecEnv::_init_mem_tracker() {
             std::make_shared<MemTrackerLimiter>(global_memory_limit_bytes, "Process");
     _orphan_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Orphan", _process_mem_tracker);
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
-    thread_context()->_thread_mem_tracker_mgr->init_impl();
+    _nursery_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Nursery", _orphan_mem_tracker);
+    _bthread_mem_tracker = std::make_shared<MemTrackerLimiter>(-1, "Bthread", _orphan_mem_tracker);
+    thread_context()->_thread_mem_tracker_mgr->init();
     thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -287,7 +284,21 @@ Status ExecEnv::_init_mem_tracker() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
-    SegmentLoader::create_global_instance(config::segment_cache_capacity);
+    uint64_t fd_number = config::min_file_descriptor_number;
+    struct rlimit l;
+    int ret = getrlimit(RLIMIT_NOFILE, &l);
+    if (ret != 0) {
+        LOG(WARNING) << "call getrlimit() failed. errno=" << strerror(errno)
+                     << ", use default configuration instead.";
+    } else {
+        fd_number = static_cast<uint64_t>(l.rlim_cur);
+    }
+    // SegmentLoader caches segments in rowset granularity. So the size of
+    // opened files will greater than segment_cache_capacity.
+    uint64_t segment_cache_capacity = fd_number / 3 * 2;
+    LOG(INFO) << "segment_cache_capacity = fd_number / 3 * 2, fd_number: " << fd_number
+              << " segment_cache_capacity: " << segment_cache_capacity;
+    SegmentLoader::create_global_instance(segment_cache_capacity);
 
     // 4. init other managers
     RETURN_IF_ERROR(_disk_io_mgr->init(global_memory_limit_bytes));
@@ -322,6 +333,23 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
                                 int64_t clean_pages_limit) {
     DCHECK(_buffer_pool == nullptr);
     _buffer_pool = new BufferPool(min_page_size, capacity, clean_pages_limit);
+}
+
+void ExecEnv::init_download_cache_buf() {
+    std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
+    memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
+    _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
+            std::move(download_cache_buf);
+}
+
+void ExecEnv::init_download_cache_required_components() {
+    ThreadPoolBuilder("DownloadCacheThreadPool")
+            .set_min_threads(1)
+            .set_max_threads(config::download_cache_thread_pool_thread_num)
+            .set_max_queue_size(config::download_cache_thread_pool_queue_size)
+            .build(&_download_cache_thread_pool);
+    set_serial_download_cache_thread_token();
+    init_download_cache_buf();
 }
 
 void ExecEnv::_register_metrics() {

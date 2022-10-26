@@ -20,6 +20,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 set(VEC_FILES
+  aggregate_functions/aggregate_function_retention.cpp
   aggregate_functions/aggregate_function_window_funnel.cpp
   aggregate_functions/aggregate_function_avg.cpp
   aggregate_functions/aggregate_function_collect.cpp
@@ -150,6 +151,8 @@ set(VEC_FILES
   functions/array/function_array_except.cpp
   functions/array/function_array_intersect.cpp
   functions/array/function_array_slice.cpp
+  functions/array/function_array_difference.cpp
+  functions/array/function_array_enumerate.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -173,6 +176,7 @@ set(VEC_FILES
   functions/function_utility.cpp
   functions/comparison_equal_for_null.cpp
   functions/function_json.cpp
+  functions/function_jsonb.cpp
   functions/function_datetime_floor_ceil.cpp
   functions/functions_geo.cpp
   functions/hll_cardinality.cpp
@@ -228,10 +232,6 @@ set(VEC_FILES
   runtime/vorc_writer.cpp
   utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp
-  exec/file_arrow_scanner.cpp
-  exec/file_scanner.cpp
-  exec/file_scan_node.cpp
-  exec/file_text_scanner.cpp
   exec/format/parquet/vparquet_column_chunk_reader.cpp
   exec/format/parquet/vparquet_group_reader.cpp
   exec/format/parquet/vparquet_page_index.cpp
@@ -248,10 +248,7 @@ set(VEC_FILES
   exec/scan/scanner_scheduler.cpp
   exec/scan/new_olap_scan_node.cpp
   exec/scan/new_olap_scanner.cpp
-  exec/scan/new_file_arrow_scanner.cpp
   exec/scan/new_file_scan_node.cpp
-  exec/scan/new_file_scanner.cpp
-  exec/scan/new_file_text_scanner.cpp
   exec/scan/vfile_scanner.cpp
   exec/scan/new_odbc_scanner.cpp
   exec/scan/new_odbc_scan_node.cpp
@@ -259,6 +256,8 @@ set(VEC_FILES
   exec/scan/new_jdbc_scan_node.cpp
   exec/scan/new_es_scanner.cpp
   exec/scan/new_es_scan_node.cpp
+  exec/format/csv/csv_reader.cpp
+  exec/format/orc/vorc_reader.cpp
   )
 
 add_library(Vec STATIC

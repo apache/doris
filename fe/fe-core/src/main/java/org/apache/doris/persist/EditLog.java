@@ -279,6 +279,11 @@ public class EditLog {
                     env.replayRenamePartition(info);
                     break;
                 }
+                case OperationType.OP_RENAME_COLUMN: {
+                    TableRenameColumnInfo info = (TableRenameColumnInfo) journal.getData();
+                    env.replayRenameColumn(info);
+                    break;
+                }
                 case OperationType.OP_BACKUP_JOB: {
                     BackupJob job = (BackupJob) journal.getData();
                     env.getBackupHandler().replayAddJob(job);
@@ -879,6 +884,11 @@ public class EditLog {
                     env.getLoadManager().replayCleanLabel(log);
                     break;
                 }
+                case OperationType.OP_ALTER_USER: {
+                    final AlterUserOperationLog log = (AlterUserOperationLog) journal.getData();
+                    env.getAuth().replayAlterUser(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1215,6 +1225,10 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
     }
 
+    public void logColumnRename(TableRenameColumnInfo info) {
+        logEdit(OperationType.OP_RENAME_COLUMN, info);
+    }
+
     public void logCreateCluster(Cluster cluster) {
         logEdit(OperationType.OP_CREATE_CLUSTER, cluster);
     }
@@ -1516,5 +1530,9 @@ public class EditLog {
 
     public void logCleanLabel(CleanLabelOperationLog log) {
         logEdit(OperationType.OP_CLEAN_LABEL, log);
+    }
+
+    public void logAlterUser(AlterUserOperationLog log) {
+        logEdit(OperationType.OP_ALTER_USER, log);
     }
 }

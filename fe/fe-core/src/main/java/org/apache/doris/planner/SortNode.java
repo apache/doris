@@ -71,6 +71,8 @@ public class SortNode extends PlanNode {
 
     private boolean isUnusedExprRemoved = false;
 
+    private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
+
     /**
      * Constructor.
      */
@@ -178,7 +180,7 @@ public class SortNode extends PlanNode {
         }
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Sort: cardinality=" + cardinality);
@@ -195,7 +197,7 @@ public class SortNode extends PlanNode {
                 cardinality = Math.min(cardinality, limit);
             }
         }
-        LOG.debug("stats Sort: cardinality=" + Long.toString(cardinality));
+        LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
     }
 
     public void init(Analyzer analyzer) throws UserException {
@@ -218,10 +220,15 @@ public class SortNode extends PlanNode {
         for (int i = 0; i < slotExprs.size(); ++i) {
             resolvedTupleExprs.add(slotExprs.get(i));
             outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
+            nullabilityChangedFlags.add(slotExprs.get(i).isNullable());
         }
 
         ExprSubstitutionMap childSmap = getCombinedChildSmap();
         resolvedTupleExprs = Expr.substituteList(resolvedTupleExprs, childSmap, analyzer, false);
+
+        for (int i = 0; i < resolvedTupleExprs.size(); ++i) {
+            nullabilityChangedFlags.set(i, nullabilityChangedFlags.get(i) ^ resolvedTupleExprs.get(i).isNullable());
+        }
 
         // Remap the ordering exprs to the tuple materialized by this sort node. The mapping
         // is a composition of the childSmap and the outputSmap_ because the child node may
@@ -250,6 +257,7 @@ public class SortNode extends PlanNode {
                 for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
                     if (!slotDescriptorList.get(i).isMaterialized()) {
                         resolvedTupleExprs.remove(i);
+                        nullabilityChangedFlags.remove(i);
                     }
                 }
             }
@@ -266,6 +274,9 @@ public class SortNode extends PlanNode {
         removeUnusedExprs();
         if (resolvedTupleExprs != null) {
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+            // FIXME this is a bottom line solution for wrong nullability of resolvedTupleExprs
+            // remove the following line after nereids online
+            sortInfo.setSlotExprsNullabilityChangedFlags(nullabilityChangedFlags);
         }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
@@ -313,5 +324,9 @@ public class SortNode extends PlanNode {
         info.setSortTupleDesc(tupleDescriptor);
         info.setSortTupleSlotExprs(resolvedTupleExprs);
 
+        nullabilityChangedFlags.clear();
+        for (int i = 0; i < resolvedTupleExprs.size(); i++) {
+            nullabilityChangedFlags.add(false);
+        }
     }
 }

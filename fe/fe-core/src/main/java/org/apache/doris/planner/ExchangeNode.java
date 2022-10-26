@@ -123,7 +123,7 @@ public class ExchangeNode extends PlanNode {
     protected void computeStats(Analyzer analyzer) throws UserException {
         Preconditions.checkState(children.size() == 1);
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Exchange:" + id + ", cardinality: " + cardinality);
         }

@@ -27,10 +27,14 @@ struct NameArrayContains {
 struct NameArrayPosition {
     static constexpr auto name = "array_position";
 };
+struct NameCountEqual {
+    static constexpr auto name = "countequal";
+};
 
 void register_function_array_index(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayIndex<ArrayContainsAction, NameArrayContains>>();
     factory.register_function<FunctionArrayIndex<ArrayPositionAction, NameArrayPosition>>();
+    factory.register_function<FunctionArrayIndex<ArrayCountEqual, NameCountEqual>>();
 }
 
 } // namespace doris::vectorized

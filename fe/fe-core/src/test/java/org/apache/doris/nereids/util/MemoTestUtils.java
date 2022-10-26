@@ -50,7 +50,9 @@ public class MemoTestUtils {
     }
 
     public static StatementContext createStatementContext(ConnectContext connectContext, String sql) {
-        return new StatementContext(connectContext, new OriginStatement(sql, 0));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        return statementContext;
     }
 
     public static CascadesContext createCascadesContext(String sql) {

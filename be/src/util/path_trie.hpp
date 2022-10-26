@@ -37,6 +37,22 @@ public:
         }
     }
 
+    class Allocator {
+    public:
+        using value_type = T;
+
+        T* allocate(size_t n) { return static_cast<T*>(::operator new(sizeof(T) * n)); }
+
+        template <typename... Args>
+        void construct(T* p, Args&&... args) {
+            new (p) T(std::forward<Args>(args)...);
+        }
+
+        void destroy(T* p) { p->~T(); }
+
+        void deallocate(T* p, size_t n) { ::operator delete(p); }
+    };
+
     class TrieNode {
     public:
         TrieNode(const std::string& key, const std::string& wildcard)
@@ -199,7 +215,7 @@ public:
         std::string _wildcard;
         std::string _named_wildcard;
         std::map<std::string, TrieNode*> _children;
-        std::allocator<T> _allocator;
+        Allocator _allocator;
     };
 
     bool insert(const std::string& path, const T& value) {
@@ -270,7 +286,7 @@ private:
     TrieNode _root;
     T* _root_value;
     char _separator;
-    std::allocator<T> _allocator;
+    Allocator _allocator;
 };
 
 } // namespace doris

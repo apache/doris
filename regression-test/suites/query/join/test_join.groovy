@@ -508,6 +508,11 @@ suite("test_join", "query,p0") {
             right outer join ${tbName3} c on a.k3 = c.k3 and b.k1 = c.k1 + 1 and c.k3 > 0 
             order by isnull(a.k1), 1, 2, 3, 4, 5 limit 65535"""
 
+    // right outer join with other join predicates
+    qt_right_outer_join_wih_other_pred """
+        select a.k2, b.k2, c.k2 from test a left join test b on a.k2 = b.k2 right join baseall c on b.k2 = c.k1 and 1 = 2 order by 1, 2, 3;
+    """
+
     // full outer join
     for (s in selected) {
         sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 
@@ -1486,11 +1491,11 @@ suite("test_join", "query,p0") {
     String null_table_2 = "join_null_safe_equal_2"
     sql"""drop table if exists ${null_table_1}"""
     sql"""drop table if exists ${null_table_2}"""
-    sql"""create table ${null_table_1} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
+    sql"""create table if not exists ${null_table_1} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
                     distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
-    sql"""create table ${null_table_2} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
+    sql"""create table if not exists ${null_table_2} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
                     distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
@@ -1531,11 +1536,11 @@ suite("test_join", "query,p0") {
     def table_2 = "join_null_value_right_table"
     sql"""drop table if exists ${table_1}"""
     sql"""drop table if exists ${table_2}"""
-    sql"""create table ${table_1} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
+    sql"""create table if not exists ${table_1} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
                     distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
-    sql"""create table ${table_2} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
+    sql"""create table if not exists ${table_2} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
                     distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
@@ -1575,8 +1580,8 @@ suite("test_join", "query,p0") {
     def table_4 = "table_join_null_string_2"
     sql"""drop table if exists ${table_3}"""
     sql"""drop table if exists ${table_4}"""
-    sql"""create table ${table_3} (a int, b varchar(11)) distributed by hash(a) buckets 3 properties("replication_num" = "1")"""
-    sql"""create table ${table_4} (a int, b varchar(11)) distributed by hash(a) buckets 3 properties("replication_num" = "1")"""
+    sql"""create table if not exists ${table_3} (a int, b varchar(11)) distributed by hash(a) buckets 3 properties("replication_num" = "1")"""
+    sql"""create table if not exists ${table_4} (a int, b varchar(11)) distributed by hash(a) buckets 3 properties("replication_num" = "1")"""
     sql"""insert into ${table_3} values (1,"a"),(2,"b"),(3,"c"),(4,NULL)"""
     sql"""insert into ${table_4} values (1,"a"),(2,"b"),(3,"c"),(4,NULL)"""
     def res99 = sql"""select count(*) from ${table_3} join ${table_4} where ${table_3}.b = ${table_4}.b"""
@@ -1598,7 +1603,7 @@ suite("test_join", "query,p0") {
                    ",SHARE_ID bigint,SPONSOR_ID bigint"]
     table_list.eachWithIndex {tb, idx ->
         sql"""drop table if exists ${tb}"""
-        sql"""create table ${tb} (ID bigint not null ${column_list[idx]}) 
+        sql"""create table if not exists ${tb} (ID bigint not null ${column_list[idx]}) 
                 UNIQUE KEY(`ID`) 
                 DISTRIBUTED BY HASH(`ID`) BUCKETS 32 
                 PROPERTIES("replication_num"="1");"""
