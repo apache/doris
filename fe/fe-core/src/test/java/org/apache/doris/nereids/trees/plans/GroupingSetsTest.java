@@ -85,36 +85,111 @@ public class GroupingSetsTest extends TestWithFeService {
     @Test
     public void testGroupingId1() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("select k1+1, grouping(k1+1) from t1 group by grouping sets((k1+1));");
+                .checkPlannerResult("select k1+1, grouping_id(k1+1) from t1 group by grouping sets((k1+1));");
     }
 
     @Test
     public void testGroupingId2() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("select k1+1, grouping(k1) from t1 group by grouping sets((k1));");
+                .checkPlannerResult("select k1+1, grouping_id(k1) from t1 group by grouping sets((k1));");
     }
 
     @Test
     public void testGroupingId3() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("select sum(k2), grouping(k1) from t1 group by grouping sets((k1));");
+                .checkPlannerResult("select sum(k2), grouping_id(k1) from t1 group by grouping sets((k1));");
     }
 
     @Test
     public void testGroupingId4() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by grouping sets((k1+1));");
+                .checkPlannerResult("select sum(k2+1), grouping_id(k1+1) from t1 group by grouping sets((k1+1));");
     }
 
     @Test
     public void testGroupingId5() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by grouping sets((k1+1), (k1));");
+                .checkPlannerResult("select sum(k2+1), grouping_id(k1+1) from t1 group by grouping sets((k1+1), (k1));");
     }
 
     @Test
     public void testGroupingIdWithHaving() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by grouping sets((k1+1)) having (k1+1) > 1;");
+                .checkPlannerResult("select sum(k2+1), grouping_id(k1+1) from t1 group by grouping sets((k1+1)) having (k1+1) > 1;");
+    }
+
+    // rollup
+    // grouping
+    @Test
+    public void testGrouping6() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1+1, grouping(k1+1) from t1 group by rollup(k1+1);");
+    }
+
+    @Test
+    public void testGrouping7() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1+1, grouping(k1) from t1 group by rollup(k1);");
+    }
+
+    @Test
+    public void testGrouping8() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2), grouping(k1) from t1 group by rollup(k1);");
+    }
+
+    @Test
+    public void testGrouping9() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by rollup(k1+1);");
+    }
+
+    @Test
+    public void testGrouping10() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by rollup(k1+1, k1);");
+    }
+
+    @Test
+    public void testGroupingRollupWithHaving() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by rollup(k1+1) having (k1+1) > 1;");
+    }
+
+    //grouping_id
+    @Test
+    public void testGroupingId6() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1+1, grouping(k1+1) from t1 group by rollup(k1+1);");
+    }
+
+    @Test
+    public void testGroupingId7() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1+1, grouping(k1) from t1 group by rollup(k1);");
+    }
+
+    @Test
+    public void testGroupingId8() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2), grouping(k1) from t1 group by rollup(k1);");
+    }
+
+    @Test
+    public void testGroupingId9() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by rollup(k1+1);");
+    }
+
+    @Test
+    public void testGroupingId10() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by rollup(k1+1, k1);");
+    }
+
+    @Test
+    public void testGroupingIdRollupWithHaving() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select sum(k2+1), grouping(k1+1) from t1 group by rollup(k1+1) having (k1+1) > 1;");
     }
 }

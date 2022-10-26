@@ -37,11 +37,11 @@ public class GroupingId extends GroupingSetsFunction implements UnaryExpression,
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(NumericType.INSTANCE);
 
     public GroupingId(Expression child) {
-        super("GroupingId", child);
+        super("Grouping_Id", child);
     }
 
     public GroupingId(Optional<List<Expression>> realChildren, Expression child) {
-        super("GroupingId", realChildren, child);
+        super("Grouping_Id", realChildren, child);
     }
 
     @Override
