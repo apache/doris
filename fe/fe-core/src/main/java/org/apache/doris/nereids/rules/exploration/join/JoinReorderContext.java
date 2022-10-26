@@ -37,8 +37,6 @@ public class JoinReorderContext {
     private boolean hasExchange = false;
     private boolean hasRightAssociate = false;
     private boolean hasLeftAssociate = false;
-
-    boolean ordered = false;
     public JoinReorderContext() {
     }
 
@@ -113,6 +111,4 @@ public class JoinReorderContext {
     public void setHasCommuteZigZag(boolean hasCommuteZigZag) {
         this.hasCommuteZigZag = hasCommuteZigZag;
     }
-
-    public boolean isOrdered() {return ordered;}
 }

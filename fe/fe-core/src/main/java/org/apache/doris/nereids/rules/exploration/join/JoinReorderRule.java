@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 public class JoinReorderRule extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        // TODO: groupExpr of each plan in subtree should add apply mask.
-        return logicalJoin(group(), group()).when(join -> !join.isOrdered()).thenApply(ctx -> {
+        // TODO: we need a pattern to match a subtree of join and mark the node in this tree ordered
+        return logicalJoin(group(), group()).thenApply(ctx -> {
             HyperGraph graph = HyperGraph.fromPlan(ctx.root);
             if (graph.optimize()) {
                 return graph.toPlan();

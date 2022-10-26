@@ -133,7 +133,7 @@ public class NereidsPlanner extends Planner {
         deriveStats();
 
         // We need to do join reorder before cascades and after deriving stats
-        joinReorder();
+        // joinReorder();
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
         // cascades style optimize phase.
 
