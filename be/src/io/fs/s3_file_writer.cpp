@@ -85,10 +85,10 @@ Status S3FileWriter::abort() {
                   << ", upload_id=" << _upload_id;
         return Status::OK();
     }
-    return Status::IOError("failed to abort multipart upload(endpoint={}, bucket={}, key={},"
-                                   " upload_id={}): {}",
-                           _s3_conf.endpoint, _s3_conf.bucket, _path.native(),
-                           _upload_id, outcome.GetError().GetMessage());
+    return Status::IOError(
+            "failed to abort multipart upload(endpoint={}, bucket={}, key={}, upload_id={}): {}",
+            _s3_conf.endpoint, _s3_conf.bucket, _path.native(), _upload_id,
+            outcome.GetError().GetMessage());
 }
 
 Status S3FileWriter::_open() {
