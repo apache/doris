@@ -592,7 +592,7 @@ public class Analyzer {
             slot.setIsMaterialized(true);
             slot.setColumn(col);
             slot.setIsNullable(col.isAllowNull());
-            String key = tableRef.aliases_[0] + "." + col.getName();
+            String key = tableRef.aliases[0] + "." + col.getName();
             slotRefMap.put(key, slot);
         }
         globalState.descTbl.computeStatAndMemLayout();
