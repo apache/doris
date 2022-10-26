@@ -2375,6 +2375,16 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         *sc_directly = true;
     }
 
+    if (!(*sc_directly) && !(*sc_sorting)) {
+        // check has remote rowset
+        for (auto& rs_reader : sc_params.ref_rowset_readers) {
+            if (!rs_reader->rowset()->is_local()) {
+                *sc_directly = true;
+                break;
+            }
+        }
+    }
+
     return Status::OK();
 }
 
