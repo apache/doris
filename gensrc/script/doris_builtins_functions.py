@@ -2478,7 +2478,7 @@ visible_functions = [
         '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['to_bitmap_with_check'], 'BITMAP', ['STRING'],
-        '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris15BitmapFunctions20to_bitmap_with_checkEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['bitmap_hash'], 'BITMAP', ['STRING'],
         '_ZN5doris15BitmapFunctions11bitmap_hash64EPN9doris_udf15FunctionContextERKNS1_9StringValE',
