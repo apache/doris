@@ -861,6 +861,8 @@ CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
 
+CONF_String(jvm_max_heap_size, "1024M");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

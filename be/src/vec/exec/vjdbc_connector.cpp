@@ -40,9 +40,23 @@ const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;)J";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
 
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
-        : TableConnector(param.tuple_desc, param.query_string), _conn_param(param) {}
+        : TableConnector(param.tuple_desc, param.query_string),
+          _conn_param(param),
+          _closed(false) {}
+
+JdbcConnector::~JdbcConnector() {
+    if (!_closed) {
+        close();
+    }
+}
+
+#define GET_BASIC_JAVA_CLAZZ(JAVA_TYPE, CPP_TYPE) \
+    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, JAVA_TYPE, &_executor_##CPP_TYPE##_clazz));
+
+#define DELETE_BASIC_JAVA_CLAZZ_REF(CPP_TYPE) env->DeleteGlobalRef(_executor_##CPP_TYPE##_clazz);
 
 Status JdbcConnector::close() {
+    _closed = true;
     if (!_is_open) {
         return Status::OK();
     }
@@ -52,9 +66,17 @@ Status JdbcConnector::close() {
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->DeleteGlobalRef(_executor_clazz);
-    env->DeleteGlobalRef(_executor_list_clazz);
-    env->DeleteGlobalRef(_executor_object_clazz);
-    env->DeleteGlobalRef(_executor_string_clazz);
+    DELETE_BASIC_JAVA_CLAZZ_REF(object)
+    DELETE_BASIC_JAVA_CLAZZ_REF(uint8_t)
+    DELETE_BASIC_JAVA_CLAZZ_REF(int8_t)
+    DELETE_BASIC_JAVA_CLAZZ_REF(int16_t)
+    DELETE_BASIC_JAVA_CLAZZ_REF(int32_t)
+    DELETE_BASIC_JAVA_CLAZZ_REF(int64_t)
+    DELETE_BASIC_JAVA_CLAZZ_REF(float)
+    DELETE_BASIC_JAVA_CLAZZ_REF(double)
+    DELETE_BASIC_JAVA_CLAZZ_REF(string)
+    DELETE_BASIC_JAVA_CLAZZ_REF(list)
+#undef DELETE_BASIC_JAVA_CLAZZ_REF
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteGlobalRef(_executor_obj);
@@ -70,16 +92,19 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, JDBC_EXECUTOR_CLASS, &_executor_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/util/List", &_executor_list_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Object", &_executor_object_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Boolean", &_executor_uint8_t_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Byte", &_executor_int8_t_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Short", &_executor_int16_t_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Integer", &_executor_int32_t_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Long", &_executor_int64_t_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Float", &_executor_float_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/Float", &_executor_double_clazz));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/String", &_executor_string_clazz));
+
+    GET_BASIC_JAVA_CLAZZ("java/util/List", list)
+    GET_BASIC_JAVA_CLAZZ("java/lang/Object", object)
+    GET_BASIC_JAVA_CLAZZ("java/lang/Boolean", uint8_t)
+    GET_BASIC_JAVA_CLAZZ("java/lang/Byte", int8_t)
+    GET_BASIC_JAVA_CLAZZ("java/lang/Short", int16_t)
+    GET_BASIC_JAVA_CLAZZ("java/lang/Integer", int32_t)
+    GET_BASIC_JAVA_CLAZZ("java/lang/Long", int64_t)
+    GET_BASIC_JAVA_CLAZZ("java/lang/Float", float)
+    GET_BASIC_JAVA_CLAZZ("java/lang/Float", double)
+    GET_BASIC_JAVA_CLAZZ("java/lang/String", string)
+
+#undef GET_BASIC_JAVA_CLAZZ
     RETURN_IF_ERROR(_register_func_id(env));
 
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
@@ -105,6 +130,10 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         RETURN_IF_ERROR(jni_frame.push(env));
         RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
         _executor_obj = env->NewObject(_executor_clazz, _executor_ctor_id, ctor_params_bytes);
+
+        jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
+        env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
+        env->DeleteLocalRef(ctor_params_bytes);
     }
     RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _executor_obj, &_executor_obj));
@@ -126,10 +155,8 @@ Status JdbcConnector::query() {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jstring query_sql = env->NewStringUTF(_sql_str.c_str());
-    jint colunm_count = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
-                                                     _executor_read_id, query_sql);
-    env->DeleteLocalRef(query_sql);
+    jint colunm_count =
+            env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_read_id);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
     if (colunm_count != materialize_num) {
@@ -244,48 +271,20 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     }
 
     switch (slot_desc->type().type) {
-    case TYPE_BOOLEAN: {
-        uint8_t num = _jobject_to_uint8_t(env, jobj);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(
-                (uint8_t)num);
-        break;
+#define M(TYPE, CPP_TYPE, COLUMN_TYPE)                              \
+    case TYPE: {                                                    \
+        CPP_TYPE num = _jobject_to_##CPP_TYPE(env, jobj);           \
+        reinterpret_cast<COLUMN_TYPE*>(col_ptr)->insert_value(num); \
+        break;                                                      \
     }
-    case TYPE_TINYINT: {
-        int8_t num = _jobject_to_int8_t(env, jobj);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)->insert_value(num);
-        break;
-    }
-    case TYPE_SMALLINT: {
-        int16_t num = _jobject_to_int16_t(env, jobj);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_INT: {
-        int32_t num = _jobject_to_int32_t(env, jobj);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_BIGINT: {
-        int64_t num = _jobject_to_int64_t(env, jobj);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_FLOAT: {
-        float num = _jobject_to_float(env, jobj);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)->insert_value(
-                num);
-        break;
-    }
-    case TYPE_DOUBLE: {
-        double num = _jobject_to_double(env, jobj);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
-                num);
-        break;
-    }
-
+        M(TYPE_BOOLEAN, uint8_t, vectorized::ColumnVector<vectorized::UInt8>)
+        M(TYPE_TINYINT, int8_t, vectorized::ColumnVector<vectorized::Int8>)
+        M(TYPE_SMALLINT, int16_t, vectorized::ColumnVector<vectorized::Int16>)
+        M(TYPE_INT, int32_t, vectorized::ColumnVector<vectorized::Int32>)
+        M(TYPE_BIGINT, int64_t, vectorized::ColumnVector<vectorized::Int64>)
+        M(TYPE_FLOAT, float, vectorized::ColumnVector<vectorized::Float32>)
+        M(TYPE_DOUBLE, double, vectorized::ColumnVector<vectorized::Float64>)
+#undef M
     case TYPE_STRING:
     case TYPE_CHAR:
     case TYPE_VARCHAR: {
@@ -337,14 +336,15 @@ Status JdbcConnector::exec_write_sql(const std::u16string& insert_stmt,
 
 std::string JdbcConnector::_jobject_to_string(JNIEnv* env, jobject jobj) {
     jobject jstr = env->CallObjectMethod(jobj, _to_string_id);
-    const jbyteArray stringJbytes =
-            (jbyteArray)env->CallObjectMethod(jstr, _get_bytes_id, env->NewStringUTF("UTF-8"));
+    auto coding = env->NewStringUTF("UTF-8");
+    const jbyteArray stringJbytes = (jbyteArray)env->CallObjectMethod(jstr, _get_bytes_id, coding);
     size_t length = (size_t)env->GetArrayLength(stringJbytes);
     jbyte* pBytes = env->GetByteArrayElements(stringJbytes, nullptr);
     std::string str = std::string((char*)pBytes, length);
     env->ReleaseByteArrayElements(stringJbytes, pBytes, JNI_ABORT);
     env->DeleteLocalRef(stringJbytes);
     env->DeleteLocalRef(jstr);
+    env->DeleteLocalRef(coding);
     return str;
 }
 

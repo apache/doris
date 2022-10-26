@@ -78,6 +78,10 @@ public class JdbcExecutor {
         if (dataSource != null) {
             dataSource.close();
         }
+        resultSet = null;
+        stmt = null;
+        conn = null;
+        dataSource = null;
     }
 
     public int read() throws UdfRuntimeException {

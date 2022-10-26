@@ -40,7 +40,7 @@ class JdbcConnector : public TableConnector {
 public:
     JdbcConnector(const JdbcConnectorParam& param);
 
-    ~JdbcConnector() override = default;
+    ~JdbcConnector() override;
 
     Status open(RuntimeState* state, bool read = false) override;
 
@@ -67,6 +67,7 @@ private:
     int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj);
 
     const JdbcConnectorParam& _conn_param;
+    bool _closed;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;

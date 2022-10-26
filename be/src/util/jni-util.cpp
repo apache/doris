@@ -40,10 +40,10 @@ void FindOrCreateJavaVM() {
         JNIEnv* env;
         JavaVMInitArgs vm_args;
         JavaVMOption options[2];
-        char* str = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
-        options[0].optionString = str;
-        // Set max heap size to 4G.
-        std::string heap_size("-Xmx4096M");
+        char* cp = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
+        options[0].optionString = cp;
+        // Set max heap size to 4G by default.
+        std::string heap_size = config::jvm_max_heap_size;
         options[1].optionString = const_cast<char*>(heap_size.c_str());
         vm_args.version = JNI_VERSION_1_8;
         vm_args.options = options;
