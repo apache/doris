@@ -71,7 +71,7 @@ public class PhysicalRollup<CHILD_TYPE extends Plan> extends PhysicalGroupBy<CHI
             List<List<Long>> groupingList,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_GROUPING_SETS, groupingByExpressions, originGroupByExprs, outputExpressions,
+        super(PlanType.PHYSICAL_ROLLUP, groupingByExpressions, originGroupByExprs, outputExpressions,
                 groupingIdList, virtualSlotRefs, virtualGroupingExprs, groupingList,
                 groupExpression, logicalProperties, child);
         this.groupByExpressions = groupingByExpressions;
@@ -90,7 +90,7 @@ public class PhysicalRollup<CHILD_TYPE extends Plan> extends PhysicalGroupBy<CHI
             List<List<Long>> groupingList,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_GROUPING_SETS, groupingByExpressions, originGroupByExprs, outputExpressions,
+        super(PlanType.PHYSICAL_ROLLUP, groupingByExpressions, originGroupByExprs, outputExpressions,
                 groupingIdList, virtualSlotRefs, virtualGroupingExprs, groupingList,
                 groupExpression, logicalProperties, physicalProperties, statsDeriveResult, child);
         this.groupByExpressions = groupingByExpressions;

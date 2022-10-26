@@ -908,8 +908,82 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         );
     }
 
+    /*
     private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
                                       Optional<AggClauseContext> aggCtx) {
+        return input.optionalMap(aggCtx, () -> {
+            List<Expression> groupByExpressions = new ArrayList<>();
+            if (aggCtx.get().groupByItem().groupingElement() instanceof SingleGroupingSetsContext) {
+                groupByExpressions.addAll(visitSingleGroupingSets(
+                        (SingleGroupingSetsContext) aggCtx.get().groupByItem().groupingElement()));
+            }
+            List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
+            return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+        });
+    }
+
+    @Override
+    public List<Expression> visitSingleGroupingSets(SingleGroupingSetsContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Expression> groupByExpressions = visit(ctx.expression(), Expression.class);
+            return groupByExpressions;
+        });
+    }
+
+    @Override
+    public List<Expression> visitRollup(RollupContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Expression> rollup = visit(ctx.expression(), Expression.class);
+            return rollup;
+        });
+    }
+
+    @Override
+    public List<Expression> visitCube(CubeContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Expression> cube = visit(ctx.expression(), Expression.class);
+            return cube;
+        });
+    }
+
+    @Override
+    public List<List<Expression>> visitMultipleGroupingSets(MultipleGroupingSetsContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<List<Expression>> groupingSets = ctx.groupingSet().stream()
+                    .map(groupingSet -> visit(groupingSet.expression(), Expression.class))
+                    .collect(Collectors.toList());
+            return groupingSets;
+        });
+    }
+
+    private LogicalPlan withGroupBy(LogicalPlan input, SelectClauseContext selectCtx,
+            Optional<AggClauseContext> aggCtx) {
+        return input.optionalMap(aggCtx, () -> {
+            GroupingElementContext groupingElementCtx = aggCtx.get().groupByItem().groupingElement();
+            List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
+            if (groupingElementCtx instanceof MultipleGroupingSetsContext) {
+                List<List<Expression>> sets =
+                        visitMultipleGroupingSets((MultipleGroupingSetsContext) groupingElementCtx);
+                return new LogicalGroupingSets<>(sets, namedExpressions, input);
+            }
+
+            if (groupingElementCtx instanceof RollupContext) {
+                List<Expression> rollup =
+                        visitRollup((RollupContext) groupingElementCtx);
+                return new LogicalRollup<>(rollup, namedExpressions, input);
+            }
+
+            if (groupingElementCtx instanceof CubeContext) {
+                List<Expression> cube =
+                        visitCube((CubeContext) groupingElementCtx);
+                return new LogicalCube<>(cube, namedExpressions, input);
+            }
+            return null;
+        });
+    }*/
+
+    private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
+            Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
             List<Expression> groupByExpressions = visit(
                     aggCtx.get().groupByItem().groupingElement().expression(), Expression.class);

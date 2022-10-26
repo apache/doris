@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransp
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
+import org.apache.doris.nereids.rules.implementation.LogicalCubeToPhysicalCube;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGroupSetsToPhysicalGroupSets;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
+import org.apache.doris.nereids.rules.implementation.LogicalRollupToPhysicalRollup;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
@@ -97,6 +99,8 @@ public class RuleSet {
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalGroupSetsToPhysicalGroupSets())
+            .add(new LogicalRollupToPhysicalRollup())
+            .add(new LogicalCubeToPhysicalCube())
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()

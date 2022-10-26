@@ -34,7 +34,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -71,7 +70,7 @@ public class LogicalRollup<CHILD_TYPE extends Plan> extends LogicalGroupBy<CHILD
             List<NamedExpression> outputExpressions,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_GROUPING_SETS, groupByExpressions, outputExpressions,
+        super(PlanType.LOGICAL_ROLLUP, groupByExpressions, outputExpressions,
                 groupExpression, logicalProperties, child);
     }
 
@@ -87,7 +86,7 @@ public class LogicalRollup<CHILD_TYPE extends Plan> extends LogicalGroupBy<CHILD
             boolean isNormalized,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_GROUPING_SETS, groupByExpressions, outputExpressions, groupingIdList,
+        super(PlanType.LOGICAL_ROLLUP, groupByExpressions, outputExpressions, groupingIdList,
                 virtualSlotRefs, virtualGroupingExprs, groupingList, isResolve, changedOutput,
                 isNormalized,
                 groupExpression, logicalProperties, child);
@@ -110,23 +109,6 @@ public class LogicalRollup<CHILD_TYPE extends Plan> extends LogicalGroupBy<CHILD
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalRollup(this, context);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        LogicalRollup that = (LogicalRollup) o;
-        return super.equals(that);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(outputExpressions);
     }
 
     @Override
