@@ -31,6 +31,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/exec/format/csv/csv_reader.h"
+#include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -492,6 +493,12 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader.reset(
                     new CsvReader(_state, _profile, &_counter, _params, range, _file_slot_descs));
             init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
+            break;
+        }
+        case TFileFormatType::FORMAT_JSON: {
+            _cur_reader.reset(new NewJsonReader(_state, _profile, &_counter, _params, range,
+                                                _file_slot_descs, &_scanner_eof));
+            init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         default:
