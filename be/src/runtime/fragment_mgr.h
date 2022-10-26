@@ -36,6 +36,10 @@
 #include "util/metrics.h"
 #include "util/thread.h"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
 
 class QueryFragmentsCtx;
@@ -85,9 +89,11 @@ public:
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
-    Status apply_filter(const PPublishFilterRequest* request, const char* attach_data);
+    Status apply_filter(const PPublishFilterRequest* request,
+                        butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status merge_filter(const PMergeFilterRequest* request, const char* attach_data);
+    Status merge_filter(const PMergeFilterRequest* request,
+                        butil::IOBufAsZeroCopyInputStream* attach_data);
 
     void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe);
 

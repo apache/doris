@@ -33,6 +33,10 @@
 #include "olap/uint24.h"
 #include "util/hash_util.hpp"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
 class BloomFilterAdaptor {
 public:
@@ -50,9 +54,9 @@ public:
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }
 
-    Status init(const char* data, int len) {
-        int log_space = log2(len);
-        return _bloom_filter->init_from_directory(log_space, Slice(data, len), false, 0);
+    Status init(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
+        int log_space = log2(data_size);
+        return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
     }
 
     char* data() { return (char*)_bloom_filter->directory().data; }
@@ -161,13 +165,13 @@ public:
         }
     }
 
-    Status assign(const char* data, int len) {
+    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
         if (_bloom_filter == nullptr) {
             _bloom_filter.reset(BloomFilterAdaptor::create());
         }
 
-        _bloom_filter_alloced = len;
-        return _bloom_filter->init(data, len);
+        _bloom_filter_alloced = data_size;
+        return _bloom_filter->init(data, data_size);
     }
 
     Status get_data(char** data, int* len) {

@@ -862,7 +862,7 @@ public:
 
     // used by shuffle runtime filter
     // assign this filter by protobuf
-    Status assign(const PBloomFilter* bloom_filter, const char* data) {
+    Status assign(const PBloomFilter* bloom_filter, butil::IOBufAsZeroCopyInputStream* data) {
         _is_bloomfilter = true;
         // we won't use this class to insert or find any data
         // so any type is ok

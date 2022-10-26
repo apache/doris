@@ -110,13 +110,10 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
 
     return Status::OK();
 }
-
-Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request, const char* data) {
+Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request,
+                                       butil::IOBufAsZeroCopyInputStream* data) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
-    UpdateRuntimeFilterParams params;
-    params.request = request;
-    params.data = data;
-    params.pool = &_pool;
+    UpdateRuntimeFilterParams params(request, data, &_pool);
     int filter_id = request->filter_id();
     IRuntimeFilter* real_filter = nullptr;
     RETURN_IF_ERROR(get_consume_filter(filter_id, &real_filter));
@@ -185,7 +182,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
 
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
-                                                 const char* data) {
+                                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
     // SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     std::shared_ptr<RuntimeFilterCntlVal> cntVal;
     int merged_size = 0;
@@ -201,9 +198,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         if (auto bf = cntVal->filter->get_bloomfilter()) {
             RETURN_IF_ERROR(bf->init_with_fixed_length());
         }
-        MergeRuntimeFilterParams params;
-        params.data = data;
-        params.request = request;
+        MergeRuntimeFilterParams params(request, attach_data);
         ObjectPool* pool = iter->second->pool.get();
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, pool, holder.getHandle()));
