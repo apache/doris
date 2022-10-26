@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.metrics;
 
+import com.google.common.base.Preconditions;
+
 /**
  * event producer
  */
@@ -31,5 +33,10 @@ public class EventProducer {
 
     public void log(Object... objects) throws Exception {
         channel.add(((Event) eventClass.getConstructors()[0].newInstance(objects)));
+    }
+
+    public void log(Event event) {
+        Preconditions.checkArgument(event.getClass().equals(eventClass));
+        channel.add(event);
     }
 }

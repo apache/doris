@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.metrics;
 
+import org.apache.doris.qe.ConnectContext;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -24,6 +26,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -46,7 +49,7 @@ public class EventChannel {
         }
     }
 
-    private Map<Class<? extends Event>, Boolean> eventSwitch = Maps.newHashMap();
+    private final Set<Class<? extends Event>> eventSwitch;
     private Map<Class<? extends Event>, EventProperties> properties = Maps.newHashMap();
     private BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
     private boolean isStop = false;
@@ -58,6 +61,7 @@ public class EventChannel {
      * @param filters filter list
      */
     public EventChannel(List<EventConsumer> consumers, List<EventFilter> filters) {
+        eventSwitch = EventSwitchParser.parse(ConnectContext.get().getSessionVariable().nereidsEventMode);
         for (EventConsumer consumer : consumers) {
             properties.computeIfAbsent(consumer.getTargetClass(), k -> new EventProperties())
                     .getConsumers().add(consumer);
@@ -68,13 +72,13 @@ public class EventChannel {
     }
 
     public void add(Event e) {
-        if (filter(e) != null) {
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsEvent() && filter(e) != null) {
             queue.add(e);
         }
     }
 
     private Event filter(Event e) {
-        if (!eventSwitch.get(e.getClass())) {
+        if (!eventSwitch.contains(e.getClass())) {
             return null;
         }
         for (EventFilter filter : properties.get(e.getClass()).getFilters()) {
@@ -99,6 +103,11 @@ public class EventChannel {
                     LOG.warn("encounter exception when push event: ", e);
                 }
             }
+            for (EventProperties property : properties.values()) {
+                for (EventConsumer consumer : property.getConsumers()) {
+                    consumer.close();
+                }
+            }
         }
     }
 
@@ -118,11 +127,6 @@ public class EventChannel {
                 thread.join();
             } catch (InterruptedException e) {
                 LOG.warn("join worker join failed.", e);
-            }
-        }
-        for (EventProperties property : properties.values()) {
-            for (EventConsumer consumer : property.getConsumers()) {
-                consumer.close();
             }
         }
     }

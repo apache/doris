@@ -17,16 +17,22 @@
 
 package org.apache.doris.nereids.metrics;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
+
 /**
  * print consumer
  */
 public class PrintConsumer extends EventConsumer {
-    public PrintConsumer(Class<? extends Event> targetClass) {
+    private final PrintStream printStream;
+    public PrintConsumer(Class<? extends Event> targetClass, PrintStream printStream) {
         super(targetClass);
+        this.printStream = printStream;
     }
 
     @Override
     public void consume(Event event) {
-        System.out.println(event.toString());
+        printStream.println(event.toString());
     }
 }

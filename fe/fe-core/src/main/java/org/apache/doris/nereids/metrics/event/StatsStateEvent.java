@@ -21,7 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 /**
- *
+ * stats state event
  */
 public class StatsStateEvent extends StateEvent {
     private final StatsDeriveResult statsDeriveResult;

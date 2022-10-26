@@ -24,7 +24,7 @@ import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- *
+ * counter event
  */
 public class CounterEvent extends Event {
     private final long count;
