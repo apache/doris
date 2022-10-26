@@ -37,7 +37,7 @@ void StringFunctions::init() {}
 size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned)(str.ptr)[i]];
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -65,7 +65,7 @@ StringVal StringFunctions::substring(FunctionContext* context, const StringVal& 
     size_t byte_pos = 0;
     std::vector<size_t> index;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned)(str.ptr)[i]];
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         index.push_back(i);
         if (pos.val > 0 && index.size() > pos.val + len.val) {
             break;
@@ -328,7 +328,7 @@ IntVal StringFunctions::char_utf8_length(FunctionContext* context, const StringV
     }
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned)(str.ptr)[i]];
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         ++char_len;
     }
     return IntVal(char_len);
@@ -429,7 +429,7 @@ IntVal StringFunctions::instr(FunctionContext* context, const StringVal& str,
     if (loc > 0) {
         size_t char_len = 0;
         for (size_t i = 0, char_size = 0; i < loc; i += char_size) {
-            char_size = UTF8_BYTE_LENGTH[(unsigned)(str.ptr)[i]];
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
             ++char_len;
         }
         loc = char_len;
@@ -477,7 +477,7 @@ IntVal StringFunctions::locate_pos(FunctionContext* context, const StringVal& su
         // Hive returns the position in the original string starting from 1.
         size_t char_len = 0;
         for (size_t i = 0, char_size = 0; i < match_pos; i += char_size) {
-            char_size = UTF8_BYTE_LENGTH[(unsigned)(adjusted_str.ptr)[i]];
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)(adjusted_str.ptr)[i]];
             ++char_len;
         }
         match_pos = char_len;

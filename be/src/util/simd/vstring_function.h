@@ -142,7 +142,7 @@ public:
             }
         } else {
             for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-                char_size = UTF8_BYTE_LENGTH[(unsigned)(str.ptr)[i]];
+                char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
                 std::copy(str.ptr + i, str.ptr + i + char_size, dst.ptr + str.len - i - char_size);
             }
         }
