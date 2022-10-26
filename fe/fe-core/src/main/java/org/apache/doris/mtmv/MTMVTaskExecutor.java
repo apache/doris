@@ -95,7 +95,7 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
 
     public boolean executeTask() throws Exception {
         MTMVTaskContext taskContext = new MTMVTaskContext();
-        taskContext.setQuery(task.getDefinition());
+        taskContext.setQuery(task.getQuery());
         ctx = new ConnectContext();
         ctx.setDatabase(job.getDbName());
         ctx.setQualifiedUser(task.getUser());
@@ -144,7 +144,7 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         }
         task.setUser(job.getCreateUser());
         task.setDbName(job.getDbName());
-        task.setDefinition(job.getDefinition());
+        task.setQuery(job.getQuery());
         task.setExpireTime(System.currentTimeMillis() + Config.scheduler_mtmv_task_expire_ms);
         task.setRetryTimes(job.getRetryPolicy().getTimes());
         this.task = task;
@@ -169,7 +169,7 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
             return false;
         }
         MTMVTaskExecutor task = (MTMVTaskExecutor) o;
-        return this.task.getDefinition().equals(task.getTask().getDefinition());
+        return this.task.getQuery().equals(task.getTask().getQuery());
     }
 
     @Override

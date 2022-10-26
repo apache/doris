@@ -48,8 +48,8 @@ public class MTMVTask implements Writable {
     @SerializedName("dbName")
     private String dbName;
 
-    @SerializedName("definition")
-    private String definition;
+    @SerializedName("query")
+    private String query;
 
     @SerializedName("user")
     private String user;
@@ -126,12 +126,12 @@ public class MTMVTask implements Writable {
         this.user = user;
     }
 
-    public String getDefinition() {
-        return definition;
+    public String getQuery() {
+        return query;
     }
 
-    public void setDefinition(String definition) {
-        this.definition = definition;
+    public void setQuery(String query) {
+        this.query = query;
     }
 
     public int getErrorCode() {

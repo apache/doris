@@ -60,8 +60,8 @@ public class MTMVJob implements Writable {
     @SerializedName("dbName")
     private String dbName;
 
-    @SerializedName("definition")
-    private String definition;
+    @SerializedName("query")
+    private String query;
 
     @SerializedName("properties")
     private Map<String, String> properties;
@@ -151,12 +151,12 @@ public class MTMVJob implements Writable {
         this.dbName = dbName;
     }
 
-    public String getDefinition() {
-        return definition;
+    public String getQuery() {
+        return query;
     }
 
-    public void setDefinition(String definition) {
-        this.definition = definition;
+    public void setQuery(String query) {
+        this.query = query;
     }
 
     public Map<String, String> getProperties() {

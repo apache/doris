@@ -31,7 +31,7 @@ public class MTMVJobFactory {
         job.setSchedule(jobSchedule);
         job.setTriggerMode(TriggerMode.PERIODICAL);
         job.setDbName("fake");
-        job.setDefinition("select * from fake");
+        job.setQuery("select * from fake");
         return job;
     }
 }

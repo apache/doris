@@ -892,32 +892,32 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_MTMV_JOB: {
                     final MTMVJob job = (MTMVJob) journal.getData();
-                    env.getMtmvJobManager().replayCreateJob(job);
+                    env.getMTMVJobManager().replayCreateJob(job);
                     break;
                 }
                 case OperationType.OP_ALTER_MTMV_JOB: {
                     final ChangeMTMVJob changeJob = (ChangeMTMVJob) journal.getData();
-                    env.getMtmvJobManager().replayUpdateJob(changeJob);
+                    env.getMTMVJobManager().replayUpdateJob(changeJob);
                     break;
                 }
                 case OperationType.OP_DROP_MTMV_JOB: {
                     final DropMTMVJob dropJob = (DropMTMVJob) journal.getData();
-                    env.getMtmvJobManager().replayDropJobs(dropJob.getJobIds());
+                    env.getMTMVJobManager().replayDropJobs(dropJob.getJobIds());
                     break;
                 }
                 case OperationType.OP_CREATE_MTMV_TASK: {
                     final MTMVTask task = (MTMVTask) journal.getData();
-                    env.getMtmvJobManager().replayCreateJobTask(task);
+                    env.getMTMVJobManager().replayCreateJobTask(task);
                     break;
                 }
                 case OperationType.OP_ALTER_MTMV_TASK: {
                     final AlterMTMVTask changeTask = (AlterMTMVTask) journal.getData();
-                    env.getMtmvJobManager().replayUpdateTask(changeTask);
+                    env.getMTMVJobManager().replayUpdateTask(changeTask);
                     break;
                 }
                 case OperationType.OP_DROP_MTMV_TASK: {
                     final DropMTMVTask dropTask = (DropMTMVTask) journal.getData();
-                    env.getMtmvJobManager().replayDropJobTasks(dropTask.getTaskIds());
+                    env.getMTMVJobManager().replayDropJobTasks(dropTask.getTaskIds());
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
