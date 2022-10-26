@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 /**
  * This structure is maintained in each operator to store the statistical information results obtained by the operator.
@@ -40,9 +41,10 @@ public class StatsDeriveResult {
     private final Map<Id, Long> columnIdToNdv = Maps.newHashMap();
 
     private Map<Slot, ColumnStat> slotToColumnStats;
-
+    private int width = 1;
+    private double penalty = 0.0;
+    //TODO: isReduced to be removed after remove StatsCalculatorV1
     public boolean isReduced = false;
-    public int width = 1;
 
     public StatsDeriveResult(double rowCount, Map<Slot, ColumnStat> slotToColumnStats) {
         this.rowCount = rowCount;
@@ -65,6 +67,7 @@ public class StatsDeriveResult {
         }
         this.isReduced = another.isReduced;
         this.width = another.width;
+        this.penalty = another.penalty;
     }
 
     public double computeSize() {
@@ -118,20 +121,37 @@ public class StatsDeriveResult {
         this.slotToColumnStats = slotToColumnStats;
     }
 
-    public StatsDeriveResult updateRowCountBySelectivity(double selectivity) {
-        rowCount *= selectivity;
+    public void updateColumnStatsForSlot(Slot slot, ColumnStat columnStat) {
+        slotToColumnStats.put(slot, columnStat);
+    }
+
+    public StatsDeriveResult updateBySelectivity(double selectivity, Set<Slot> exclude) {
+        double originRowCount = rowCount;
         for (Entry<Slot, ColumnStat> entry : slotToColumnStats.entrySet()) {
-            entry.getValue().updateBySelectivity(selectivity, rowCount);
+            if (!exclude.contains(entry.getKey())) {
+                entry.getValue().updateBySelectivity(selectivity, originRowCount);
+            }
         }
+        rowCount *= selectivity;
+        return this;
+    }
+
+    public StatsDeriveResult updateBySelectivity(double selectivity) {
+        double originRowCount = rowCount;
+        for (Entry<Slot, ColumnStat> entry : slotToColumnStats.entrySet()) {
+            entry.getValue().updateBySelectivity(selectivity, originRowCount);
+        }
+        rowCount *= selectivity;
         return this;
     }
 
     public StatsDeriveResult updateRowCountByLimit(long limit) {
+        double originRowCount = rowCount;
         if (limit > 0 && rowCount > 0 && rowCount > limit) {
             double selectivity = ((double) limit) / rowCount;
             rowCount = limit;
             for (Entry<Slot, ColumnStat> entry : slotToColumnStats.entrySet()) {
-                entry.getValue().updateBySelectivity(selectivity, rowCount);
+                entry.getValue().updateBySelectivity(selectivity, originRowCount);
             }
         }
         return this;
@@ -151,9 +171,10 @@ public class StatsDeriveResult {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append("(rows=").append(rowCount)
+        builder.append("(rows=").append((long) rowCount)
                 .append(", isReduced=").append(isReduced)
-                .append(", width=").append(width).append(")");
+                .append(", width=").append(width)
+                .append(", penalty=").append(penalty).append(")");
         return builder.toString();
     }
 
@@ -181,5 +202,21 @@ public class StatsDeriveResult {
 
     public ColumnStat getColumnStatsBySlot(Slot slot) {
         return slotToColumnStats.get(slot);
+    }
+
+    public int getWidth() {
+        return width;
+    }
+
+    public void setWidth(int width) {
+        this.width = width;
+    }
+
+    public double getPenalty() {
+        return penalty;
+    }
+
+    public void setPenalty(double penalty) {
+        this.penalty = penalty;
     }
 }

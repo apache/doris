@@ -44,6 +44,18 @@ public class StringLiteral extends Literal {
     }
 
     @Override
+    public double getDouble() {
+        long v = 0;
+        int pos = 0;
+        int len = Math.min(value.length(), 8);
+        while (pos < len) {
+            v += ((long) value.charAt(pos)) << ((7 - pos) * 8);
+            pos++;
+        }
+        return (double) v;
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitStringLiteral(this, context);
     }
