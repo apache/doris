@@ -101,9 +101,9 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             LOG(INFO) << fmt::format(
                     "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                     "PeakUsed={}",
-                    it->first, MemTracker::print_bytes(it->second->limit()),
-                    MemTracker::print_bytes(it->second->consumption()),
-                    MemTracker::print_bytes(it->second->peak_consumption()));
+                    it->first, NewMemTracker::print_bytes(it->second->limit()),
+                    NewMemTracker::print_bytes(it->second->consumption()),
+                    NewMemTracker::print_bytes(it->second->peak_consumption()));
             expired_task_ids.emplace_back(it->first);
         }
     }
