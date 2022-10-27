@@ -52,6 +52,10 @@ class OlapTableSchemaParam;
 class PTupleDescriptor;
 class PSlotDescriptor;
 class PInternalServiceImpl;
+<<<<<<< HEAD
+=======
+class TabletSchema;
+>>>>>>> 809684c99 ([Feature-WIP](optimize point query) optimize point query)
 
 // Location information for null indicator bit for particular slot.
 // For non-nullable slots, the byte_offset will be 0 and the bit_mask will be 0.
@@ -126,6 +130,11 @@ private:
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
     friend class PInternalServiceImpl;
+<<<<<<< HEAD
+=======
+    friend class Tablet;
+    friend class TabletSchema;
+>>>>>>> 809684c99 ([Feature-WIP](optimize point query) optimize point query)
 
     const SlotId _id;
     const TypeDescriptor _type;
@@ -310,6 +319,13 @@ private:
 class TupleDescriptor {
 public:
     // virtual ~TupleDescriptor() {}
+    ~TupleDescriptor() {
+        if (_own_slots) {
+            for (SlotDescriptor* slot : _slots) {
+                delete slot;
+            }
+        }
+    }
     int64_t byte_size() const { return _byte_size; }
     int num_materialized_slots() const { return _num_materialized_slots; }
     int num_null_slots() const { return _num_null_slots; }
@@ -351,6 +367,7 @@ private:
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
     friend class PInternalServiceImpl;
+    friend class TabletSchema;
 
     const TupleId _id;
     TableDescriptor* _table_desc;
@@ -368,9 +385,10 @@ private:
     // Provide quick way to check if there are variable length slots.
     // True if _string_slots or _collection_slots have entries.
     bool _has_varlen_slots;
+    bool _own_slots = false;
 
-    TupleDescriptor(const TTupleDescriptor& tdesc);
-    TupleDescriptor(const PTupleDescriptor& tdesc);
+    TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slot = false);
+    TupleDescriptor(const PTupleDescriptor& tdesc, bool own_slot = false);
 
     void add_slot(SlotDescriptor* slot);
 

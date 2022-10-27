@@ -26,6 +26,7 @@ add_library(Service
     backend_service.cpp
     brpc_service.cpp
     http_service.cpp
+    tablet_lookup_metric.cpp
     single_replica_load_download_service.cpp
     internal_service.cpp
 )

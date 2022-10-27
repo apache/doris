@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/segment_writer.h"
 
+#include "common/consts.h"
 #include "common/logging.h" // LOG
 #include "env/env.h"        // Env
 #include "io/fs/file_writer.h"
@@ -151,6 +152,14 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             if (opts.need_bitmap_index) {
                 return Status::NotSupported("Do not support bitmap index for jsonb type");
             }
+        }
+
+        if (column.name() == BeConsts::SOURCE_COL) {
+            // smaller page size
+            opts.data_page_size = 16 * 1024;
+            opts.need_zone_map = false;
+            opts.need_bloom_filter = false;
+            opts.need_bitmap_index = false;
         }
 
         std::unique_ptr<ColumnWriter> writer;

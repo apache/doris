@@ -89,6 +89,11 @@ public class BackendServiceClient {
         return stub.fetchData(request);
     }
 
+    public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
+                InternalService.PTabletKeyLookupRequest request) {
+        return stub.tabletFetchData(request);
+    }
+
     public InternalService.PFetchDataResult fetchDataSync(InternalService.PFetchDataRequest request) {
         return blockingStub.fetchData(request);
     }

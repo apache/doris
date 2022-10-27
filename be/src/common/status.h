@@ -405,6 +405,8 @@ public:
                ErrorCode::TEST_FILE_ERROR == _code || ErrorCode::ROWBLOCK_READ_INFO_ERROR == _code;
     }
 
+    bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
+
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
     template <typename T>

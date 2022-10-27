@@ -315,6 +315,9 @@ public class Analyzer {
         // True if at least one of the analyzers belongs to a subquery.
         public boolean containsSubquery = false;
 
+        // True if statement is a prepare stmt
+        public PrepareStmt prepareStmt;
+
         // all registered conjuncts (map from id to Predicate)
         private final Map<ExprId, Expr> conjuncts = Maps.newHashMap();
 
@@ -489,6 +492,9 @@ public class Analyzer {
     // conjunct evaluating to false.
     private boolean hasEmptySpjResultSet = false;
 
+    // If read in two phase
+    private boolean isOptimizedTwoPhaseRead = false;
+
     public Analyzer(Env env, ConnectContext context) {
         ancestors = Lists.newArrayList();
         globalState = new GlobalState(env, context);
@@ -525,6 +531,16 @@ public class Analyzer {
     public static Analyzer createWithNewGlobalState(Analyzer parentAnalyzer) {
         GlobalState globalState = new GlobalState(parentAnalyzer.globalState.env, parentAnalyzer.getContext());
         return new Analyzer(parentAnalyzer, globalState, new InferPredicateState());
+    }
+
+    public void setPrepareStmt(PrepareStmt stmt) {
+        LOG.debug("setPrepareStmt {}", stmt);
+        globalState.prepareStmt = stmt;
+    }
+
+    public PrepareStmt getPrepareStmt() {
+        LOG.debug("getPrepareStmt {}", globalState.prepareStmt);
+        return globalState.prepareStmt;
     }
 
     public void setIsExplain() {
@@ -1719,6 +1735,14 @@ public class Analyzer {
 
     public boolean hasEmptySpjResultSet() {
         return hasEmptySpjResultSet;
+    }
+
+    public boolean isOptimizedTwoPhaseRead() {
+        return isOptimizedTwoPhaseRead;
+    }
+
+    public void setIsOptimizedTwoPhaseRead() {
+        isOptimizedTwoPhaseRead = true;
     }
 
     public void setHasLimitOffsetClause(boolean hasLimitOffset) {

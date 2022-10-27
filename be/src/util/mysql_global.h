@@ -26,6 +26,7 @@ typedef unsigned char uchar;
 
 #define int1store(T, A) *((uint8_t*)(T)) = (uint8_t)(A)
 #define int2store(T, A) *((uint16_t*)(T)) = (uint16_t)(A)
+#define int4store(T, A) *((uint32_t*)(T)) = (uint32_t)(A)
 #define int3store(T, A)                           \
     do {                                          \
         *(T) = (uchar)((A));                      \
@@ -33,6 +34,8 @@ typedef unsigned char uchar;
         *(T + 2) = (uchar)(((A) >> 16));          \
     } while (0)
 #define int8store(T, A) *((int64_t*)(T)) = (uint64_t)(A)
+#define float4store(T, A) memcpy(T, (&A), sizeof(float))
+#define float8store(T, A) memcpy(T, (&A), sizeof(double))
 
 #define MY_ALIGN(A, L) (((A) + (L)-1) & ~((L)-1))
 #define SIZEOF_CHARP 8

@@ -50,7 +50,6 @@ class ColumnIterator;
 class Segment;
 class SegmentIterator;
 using SegmentSharedPtr = std::shared_ptr<Segment>;
-
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.

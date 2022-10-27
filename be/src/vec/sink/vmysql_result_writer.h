@@ -30,8 +30,11 @@ class TFetchDataResult;
 namespace vectorized {
 class VExprContext;
 
+template <bool is_binary_format = false>
 class VMysqlResultWriter final : public VResultWriter {
 public:
+    typedef std::vector<std::unique_ptr<TFetchDataResult>> ResultList;
+
     VMysqlResultWriter(BufferControlBlock* sinker,
                        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
                        RuntimeProfile* parent_profile);
@@ -44,14 +47,17 @@ public:
 
     virtual Status close() override;
 
+    const ResultList& results() { return _results; };
+
 private:
     void _init_profile();
 
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
+                           std::vector<MysqlRowBuffer<is_binary_format>>& rows_buffer,
                            const DataTypePtr& nested_type_ptr = nullptr, int scale = -1);
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
-                      MysqlRowBuffer& buffer);
+                      MysqlRowBuffer<is_binary_format>& buffer);
 
 private:
     BufferControlBlock* _sinker;
@@ -67,6 +73,8 @@ private:
     RuntimeProfile::Counter* _result_send_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
+    // for synchronized results
+    ResultList _results;
 };
 } // namespace vectorized
 } // namespace doris

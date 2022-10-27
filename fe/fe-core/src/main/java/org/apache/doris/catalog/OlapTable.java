@@ -599,6 +599,10 @@ public class OlapTable extends Table {
         }
     }
 
+    public List<Column> getBaseSchemaKeyColumns() {
+        return getKeyColumnsByIndexId(baseIndexId);
+    }
+
     public List<Column> getKeyColumnsByIndexId(Long indexId) {
         ArrayList<Column> keyColumns = Lists.newArrayList();
         List<Column> allColumns = this.getSchemaByIndexId(indexId);
@@ -1710,6 +1714,27 @@ public class OlapTable extends Table {
         return false;
     }
 
+    public void setStoreRowColumn(boolean storeRowColumn) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
+                Boolean.valueOf(storeRowColumn).toString());
+        tableProperty.buildStoreRowColumn();
+    }
+
+    public Boolean storeRowColumn() {
+        if (tableProperty != null) {
+            return tableProperty.storeRowColumn();
+        }
+        return false;
+    }
+
+    public int getBaseSchemaVersion() {
+        MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
+        return baseIndexMeta.getSchemaVersion();
+    }
+
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
@@ -1972,9 +1997,9 @@ public class OlapTable extends Table {
 
     // for light schema change
     public void initSchemaColumnUniqueId() {
-        if (!getEnableLightSchemaChange()) {
-            return;
-        }
+        // if (!getEnableLightSchemaChange()) {
+        //     return;
+        // }
 
         for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
             indexMeta.initSchemaColumnUniqueId();

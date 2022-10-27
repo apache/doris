@@ -35,6 +35,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/storage_engine.h"
+#include "service/tablet_lookup_metric.h"
 #include "util/file_utils.h"
 #include "util/time.h"
 
@@ -114,6 +115,11 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
     LOG(INFO) << "fd cache clean thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "clean_lookup_cache", [this]() { this->_start_clean_lookup_cache(); },
+            &_lookup_cache_clean_thread));
+    LOG(INFO) << "clean lookup cache thread started";
+
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
@@ -176,6 +182,13 @@ void StorageEngine::_fd_cache_clean_callback() {
         }
 
         _start_clean_cache();
+    }
+}
+
+void StorageEngine::_start_clean_lookup_cache() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::tablet_lookup_cache_clean_interval))) {
+        LookupCache::instance().prune();
     }
 }
 

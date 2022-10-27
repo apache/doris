@@ -55,6 +55,7 @@ set(VEC_FILES
   columns/column_string.cpp
   columns/column_vector.cpp
   columns/columns_common.cpp
+  jsonb/serialize.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp

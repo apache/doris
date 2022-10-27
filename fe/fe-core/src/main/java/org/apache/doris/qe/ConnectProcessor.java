@@ -17,8 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.ExecuteStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
@@ -61,6 +64,7 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
@@ -74,6 +78,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.AsynchronousCloseException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -167,6 +172,80 @@ public class ConnectProcessor {
     // process COM_PING statement, do nothing, just return one OK packet.
     private void handlePing() {
         ctx.getState().setOk();
+    }
+
+    private void debugPacket() {
+        byte[] bytes = packetBuf.array();
+        StringBuilder printB = new StringBuilder();
+        for (byte b : bytes) {
+            if (Character.isLetterOrDigit((char) b & 0xFF)) {
+                char x = (char) b;
+                printB.append(x);
+            } else {
+                printB.append("0x" + Integer.toHexString(b & 0xFF));
+            }
+            printB.append(" ");
+        }
+    }
+
+    private static boolean isNull(byte[] bitmap, int position) {
+        return (bitmap[position / 8] & (1 << (position & 7))) != 0;
+    }
+
+    // process COM_EXECUTE, parse binary row data
+    // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
+    private void handleExecute() {
+        // debugPacket();
+        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        // parse stmt_id, flags, params
+        int stmtId = packetBuf.getInt();
+        // flag
+        packetBuf.get();
+        // iteration_count always 1,
+        packetBuf.getInt();
+        LOG.debug("execute prepared statement {}", stmtId);
+        PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
+        int paramCount = prepareCtx.stmt.getParmCount();
+        // null bitmap
+        byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
+        packetBuf.get(nullbitmapData);
+        try {
+            // new_params_bind_flag
+            if ((int) packetBuf.get() != 0) {
+                List<LiteralExpr> placeHolderExprs = Lists.newArrayList();
+                // parse params's types
+                for (int i = 0; i < paramCount; ++i) {
+                    if (isNull(nullbitmapData, i)) {
+                        placeHolderExprs.add(new NullLiteral());
+                        continue;
+                    }
+                    int typeCode = packetBuf.getChar();
+                    LOG.debug("code {}", typeCode);
+                    placeHolderExprs.add(LiteralExpr.getLiteralByMysqlType(typeCode));
+                }
+                // parse param data
+                for (int i = 0; i < paramCount; ++i) {
+                    if (isNull(nullbitmapData, i)) {
+                        continue;
+                    }
+                    placeHolderExprs.get(i).setupParamFromBinary(packetBuf);
+                }
+                ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), placeHolderExprs);
+                // TODO set real origin statement
+                executeStmt.setOrigStmt(new OriginStatement("null", 0));
+                executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
+                LOG.debug("executeStmt {}", executeStmt);
+                executor = new StmtExecutor(ctx, executeStmt);
+                ctx.setExecutor(executor);
+                executor.execute();
+            }
+        } catch (Throwable e)  {
+            // Catch all throwable.
+            // If reach here, maybe palo bug.
+            LOG.warn("Process one query failed because unknown reason: ", e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        }
     }
 
     private void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics) {
@@ -464,6 +543,7 @@ public class ConnectProcessor {
                 handleQuit();
                 break;
             case COM_QUERY:
+            case COM_STMT_PREPARE:
                 ctx.initTracer("trace");
                 Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").startSpan();
                 try (Scope scope = rootSpan.makeCurrent()) {
@@ -474,6 +554,9 @@ public class ConnectProcessor {
                 } finally {
                     rootSpan.end();
                 }
+                break;
+            case COM_STMT_EXECUTE:
+                handleExecute();
                 break;
             case COM_FIELD_LIST:
                 handleFieldList();

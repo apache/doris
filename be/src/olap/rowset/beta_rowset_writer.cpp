@@ -35,6 +35,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -460,6 +461,30 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     return Status::OK();
 }
 
+Status BetaRowsetWriter::_append_row_column(vectorized::Block* block) {
+    if (_context.tablet_schema->store_row_column()) {
+        MonotonicStopWatch watch;
+        watch.start();
+        if (!block->has(BeConsts::SOURCE_COL)) {
+            auto string_type = std::make_shared<vectorized::DataTypeString>();
+            auto source_column = string_type->create_column();
+            block->insert({std::move(source_column), string_type, BeConsts::SOURCE_COL});
+        }
+        auto column =
+                static_cast<vectorized::ColumnString*>(block->get_by_name(BeConsts::SOURCE_COL)
+                                                               .column->assume_mutable_ref()
+                                                               .assume_mutable()
+                                                               .get());
+        vectorized::JsonbSerializeUtil::block_to_jsonb(
+                *_context.tablet_schema, *block, *column,
+                _context.tablet_schema->num_columns() - 1 /*last col is dst column*/);
+        VLOG_DEBUG << "serialize , num_rows:" << block->rows()
+                   << ", total_byte_size:" << block->allocated_bytes() << ", serialize_cost(us)"
+                   << watch.elapsed_time() / 1000;
+    }
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments,
                                                        bool is_last) {
     if (is_last) {
@@ -548,6 +573,7 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
 
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
                                     std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
+    RETURN_IF_ERROR(_append_row_column(const_cast<vectorized::Block*>(block)));
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);

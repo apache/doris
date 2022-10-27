@@ -211,6 +211,8 @@ CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000
 
 // the clean interval of file descriptor cache and segment cache
 CONF_mInt32(cache_clean_interval, "1800");
+// the clean interval of tablet lookup cache
+CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");
 CONF_mInt32(unused_rowset_monitor_interval, "30");
 CONF_String(storage_root_path, "${DORIS_HOME}/storage");

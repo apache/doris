@@ -127,6 +127,8 @@ private:
                                             const RowsetMetaSharedPtr& spec_rowset_meta);
     bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
 
+    Status _append_row_column(vectorized::Block* block);
+
 protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
