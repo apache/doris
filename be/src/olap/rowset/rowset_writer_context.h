@@ -72,7 +72,6 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type;
     io::FileSystemPtr fs = nullptr;
     std::string rowset_dir = "";
-    io::ResourceId resource_id = "";
     TabletSchemaSPtr tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset

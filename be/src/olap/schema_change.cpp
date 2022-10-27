@@ -2186,8 +2186,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                 rs_reader->version(), VISIBLE,
                 rs_reader->rowset()->rowset_meta()->segments_overlap(), new_tablet->tablet_schema(),
                 rs_reader->oldest_write_timestamp(), rs_reader->newest_write_timestamp(),
-                rs_reader->rowset()->rowset_meta()->fs(),
-                rs_reader->rowset()->rowset_meta()->resource_id(), &rowset_writer);
+                rs_reader->rowset()->rowset_meta()->fs(), &rowset_writer);
         if (!status.ok()) {
             res = Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
             return process_alter_exit();

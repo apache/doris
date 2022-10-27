@@ -36,7 +36,7 @@
 
 namespace doris {
 
-using FileSystemPtr = std::shared_ptr<io::FileSystem>;
+using FileSystemSPtr = std::shared_ptr<io::FileSystem>;
 
 namespace segment_v2 {
 using roaring::Roaring;
@@ -59,7 +59,7 @@ public:
 };
 
 template <FieldType type>
-void write_index_file(const std::string& filename, FileSystemPtr fs, const void* values,
+void write_index_file(const std::string& filename, FileSystemSPtr fs, const void* values,
                       size_t value_count, size_t null_count, ColumnIndexMetaPB* meta) {
     const auto* type_info = get_scalar_type_info<type>();
     {
