@@ -18,6 +18,7 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
@@ -122,6 +123,8 @@ public class BackendServiceProxy {
         builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_2);
 
         final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
+        MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);
+        MetricRepo.BE_COUNTER_QUERY_RPC_SIZE.getOrAdd(address.hostname).increase((long) pRequest.getSerializedSize());
         try {
             final BackendServiceClient client = getProxy(address);
             if (twoPhaseExecution) {

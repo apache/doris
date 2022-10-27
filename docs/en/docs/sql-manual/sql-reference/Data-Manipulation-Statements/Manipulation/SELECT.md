@@ -43,6 +43,9 @@ SELECT
     select_expr [, select_expr ...]
     [FROM table_references
       [PARTITION partition_list]
+      [TABLET tabletid_list]
+      [TABLESAMPLE sample_value [ROWS | PERCENT]
+        [REPEATABLE pos_seek]]
     [WHERE where_condition]
     [GROUP BY {col_name | expr | position}
       [ASC | DESC], ... [WITH ROLLUP]]
@@ -80,6 +83,8 @@ SELECT
       Typically `having` is used with aggregate functions (eg :`COUNT(), SUM(), AVG(), MIN(), MAX()`) and `group by` clauses.
 
    10. SELECT supports explicit partition selection using PARTITION containing a list of partitions or subpartitions (or both) following the name of the table in `table_reference`
+
+   11. `[TABLET tids] TABLESAMPLE n [ROWS | PERCENT] [REPEATABLE seek]`: Limit the number of rows read from the table in the FROM clause, select a number of Tablets pseudo-randomly from the table according to the specified number of rows or percentages, and specify the number of seeds in REPEATABLE to return the selected samples again. In addition, you can also manually specify the TableID, Note that this can only be used for OLAP tables.
 
 **Syntax constraints:**
 
@@ -279,6 +284,13 @@ A CTE can refer to itself to define a recursive CTE. Common applications of recu
     |    2 | y    |    2 | z    |
     | NULL | NULL |    3 | w    |
     +------+------+------+------+
+    ```
+
+15. TABLESAMPLE
+
+    ```sql
+    --Pseudo-randomly sample 1000 rows in t1. Note that several Tablets are actually selected according to the statistics of the table, and the total number of selected Tablet rows may be greater than 1000, so if you want to explicitly return 1000 rows, you need to add Limit.
+    SELECT * FROM t1 TABLET(10001) TABLESAMPLE(1000 ROWS) REPEATABLE 2 limit 1000;
     ```
 
 ### keywords

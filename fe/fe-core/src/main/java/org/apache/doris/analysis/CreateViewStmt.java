@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -55,6 +56,7 @@ public class CreateViewStmt extends BaseViewStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         tableName.analyze(analyzer);
+        FeNameFormat.checkTableName(tableName.getTbl());
         viewDefStmt.setNeedToSql(true);
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());

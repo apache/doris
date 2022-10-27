@@ -101,15 +101,15 @@ private:
                         StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                         if constexpr (is_and) {
                             unsigned char flag = 0;
-                            (_state->function)(
+                            (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                             flags[i] &= _opposite ^ flag;
                         } else {
                             unsigned char flag = 0;
-                            (_state->function)(
+                            (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                             flags[i] = _opposite ^ flag;
                         }
                     }
@@ -118,55 +118,23 @@ private:
                 }
             } else {
                 if (column.is_column_dictionary()) {
-                    if (_state->function_vec_dict) {
-                        if (LIKELY(_like_state.search_string_sv.len > 0)) {
-                            auto* nested_col_ptr = vectorized::check_and_get_column<
-                                    vectorized::ColumnDictionary<vectorized::Int32>>(column);
-                            auto& data_array = nested_col_ptr->get_data();
-                            StringValue values[size];
-                            unsigned char temp_flags[size];
-                            for (uint16_t i = 0; i != size; i++) {
-                                values[i] = nested_col_ptr->get_shrink_value(data_array[i]);
-                            }
-                            (_state->function_vec_dict)(
-                                    const_cast<vectorized::LikeSearchState*>(&_like_state), pattern,
-                                    values, size, temp_flags);
-                            for (uint16_t i = 0; i < size; i++) {
-                                if constexpr (is_and) {
-                                    flags[i] &= _opposite ^ temp_flags[i];
-                                } else {
-                                    flags[i] = _opposite ^ temp_flags[i];
-                                }
-                            }
+                    auto* nested_col_ptr = vectorized::check_and_get_column<
+                            vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                    auto& data_array = nested_col_ptr->get_data();
+                    for (uint16_t i = 0; i < size; i++) {
+                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
+                        if constexpr (is_and) {
+                            unsigned char flag = 0;
+                            (_state->scalar_function)(
+                                    const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
+                            flags[i] &= _opposite ^ flag;
                         } else {
-                            for (uint16_t i = 0; i < size; i++) {
-                                if constexpr (is_and) {
-                                    flags[i] &= _opposite ^ true;
-                                } else {
-                                    flags[i] = _opposite ^ true;
-                                }
-                            }
-                        }
-                    } else {
-                        auto* nested_col_ptr = vectorized::check_and_get_column<
-                                vectorized::ColumnDictionary<vectorized::Int32>>(column);
-                        auto& data_array = nested_col_ptr->get_data();
-                        for (uint16_t i = 0; i < size; i++) {
-                            StringValue cell_value =
-                                    nested_col_ptr->get_shrink_value(data_array[i]);
-                            if constexpr (is_and) {
-                                unsigned char flag = 0;
-                                (_state->function)(
-                                        const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                        cell_value, pattern, &flag);
-                                flags[i] &= _opposite ^ flag;
-                            } else {
-                                unsigned char flag = 0;
-                                (_state->function)(
-                                        const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                        cell_value, pattern, &flag);
-                                flags[i] = _opposite ^ flag;
-                            }
+                            unsigned char flag = 0;
+                            (_state->scalar_function)(
+                                    const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
+                            flags[i] = _opposite ^ flag;
                         }
                     }
                 } else {

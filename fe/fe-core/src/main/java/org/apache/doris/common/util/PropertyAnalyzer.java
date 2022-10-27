@@ -653,7 +653,8 @@ public class PropertyAnalyzer {
                 continue;
             }
             String val = entry.getValue().replaceAll(" ", "");
-            tagMap.put(keyParts[1], val);
+            Tag tag = Tag.create(keyParts[1], val);
+            tagMap.put(tag.type, tag.value);
             iter.remove();
         }
         if (tagMap.isEmpty() && defaultValue != null) {

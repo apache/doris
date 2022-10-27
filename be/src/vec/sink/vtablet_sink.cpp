@@ -354,7 +354,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         _add_block_closure->cntl.http_request().set_content_type("application/json");
 
         {
-            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, NULL,
                                                              &_add_block_closure->result,
                                                              _add_block_closure);
@@ -362,7 +362,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     } else {
         _add_block_closure->cntl.http_request().Clear();
         {
-            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
             _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
                                            &_add_block_closure->result, _add_block_closure);
         }
@@ -614,7 +614,11 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         const auto column_string =
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
 
-        size_t limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        size_t limit = config::string_type_length_soft_limit_bytes;
+        // when type.len is negative, std::min will return overflow value, so we need to check it
+        if (type.len > 0) {
+            limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        }
         for (size_t j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {

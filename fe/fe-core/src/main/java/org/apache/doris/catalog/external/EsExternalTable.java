@@ -39,7 +39,6 @@ public class EsExternalTable extends ExternalTable {
 
     private final EsExternalCatalog catalog;
     private final String dbName;
-    private boolean initialized = false;
     private EsTable esTable;
 
     /**

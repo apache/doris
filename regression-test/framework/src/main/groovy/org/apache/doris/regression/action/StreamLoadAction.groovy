@@ -22,6 +22,7 @@ import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.FromString
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.BytesInputStream
+import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.OutputUtils
 import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
@@ -286,6 +287,9 @@ class StreamLoadAction implements SuiteAction {
     }
 
     private void checkResult(String responseText, Throwable ex, long startTime, long endTime) {
+        String finalStatus = waitForPublishOrFailure(responseText)
+        log.info("The origin stream load result: ${responseText}, final status: ${finalStatus}")
+        responseText = responseText.replace("Publish Timeout", finalStatus)
         if (check != null) {
             check.call(responseText, ex, startTime, endTime)
         } else {
@@ -321,6 +325,40 @@ class StreamLoadAction implements SuiteAction {
                     throw new IllegalStateException("Expect elapsed <= ${time}, but meet ${elapsed}")
                 }
             }
+        }
+    }
+
+    // Sometime the stream load may return "PUBLISH TIMEOUT"
+    // This is not a fatal error but may cause test fail.
+    // So here we wait for at most 60s, using "show transaction" to check the
+    // status of txn, and return once it become ABORTED or VISIBLE.
+    private String waitForPublishOrFailure(String responseText) {
+        long maxWaitSecond = 60;
+        def jsonSlurper = new JsonSlurper()
+        def parsed = jsonSlurper.parseText(responseText)
+        String status = parsed.Status
+        long txnId = parsed.TxnId
+        if (!status.equalsIgnoreCase("Publish Timeout")) {
+            return status;
+        }
+
+        log.info("Stream load with txn ${txnId} is publish timeout")
+        String sql = "show transaction from ${db} where id = ${txnId}"
+        String st = "PREPARE"
+        while (!st.equalsIgnoreCase("VISIBLE") && !st.equalsIgnoreCase("ABORTED") && maxWaitSecond > 0) {
+            Thread.sleep(2000)
+            maxWaitSecond -= 2
+            def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
+            if (result.size() != 1) {
+                throw new IllegalStateException("Failed to get txn's ${txnId}")
+            }
+            st = String.valueOf(result[0][3])
+        }
+        log.info("Stream load with txn ${txnId} is ${st}")
+        if (st.equalsIgnoreCase("VISIBLE")) {
+            return "Success";
+        } else {
+            return "Fail";
         }
     }
 }

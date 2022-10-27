@@ -25,17 +25,18 @@
 #include <sstream>
 #include <valarray>
 
+#include "common/config.h"
 #include "runtime/datetime_value.h"
 #include "util/timezone_utils.h"
 
 namespace doris::vectorized {
 
-static int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+static constexpr int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", NULL};
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
-static const char* s_ab_day_name[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", NULL};
+static const char* s_ab_day_name[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", nullptr};
 
 uint8_t mysql_week_mode(uint32_t mode) {
     mode &= 7;
@@ -1274,6 +1275,12 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 break;
                 // Micro second
             case 'f':
+                // _microsecond is removed, but need to eat this val
+                tmp = val + min(6, val_end - val);
+                if (!str_to_int64(val, &tmp, &int_value)) {
+                    return false;
+                }
+                val = tmp;
                 break;
                 // AM/PM
             case 'p':

@@ -43,6 +43,9 @@ SELECT
     select_expr [, select_expr ...]
     [FROM table_references
       [PARTITION partition_list]
+      [TABLET tabletid_list]
+      [TABLESAMPLE sample_value [ROWS | PERCENT]
+        [REPEATABLE pos_seek]]
     [WHERE where_condition]
     [GROUP BY {col_name | expr | position}
       [ASC | DESC], ... [WITH ROLLUP]]
@@ -79,7 +82,9 @@ SELECT
 
    通常来说 `having` 要和聚合函数（例如 :`COUNT(), SUM(), AVG(), MIN(), MAX()`）以及 `group by` 从句一起使用。
 
-11. SELECT 支持使用 PARTITION 显式分区选择，其中包含 `table_reference` 中表的名称后面的分区或子分区（或两者）列表
+10. SELECT 支持使用 PARTITION 显式分区选择，其中包含 `table_reference` 中表的名称后面的分区或子分区（或两者）列表。
+
+11. `[TABLET tids] TABLESAMPLE n [ROWS | PERCENT] [REPEATABLE seek]`: 在FROM子句中限制表的读取行数，根据指定的行数或百分比从表中伪随机的选择数个Tablet，REPEATABLE指定种子数可使选择的样本再次返回，此外也可手动指定TableID，注意这只能用于OLAP表。
 
 **语法约束：**
 
@@ -279,6 +284,13 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
     |    2 | y    |    2 | z    |
     | NULL | NULL |    3 | w    |
     +------+------+------+------+
+    ```
+
+15. TABLESAMPLE
+
+    ```sql
+    --在t1中伪随机的抽样1000行。注意实际是根据表的统计信息选择若干Tablet，被选择的Tablet总行数可能大于1000，所以若想明确返回1000行需要加上Limit。
+    SELECT * FROM t1 TABLET(10001) TABLESAMPLE(1000 ROWS) REPEATABLE 2 limit 1000;
     ```
 
 ### keywords

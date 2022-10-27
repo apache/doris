@@ -70,7 +70,7 @@ private:
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
     // if only_close is true, this method will just close the file writer and return.
-    Status _close_file_writer(bool done);
+    Status _close_file_writer(bool done, bool only_close = false);
     // create a new file if current file size exceed limit
     Status _create_new_file_if_exceed_size();
     // send the final statistic result

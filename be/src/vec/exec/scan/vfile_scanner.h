@@ -30,16 +30,6 @@ namespace doris::vectorized {
 
 class NewFileScanNode;
 
-// The counter will be passed to each scanner.
-// Note that this struct is not thread safe.
-// So if we support concurrent scan in the future, we need to modify this struct.
-struct ScannerCounter {
-    ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
-
-    int64_t num_rows_filtered;   // unqualified rows (unmatched the dest schema, or no partition)
-    int64_t num_rows_unselected; // rows filtered by predicates
-};
-
 class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
@@ -115,7 +105,6 @@ protected:
 
     // Profile
     RuntimeProfile* _profile;
-    ScannerCounter _counter;
 
     bool _scanner_eof = false;
     int _rows = 0;

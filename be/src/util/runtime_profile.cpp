@@ -254,7 +254,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
 
     int64_t local_time = total_time_counter()->value() - total_child_time;
     // Counters have some margin, set to 0 if it was negative.
-    local_time = std::max(0L, local_time);
+    local_time = std::max<int64_t>(0L, local_time);
     _local_time_percent = static_cast<double>(local_time) / total;
     _local_time_percent = std::min(1.0, _local_time_percent) * 100;
 

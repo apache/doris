@@ -1,4 +1,4 @@
-CREATE TABLE `empty` (
+CREATE TABLE IF NOT EXISTS `empty` (
   `c1` INT,
   `c2` String,
   `c3` Decimal(15, 2) NOT NULL

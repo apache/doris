@@ -1026,38 +1026,8 @@ void StorageEngine::notify_listeners() {
 }
 
 Status StorageEngine::execute_task(EngineTask* task) {
-    auto lock_related_tablets = [&]() -> std::vector<std::unique_lock<std::shared_mutex>> {
-        // add write lock to all related tablets
-        std::vector<TabletInfo> tablet_infos;
-        task->get_related_tablets(&tablet_infos);
-        sort(tablet_infos.begin(), tablet_infos.end());
-        std::vector<TabletSharedPtr> related_tablets;
-        std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
-        for (TabletInfo& tablet_info : tablet_infos) {
-            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id);
-            if (tablet != nullptr) {
-                related_tablets.push_back(tablet);
-                wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));
-            } else {
-                LOG(WARNING) << "could not get tablet before prepare tabletid: "
-                             << tablet_info.tablet_id;
-            }
-        }
-        return wrlocks;
-    };
-
-    {
-        auto wrlocks = lock_related_tablets();
-        RETURN_IF_ERROR(task->prepare());
-    }
-
-    // do execute work without lock
     RETURN_IF_ERROR(task->execute());
-
-    {
-        auto wrlocks = lock_related_tablets();
-        return task->finish();
-    }
+    return task->finish();
 }
 
 // check whether any unused rowsets's id equal to rowset_id

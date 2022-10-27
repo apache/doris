@@ -91,7 +91,7 @@ private:
     void _init_lazy_materialization();
     void _vec_init_lazy_materialization();
     // TODO: Fix Me
-    // CHAR type in storge layer padding the 0 in length. But query engine need ignore the padding 0.
+    // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
     // so segment iterator need to shrink char column before output it. only use in vec query engine.
     void _vec_init_char_column_id();
 
@@ -180,7 +180,7 @@ private:
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
     std::vector<uint32_t> _delete_range_column_ids;
     std::vector<uint32_t> _delete_bloom_filter_column_ids;
-    // when lazy materialization is enable, segmentIter need to read data at least twice
+    // when lazy materialization is enabled, segmentIter need to read data at least twice
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read

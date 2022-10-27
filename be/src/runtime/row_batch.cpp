@@ -33,6 +33,7 @@
 #include "runtime/string_value.h"
 #include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
+#include "util/exception.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 
@@ -285,7 +286,7 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
             std::exception_ptr p = std::current_exception();
             LOG(WARNING) << "Try to alloc " << max_compressed_size
                          << " bytes for compression scratch failed. "
-                         << (p ? p.__cxa_exception_type()->name() : "null");
+                         << get_current_exception_type_name(p);
         }
     }
     if (can_compress) {

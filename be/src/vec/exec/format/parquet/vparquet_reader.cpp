@@ -46,43 +46,43 @@ ParquetReader::~ParquetReader() {
 
 void ParquetReader::_init_profile() {
     if (_profile != nullptr) {
-        static const char* const parquetProfile = "ParquetReader";
-        ADD_TIMER(_profile, parquetProfile);
+        static const char* parquet_profile = "ParquetReader";
+        ADD_TIMER(_profile, parquet_profile);
 
         _parquet_profile.filtered_row_groups =
-                ADD_CHILD_COUNTER(_profile, "FilteredGroups", TUnit::UNIT, parquetProfile);
+                ADD_CHILD_COUNTER(_profile, "FilteredGroups", TUnit::UNIT, parquet_profile);
         _parquet_profile.to_read_row_groups =
-                ADD_CHILD_COUNTER(_profile, "ReadGroups", TUnit::UNIT, parquetProfile);
+                ADD_CHILD_COUNTER(_profile, "ReadGroups", TUnit::UNIT, parquet_profile);
         _parquet_profile.filtered_group_rows =
-                ADD_CHILD_COUNTER(_profile, "FilteredRowsByGroup", TUnit::UNIT, parquetProfile);
+                ADD_CHILD_COUNTER(_profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile);
         _parquet_profile.filtered_page_rows =
-                ADD_CHILD_COUNTER(_profile, "FilteredRowsByPage", TUnit::UNIT, parquetProfile);
+                ADD_CHILD_COUNTER(_profile, "FilteredRowsByPage", TUnit::UNIT, parquet_profile);
         _parquet_profile.filtered_bytes =
-                ADD_CHILD_COUNTER(_profile, "FilteredBytes", TUnit::BYTES, parquetProfile);
+                ADD_CHILD_COUNTER(_profile, "FilteredBytes", TUnit::BYTES, parquet_profile);
         _parquet_profile.to_read_bytes =
-                ADD_CHILD_COUNTER(_profile, "ReadBytes", TUnit::BYTES, parquetProfile);
+                ADD_CHILD_COUNTER(_profile, "ReadBytes", TUnit::BYTES, parquet_profile);
         _parquet_profile.column_read_time =
-                ADD_CHILD_TIMER(_profile, "ColumnReadTime", parquetProfile);
+                ADD_CHILD_TIMER(_profile, "ColumnReadTime", parquet_profile);
         _parquet_profile.parse_meta_time =
-                ADD_CHILD_TIMER(_profile, "ParseMetaTime", parquetProfile);
+                ADD_CHILD_TIMER(_profile, "ParseMetaTime", parquet_profile);
 
         _parquet_profile.file_read_time = ADD_TIMER(_profile, "FileReadTime");
         _parquet_profile.file_read_calls = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
         _parquet_profile.file_read_bytes = ADD_COUNTER(_profile, "FileReadBytes", TUnit::BYTES);
         _parquet_profile.decompress_time =
-                ADD_CHILD_TIMER(_profile, "DecompressTime", parquetProfile);
+                ADD_CHILD_TIMER(_profile, "DecompressTime", parquet_profile);
         _parquet_profile.decompress_cnt =
-                ADD_CHILD_COUNTER(_profile, "DecompressCount", TUnit::UNIT, parquetProfile);
+                ADD_CHILD_COUNTER(_profile, "DecompressCount", TUnit::UNIT, parquet_profile);
         _parquet_profile.decode_header_time =
-                ADD_CHILD_TIMER(_profile, "DecodeHeaderTime", parquetProfile);
+                ADD_CHILD_TIMER(_profile, "DecodeHeaderTime", parquet_profile);
         _parquet_profile.decode_value_time =
-                ADD_CHILD_TIMER(_profile, "DecodeValueTime", parquetProfile);
+                ADD_CHILD_TIMER(_profile, "DecodeValueTime", parquet_profile);
         _parquet_profile.decode_dict_time =
-                ADD_CHILD_TIMER(_profile, "DecodeDictTime", parquetProfile);
+                ADD_CHILD_TIMER(_profile, "DecodeDictTime", parquet_profile);
         _parquet_profile.decode_level_time =
-                ADD_CHILD_TIMER(_profile, "DecodeLevelTime", parquetProfile);
+                ADD_CHILD_TIMER(_profile, "DecodeLevelTime", parquet_profile);
         _parquet_profile.decode_null_map_time =
-                ADD_CHILD_TIMER(_profile, "DecodeNullMapTime", parquetProfile);
+                ADD_CHILD_TIMER(_profile, "DecodeNullMapTime", parquet_profile);
     }
 }
 
@@ -121,8 +121,9 @@ Status ParquetReader::init_reader(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     if (_file_reader == nullptr) {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range,
-                                                        _file_reader, 0));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range.path,
+                                                        _scan_range.start_offset,
+                                                        _scan_range.file_size, 0, _file_reader));
     }
     RETURN_IF_ERROR(_file_reader->open());
     if (_file_reader->size() == 0) {
@@ -142,6 +143,7 @@ Status ParquetReader::init_reader(
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_init_read_columns());
     RETURN_IF_ERROR(_init_row_group_readers());
+
     return Status::OK();
 }
 
@@ -155,12 +157,12 @@ Status ParquetReader::_init_read_columns() {
             _missing_cols.push_back(file_col_name);
         }
     }
+    // It is legal to get empty include_column_ids in query task.
     if (include_column_ids.empty()) {
-        return Status::InternalError("No columns found in file");
+        return Status::OK();
     }
     // The same order as physical columns
     std::sort(include_column_ids.begin(), include_column_ids.end());
-    _read_columns.clear();
     for (int& parquet_col_id : include_column_ids) {
         _read_columns.emplace_back(parquet_col_id,
                                    _file_metadata->schema().get_column(parquet_col_id)->name);
@@ -170,10 +172,10 @@ Status ParquetReader::_init_read_columns() {
 
 std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type() {
     std::unordered_map<std::string, TypeDescriptor> map;
-    auto schema_desc = _file_metadata->schema();
+    const auto& schema_desc = _file_metadata->schema();
     std::unordered_set<std::string> column_names;
     schema_desc.get_column_names(&column_names);
-    for (auto name : column_names) {
+    for (auto& name : column_names) {
         auto field = schema_desc.get_column(name);
         map.emplace(name, field->type);
     }
@@ -182,10 +184,10 @@ std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type(
 
 Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
-    auto schema_desc = _file_metadata->schema();
+    const auto& schema_desc = _file_metadata->schema();
     std::unordered_set<std::string> column_names;
     schema_desc.get_column_names(&column_names);
-    for (auto name : column_names) {
+    for (auto& name : column_names) {
         auto field = schema_desc.get_column(name);
         name_to_type->emplace(name, field->type);
     }

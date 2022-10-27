@@ -806,6 +806,7 @@ private:
 
     bool _should_limit_output = false;
     bool _reach_limit = false;
+    bool _agg_data_created_without_key = false;
 
     PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;

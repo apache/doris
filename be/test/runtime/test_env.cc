@@ -38,7 +38,7 @@ TestEnv::TestEnv() {
     _exec_env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _exec_env->_disk_io_mgr = new DiskIoMgr(1, 1, 1, 10);
     _exec_env->disk_io_mgr()->init(-1);
-    _exec_env->_scan_thread_pool = new PriorityThreadPool(1, 16);
+    _exec_env->_scan_thread_pool = new PriorityThreadPool(1, 16, "ut_scan");
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     // TODO may need rpc support, etc.
 }

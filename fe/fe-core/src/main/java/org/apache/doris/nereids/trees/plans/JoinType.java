@@ -92,6 +92,14 @@ public enum JoinType {
         return this == INNER_JOIN;
     }
 
+    public final boolean isInnerOrCrossJoin() {
+        return this == INNER_JOIN || this == CROSS_JOIN;
+    }
+
+    public final boolean isLeftJoin() {
+        return this == LEFT_OUTER_JOIN || this == LEFT_ANTI_JOIN || this == LEFT_SEMI_JOIN;
+    }
+
     public final boolean isRightJoin() {
         return this == RIGHT_OUTER_JOIN || this == RIGHT_ANTI_JOIN || this == RIGHT_SEMI_JOIN;
     }
@@ -106,6 +114,14 @@ public enum JoinType {
 
     public final boolean isRightOuterJoin() {
         return this == RIGHT_OUTER_JOIN;
+    }
+
+    public final boolean isLeftSemiOrAntiJoin() {
+        return this == LEFT_SEMI_JOIN || this == LEFT_ANTI_JOIN;
+    }
+
+    public final boolean isRightSemiOrAntiJoin() {
+        return this == RIGHT_SEMI_JOIN || this == RIGHT_ANTI_JOIN;
     }
 
     public final boolean isSemiOrAntiJoin() {

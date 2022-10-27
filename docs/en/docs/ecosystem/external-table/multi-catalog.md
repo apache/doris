@@ -64,7 +64,7 @@ This function will be used as a supplement and enhancement to the previous exter
 	
 4. Drop Catalog
 
-	Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DRIO-CATALOG.md) command.
+	Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
 
 	This operation will only delete the mapping information of the catalog in Doris, and will not modify or change the contents of any external data source.
 
@@ -232,7 +232,77 @@ Query OK, 1000 rows affected (0.28 sec)
 
 ### Connect Elasticsearch
 
-TODO
+> 1. 5.x and later versions are supported.
+> 2. In 5.x and 6.x, multiple types in an index are taken as the first by default.
+
+The following example creates a Catalog connection named es to the specified ES and turns off node discovery.
+
+```
+CREATE CATALOG es PROPERTIES (
+	"type"="es",
+	"elasticsearch.hosts"="http://192.168.120.12:29200",
+	"elasticsearch.nodes_discovery"="false"
+);
+```
+
+Once created, you can view the catalog with the `SHOW CATALOGS` command:
+
+```
+mysql> SHOW CATALOGS;
++-----------+-------------+----------+
+| CatalogId | CatalogName | Type     |
++-----------+-------------+----------+
+|         0 | internal    | internal |
+|     11003 | es          | es       |
++-----------+-------------+----------+
+2 rows in set (0.02 sec)
+```
+
+Switch to the hive catalog with the `SWITCH` command and view the databases in it(Only one default_db associates all index)
+
+```
+mysql> SWITCH es;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SHOW DATABASES;
++------------+
+| Database   |
++------------+
+| default_db |
++------------+
+
+mysql> show tables;
++----------------------+
+| Tables_in_default_db |
++----------------------+
+| test                 |
+| test2                |
++----------------------+
+```
+
+Query
+
+```
+mysql> select * from test;
++------------+-------------+--------+-------+
+| test4      | test2       | test3  | test1 |
++------------+-------------+--------+-------+
+| 2022-08-08 | hello world |  2.415 | test2 |
+| 2022-08-08 | hello world | 3.1415 | test1 |
++------------+-------------+--------+-------+
+```
+
+## Parameters that：
+
+Parameter | Description
+---|---
+**elasticsearch.hosts** | ES Connection Address, maybe one or more node, load-balance is also accepted
+**elasticsearch.username** | username for ES
+**elasticsearch.password** | password for the user
+**elasticsearch.doc_value_scan** | whether to enable ES/Lucene column storage to get the value of the query field, the default is false
+**elasticsearch.keyword_sniff** | Whether to detect the string type text.fields in ES to obtain additional not analyzed keyword field name multi-fields mechanism
+**elasticsearch.nodes_discovery** | Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected.
+**elasticsearch.ssl** | Whether ES cluster enables https access mode, the current FE/BE implementation is to trust all
 
 
 ## Column Type Mapping

@@ -332,14 +332,19 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * Give some examples: Suppose there are 10 BEs, one for each BE disk. If the total size of a table is 500MB, you can consider 4-8 shards. 5GB: 8-16. 50GB: 32. 500GB: Recommended partitions, each partition is about 50GB in size, with 16-32 shards per partition. 5TB: Recommended partitions, each with a size of around 50GB and 16-32 shards per partition.
     
     > Note: The amount of data in the table can be viewed by the [show data](../sql-manual/sql-reference/Show-Statements/SHOW-DATA.md) command. The result is divided by the number of copies, which is the amount of data in the table.
-    
+
+4. About the settings and usage scenarios of Random Distribution.
+
+    * If the OLAP table does not have columns with replace type, set the data bucket mode of the table to RANDOM to avoid the severe data skew(When data is loaded into the partition corresponding to the table, each batch of data in a single load task will randomly select a tablet to write)).
+    * When the bucket distribution mode of the table is set to RANDOM, because there is no bucket distribution column, it is not possible to query only a few buckets based on the bucket distribution column values. When querying the table, all buckets int the hit partition will be scanned at the same time. This setting is suitable for aggregate query analysis of the table data as a whole, but not for highly concurrent point queries.
+    * If the data distribution of the OLAP table is Random Distribution, you can set the load to single tablet mode (set 'load_to_single_tablet' to true) when importing data. When importing large amounts of data, a task will only write one tablet when writing data to the corresponding partition. This will improve the concurrency and throughput of data import and reduce the problem of write amplification caused by data import and compaction, finally ensure the stability of the cluster.
 
 #### Compound Partitions vs Single Partitions
 
 Compound Partitions
 
 - The first level is called Partition, which is partition. Users can specify a dimension column as a partition column (currently only columns of integer and time types are supported), and specify the value range of each partition.
-- The second level is called Distribution, which means bucketing. Users can specify one or more dimension columns and the number of buckets to perform HASH distribution on the data.
+- The second level is called Distribution, which means bucketing. Users can specify one or more dimension columns and the number of buckets to perform HASH distribution on the data or set it to Random Distribution with not specifying the bucket distribution column to randomly distribute the data.
 
 Composite partitions are recommended for the following scenarios
 

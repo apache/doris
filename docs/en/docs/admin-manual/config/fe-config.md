@@ -1667,13 +1667,7 @@ Cluster name will be shown as the title of web page
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events. Only `mysql_service_nio_enabled` is true takes effect.
-
-### mysql_service_nio_enabled
-
-Default：true
-
-Whether FE starts the MySQL server based on NiO model. It is recommended to turn off this option when the query connection is less than 1000 or the concurrency scenario is not high
+When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 ### query_port
 
@@ -1709,7 +1703,7 @@ Default：0
 
 The connection timeout and socket timeout config for thrift server.
 
-The value for thrift_client_timeout_ms is set to be larger than zero to prevent some hang up problems in java.net.SocketInputStream.socketRead0
+The value for thrift_client_timeout_ms is set to be zero to prevent read timeout.
 
 ### mysql_nio_backlog_num
 
@@ -2232,3 +2226,35 @@ The latest data version currently supported, cannot be modified, and should be c
 ### `min_be_exec_version`
 
 The oldest data version currently supported, which cannot be modified, should be consistent with the `HeartbeatServer::min_be_exec_version` in the BE of the matching version.
+
+### `max_query_profile_num`
+
+The max number of query profile.
+
+Default: 100
+
+Is it possible to dynamically configure: true
+
+Is it a configuration item unique to the Master FE node: false
+
+### `disable_backend_black_list`
+
+Used to disable the BE blacklist function. After this function is disabled, if the query request to the BE fails, the BE will not be added to the blacklist.
+This parameter is suitable for regression testing environments to reduce occasional bugs that cause a large number of regression tests to fail.
+
+Default: false
+
+Is it possible to configure dynamically: true
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_backend_heartbeat_failure_tolerance_count`
+
+The maximum tolerable number of BE node heartbeat failures. If the number of consecutive heartbeat failures exceeds this value, the BE state will be set to dead.
+This parameter is suitable for regression test environments to reduce occasional heartbeat failures that cause a large number of regression test failures.
+
+Default: 1
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true

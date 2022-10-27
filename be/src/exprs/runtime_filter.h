@@ -27,6 +27,10 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
 class Predicate;
 class ObjectPool;
@@ -97,14 +101,20 @@ struct RuntimeFilterParams {
 };
 
 struct UpdateRuntimeFilterParams {
+    UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
+                              butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
+            : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequest* request;
-    const char* data;
+    butil::IOBufAsZeroCopyInputStream* data;
     ObjectPool* pool;
 };
 
 struct MergeRuntimeFilterParams {
+    MergeRuntimeFilterParams(const PMergeFilterRequest* req,
+                             butil::IOBufAsZeroCopyInputStream* data_stream)
+            : request(req), data(data_stream) {}
     const PMergeFilterRequest* request;
-    const char* data;
+    butil::IOBufAsZeroCopyInputStream* data;
 };
 
 /// The runtimefilter is built in the join node.
@@ -191,7 +201,7 @@ public:
 
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                          UniqueId fragment_id, bool init_bloom_filter = false, int node_id = -1);
+                          UniqueId fragment_id, int node_id = -1);
 
     BloomFilterFuncBase* get_bloomfilter() const;
 

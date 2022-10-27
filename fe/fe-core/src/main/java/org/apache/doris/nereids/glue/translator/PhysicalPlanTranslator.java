@@ -33,7 +33,6 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -163,6 +162,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (e instanceof SlotReference && outputExpressionList.stream().anyMatch(o -> o.anyMatch(e::equals))) {
                 groupSlotList.add((SlotReference) e);
             } else {
+                // TODO: review this, should not
                 groupSlotList.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), Collections.emptyList()));
             }
         }
@@ -200,7 +200,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputTupleDesc = generateTupleDesc(slotList, null, context);
         } else {
             // In the distinct agg scenario, global shares local's desc
-            AggregationNode localAggNode = (AggregationNode) inputPlanFragment.getPlanRoot().getChild(0);
+            AggregationNode localAggNode;
+            if (inputPlanFragment.getPlanRoot() instanceof ExchangeNode) {
+                localAggNode = (AggregationNode) inputPlanFragment.getPlanRoot().getChild(0);
+            } else {
+                // If the group by expr hits the partition key, there may be no exchange node
+                localAggNode = (AggregationNode) inputPlanFragment.getPlanRoot();
+            }
             outputTupleDesc = localAggNode.getAggInfo().getOutputTupleDesc();
         }
 
@@ -313,21 +319,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
 
-        // TODO: Unify the logic here for all the table types once aggregate/unique key types are fully supported.
         switch (olapScan.getTable().getKeysType()) {
             case AGG_KEYS:
             case UNIQUE_KEYS:
-                // TODO: Improve complete info for aggregate and unique key types table.
+            case DUP_KEYS:
                 PreAggStatus preAgg = olapScan.getPreAggStatus();
                 olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(), preAgg.getOffReason());
-                break;
-            case DUP_KEYS:
-                try {
-                    olapScanNode.updateScanRangeInfoByNewMVSelector(olapScan.getSelectedIndexId(), true, "");
-                    olapScanNode.setIsPreAggregation(true, "");
-                } catch (Exception e) {
-                    throw new AnalysisException(e.getMessage());
-                }
                 break;
             default:
                 throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());

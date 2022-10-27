@@ -23,6 +23,8 @@
 
 namespace doris {
 
+// TODO: phmap `parallel_flat_hash_map` is not thread-safe. If it is not fixed in the future,
+//       can consider using other maps instead.
 using TaskTrackersMap = phmap::parallel_flat_hash_map<
         std::string, std::shared_ptr<MemTrackerLimiter>,
         phmap::priv::hash_default_hash<std::string>, phmap::priv::hash_default_eq<std::string>,

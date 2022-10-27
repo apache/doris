@@ -48,8 +48,12 @@ struct MultiplyImpl {
         int8 sgn[size];
 
         for (int i = 0; i < size; i++) {
-            sgn[i] = ((DecimalV2Value(a[i]).value() >= 0) == (DecimalV2Value(b[i]).value() >= 0))
+            sgn[i] = ((DecimalV2Value(a[i]).value() > 0) && (DecimalV2Value(b[i]).value() > 0)) ||
+                                     ((DecimalV2Value(a[i]).value() < 0) &&
+                                      (DecimalV2Value(b[i]).value() < 0))
                              ? 1
+                     : ((DecimalV2Value(a[i]).value() == 0) || (DecimalV2Value(b[i]).value() == 0))
+                             ? 0
                              : -1;
         }
 
@@ -60,7 +64,7 @@ struct MultiplyImpl {
         }
     }
 
-    /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.
+    /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
     static inline bool apply(A a, B b, Result& c) {
         return common::mul_overflow(static_cast<Result>(a), b, c);

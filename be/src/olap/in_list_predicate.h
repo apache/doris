@@ -27,6 +27,7 @@
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/wrapper_field.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/string_value.h"
 #include "runtime/type_limit.h"
 #include "uint24.h"
@@ -206,14 +207,41 @@ public:
         }
     }
 
-    // todo(wb) support evaluate_and,evaluate_or
+    template <bool is_and>
+    void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+                       bool* flags) const {
+        if (column.is_nullable()) {
+            auto* nullable_col =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                        nullable_col->get_null_map_column())
+                                        .get_data();
+            auto& nested_col = nullable_col->get_nested_column();
+
+            if (_opposite) {
+                return _base_evaluate_bit<true, true, is_and>(&nested_col, &null_bitmap, sel, size,
+                                                              flags);
+            } else {
+                return _base_evaluate_bit<true, false, is_and>(&nested_col, &null_bitmap, sel, size,
+                                                               flags);
+            }
+        } else {
+            if (_opposite) {
+                return _base_evaluate_bit<false, true, is_and>(&column, nullptr, sel, size, flags);
+            } else {
+                return _base_evaluate_bit<false, false, is_and>(&column, nullptr, sel, size, flags);
+            }
+        }
+    }
+
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
-        LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_and now.";
+        _evaluate_bit<true>(column, sel, size, flags);
     }
+
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
-        LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_or now.";
+        _evaluate_bit<false>(column, sel, size, flags);
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
@@ -267,7 +295,10 @@ public:
 private:
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
-        if constexpr (PT == PredicateType::IN_LIST) {
+        if constexpr (Type == TYPE_BOOLEAN) {
+            DCHECK(_values.size() == 2);
+            return PT == PredicateType::IN_LIST;
+        } else if constexpr (PT == PredicateType::IN_LIST) {
             return lhs != rhs;
         }
         return lhs == rhs;
@@ -405,6 +436,82 @@ private:
         }
 
         return new_size;
+    }
+
+    template <bool is_nullable, bool is_opposite, bool is_and>
+    void _base_evaluate_bit(const vectorized::IColumn* column,
+                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
+                            const uint16_t* sel, uint16_t size, bool* flags) const {
+        if (column->is_column_dictionary()) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                auto* nested_col_ptr = vectorized::check_and_get_column<
+                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                auto& data_array = nested_col_ptr->get_data();
+                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+
+                for (uint16_t i = 0; i < size; i++) {
+                    if (is_and ^ flags[i]) {
+                        continue;
+                    }
+
+                    uint16_t idx = sel[i];
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[idx]) {
+                            if (is_and ^ is_opposite) {
+                                flags[i] = !is_and;
+                            }
+                            continue;
+                        }
+                    }
+
+                    if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
+                        if (is_and ^ _value_in_dict_flags[data_array[idx]]) {
+                            flags[i] = !is_and;
+                        }
+                    } else {
+                        if (is_and ^ !_value_in_dict_flags[data_array[idx]]) {
+                            flags[i] = !is_and;
+                        }
+                    }
+                }
+            } else {
+                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+            }
+        } else {
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
+                            column);
+            auto& data_array = nested_col_ptr->get_data();
+
+            for (uint16_t i = 0; i < size; i++) {
+                if (is_and ^ flags[i]) {
+                    continue;
+                }
+                uint16_t idx = sel[i];
+                if constexpr (is_nullable) {
+                    if ((*null_map)[idx]) {
+                        if (is_and ^ is_opposite) {
+                            flags[i] = !is_and;
+                        }
+                        continue;
+                    }
+                }
+
+                if constexpr (!is_opposite) {
+                    if (is_and ^
+                        _operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                  _values.end())) {
+                        flags[i] = !is_and;
+                    }
+                } else {
+                    if (is_and ^
+                        !_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                   _values.end())) {
+                        flags[i] = !is_and;
+                    }
+                }
+            }
+        }
     }
 
     phmap::flat_hash_set<T> _values;

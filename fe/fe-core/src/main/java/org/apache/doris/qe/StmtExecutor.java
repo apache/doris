@@ -73,6 +73,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
@@ -163,7 +164,7 @@ public class StmtExecutor implements ProfileWriter {
     private static final String NULL_VALUE_FOR_LOAD = "\\N";
     private final Object writeProfileLock = new Object();
     private ConnectContext context;
-    private StatementContext statementContext;
+    private final StatementContext statementContext;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
@@ -190,6 +191,7 @@ public class StmtExecutor implements ProfileWriter {
         this.serializer = context.getSerializer();
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
+        this.context.setStatementContext(statementContext);
     }
 
     // this constructor is only for test now.
@@ -204,8 +206,16 @@ public class StmtExecutor implements ProfileWriter {
         this.originStmt = parsedStmt.getOrigStmt();
         this.serializer = context.getSerializer();
         this.isProxy = false;
-        this.statementContext = new StatementContext(ctx, originStmt);
-        this.statementContext.setParsedStatement(parsedStmt);
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            this.statementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
+            this.statementContext.setConnectContext(ctx);
+            this.statementContext.setOriginStatement(originStmt);
+            this.statementContext.setParsedStatement(parsedStmt);
+        } else {
+            this.statementContext = new StatementContext(ctx, originStmt);
+            this.statementContext.setParsedStatement(parsedStmt);
+        }
+        this.context.setStatementContext(statementContext);
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) {
@@ -412,7 +422,18 @@ public class StmtExecutor implements ProfileWriter {
                         context.getTracer().spanBuilder("query analysis").setParent(Context.current()).startSpan();
                 try (Scope scope = queryAnalysisSpan.makeCurrent()) {
                     // analyze this query
-                    analyze(context.getSessionVariable().toThrift());
+                    try {
+                        analyze(context.getSessionVariable().toThrift());
+                    } catch (NereidsException e) {
+                        if (!context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                            LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                            throw e.getException();
+                        }
+                        // fall back to legacy planner
+                        LOG.info("fall back to legacy planner, because: {}", e.getMessage());
+                        parsedStmt = null;
+                        analyze(context.getSessionVariable().toThrift());
+                    }
                 } catch (Exception e) {
                     queryAnalysisSpan.recordException(e);
                     throw e;
@@ -589,7 +610,6 @@ public class StmtExecutor implements ProfileWriter {
 
     /**
      * get variables in stmt.
-     * TODO: only support select stmt now. need to support Nereids.
      *
      * @throws DdlException
      */
@@ -696,6 +716,9 @@ public class StmtExecutor implements ProfileWriter {
                 } catch (UserException e) {
                     throw e;
                 } catch (Exception e) {
+                    if (parsedStmt instanceof LogicalPlanAdapter) {
+                        throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage()));
+                    }
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());
                 } finally {

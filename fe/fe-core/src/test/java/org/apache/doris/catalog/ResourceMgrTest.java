@@ -118,7 +118,7 @@ public class ResourceMgrTest {
         // spark resource
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, sparkResName, sparkProperties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, sparkResName, sparkProperties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -138,12 +138,12 @@ public class ResourceMgrTest {
         Assert.assertEquals(workingDir, ((SparkResource) mgr.getResource(sparkResName)).getWorkingDir());
 
         // drop
-        DropResourceStmt dropStmt = new DropResourceStmt(sparkResName);
+        DropResourceStmt dropStmt = new DropResourceStmt(false, sparkResName);
         mgr.dropResource(dropStmt);
         Assert.assertEquals(0, mgr.getResourceNum());
 
         // s3 resource
-        stmt = new CreateResourceStmt(true, s3ResName, s3Properties);
+        stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -159,7 +159,7 @@ public class ResourceMgrTest {
         // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("s3_region"));
 
         // drop
-        dropStmt = new DropResourceStmt(s3ResName);
+        dropStmt = new DropResourceStmt(false, s3ResName);
         mgr.dropResource(dropStmt);
         Assert.assertEquals(0, mgr.getResourceNum());
 
@@ -183,7 +183,7 @@ public class ResourceMgrTest {
 
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, sparkResName, sparkProperties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, sparkResName, sparkProperties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -198,7 +198,7 @@ public class ResourceMgrTest {
         // drop
         ResourceMgr mgr = new ResourceMgr();
         Assert.assertEquals(0, mgr.getResourceNum());
-        DropResourceStmt stmt = new DropResourceStmt(sparkResName);
+        DropResourceStmt stmt = new DropResourceStmt(false, sparkResName);
         mgr.dropResource(stmt);
     }
 }

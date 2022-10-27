@@ -32,7 +32,6 @@ SHOW STATUS
 
 ### Description
 
-<<<<<<< HEAD
 This command is used to view the execution of the Create Materialized View job submitted through the [CREATE-MATERIALIZED-VIEW](../../Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW) statement.
 
 > This statement is equivalent to `SHOW ALTER TABLE ROLLUP`;
@@ -105,8 +104,6 @@ RollupIndexName: r1
 
 - `Timeout`: Job timeout, in seconds.
 
-=======
->>>>>>> 1c59e4cf7 (fix docs 404 url)
 ### Example
 
 ### Keywords

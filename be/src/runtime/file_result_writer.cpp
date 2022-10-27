@@ -445,7 +445,7 @@ Status FileResultWriter::_send_result() {
 
     // The final stat result include:
     // FileNumber, TotalRows, FileSize and URL
-    // The type of these field should be conssitent with types defined
+    // The type of these field should be consistent with types defined
     // in OutFileClause.java of FE.
     MysqlRowBuffer row_buffer;
     row_buffer.push_int(_file_idx);                         // file number

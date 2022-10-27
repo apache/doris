@@ -24,7 +24,7 @@ suite("explode_json_array") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-        CREATE TABLE ${tableName} 
+        CREATE TABLE IF NOT EXISTS ${tableName} 
         (id INT, name STRING, age INT, class INT, address STRING) 
         UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 8  
         PROPERTIES("replication_num" = "1")

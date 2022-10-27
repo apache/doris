@@ -28,7 +28,7 @@ under the License.
 
 ### description
 
-ARRAY\<T\>
+`ARRAY<T>`
 
 由T类型元素组成的数组，不能作为key列使用。目前支持在Duplicate模型的表中使用。
 
@@ -74,7 +74,7 @@ PROPERTIES (
 mysql> INSERT INTO `array_test` VALUES (1, [1,2,3,4,5]);
 mysql> INSERT INTO `array_test` VALUES (2, array(6,7,8)), (3, array()), (4, null);
 ```
-注意：以上sql仅在非向量化场景下，支持array(）函数，向量化场景不支持。
+注意：以上sql仅在非向量化场景下，支持 array() 函数，向量化场景不支持。
 
 查询数据示例：
 

@@ -21,9 +21,13 @@
 #pragma once
 
 #include "common/status.h"
-#include "gutil/macros.h"
+#include "fmt/format.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
+
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
 
 namespace doris {
 
@@ -40,11 +44,14 @@ public:
     explicit BlockBloomFilter();
     ~BlockBloomFilter();
 
+    BlockBloomFilter(const BlockBloomFilter&) = delete;
+    BlockBloomFilter& operator=(const BlockBloomFilter&) = delete;
+
     Status init(int log_space_bytes, uint32_t hash_seed);
     // Initialize the BlockBloomFilter from a populated "directory" structure.
     // Useful for initializing the BlockBloomFilter by de-serializing a custom protobuf message.
-    Status init_from_directory(int log_space_bytes, const Slice& directory, bool always_false,
-                               uint32_t hash_seed);
+    Status init_from_directory(int log_space_bytes, butil::IOBufAsZeroCopyInputStream* data,
+                               const size_t data_size, bool always_false, uint32_t hash_seed);
 
     void close();
 
@@ -176,7 +183,7 @@ private:
 
 #endif
     // Size of the internal directory structure in bytes.
-    int64_t directory_size() const { return 1ULL << log_space_bytes(); }
+    size_t directory_size() const { return 1ULL << log_space_bytes(); }
 
     // Some constants used in hashing. #defined for efficiency reasons.
 #define BLOOM_HASH_CONSTANTS                                                                   \
@@ -200,8 +207,6 @@ private:
         // Rehash32to32(hash2) is minimal.
         return (static_cast<uint64_t>(hash) * m + a) >> 32U;
     }
-
-    DISALLOW_COPY_AND_ASSIGN(BlockBloomFilter);
 };
 
 } // namespace doris

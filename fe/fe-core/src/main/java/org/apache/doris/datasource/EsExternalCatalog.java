@@ -151,12 +151,16 @@ public class EsExternalCatalog extends ExternalCatalog {
         } catch (DdlException e) {
             LOG.warn("validate error", e);
         }
-        dbNameToId = Maps.newConcurrentMap();
-        idToDb = Maps.newConcurrentMap();
         this.esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
-        long defaultDbId = Env.getCurrentEnv().getNextId();
-        dbNameToId.put(DEFAULT_DB, defaultDbId);
-        idToDb.put(defaultDbId, new EsExternalDatabase(this, defaultDbId, DEFAULT_DB));
+        if (dbNameToId != null && dbNameToId.containsKey(DEFAULT_DB)) {
+            idToDb.get(dbNameToId.get(DEFAULT_DB)).setUnInitialized();
+        } else {
+            dbNameToId = Maps.newConcurrentMap();
+            idToDb = Maps.newConcurrentMap();
+            long defaultDbId = Env.getCurrentEnv().getNextId();
+            dbNameToId.put(DEFAULT_DB, defaultDbId);
+            idToDb.put(defaultDbId, new EsExternalDatabase(this, defaultDbId, DEFAULT_DB));
+        }
     }
 
     @Override

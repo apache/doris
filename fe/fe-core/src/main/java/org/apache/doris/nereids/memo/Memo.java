@@ -31,9 +31,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -45,7 +47,12 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private Group root;
+    private final Group root;
+
+    // FOR TEST ONLY
+    public Memo() {
+        root = null;
+    }
 
     public Memo(Plan plan) {
         root = init(plan);
@@ -79,6 +86,46 @@ public class Memo {
             return doRewrite(plan, target);
         } else {
             return doCopyIn(plan, target);
+        }
+    }
+
+    public List<Plan> copyOutAll() {
+        return copyOutAll(root);
+    }
+
+    public List<Plan> copyOutAll(Group group) {
+        List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
+        List<Plan> plans = logicalExpressions.stream()
+                .flatMap(groupExpr -> copyOutAll(groupExpr).stream())
+                .collect(Collectors.toList());
+        return plans;
+    }
+
+    private List<Plan> copyOutAll(GroupExpression logicalExpression) {
+        if (logicalExpression.arity() == 0) {
+            return Lists.newArrayList(logicalExpression.getPlan().withChildren(ImmutableList.of()));
+        } else if (logicalExpression.arity() == 1) {
+            List<Plan> multiChild = copyOutAll(logicalExpression.child(0));
+            return multiChild.stream()
+                    .map(children -> logicalExpression.getPlan().withChildren(children))
+                    .collect(Collectors.toList());
+        } else if (logicalExpression.arity() == 2) {
+            int leftCount = logicalExpression.child(0).getLogicalExpressions().size();
+            int rightCount = logicalExpression.child(1).getLogicalExpressions().size();
+            int count = leftCount * rightCount;
+
+            List<Plan> leftChildren = copyOutAll(logicalExpression.child(0));
+            List<Plan> rightChildren = copyOutAll(logicalExpression.child(1));
+
+            List<Plan> result = new ArrayList<>(count);
+            for (Plan leftChild : leftChildren) {
+                for (Plan rightChild : rightChildren) {
+                    result.add(logicalExpression.getPlan().withChildren(leftChild, rightChild));
+                }
+            }
+            return result;
+        } else {
+            throw new RuntimeException("arity > 2");
         }
     }
 
@@ -325,20 +372,20 @@ public class Memo {
      * @param destination destination group
      * @return merged group
      */
-    private Group mergeGroup(Group source, Group destination) {
+    public Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
             return source;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        groupExpressions.values().forEach(groupExpression -> {
+        for (GroupExpression groupExpression : groupExpressions.values()) {
             if (groupExpression.children().contains(source)) {
                 if (groupExpression.getOwnerGroup().equals(destination)) {
                     // cycle, we should not merge
-                    return;
+                    return null;
                 }
                 needReplaceChild.add(groupExpression);
             }
-        });
+        }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();

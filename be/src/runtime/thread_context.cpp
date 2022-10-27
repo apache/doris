@@ -26,7 +26,16 @@ DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, _ptr);
 
 ThreadContextPtr::ThreadContextPtr() {
     INIT_STATIC_THREAD_LOCAL(ThreadContext, _ptr);
-    _init = true;
+    init = true;
+}
+
+ScopeMemCount::ScopeMemCount(int64_t* scope_mem) {
+    _scope_mem = scope_mem;
+    thread_context()->_thread_mem_tracker_mgr->start_count_scope_mem();
+}
+
+ScopeMemCount::~ScopeMemCount() {
+    *_scope_mem = thread_context()->_thread_mem_tracker_mgr->stop_count_scope_mem();
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
@@ -55,6 +64,17 @@ AttachTask::~AttachTask() {
 #endif // NDEBUG
 }
 
+SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
+        const std::shared_ptr<MemTrackerLimiter>& mem_tracker_limiter) {
+    DCHECK(mem_tracker_limiter);
+    thread_context()->_thread_mem_tracker_mgr->attach_limiter_tracker("", TUniqueId(),
+                                                                      mem_tracker_limiter);
+}
+
+SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
+    thread_context()->_thread_mem_tracker_mgr->detach_limiter_tracker();
+}
+
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
     if (config::memory_verbose_track) {
         thread_context()->_thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
@@ -68,36 +88,6 @@ AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
 #endif // NDEBUG
         thread_context()->_thread_mem_tracker_mgr->pop_consumer_tracker();
     }
-}
-
-SwitchBthread::SwitchBthread() {
-    _bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-    // First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
-    if (_bthread_context == nullptr) {
-        // Create thread-local data on demand.
-        _bthread_context = new ThreadContext;
-        // set the data so that next time bthread_getspecific in the thread returns the data.
-        CHECK_EQ(0, bthread_setspecific(btls_key, _bthread_context));
-    } else {
-        DCHECK(_bthread_context->type() == ThreadContext::TaskType::UNKNOWN);
-        _bthread_context->_thread_mem_tracker_mgr->flush_untracked_mem<false>();
-    }
-    _bthread_context->_thread_mem_tracker_mgr->init();
-    _bthread_context->set_type(ThreadContext::TaskType::BRPC);
-    bthread_context_key = btls_key;
-    bthread_context = _bthread_context;
-}
-
-SwitchBthread::~SwitchBthread() {
-    DCHECK(_bthread_context != nullptr);
-    _bthread_context->_thread_mem_tracker_mgr->flush_untracked_mem<false>();
-    _bthread_context->_thread_mem_tracker_mgr->init();
-    _bthread_context->set_type(ThreadContext::TaskType::UNKNOWN);
-    bthread_context = nullptr;
-    bthread_context_key = EMPTY_BTLS_KEY;
-#ifndef NDEBUG
-    DorisMetrics::instance()->switch_bthread_count->increment(1);
-#endif // NDEBUG
 }
 
 } // namespace doris

@@ -157,30 +157,34 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
 
 TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& physical_schema) {
     TypeDescriptor type;
-    switch (physical_schema.type) {
-    case tparquet::Type::BOOLEAN:
-        type.type = TYPE_BOOLEAN;
-        return type;
-    case tparquet::Type::INT32:
-        type.type = TYPE_INT;
-        return type;
-    case tparquet::Type::INT64:
-    case tparquet::Type::INT96:
-        type.type = TYPE_BIGINT;
-        return type;
-    case tparquet::Type::FLOAT:
-        type.type = TYPE_FLOAT;
-        return type;
-    case tparquet::Type::DOUBLE:
-        type.type = TYPE_DOUBLE;
-        return type;
-    default:
-        break;
-    }
+    type.type = INVALID_TYPE;
     if (physical_schema.__isset.logicalType) {
         type = convert_to_doris_type(physical_schema.logicalType);
     } else if (physical_schema.__isset.converted_type) {
         type = convert_to_doris_type(physical_schema.converted_type);
+    }
+    // use physical type instead
+    if (type.type == INVALID_TYPE) {
+        switch (physical_schema.type) {
+        case tparquet::Type::BOOLEAN:
+            type.type = TYPE_BOOLEAN;
+            return type;
+        case tparquet::Type::INT32:
+            type.type = TYPE_INT;
+            return type;
+        case tparquet::Type::INT64:
+        case tparquet::Type::INT96:
+            type.type = TYPE_BIGINT;
+            return type;
+        case tparquet::Type::FLOAT:
+            type.type = TYPE_FLOAT;
+            return type;
+        case tparquet::Type::DOUBLE:
+            type.type = TYPE_DOUBLE;
+            return type;
+        default:
+            break;
+        }
     }
     return type;
 }
@@ -214,7 +218,7 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
     } else if (logicalType.__isset.TIMESTAMP) {
         type.type = TYPE_DATETIMEV2;
     } else {
-        LOG(WARNING) << "Not supported parquet LogicalType";
+        type.type = INVALID_TYPE;
     }
     return type;
 }
@@ -253,6 +257,7 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::t
         break;
     default:
         LOG(WARNING) << "Not supported parquet ConvertedType: " << convertedType;
+        type = INVALID_TYPE;
         break;
     }
     return type;

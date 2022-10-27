@@ -22,7 +22,7 @@ suite("test_dup_tab_basic_varchar_nullable") {
     sql "drop table if exists ${table1}"
 
     sql """
-       CREATE TABLE `${table1}` (
+       CREATE TABLE IF NOT EXISTS `${table1}` (
       `city` varchar(20) NULL COMMENT "",
       `name` varchar(20) NULL COMMENT "",
       `addr` varchar(20) NULL COMMENT "",
