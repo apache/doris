@@ -516,8 +516,11 @@ public class DynamicPartitionUtil {
                 expectCreatePartitionNum = end - start;
             }
         }
-        if (hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)) {
-            throw new DdlException("Too many dynamic partitions: " + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
+
+        if (hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
+                && Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))) {
+            throw new DdlException("Too many dynamic partitions: "
+                    + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
         }
 
         if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {
