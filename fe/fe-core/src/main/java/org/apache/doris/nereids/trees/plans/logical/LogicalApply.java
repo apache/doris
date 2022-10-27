@@ -45,7 +45,7 @@ import java.util.Optional;
 public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
     // correlation column
-    private final List<Expression> correlationSlot;
+    private final ImmutableList<Expression> correlationSlot;
     // original subquery
     private final SubqueryExpr subqueryExpr;
     // correlation Conjunction
