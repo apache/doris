@@ -19,6 +19,7 @@
 
 #include <unistd.h>
 
+#include <array>
 #include <cstdint>
 
 #ifdef __aarch64__
