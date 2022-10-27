@@ -77,6 +77,7 @@ void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
+void register_function_multi_string_position(SimpleFunctionFactory& factory);
 
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
@@ -218,6 +219,7 @@ public:
             register_function_array(instance);
             register_function_geo(instance);
             register_function_url(instance);
+            register_function_multi_string_position(instance);
         });
         return instance;
     }

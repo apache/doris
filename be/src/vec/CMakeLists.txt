@@ -211,6 +211,7 @@ set(VEC_FILES
   functions/least_greast.cpp
   functions/function_fake.cpp
   functions/url/function_url.cpp
+  functions/functions_multi_string_position.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
