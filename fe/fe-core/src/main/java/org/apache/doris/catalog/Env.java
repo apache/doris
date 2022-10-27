@@ -164,6 +164,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
@@ -432,6 +433,8 @@ public class Env {
 
     private PolicyMgr policyMgr;
 
+    private MTMVJobManager mtmvJobManager;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -491,6 +494,10 @@ public class Env {
 
     public CatalogMgr getCatalogMgr() {
         return catalogMgr;
+    }
+
+    public MTMVJobManager getMTMVJobManager() {
+        return mtmvJobManager;
     }
 
     public CatalogIf getCurrentCatalog() {
@@ -621,6 +628,7 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
+        this.mtmvJobManager = new MTMVJobManager();
     }
 
     public static void destroyCheckpoint() {
@@ -851,6 +859,8 @@ public class Env {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
+        // 7. start mtmv jobManager
+        mtmvJobManager.start();
     }
 
     // wait until FE is ready.
@@ -1936,6 +1946,17 @@ public class Env {
         return checksum;
     }
 
+    /**
+     * Load mtmv jobManager.
+     **/
+    public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
+        if (Config.enable_mtmv_scheduler_framework) {
+            this.mtmvJobManager = MTMVJobManager.read(in, checksum);
+            LOG.info("finished replay mtmv job and tasks from image");
+        }
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2206,6 +2227,14 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
+        return checksum;
+    }
+
+    public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
+        if (Config.enable_mtmv_scheduler_framework) {
+            Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
+            LOG.info("Save mtmv job and tasks to image");
+        }
         return checksum;
     }
 
