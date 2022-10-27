@@ -30,14 +30,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -76,11 +73,9 @@ public class ColumnStat {
     private static final Predicate<Double> DESIRED_MAX_SIZE_PRED = (v) -> v >= -1L;
     private static final Predicate<Double> DESIRED_NUM_NULLS_PRED = (v) -> v >= -1L;
 
-    private static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
+    public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
 
     static {
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.VARCHAR);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.CHAR);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.HLL);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.BITMAP);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.ARRAY);
@@ -98,6 +93,8 @@ public class ColumnStat {
     private LiteralExpr minExpr;
     private LiteralExpr maxExpr;
 
+    private double selectivity = 1.0;
+
     public static ColumnStat createDefaultColumnStats() {
         ColumnStat columnStat = new ColumnStat();
         columnStat.setAvgSizeByte(1);
@@ -107,7 +104,7 @@ public class ColumnStat {
         return columnStat;
     }
 
-    public static boolean isInvalid(ColumnStat stats) {
+    public static boolean isUnKnown(ColumnStat stats) {
         return stats == UNKNOWN;
     }
 
@@ -121,6 +118,7 @@ public class ColumnStat {
         this.numNulls = other.numNulls;
         this.minValue = other.minValue;
         this.maxValue = other.maxValue;
+        this.selectivity = other.selectivity;
     }
 
     public ColumnStat(double ndv, double avgSizeByte,
@@ -260,14 +258,14 @@ public class ColumnStat {
                     return Double.parseDouble(columnValue);
                 case DATE:
                 case DATEV2:
-                    return LocalDate.parse(columnValue).atStartOfDay()
-                            .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
+                    org.apache.doris.nereids.trees.expressions.literal.DateLiteral literal =
+                            new org.apache.doris.nereids.trees.expressions.literal.DateLiteral(columnValue);
+                    return literal.getDouble();
+
                 case DATETIMEV2:
                 case DATETIME:
-                    DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-                    return LocalDateTime
-                            .parse(columnValue, timeFormatter)
-                            .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
+                    DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
+                    return dateTimeLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
                     return convertStringToDouble(columnValue);
@@ -301,7 +299,10 @@ public class ColumnStat {
     }
 
     public ColumnStat updateBySelectivity(double selectivity, double rowCount) {
-        ndv = ndv * selectivity;
+        if (ColumnStat.isAlmostUnique(ndv, rowCount)) {
+            this.selectivity = selectivity;
+            ndv = ndv * selectivity;
+        }
         numNulls = (long) Math.ceil(numNulls * selectivity);
         if (ndv > rowCount) {
             ndv = rowCount;
@@ -434,4 +435,34 @@ public class ColumnStat {
         }
     }
 
+    public static boolean isAlmostUnique(double ndv, double rowCount) {
+        return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
+    }
+
+    public double getSelectivity() {
+        return selectivity;
+    }
+
+    public void setSelectivity(double selectivity) {
+        this.selectivity = selectivity;
+    }
+
+    public double ndvIntersection(ColumnStat other) {
+        if (maxValue == minValue) {
+            if (minValue <= other.maxValue && minValue >= other.minValue) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+        double min = Math.max(minValue, other.minValue);
+        double max = Math.min(maxValue, other.maxValue);
+        if (min < max) {
+            return Math.ceil(ndv * (max - min) / (maxValue - minValue));
+        } else if (min > max) {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
 }

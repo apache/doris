@@ -17,18 +17,18 @@
 
 -- Modified
 
+
 select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
 s_name, count(*) as numwait
-from orders join
-(
-  select * from
+from
   lineitem l2 right semi join
   (
     select * from
     lineitem l3 right anti join
     (
       select * from
-      lineitem l1 join
+      orders join lineitem l1 on l1.l_orderkey = o_orderkey and o_orderstatus = 'F'
+      join
       (
         select * from
         supplier join nation
@@ -37,15 +37,13 @@ from orders join
       ) t1
       where t1.s_suppkey = l1.l_suppkey and l1.l_receiptdate > l1.l_commitdate
     ) t2
-    on l3.l_orderkey = t2.l_orderkey and l3.l_suppkey <> t2.l_suppkey and l3.l_receiptdate > l3.l_commitdate
+    on l3.l_orderkey = t2.l_orderkey and l3.l_suppkey <> t2.l_suppkey  and l3.l_receiptdate > l3.l_commitdate
   ) t3
-  on l2.l_orderkey = t3.l_orderkey and l2.l_suppkey <> t3.l_suppkey
-) t4
-on o_orderkey = t4.l_orderkey and o_orderstatus = 'F'
+  on l2.l_orderkey = t3.l_orderkey and l2.l_suppkey <> t3.l_suppkey 
+
 group by
-    t4.s_name
+    t3.s_name
 order by
     numwait desc,
-    t4.s_name
+    t3.s_name
 limit 100;
-
