@@ -17,15 +17,21 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
@@ -33,12 +39,15 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * The abstract class for all types of external catalogs.
  */
 @Data
-public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Writable {
+public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Writable, GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
+
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
     protected long id;
@@ -49,7 +58,16 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // save properties of this catalog, such as hive meta store url.
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty = new CatalogProperty();
+    @SerializedName(value = "initialized")
     protected boolean initialized = false;
+
+    // Cache of db name to db id
+    @SerializedName(value = "idToDb")
+    protected Map<Long, ExternalDatabase> idToDb = Maps.newConcurrentMap();
+    // db name does not contains "default_cluster"
+    protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
+    protected boolean objectCreated = false;
+    protected ReentrantReadWriteLock initLock = new ReentrantReadWriteLock(true);
 
     /**
      * @return names of database in this catalog.
@@ -70,6 +88,16 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
      * @return true if table exists, false otherwise
      */
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
+
+    public abstract void makeSureInitialized();
+
+    public void setInitialized(boolean initialized) {
+        this.initialized = initialized;
+    }
+
+    public ExternalDatabase getDbForReplay(long dbId) {
+        throw new NotImplementedException();
+    }
 
     @Override
     public long getId() {
@@ -123,6 +151,40 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    public void replayInitCatalog(InitCatalogLog log) {
+        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
+        Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
+        for (int i = 0; i < log.getRefreshCount(); i++) {
+            ExternalDatabase db = getDbForReplay(log.getRefreshDbIds().get(i));
+            db.setUnInitialized();
+            tmpDbNameToId.put(db.getFullName(), db.getId());
+            tmpIdToDb.put(db.getId(), db);
+        }
+        switch (log.getType()) {
+            case HMS:
+                for (int i = 0; i < log.getCreateCount(); i++) {
+                    HMSExternalDatabase db = new HMSExternalDatabase(
+                            this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
+                    tmpDbNameToId.put(db.getFullName(), db.getId());
+                    tmpIdToDb.put(db.getId(), db);
+                }
+                break;
+            case ES:
+                for (int i = 0; i < log.getCreateCount(); i++) {
+                    EsExternalDatabase db = new EsExternalDatabase(
+                            this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
+                    tmpDbNameToId.put(db.getFullName(), db.getId());
+                    tmpIdToDb.put(db.getId(), db);
+                }
+                break;
+            default:
+                break;
+        }
+        dbNameToId = tmpDbNameToId;
+        idToDb = tmpIdToDb;
+        initialized = true;
+    }
+
     /**
      * External catalog has no cluster semantics.
      */
@@ -133,5 +195,22 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public static ExternalCatalog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        dbNameToId = Maps.newConcurrentMap();
+        for (ExternalDatabase db : idToDb.values()) {
+            dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+            db.setExtCatalog(this);
+            db.setTableExtCatalog(this);
+        }
+        initLock = new ReentrantReadWriteLock(true);
+        objectCreated = false;
+    }
+
+    public void addDatabaseForTest(ExternalDatabase db) {
+        idToDb.put(db.getId(), db);
+        dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 }

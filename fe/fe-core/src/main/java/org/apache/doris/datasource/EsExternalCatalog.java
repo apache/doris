@@ -25,6 +25,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -53,10 +54,6 @@ public class EsExternalCatalog extends ExternalCatalog {
     private static final String PROP_KEYWORD_SNIFF = "elasticsearch.keyword_sniff";
     private static final String PROP_NODES_DISCOVERY = "elasticsearch.nodes_discovery";
     private static final String PROP_SSL = "elasticsearch.ssl";
-
-    // Cache of db name to db id.
-    private Map<String, Long> dbNameToId;
-    private Map<Long, EsExternalDatabase> idToDb;
 
     private EsRestClient esRestClient;
 
@@ -138,29 +135,61 @@ public class EsExternalCatalog extends ExternalCatalog {
      * Datasource can't be init when creating because the external datasource may depend on third system.
      * So you have to make sure the client of third system is initialized before any method was called.
      */
-    private synchronized void makeSureInitialized() {
-        if (!initialized) {
-            init();
-            initialized = true;
+    @Override
+    public void makeSureInitialized() {
+        initLock.writeLock().lock();
+        try {
+            if (!objectCreated) {
+                try {
+                    validate(catalogProperty.getProperties());
+                } catch (DdlException e) {
+                    LOG.warn("validate error", e);
+                }
+                esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
+                objectCreated = true;
+            }
+            if (!initialized) {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    // Forward to master and wait the journal to replay.
+                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                    try {
+                        remoteExecutor.forward(id, -1, -1);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to forward init catalog {} operation to master. {}", name, e.getMessage());
+                    }
+                    return;
+                }
+                init();
+            }
+        } finally {
+            initLock.writeLock().unlock();
         }
     }
 
     private void init() {
+        InitCatalogLog initCatalogLog = new InitCatalogLog();
         try {
             validate(this.catalogProperty.getProperties());
         } catch (DdlException e) {
             LOG.warn("validate error", e);
         }
         this.esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
+        initCatalogLog.setCatalogId(id);
+        initCatalogLog.setType(InitCatalogLog.Type.ES);
         if (dbNameToId != null && dbNameToId.containsKey(DEFAULT_DB)) {
             idToDb.get(dbNameToId.get(DEFAULT_DB)).setUnInitialized();
+            initCatalogLog.addRefreshDb(dbNameToId.get(DEFAULT_DB));
         } else {
             dbNameToId = Maps.newConcurrentMap();
             idToDb = Maps.newConcurrentMap();
             long defaultDbId = Env.getCurrentEnv().getNextId();
             dbNameToId.put(DEFAULT_DB, defaultDbId);
-            idToDb.put(defaultDbId, new EsExternalDatabase(this, defaultDbId, DEFAULT_DB));
+            EsExternalDatabase db = new EsExternalDatabase(this, defaultDbId, DEFAULT_DB);
+            idToDb.put(defaultDbId, db);
+            initCatalogLog.addCreateDb(defaultDbId, DEFAULT_DB);
         }
+        initialized = true;
+        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
     @Override
@@ -185,6 +214,13 @@ public class EsExternalCatalog extends ExternalCatalog {
         return idToDb.get(dbNameToId.get(realDbName));
     }
 
+    @Nullable
+    @Override
+    public ExternalDatabase getDbNullable(long dbId) {
+        makeSureInitialized();
+        return idToDb.get(dbId);
+    }
+
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return esRestClient.existIndex(this.esRestClient.getClient(), tblName);
@@ -193,5 +229,9 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     public List<Long> getDbIds() {
         return Lists.newArrayList(dbNameToId.values());
+    }
+
+    public ExternalDatabase getDbForReplay(long dbId) {
+        return idToDb.get(dbId);
     }
 }
