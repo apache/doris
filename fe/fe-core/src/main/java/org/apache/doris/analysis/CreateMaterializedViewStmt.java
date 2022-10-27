@@ -491,7 +491,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     // bitmap_union(to_bitmap_with_check(column))
     private void rewriteToBitmapWithCheck() {
         for (SelectListItem item : selectStmt.selectList.getItems()) {
-            if (item.getExpr() instanceof FunctionCallExpr){
+            if (item.getExpr() instanceof FunctionCallExpr) {
                 String functionName = ((FunctionCallExpr) item.getExpr()).getFnName().getFunction();
                 if (functionName.equalsIgnoreCase("bitmap_union")) {
                     if (item.getExpr().getChildren().size() == 1
