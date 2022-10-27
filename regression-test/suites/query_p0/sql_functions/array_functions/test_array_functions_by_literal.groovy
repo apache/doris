@@ -162,4 +162,10 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
     qt_sql "select array_join([''], '_')"
     qt_sql "select array_join(['', ''], '_')"
+
+    // abnormal test
+    test {
+        sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
+        exception "errCode = 2, detailMessage = No matching function with signature: array_intersect(array<tinyint(4)>, varchar(-1))"
+    }
 }
