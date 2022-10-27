@@ -90,15 +90,7 @@ public class NormalizeGroupBy extends OneRewriteRuleFactory {
                             .collect(Collectors.groupingBy(SlotReference.class::isInstance));
                     List<Expression> newKeys = Lists.newArrayList();
                     Set<NamedExpression> bottomProjections = new LinkedHashSet<>();
-                    if (partitionedKeys.containsKey(false)) {
-                        // process non-SlotReference keys
-                        newKeys.addAll(partitionedKeys.get(false).stream()
-                                .map(e -> new Alias(e, e.toSql()))
-                                .peek(a -> substitutionMap.put(a.child(), a.toSlot()))
-                                .peek(bottomProjections::add)
-                                .map(Alias::toSlot)
-                                .collect(Collectors.toList()));
-                    }
+
                     if (partitionedKeys.containsKey(true)) {
                         // process SlotReference keys
                         partitionedKeys.get(true).stream()
@@ -107,6 +99,15 @@ public class NormalizeGroupBy extends OneRewriteRuleFactory {
                                 .peek(s -> substitutionMap.put(s, s))
                                 .peek(bottomProjections::add)
                                 .forEach(newKeys::add);
+                    }
+                    if (partitionedKeys.containsKey(false)) {
+                        // process non-SlotReference keys
+                        newKeys.addAll(partitionedKeys.get(false).stream()
+                                .map(e -> new Alias(e, e.toSql()))
+                                .peek(a -> substitutionMap.put(a.child(), a.toSlot()))
+                                .peek(bottomProjections::add)
+                                .map(Alias::toSlot)
+                                .collect(Collectors.toList()));
                     }
 
                     project.getProjects().forEach(p -> {

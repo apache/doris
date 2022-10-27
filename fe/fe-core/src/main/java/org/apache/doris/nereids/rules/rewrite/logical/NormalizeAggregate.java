@@ -78,15 +78,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                     .collect(Collectors.groupingBy(SlotReference.class::isInstance));
             List<Expression> newKeys = Lists.newArrayList();
             List<NamedExpression> bottomProjections = Lists.newArrayList();
-            if (partitionedKeys.containsKey(false)) {
-                // process non-SlotReference keys
-                newKeys.addAll(partitionedKeys.get(false).stream()
-                        .map(e -> new Alias(e, e.toSql()))
-                        .peek(a -> substitutionMap.put(a.child(), a.toSlot()))
-                        .peek(bottomProjections::add)
-                        .map(Alias::toSlot)
-                        .collect(Collectors.toList()));
-            }
+
             if (partitionedKeys.containsKey(true)) {
                 // process SlotReference keys
                 partitionedKeys.get(true).stream()
@@ -104,6 +96,16 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                         .map(VirtualSlotReference.class::cast)
                         .forEach(bottomProjections::add);
             }
+            if (partitionedKeys.containsKey(false)) {
+                // process non-SlotReference keys
+                newKeys.addAll(partitionedKeys.get(false).stream()
+                        .map(e -> new Alias(e, e.toSql()))
+                        .peek(a -> substitutionMap.put(a.child(), a.toSlot()))
+                        .peek(bottomProjections::add)
+                        .map(Alias::toSlot)
+                        .collect(Collectors.toList()));
+            }
+
             // add all necessary key to output
             substitutionMap.entrySet().stream()
                     .filter(kv -> !(kv.getKey() instanceof VirtualSlotReference))

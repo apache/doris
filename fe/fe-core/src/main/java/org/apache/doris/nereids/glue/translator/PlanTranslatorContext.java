@@ -146,8 +146,8 @@ public class PlanTranslatorContext {
         if (slotReference instanceof VirtualSlotReference) {
             slotDescriptor.setColumn(new Column(slotReference.getName(),
                     slotReference.getDataType().toCatalogDataType()));
-            slotDescriptor.setLabel(slotReference.getName());
         }
+        slotDescriptor.setLabel(slotReference.getName());
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;
