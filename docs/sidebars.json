@@ -224,7 +224,7 @@
                 },
                 {
                     "type": "category",
-                    "label": "UDFA",
+                    "label": "UDAF",
                     "items": [
                         "ecosystem/udaf/remote-user-defined-aggregation-function"
                     ]
