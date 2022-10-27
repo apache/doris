@@ -25,14 +25,22 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPr
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
 
 /**
  * all expr rewrite rule test case.
@@ -193,5 +201,15 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 new VarcharLiteral("123", 10));
         assertRewrite(new Cast(new CharLiteral("123", 3), StringType.INSTANCE), new StringLiteral("123"));
         assertRewrite(new Cast(new VarcharLiteral("123", 3), StringType.INSTANCE), new StringLiteral("123"));
+
+        // decimal literal
+        assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalType.createDecimalType(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalType.createDecimalType(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new IntegerLiteral( 1), DecimalType.createDecimalType(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new BigIntLiteral( 1L), DecimalType.createDecimalType(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
     }
 }
