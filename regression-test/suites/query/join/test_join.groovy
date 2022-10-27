@@ -1053,6 +1053,8 @@ suite("test_join", "query,p0") {
         check2_doris(res41, res42)
     }
 
+    qt_left_anti_join_with_other_pred "select b.k1 from ${tbName2} b left anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by b.k1"
+
     // right anti join
     for (s in right_selected){
         def res43 = sql"""select ${s} from ${tbName2} a right anti join ${tbName1} b 
