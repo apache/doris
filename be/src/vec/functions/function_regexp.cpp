@@ -156,6 +156,49 @@ struct RegexpReplaceImpl {
     }
 };
 
+struct RegexpReplaceOneImpl {
+    static constexpr auto name = "regexp_replace_one";
+
+    static Status execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
+                               size_t input_rows_count, ColumnString::Chars& result_data,
+                               ColumnString::Offsets& result_offset, NullMap& null_map) {
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                StringOP::push_null_string(i, result_data, result_offset, null_map);
+                continue;
+            }
+
+            re2::RE2* re = reinterpret_cast<re2::RE2*>(
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+            std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
+            if (re == nullptr) {
+                std::string error_str;
+                const auto& pattern = pattern_col->get_data_at(i).to_string_val();
+                re = StringFunctions::compile_regex(pattern, &error_str, StringVal::null());
+                if (re == nullptr) {
+                    context->add_warning(error_str.c_str());
+                    StringOP::push_null_string(i, result_data, result_offset, null_map);
+                    continue;
+                }
+                scoped_re.reset(re);
+            }
+
+            re2::StringPiece replace_str =
+                    re2::StringPiece(replace_col->get_data_at(i).to_string_view());
+
+            std::string result_str(str_col->get_data_at(i).to_string());
+            re2::RE2::Replace(&result_str, *re, replace_str);
+            StringOP::push_value_string(result_str, i, result_data, result_offset);
+        }
+
+        return Status::OK();
+    }
+};
+
 struct RegexpExtractImpl {
     static constexpr auto name = "regexp_extract";
 
@@ -218,6 +261,7 @@ struct RegexpExtractImpl {
 void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexp<RegexpReplaceImpl>>();
     factory.register_function<FunctionRegexp<RegexpExtractImpl>>();
+    factory.register_function<FunctionRegexp<RegexpReplaceOneImpl>>();
 }
 
 } // namespace doris::vectorized

@@ -2146,6 +2146,8 @@ visible_functions = [
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
+    [['regexp_replace_one'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'],
+     '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['concat'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -2282,6 +2284,8 @@ visible_functions = [
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
+    [['regexp_replace_one'], 'STRING', ['STRING', 'STRING', 'STRING'],
+     '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['concat'], 'STRING', ['STRING', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', 'vec', ''],

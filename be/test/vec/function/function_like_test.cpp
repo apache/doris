@@ -167,4 +167,34 @@ TEST(FunctionLikeTest, regexp_replace) {
     }
 }
 
+TEST(FunctionLikeTest, regexp_replace_one) {
+    std::string func_name = "regexp_replace_one";
+
+    DataSet data_set = {
+            {{std::string("2022-03-02"), std::string("-"), std::string("")},
+             std::string("202203-02")},
+            {{std::string("2022-03-02"), std::string(""), std::string("s")},
+             std::string("s2022-03-02")},
+            {{std::string("100-200"), std::string("(\\d+)"), std::string("doris")},
+             std::string("doris-200")},
+
+            {{std::string("a b c"), std::string(" "), std::string("-")}, std::string("a-b c")},
+            {{std::string("a b c"), std::string("(b)"), std::string("<\\1>")},
+             std::string("a <b> c")},
+            {{std::string("qwewe"), std::string(""), std::string("true")},
+             std::string("trueqwewe")},
+            // null
+            {{std::string("abc"), std::string("x=18abc"), Null()}, Null()},
+            {{Null(), std::string("i([0-9]+)"), std::string("x=18abc")}, Null()}};
+
+    // pattern is constant value
+    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String},
+                                              TypeIndex::String};
+    for (const auto& line : data_set) {
+        DataSet const_pattern_dataset = {line};
+        check_function<DataTypeString, true>(func_name, const_pattern_input_types,
+                                             const_pattern_dataset);
+    }
+}
+
 } // namespace doris::vectorized
