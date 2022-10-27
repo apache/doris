@@ -38,10 +38,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -74,7 +76,26 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
             List<NamedExpression> newOutputs = Lists.newArrayList();
 
             // keys
-            Map<Boolean, List<Expression>> partitionedKeys = keys.stream()
+            Set<NamedExpression> bottomProjections = new LinkedHashSet<>();
+            List<Expression> newKeys = Lists.newArrayList();
+            AtomicBoolean isNeedBottomProjects = new AtomicBoolean(false);
+            keys.stream().forEach(e -> {
+                if (e instanceof SlotReference) {
+                    substitutionMap.put(e, e);
+                    newKeys.add(e);
+                    if (!(e instanceof VirtualSlotReference)
+                            || ((VirtualSlotReference) e).getRealSlots().isEmpty()) {
+                        bottomProjections.add((SlotReference) e);
+                    }
+                } else {
+                    Alias newExpr = new Alias(e, e.toSql());
+                    substitutionMap.put(newExpr.child(), newExpr.toSlot());
+                    bottomProjections.add(newExpr);
+                    newKeys.add(newExpr.toSlot());
+                    isNeedBottomProjects.set(true);
+                }
+            });
+            /*Map<Boolean, List<Expression>> partitionedKeys = keys.stream()
                     .collect(Collectors.groupingBy(SlotReference.class::isInstance));
             List<Expression> newKeys = Lists.newArrayList();
             List<NamedExpression> bottomProjections = Lists.newArrayList();
@@ -104,7 +125,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                         .peek(bottomProjections::add)
                         .map(Alias::toSlot)
                         .collect(Collectors.toList()));
-            }
+            }*/
 
             // add all necessary key to output
             substitutionMap.entrySet().stream()
@@ -125,8 +146,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
             List<NamedExpression> hasVirtualSlot = outputs.stream()
                     .filter(e -> e.anyMatch(VirtualSlotReference.class::isInstance))
                     .collect(Collectors.toList());
-            boolean needBottomProjects = partitionedKeys.containsKey(false)
-                    || !hasVirtualSlot.isEmpty();
+            boolean needBottomProjects = isNeedBottomProjects.get() || !hasVirtualSlot.isEmpty();
             if (partitionedOutputs.containsKey(true)) {
                 // process expressions that contain aggregate function
                 Set<AggregateFunction> aggregateFunctions = partitionedOutputs.get(true).stream()

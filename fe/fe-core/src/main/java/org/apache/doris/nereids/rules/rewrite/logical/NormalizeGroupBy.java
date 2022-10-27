@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -86,7 +87,24 @@ public class NormalizeGroupBy extends OneRewriteRuleFactory {
                     List<NamedExpression> newOutputs = Lists.newArrayList();
 
                     // keys
-                    Map<Boolean, List<Expression>> partitionedKeys = keys.stream()
+                    Set<NamedExpression> bottomProjections = new LinkedHashSet<>();
+                    List<Expression> newKeys = Lists.newArrayList();
+                    AtomicBoolean needBottomProjects = new AtomicBoolean(false);
+                    keys.stream().forEach(e -> {
+                        if (e instanceof SlotReference && !(e instanceof VirtualSlotReference)) {
+                            substitutionMap.put(e, e);
+                            bottomProjections.add((SlotReference) e);
+                            newKeys.add(e);
+                        }
+                        if (!(e instanceof SlotReference)) {
+                            Alias newExpr = new Alias(e, e.toSql());
+                            substitutionMap.put(newExpr.child(), newExpr.toSlot());
+                            bottomProjections.add(newExpr);
+                            newKeys.add(newExpr.toSlot());
+                            needBottomProjects.set(true);
+                        }
+                    });
+                    /*Map<Boolean, List<Expression>> partitionedKeys = keys.stream()
                             .collect(Collectors.groupingBy(SlotReference.class::isInstance));
                     List<Expression> newKeys = Lists.newArrayList();
                     Set<NamedExpression> bottomProjections = new LinkedHashSet<>();
@@ -108,7 +126,7 @@ public class NormalizeGroupBy extends OneRewriteRuleFactory {
                                 .peek(bottomProjections::add)
                                 .map(Alias::toSlot)
                                 .collect(Collectors.toList()));
-                    }
+                    }*/
 
                     project.getProjects().forEach(p -> {
                         if (p instanceof SlotReference) {
@@ -134,7 +152,7 @@ public class NormalizeGroupBy extends OneRewriteRuleFactory {
                             .collect(Collectors.groupingBy(e -> e.anyMatch(AggregateFunction.class::isInstance)
                                     || e.anyMatch(GroupingSetsFunction.class::isInstance)));
 
-                    boolean needBottomProjects = partitionedKeys.containsKey(false);
+                    //boolean needBottomProjects = partitionedKeys.containsKey(false);
                     if (partitionedOutputs.containsKey(true)) {
                         // process expressions that contain groupBy function
                         Set<GroupingSetsFunction> groupingSetsFunctions = partitionedOutputs.get(true).stream()
@@ -153,7 +171,7 @@ public class NormalizeGroupBy extends OneRewriteRuleFactory {
                                             bottomProjections.add((SlotReference) realChild);
                                         }
                                     } else {
-                                        needBottomProjects = true;
+                                        needBottomProjects.set(true);
                                         innerChildren.add(substitutionMap.get(realChild));
                                     }
                                 }
@@ -185,7 +203,7 @@ public class NormalizeGroupBy extends OneRewriteRuleFactory {
                                         newOutputs.add((NamedExpression) child);
                                     }
                                 } else {
-                                    needBottomProjects = true;
+                                    needBottomProjects.set(true);
                                     Alias alias = new Alias(child, child.toSql());
                                     bottomProjections.add(alias);
                                     newChildren.add(alias.toSlot());
@@ -206,7 +224,7 @@ public class NormalizeGroupBy extends OneRewriteRuleFactory {
                     List<NamedExpression> finalOutputs = Utils.reorderProjections(newOutputs);
 
                     LogicalPlan root = groupBy.child();
-                    if (needBottomProjects) {
+                    if (needBottomProjects.get()) {
                         root = new LogicalProject<>(new ArrayList<>(newBottomProjections), root);
                     }
 
