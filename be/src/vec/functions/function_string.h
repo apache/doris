@@ -1363,6 +1363,13 @@ class FunctionSplitByChar : public IFunction {
 
 private:
     void getOffsetsAndLen(const std::string& s, const std::string& c, std::vector<int>& v_offset, std::vector<int>& v_charlen) {
+        /**
+         * 
+         * s : string need to be split
+         * c : delimiter_string
+         * v_offset  : each word splited offset in string
+         * v_charlen : each word length in string
+        */
         char delimiter_char = c[0];
         int32_t pos = 0;
 	    int32_t pos_start = 0;
@@ -1378,7 +1385,7 @@ private:
                 }
             }
 
-            if (!flag || s[pos] == delimiter_char) {
+            if (!flag || pos >= len) {
                 break;
             }
             pos_start = pos;
@@ -1405,7 +1412,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        //DCHECK_EQ(arguments.size(), 3);
+        DCHECK_EQ(arguments.size(), 2);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         //auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -1452,7 +1459,6 @@ public:
             } else if (delimiter.size == 1) {
                 std::vector<int> v_offset;
                 std::vector<int> v_charlen;
-
                 getOffsetsAndLen(str_col->get_data_at(i).to_string(), delimiter_str, v_offset, v_charlen);
                 for (size_t i = 0; i < v_offset.size(); i++) {
                     StringOP::push_value_string1(

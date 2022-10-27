@@ -74,18 +74,17 @@ TEST(function_string_test, function_string_substr_test) {
 
 
 TEST(function_string_test, function_split_by_char_test) {
-    std::string func_name = "spliybychar";
+    std::string func_name = "splitbychar";
     {
-        Array vec = {std::string("abc"), std::string(""), std::string("def")};
         Array vec1 = {std::string("hello"), std::string("world")};
         Array vec2 = {std::string("hello"), std::string("world"), std::string("my"), std::string("baby")};
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
         DataSet data_set = {
-                {{std::string("hello world"), std::string(" ")}, vec1},
-                {{std::string("helloswordsmysbaby"),std::string("s")}, vec2}};
+                {{std::string("hello world"), std::string(" ")}, "vec1"},
+                {{std::string("helloswordsmysbaby"),std::string("s")}, "vec2"}};
 
-        check_function<DataTypeArray, DataTypeString>(func_name, input_types, data_set);
+        check_function<DataTypeString>(func_name, input_types, data_set);
     }
 }
 
