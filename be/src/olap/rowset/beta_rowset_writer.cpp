@@ -72,7 +72,7 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     } else {
         _rowset_meta->set_fs(_context.fs);
     }
-    if (_context.fs->resource_id().size() > 0) {
+    if (_context.fs != nullptr && _context.fs->resource_id().size() > 0) {
         _rowset_meta->set_resource_id(_context.fs->resource_id());
     }
     _rowset_meta->set_rowset_id(_context.rowset_id);
