@@ -531,7 +531,6 @@ public:
                 data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
             }
         }
-        LOG(INFO) << " result " << result << " input_rows_count " << input_rows_count;
         execute(data_columns, *assert_cast<ColumnString*>(result_column.get()), input_rows_count,
                 nullmaps);
         block.get_by_position(result).column = std::move(result_column);
