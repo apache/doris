@@ -945,6 +945,11 @@ public class DatabaseTransactionMgr {
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
+        // The visible latch should only be counted down after all things are done
+        // (finish transaction, write edit log, etc).
+        // Otherwise, there is no way for stream load to query the result right after loading finished,
+        // even if we call "sync" before querying.
+        transactionState.countdownVisibleLatch();
         LOG.info("finish transaction {} successfully", transactionState);
     }
 
