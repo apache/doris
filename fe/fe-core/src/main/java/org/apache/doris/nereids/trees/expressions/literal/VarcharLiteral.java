@@ -19,9 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 
 /**
@@ -31,7 +29,7 @@ import org.apache.doris.nereids.types.VarcharType;
 public class VarcharLiteral extends StringLikeLiteral {
 
     public VarcharLiteral(String value) {
-        super(value, VarcharType.SYSTEM_DEFAULT);
+        super(value, VarcharType.createVarcharType(value.length()));
     }
 
     public VarcharLiteral(String value, int len) {
@@ -56,16 +54,6 @@ public class VarcharLiteral extends StringLikeLiteral {
     @Override
     public String toString() {
         return "'" + value + "'";
-    }
-
-    private DateLiteral convertToDate(DataType targetType) throws AnalysisException {
-        DateLiteral dateLiteral = null;
-        if (targetType.isDate()) {
-            dateLiteral = new DateLiteral(value);
-        } else if (targetType.isDateTime()) {
-            dateLiteral = new DateTimeLiteral(value);
-        }
-        return dateLiteral;
     }
 
     @Override
