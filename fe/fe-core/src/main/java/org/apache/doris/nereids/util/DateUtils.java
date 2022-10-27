@@ -21,6 +21,13 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import org.joda.time.format.DateTimeFormatterBuilder;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
+
 /**
  * date util tools.
  */
@@ -143,4 +150,16 @@ public class DateUtils {
         }
         return builder;
     }
+
+    public static LocalDateTime formatDateTimeAndFullZero(String datetime, DateTimeFormatter formatter) {
+        TemporalAccessor temporal = formatter.parse(datetime);
+        if (
+            temporal.isSupported(ChronoField.HOUR_OF_DAY)
+                && temporal.isSupported(ChronoField.MINUTE_OF_HOUR)
+                && temporal.isSupported(ChronoField.SECOND_OF_MINUTE)
+        ) return LocalDateTime.from(temporal);
+        return LocalDateTime.of(LocalDate.from(temporal), LocalTime.of(0, 0, 0));
+    }
+
+
 }

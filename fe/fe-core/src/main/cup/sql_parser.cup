@@ -348,6 +348,7 @@ terminal String
     KW_ENTER,
     KW_ERRORS,
     KW_EVENTS,
+    KW_EVERY,
     KW_EXCEPT,
     KW_EXCLUDE,
     KW_EXISTS,
@@ -779,6 +780,10 @@ nonterminal List<List<PartitionValue>> list_partition_values_list;
 nonterminal SinglePartitionDesc single_partition_desc;
 nonterminal List<SinglePartitionDesc> opt_single_partition_desc_list;
 nonterminal List<SinglePartitionDesc> single_partition_desc_list;
+nonterminal List<SinglePartitionDesc> opt_multi_partition_desc_list;
+nonterminal List<SinglePartitionDesc> multi_partition_desc_list;
+nonterminal PartitionKeyDesc fixed_multi_partition_key_desc;
+nonterminal MultiPartition multi_partition_desc;
 
 nonterminal List<AccessPrivilege> privilege_list;
 nonterminal List<String> string_list;
@@ -2799,7 +2804,7 @@ opt_agg_type ::=
     RESULT = AggregateType.QUANTILE_UNION;
     :}
     ;
-
+//
 opt_partition ::=
     /* Empty: no partition */
     {:
@@ -2816,6 +2821,12 @@ opt_partition ::=
             LPAREN opt_single_partition_desc_list:list RPAREN
     {:
         RESULT = new ListPartitionDesc(columns, list);
+    :}
+    /* Multi partition */
+    | KW_PARTITION KW_BY KW_LIST LPAREN ident_list:columns RPAREN
+            LPAREN opt_multi_partition_desc_list:list RPAREN
+    {:
+        RESULT = new MultiPartitionDesc(columns, list).getRangePartitionDesc();
     :}
     ;
 
@@ -2889,6 +2900,46 @@ opt_single_partition_desc_list ::=
     | single_partition_desc_list:list
     {:
         RESULT = list;
+    :}
+    ;
+
+opt_multi_partition_desc_list ::=
+    /* Empty */
+    {:
+        RESULT = null;
+    :}
+    | multi_partition_desc_list:list
+    {:
+        RESULT = list;
+    :}
+    ;
+
+multi_partition_desc_list ::=
+    multi_partition_desc_list:list COMMA multi_partition_desc:desc
+    {:
+        list.add(desc);
+        RESULT = list;
+    :}
+    | multi_partition_desc:desc
+    {:
+        RESULT = Lists.newArrayList(desc);
+    :}
+    ;
+
+
+fixed_multi_partition_key_desc ::=
+    // START (lower) END (upper) EVERY (INTERVAL time_interval time_type),
+    KW_START LPAREN partition_key_list:lower RPAREN KW_END LPAREN partition_key_list:upper RPAREN KW_EVERY LPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_type RPAREN
+    {:
+        RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_type);
+    :}
+    ;
+
+multi_partition_desc ::=
+    KW_PARTITIONS fixed_multi_partition_key_desc:desc
+        opt_key_value_map:properties
+    {:
+        RESULT = new MultiPartition(desc, properties);
     :}
     ;
 
@@ -6424,6 +6475,8 @@ keyword ::=
     | KW_FUNCTION:id
     {: RESULT = id; :}
     | KW_END:id
+    {: RESULT = id; :}
+    | KW_EVERY:id
     {: RESULT = id; :}
     | KW_ENGINE:id
     {: RESULT = id; :}
