@@ -21,12 +21,12 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/string_parser.hpp"
+#include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/functions/function_always_not_nullable.h"
 
 namespace doris::vectorized {
 
@@ -72,6 +72,54 @@ struct ToBitmap {
                 }
             }
         }
+    }
+};
+
+struct ToBitmapWithCheck {
+    static constexpr auto name = "to_bitmap_with_check";
+    using ReturnType = DataTypeBitMap;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         MutableColumnPtr& col_res) {
+        return execute<false>(data, offsets, nullptr, col_res);
+    }
+
+    static Status vector_nullable(const ColumnString::Chars& data,
+                                  const ColumnString::Offsets& offsets, const NullMap& nullmap,
+                                  MutableColumnPtr& col_res) {
+        return execute<true>(data, offsets, &nullmap, col_res);
+    }
+    template <bool arg_is_nullable>
+    static Status execute(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                          const NullMap* nullmap, MutableColumnPtr& col_res) {
+        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
+        for (size_t i = 0; i < size; ++i) {
+            if (arg_is_nullable && ((*nullmap)[i])) {
+                continue;
+            } else {
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+                StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+                uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                        raw_str, str_size, &parse_result);
+                if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
+                    res_data[i].add(int_value);
+                } else {
+                    std::stringstream ss;
+                    ss << "The input: " << std::string(raw_str, str_size)
+                       << " is not valid, to_bitmap only support bigint value from 0 to "
+                          "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                          "column with negative values or cannot load negative values to column "
+                          "with to_bitmap MV on it.";
+                    LOG(WARNING) << ss.str();
+                    return Status::InternalError(ss.str());
+                }
+            }
+        }
+        return Status::OK();
     }
 };
 
@@ -155,7 +203,7 @@ struct BitmapHash {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t str_size = offsets[i] - offsets[i - 1] - 1;
             uint32_t hash_value =
-                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+                    HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
             res_data[i].add(hash_value);
         }
     }
@@ -510,6 +558,7 @@ public:
 
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
 using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
+using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
 using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash>;
 
@@ -537,6 +586,7 @@ using FunctionBitmapSubsetInRange = FunctionBitmapSubs<BitmapSubsetInRange>;
 void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapEmpty>();
     factory.register_function<FunctionToBitmap>();
+    factory.register_function<FunctionToBitmapWithCheck>();
     factory.register_function<FunctionBitmapFromString>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapCount>();

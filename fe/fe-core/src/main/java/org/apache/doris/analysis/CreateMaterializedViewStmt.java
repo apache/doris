@@ -206,6 +206,25 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         throw new AnalysisException(
                                 "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
                     }
+
+                    // for bitmap_union(to_bitmap(column)) function, we should check value is not negative
+                    // in vectorized schema_change mode, so we should rewrite the function to
+                    // bitmap_union(to_bitmap_with_check(column))
+                    if (functionName.equalsIgnoreCase("bitmap_union")) {
+                        if (functionCallExpr.getChildren().size() == 1
+                                && functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
+                            Expr child = functionCallExpr.getChild(0);
+                            FunctionCallExpr childFunctionCallExpr = (FunctionCallExpr) child;
+                            if (childFunctionCallExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap")) {
+                                childFunctionCallExpr.setFnName(
+                                        new FunctionName(childFunctionCallExpr.getFnName().getDb(),
+                                                "to_bitmap_with_check"));
+                                childFunctionCallExpr.getFn().setName(
+                                        new FunctionName(childFunctionCallExpr.getFn().getFunctionName().getDb(),
+                                                "to_bitmap_with_check"));
+                            }
+                        }
+                    }
                 }
                 // check duplicate column
                 List<SlotRef> slots = new ArrayList<>();
@@ -444,7 +463,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                             CastExpr castExpr = new CastExpr(new TypeDef(Type.VARCHAR), baseSlotRef);
                             List<Expr> params = Lists.newArrayList();
                             params.add(castExpr);
-                            FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.TO_BITMAP, params);
+                            FunctionCallExpr defineExpr = new FunctionCallExpr(FunctionSet.TO_BITMAP_WITH_CHECK, params);
                             result.put(mvColumnBuilder(functionName, baseColumnName), defineExpr);
                         } else {
                             result.put(baseColumnName, null);

@@ -68,6 +68,7 @@ public:
 
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
+    static StringVal to_bitmap_with_check(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
@@ -87,9 +88,9 @@ public:
     static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
                                      const StringVal* bitmap_strs);
     static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
-                                     const StringVal* bitmap_strs);
+                                      const StringVal* bitmap_strs);
     static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
-                                     const StringVal* bitmap_strs);
+                                      const StringVal* bitmap_strs);
 
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap

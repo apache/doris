@@ -24,7 +24,7 @@
 
 namespace doris::vectorized {
 
-template <typename Function>
+template <typename Function, bool WithReturn = false>
 class FunctionAlwaysNotNullable : public IFunction {
 public:
     static constexpr auto name = Function::name;
@@ -57,14 +57,25 @@ public:
                     col_nullable->get_null_map_column_ptr().get());
 
             if (col != nullptr && col_nullmap != nullptr) {
-                Function::vector_nullable(col->get_chars(), col->get_offsets(),
-                                          col_nullmap->get_data(), column_result);
+                if constexpr (WithReturn) {
+                    RETURN_IF_ERROR(Function::vector_nullable(col->get_chars(), col->get_offsets(),
+                                                              col_nullmap->get_data(),
+                                                              column_result));
+                } else {
+                    Function::vector_nullable(col->get_chars(), col->get_offsets(),
+                                              col_nullmap->get_data(), column_result);
+                }
 
                 block.replace_by_position(result, std::move(column_result));
                 return Status::OK();
             }
         } else if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
-            Function::vector(col->get_chars(), col->get_offsets(), column_result);
+            if constexpr (WithReturn) {
+                RETURN_IF_ERROR(
+                        Function::vector(col->get_chars(), col->get_offsets(), column_result));
+            } else {
+                Function::vector(col->get_chars(), col->get_offsets(), column_result);
+            }
 
             block.replace_by_position(result, std::move(column_result));
             return Status::OK();
