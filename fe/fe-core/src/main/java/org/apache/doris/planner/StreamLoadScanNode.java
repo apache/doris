@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -136,9 +137,13 @@ public class StreamLoadScanNode extends LoadScanNode {
             } else if (mergeType == LoadTask.MergeType.DELETE) {
                 columnExprDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
             }
-            if (taskInfo.hasSequenceCol()) {
+            if (dstTable instanceof OlapTable && ((OlapTable) dstTable).hasSequenceCol()) {
+                String sequenceCol = ((OlapTable) dstTable).getSequenceMapCol();
+                if (sequenceCol == null) {
+                    sequenceCol = taskInfo.getSequenceCol();
+                }
                 columnExprDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                        new SlotRef(null, taskInfo.getSequenceCol())));
+                        new SlotRef(null, sequenceCol)));
             }
         }
 

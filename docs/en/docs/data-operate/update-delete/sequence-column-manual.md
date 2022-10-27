@@ -60,13 +60,21 @@ The principle is the same as the reading process during Base Compaction.
 When the Sequence column creates a table, an attribute is added to the property, which is used to identify the type import of `__DORIS_SEQUENCE_COL__`. The grammar design is mainly to add a mapping from the sequence column to other columns. The settings of each seed method will be described below introduce.
 
 #### Create Table
-When you create the Uniq table, you can specify the sequence column type.
+1. When you create the Uniq table, you can specify the sequence column type.
 ```text
 PROPERTIES (
     "function_column.sequence_type" = 'Date',
 );
 ```
-The sequence_type is used to specify the type of the sequence column, which can be integral and time (DATE / DATETIME).
+The sequence_type is used to specify the type of the sequence column, which can be integral and time (DATE / DATETIME). The mapping column needs to be specified when importing.
+
+2. When you create the Uniq table, you can specify the mapping of sequence column to other columns.
+```text
+PROPERTIES (
+    "function_column.sequence_col" = 'column_name',
+);
+```
+The sequence_col is used to specify the mapping of the sequence column to other columns, which can be integral and time (DATE, DATETIME). The type of this column cannot be changed after creation. You no longer need to specify mapping column when importing.
 
 #### Stream Load
 

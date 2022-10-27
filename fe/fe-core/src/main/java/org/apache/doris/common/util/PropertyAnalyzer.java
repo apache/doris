@@ -105,6 +105,7 @@ public class PropertyAnalyzer {
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+    public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
@@ -618,6 +619,20 @@ public class PropertyAnalyzer {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
         return ScalarType.createType(type);
+    }
+
+    public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        String sequenceCol = null;
+        String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_COL;
+        if (properties != null && properties.containsKey(propertyName)) {
+            sequenceCol = properties.get(propertyName);
+            properties.remove(propertyName);
+        }
+        if (sequenceCol != null && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        }
+        return sequenceCol;
     }
 
     public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,

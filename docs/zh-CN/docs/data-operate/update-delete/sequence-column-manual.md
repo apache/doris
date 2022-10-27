@@ -64,7 +64,7 @@ Sequence列建表时在property中增加了一个属性，用来标识`__DORIS_S
 
 **建表**
 
-创建Uniq表时，可以指定sequence列类型
+方法一：创建Uniq表时，可以指定sequence列类型。
 
 ```text
 PROPERTIES (
@@ -72,7 +72,16 @@ PROPERTIES (
 );
 ```
 
-sequence_type用来指定sequence列的类型，可以为整型和时间类型（DATE、DATETIME）。
+sequence_type用来指定sequence列的类型，可以为整型和时间类型（DATE、DATETIME）。导入时需要指定映射列。
+
+方法二：创建Uniq表时，可以指定sequence列到其他column的映射。
+
+```text
+PROPERTIES (
+    "function_column.sequence_col" = 'column_name',
+);
+```
+sequence_col用来指定sequence列到其他column的映射，该列可以为整型和时间类型（DATE、DATETIME），创建后不能更改该列的类型。导入时不用再指定映射列。
 
 **Stream Load**
 

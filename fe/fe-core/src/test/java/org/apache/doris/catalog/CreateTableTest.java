@@ -208,6 +208,15 @@ public class CreateTableTest {
                         + "distributed by hash(k2) buckets 1\n"
                         + "properties('replication_num' = '1');"));
 
+        // table with sequence col
+        ExceptionChecker
+                .expectThrowsNoException(() -> createTable("create table test.tbl13\n"
+                        + "(k1 varchar(40), k2 int, v1 int)\n"
+                        + "unique key(k1, k2)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
+                        + "'function_column.sequence_col' = 'v1');"));
+
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
@@ -224,6 +233,11 @@ public class CreateTableTest {
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());
         Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+
+        OlapTable tbl13 = (OlapTable) db.getTableOrDdlException("tbl13");
+        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
+        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
+        Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
     }
 
     @Test
@@ -287,6 +301,30 @@ public class CreateTableTest {
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                                 + "'function_column.sequence_type' = 'double');"));
+
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class, "The sequence_col and sequence_type cannot be set at the same time",
+                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                                + "unique key(k1, k2)\n"
+                                + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
+                                + "'function_column.sequence_type' = 'int', 'function_column.sequence_col' = 'v1');"));
+
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class, "The specified sequence column[v3] not exists",
+                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                                + "unique key(k1, k2)\n"
+                                + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
+                                + "'function_column.sequence_col' = 'v3');"));
+
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class, "Sequence type only support integer types and date types",
+                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                                + "unique key(k1, k2)\n"
+                                + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
+                                + "'function_column.sequence_col' = 'k1');"));
 
         /**
          * create table with list partition
