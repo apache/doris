@@ -23,7 +23,6 @@
 #include <fmt/format.h>
 
 #include "runtime/thread_context.h"
-#include "util/pretty_printer.h"
 #include "util/string_util.h"
 #include "util/time.h"
 
@@ -104,10 +103,9 @@ void NewMemTracker::make_group_snapshot(std::vector<NewMemTracker::Snapshot>* sn
 }
 
 std::string NewMemTracker::log_usage(NewMemTracker::Snapshot snapshot) {
-    return fmt::format(
-            "MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)", snapshot.label,
-            snapshot.parent, PrettyPrinter::print(snapshot.cur_consumption, TUnit::BYTES),
-            snapshot.cur_consumption, PrettyPrinter::print(snapshot.peak_consumption, TUnit::BYTES),
+    return fmt::format("MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)",
+            snapshot.label, snapshot.parent, print_bytes(snapshot.cur_consumption),
+            snapshot.cur_consumption, print_bytes(snapshot.peak_consumption),
             snapshot.peak_consumption);
 }
 

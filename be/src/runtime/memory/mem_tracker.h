@@ -19,6 +19,7 @@
 // and modified by Doris
 #pragma once
 
+#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -49,6 +50,11 @@ public:
     NewMemTracker() { _bind_group_num = -1; }
 
     ~NewMemTracker();
+
+    static std::string print_bytes(int64_t bytes) {
+        return bytes >= 0 ? PrettyPrinter::print(bytes, TUnit::BYTES)
+                          : "-" + PrettyPrinter::print(std::abs(bytes), TUnit::BYTES);
+    }
 
 public:
     const std::string& label() const { return _label; }

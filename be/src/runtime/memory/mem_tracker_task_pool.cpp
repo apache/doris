@@ -20,6 +20,7 @@
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "util/pretty_printer.h"
+#include "runtime/memory/mem_tracker.h"
 
 namespace doris {
 
@@ -100,9 +101,9 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
             LOG(INFO) << fmt::format(
                     "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                     "PeakUsed={}",
-                    it->first, PrettyPrinter::print(it->second->limit(), TUnit::BYTES),
-                    PrettyPrinter::print(it->second->consumption(), TUnit::BYTES),
-                    PrettyPrinter::print(it->second->peak_consumption(), TUnit::BYTES));
+                    it->first, NewMemTracker::print_bytes(it->second->limit()),
+                    NewMemTracker::print_bytes(it->second->consumption()),
+                    NewMemTracker::print_bytes(it->second->peak_consumption()));
             expired_task_ids.emplace_back(it->first);
         }
     }
