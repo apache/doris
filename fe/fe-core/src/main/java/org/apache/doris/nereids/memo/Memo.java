@@ -203,7 +203,7 @@ public class Memo {
 
     /**
      * add or replace the plan into the target group.
-     *
+     * <p>
      * the result truth table:
      * <pre>
      * +---------------------------------------+-----------------------------------+--------------------------------+
@@ -487,14 +487,14 @@ public class Memo {
 
     /**
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
-     *
+     * <p>
      * the scenario is:
      * ```
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
      * ```
-     *
+     * <p>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */

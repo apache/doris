@@ -231,13 +231,14 @@ public class GroupExpression {
         if (plan instanceof UnboundRelation) {
             return false;
         }
+        // TODO: reconsider children, because children is mutable.
         return children.equals(that.children) && plan.equals(that.plan)
                 && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(children, plan);
+        return Objects.hash(plan);
     }
 
     public StatsDeriveResult getCopyOfChildStats(int idx) {

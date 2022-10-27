@@ -34,6 +34,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -147,7 +148,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
         //    +-----------+---------------------+-------------------------+--------------------------------+
         //    NOTICE: Ref: SlotReference, A: Alias, AF: AggregateFunction, #x: ExprId x
         // 2. collect local aggregate output expressions and local aggregate group by expression list
-        List<Expression> localGroupByExprs = aggregate.getGroupByExpressions();
+        List<Expression> localGroupByExprs = new ArrayList<>(aggregate.getGroupByExpressions());
         List<NamedExpression> localOutputExprs = Lists.newArrayList();
         for (Expression originGroupByExpr : originGroupByExprs) {
             if (inputSubstitutionMap.containsKey(originGroupByExpr)) {
