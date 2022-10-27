@@ -28,6 +28,8 @@ suite("load_one_step") {
         sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_create.sql""").text
         streamLoad {
             table tableName
+            def label = "load_one_step_${tableName}_" + UUID.randomUUID().toString() 
+            set 'label', label
             set 'column_separator', '|'
             set 'compress_type', 'GZ'
             set 'columns', rows[0]
