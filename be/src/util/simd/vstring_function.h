@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 #ifdef __aarch64__
@@ -144,7 +145,12 @@ public:
         } else {
             for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
                 char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
-                std::copy(str.ptr + i, str.ptr + i + char_size, dst.ptr + str.len - i - char_size);
+                // str.len = 4, i = 3, char_size = 2 might cause dynamic stack buffer overflow
+                size_t offset = i + char_size;
+                if (offset > str.len) {
+                    offset = str.len;
+                }
+                std::copy(str.ptr + i, str.ptr + offset, dst.ptr + str.len - offset);
             }
         }
     }
