@@ -60,6 +60,8 @@ Super user privileges:
 
  resource_tags: Specifies the user's resource tag permissions.
 
+ query_timeout: Specifies the user's query timeout permissions.
+
     Note: If the attributes `cpu_resource_limit`, `exec_mem_limit` are not set, the value in the session variable will be used by default.
 
 Ordinary user rights:
@@ -154,6 +156,12 @@ Data, etl program automatically retains the next use.
 
     ```sql
     SET PROPERTY FOR 'jack' 'exec_mem_limit' = '2147483648';
+    ````
+
+13. Modify the user's query timeout limit, in second
+
+    ```sql
+    SET PROPERTY FOR 'jack' 'query_timeout' = '500';
     ````
 
 ### Keywords
