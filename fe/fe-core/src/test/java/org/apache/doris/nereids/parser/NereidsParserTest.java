@@ -87,18 +87,18 @@ public class NereidsParserTest extends ParserTestBase {
         String cteSql1 = "with t1 as (select s_suppkey from supplier where s_suppkey < 10) select * from t1";
         logicalPlan = nereidsParser.parseSingle(cteSql1);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
-        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().size(), 1);
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
 
         String cteSql2 = "with t1 as (select s_suppkey from supplier), t2 as (select s_suppkey from t1) select * from t2";
         logicalPlan = nereidsParser.parseSingle(cteSql2);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
-        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().size(), 2);
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 2);
 
         String cteSql3 = "with t1 (key, name) as (select s_suppkey, s_name from supplier) select * from t1";
         logicalPlan = nereidsParser.parseSingle(cteSql3);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
-        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().size(), 1);
-        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getWithClauses().get(0).getColumnAliases().get().size(), 2);
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().get(0).getColumnAliases().get().size(), 2);
     }
 
     @Test

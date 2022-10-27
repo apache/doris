@@ -19,9 +19,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.AliasQuery;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.WithClause;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -39,20 +39,20 @@ import java.util.Optional;
  */
 public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
-    private final List<WithClause> withClauses;
+    private final List<AliasQuery> aliasQueries;
 
-    public LogicalCTE(List<WithClause> withQueries, CHILD_TYPE child) {
-        this(withQueries, Optional.empty(), Optional.empty(), child);
+    public LogicalCTE(List<AliasQuery> aliasQueries, CHILD_TYPE child) {
+        this(aliasQueries, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalCTE(List<WithClause> withClauses, Optional<GroupExpression> groupExpression,
+    public LogicalCTE(List<AliasQuery> aliasQueries, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
-        this.withClauses = withClauses;
+        this.aliasQueries = aliasQueries;
     }
 
-    public List<WithClause> getWithClauses() {
-        return withClauses;
+    public List<AliasQuery> getAliasQueries() {
+        return aliasQueries;
     }
 
     /**
@@ -68,7 +68,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalCTE",
-            "withClauses", withClauses
+            "aliasQueries", aliasQueries
         );
     }
 
@@ -81,18 +81,18 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
             return false;
         }
         LogicalCTE that = (LogicalCTE) o;
-        return withClauses.equals(that.withClauses);
+        return aliasQueries.equals(that.aliasQueries);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(withClauses);
+        return Objects.hash(aliasQueries);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(withClauses.size() > 0);
-        return new LogicalCTE<>(withClauses, children.get(0));
+        Preconditions.checkArgument(aliasQueries.size() > 0);
+        return new LogicalCTE<>(aliasQueries, children.get(0));
     }
 
     @Override
@@ -107,11 +107,11 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTE<>(withClauses, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTE<>(withClauses, Optional.empty(), logicalProperties, child());
+        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child());
     }
 }

@@ -77,10 +77,10 @@ querySpecification
     ;
 
 cte
-    : WITH withClause (COMMA withClause)*
+    : WITH aliasQuery (COMMA aliasQuery)*
     ;
 
-withClause
+aliasQuery
     : identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
     ;
 

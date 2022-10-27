@@ -68,7 +68,7 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
 
     @Override
     public String toString() {
-        return "'" + getName() + "'";
+        return "'" + getName();
     }
 
     @Override

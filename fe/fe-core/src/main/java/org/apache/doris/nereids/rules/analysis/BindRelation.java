@@ -74,15 +74,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String nameParts) {
+    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String tableName) {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getStatementContext().getCteContext();
-        if (cteContext.containsCTE(nameParts)) {
-            return new LogicalSubQueryAlias<>(nameParts, cteContext.getAnalyzedCTEPlan(nameParts));
+        if (cteContext.containsCTE(tableName)) {
+            return new LogicalSubQueryAlias<>(tableName, cteContext.getAnalyzedCTEPlan(tableName));
         }
 
         String dbName = cascadesContext.getConnectContext().getDatabase();
-        Table table = getTable(dbName, nameParts, cascadesContext.getConnectContext().getEnv());
+        Table table = getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
             return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),

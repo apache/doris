@@ -218,16 +218,13 @@ public class BindSlotReference implements AnalysisRuleFactory {
         @Override
         public Expression visitUnboundAlias(UnboundAlias unboundAlias, PlannerContext context) {
             Expression child = unboundAlias.child().accept(this, context);
+            if (unboundAlias.getAlias().isPresent()) {
+                return new Alias(child, unboundAlias.getAlias().get());
+            }
             if (child instanceof NamedExpression) {
-                if (unboundAlias.getAlias().isPresent()) {
-                    return new Alias(child, unboundAlias.getAlias().get());
-                }
                 return new Alias(child, ((NamedExpression) child).getName());
             } else {
                 // TODO: resolve aliases
-                if (unboundAlias.getAlias().isPresent()) {
-                    return new Alias(child, unboundAlias.getAlias().get());
-                }
                 return new Alias(child, child.toSql());
             }
         }

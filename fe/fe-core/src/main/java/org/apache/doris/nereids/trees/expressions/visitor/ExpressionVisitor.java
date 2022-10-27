@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.AliasQuery;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -310,6 +311,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitWithSubquery(WithSubquery withSubquery, C context) {
         return visitSubqueryExpr(withSubquery, context);
+    }
+
+    public R visitAliasQuery(AliasQuery aliasQuery, C context) {
+        return visit(aliasQuery, context);
     }
 
     public R visitTimestampArithmetic(TimestampArithmetic arithmetic, C context) {

@@ -84,7 +84,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
             + "SELECT * FROM V2";
 
     private final List<String> testSql = ImmutableList.of(
-            sql1, sql2, sql3, sql4
+            sql1, sql2, sql3, sql4, sql5
     );
 
     @Override
