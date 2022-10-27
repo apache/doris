@@ -359,11 +359,22 @@ public class CastExpr extends Expr {
 
     @Override
     public boolean equals(Object obj) {
-        if (!super.equals(obj)) {
-            return false;
+        if (obj instanceof CastExpr) {
+            if (!super.equals(obj)) {
+                return false;
+            }
+            CastExpr expr = (CastExpr) obj;
+            return this.opcode == expr.opcode;
+        } else {
+            // because Expr's substituteImpl method would remove implicit casts
+            // we should do same thing here to keep consistent
+            Expr tempExpr = isImplicit ? getChild(0) : null;
+            if (tempExpr != null) {
+                return tempExpr.equals(obj);
+            } else {
+                return false;
+            }
         }
-        CastExpr expr = (CastExpr) obj;
-        return this.opcode == expr.opcode;
     }
 
     /**
