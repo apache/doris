@@ -2649,13 +2649,7 @@ public class Env {
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {
-        long dbId = info.getDbId();
-        Database db = Env.getCurrentRecycleBin().replayRecoverDatabase(dbId);
-
-        // add db to catalog
-        replayCreateDb(db);
-
-        LOG.info("replay recover db[{}]", dbId);
+        getInternalCatalog().replayRecoverDatabase(info);
     }
 
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {

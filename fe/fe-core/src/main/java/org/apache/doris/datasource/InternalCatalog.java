@@ -650,7 +650,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         List<Table> tableList = db.getTablesOnIdOrder();
         MetaLockUtils.writeLockTables(tableList);
         try {
-            if (!Strings.isNullOrEmpty(recoverStmt.getNewDbName())) {
+            if (!Strings.isNullOrEmpty(newDbName)) {
                 if (fullNameToDb.containsKey(newDbName)) {
                     throw new DdlException("Database[" + newDbName + "] already exist.");
                     // it's ok that we do not put db back to CatalogRecycleBin
@@ -663,7 +663,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // cause this db cannot recover any more
                 }
             }
-            if (!Strings.isNullOrEmpty(recoverStmt.getNewDbName())) {
+            if (!Strings.isNullOrEmpty(newDbName)) {
                 try {
                     db.writeUnlock();
                     db.setNameWithLock(newDbName);
@@ -677,7 +677,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             cluster.addDb(db.getFullName(), db.getId());
 
             // log
-            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, db.getFullName(), "", "");
+            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
             db.unmarkDropped();
         } finally {
@@ -754,7 +754,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // add db to catalog
         replayCreateDb(db, newDbName);
-
+        db.unmarkDropped();
         LOG.info("replay recover db[{}]", dbId);
     }
 
