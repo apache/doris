@@ -179,15 +179,15 @@ int float_to_string<double>(double value, char* buf) {
             return sv;                                                                         \
         }                                                                                      \
         const FunctionContext::TypeDesc& returnType = ctx->get_return_type();                  \
-        if (returnType.len > 0) {                                                              \
+        if (returnType.len == -1 || returnType.type == FunctionContext::TYPE_STRING) {         \
+            char buf[MAX_DOUBLE_STR_LENGTH + 2];                                               \
+            sv.len = float_to_string(val.val, buf);                                            \
+            memcpy(sv.ptr, buf, sv.len);                                                       \
+        } else if (returnType.len > 0) {                                                       \
             sv.len = snprintf(reinterpret_cast<char*>(sv.ptr), sv.len, format, val.val);       \
             DCHECK_GT(sv.len, 0);                                                              \
             DCHECK_LE(sv.len, MAX_FLOAT_CHARS);                                                \
             AnyValUtil::TruncateIfNecessary(returnType, &sv);                                  \
-        } else if (returnType.len == -1) {                                                     \
-            char buf[MAX_DOUBLE_STR_LENGTH + 2];                                               \
-            sv.len = float_to_string(val.val, buf);                                            \
-            memcpy(sv.ptr, buf, sv.len);                                                       \
         } else {                                                                               \
             DCHECK(false);                                                                     \
         }                                                                                      \
