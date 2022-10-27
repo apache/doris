@@ -54,7 +54,7 @@ public:
                   const TFileRangeDesc& range, const std::vector<std::string>& column_names,
                   size_t batch_size, cctz::time_zone* ctz);
 
-    virtual ~ParquetReader();
+    ~ParquetReader() override;
     // for test
     void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
@@ -139,7 +139,7 @@ private:
     cctz::time_zone* _ctz;
 
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
-    const std::vector<std::string> _column_names;
+    const std::vector<std::string>& _column_names;
 
     std::vector<std::string> _missing_cols;
     Statistics _statistics;

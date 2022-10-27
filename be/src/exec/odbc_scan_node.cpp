@@ -106,7 +106,7 @@ Status OdbcScanNode::open(RuntimeState* state) {
     }
 
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(_odbc_scanner->open());
+    RETURN_IF_ERROR(_odbc_scanner->open(state));
     RETURN_IF_ERROR(_odbc_scanner->query());
     // check materialize slot num
 

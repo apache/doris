@@ -19,7 +19,7 @@
      sql """ DROP TABLE IF EXISTS bm """
      sql """ DROP TABLE IF EXISTS gp """
      sql """
-         CREATE TABLE `bm` (
+         CREATE TABLE IF NOT EXISTS `bm` (
              `id` bigint(20) NULL,
              `hid` smallint(6) NULL,
              `bitmap` bitmap BITMAP_UNION NULL
@@ -34,7 +34,7 @@
          )
      """
      sql """
-         CREATE TABLE `gp` (
+         CREATE TABLE IF NOT EXISTS `gp` (
              `id` varchar(128) NOT NULL,
              `uh` bigint(20) NOT NULL,
              `uid` varchar(128) MAX NULL,

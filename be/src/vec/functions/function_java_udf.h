@@ -78,6 +78,8 @@ private:
     struct IntermediateState {
         size_t buffer_size;
         size_t row_idx;
+
+        IntermediateState() : buffer_size(0), row_idx(0) {}
     };
 
     struct JniContext {
@@ -95,17 +97,16 @@ private:
         // intermediate_state includes two parts: reserved / used buffer size and rows
         std::unique_ptr<IntermediateState> output_intermediate_state_ptr;
 
-        JniContext(int64_t num_args, JavaFunctionCall* parent) : parent(parent) {
-            input_values_buffer_ptr.reset(new int64_t[num_args]);
-            input_nulls_buffer_ptr.reset(new int64_t[num_args]);
-            input_offsets_ptrs.reset(new int64_t[num_args]);
-            output_value_buffer.reset((int64_t*)malloc(sizeof(int64_t)));
-            output_null_value.reset((int64_t*)malloc(sizeof(int64_t)));
-            batch_size_ptr.reset((int32_t*)malloc(sizeof(int32_t)));
-            output_offsets_ptr.reset((int64_t*)malloc(sizeof(int64_t)));
-            output_intermediate_state_ptr.reset(
-                    (IntermediateState*)malloc(sizeof(IntermediateState)));
-        }
+        JniContext(int64_t num_args, JavaFunctionCall* parent)
+                : parent(parent),
+                  input_values_buffer_ptr(new int64_t[num_args]),
+                  input_nulls_buffer_ptr(new int64_t[num_args]),
+                  input_offsets_ptrs(new int64_t[num_args]),
+                  output_value_buffer(new int64_t()),
+                  output_null_value(new int64_t()),
+                  output_offsets_ptr(new int64_t()),
+                  batch_size_ptr(new int32_t()),
+                  output_intermediate_state_ptr(new IntermediateState()) {}
 
         ~JniContext() {
             VLOG_DEBUG << "Free resources for JniContext";

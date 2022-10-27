@@ -118,7 +118,8 @@ public class TableProperty implements Writable {
      *
      * @return this for chained
      */
-    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable) {
+    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable,
+            ReplicaAllocation replicaAlloc) {
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             if (!reserveDynamicPartitionEnable) {
@@ -126,6 +127,7 @@ public class TableProperty implements Writable {
             }
             executeBuildDynamicProperty();
         }
+        setReplicaAlloc(replicaAlloc);
         return this;
     }
 

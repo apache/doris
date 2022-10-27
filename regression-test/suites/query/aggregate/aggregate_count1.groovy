@@ -19,7 +19,7 @@
 
 suite("aggregate_count1", "query") {
     sql """ DROP TABLE IF EXISTS aggregate_count1 """
-    sql "create table aggregate_count1 (\n" +
+    sql "create table if not exists aggregate_count1 (\n" +
             "\n" +
             "    name varchar(128) ,\n" +
             "\n" +

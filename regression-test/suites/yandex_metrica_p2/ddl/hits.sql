@@ -1,4 +1,4 @@
-CREATE TABLE hits
+CREATE TABLE IF NOT EXISTS hits
 (
     CounterID BIGINT,
     EventDate DATE,

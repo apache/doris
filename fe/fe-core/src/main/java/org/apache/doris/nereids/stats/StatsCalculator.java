@@ -104,7 +104,14 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     private void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
-        groupExpression.getOwnerGroup().setStatistics(stats);
+        /*
+        in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
+        we record the lowest expression cost as group cost to avoid missing this group.
+        */
+        if (groupExpression.getOwnerGroup().getStatistics() == null
+                || (stats.getRowCount() < groupExpression.getOwnerGroup().getStatistics().getRowCount())) {
+            groupExpression.getOwnerGroup().setStatistics(stats);
+        }
         groupExpression.setStatDerived(true);
     }
 
@@ -254,7 +261,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         FilterSelectivityCalculator selectivityCalculator =
                 new FilterSelectivityCalculator(stats.getSlotToColumnStats());
         double selectivity = selectivityCalculator.estimate(filter.getPredicates());
-        stats.updateRowCountBySelectivity(selectivity);
+        stats.updateBySelectivity(selectivity, filter.getPredicates().getInputSlots());
         stats.isReduced = selectivity < 1.0;
         return stats;
     }

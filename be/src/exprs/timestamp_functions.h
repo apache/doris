@@ -150,6 +150,8 @@ public:
                                             const doris_udf::StringVal& format);
     static doris_udf::DateTimeVal from_days(doris_udf::FunctionContext* ctx,
                                             const doris_udf::IntVal& days);
+    static doris_udf::DateTimeVal last_day(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal to_days(doris_udf::FunctionContext* ctx,
                                      const doris_udf::DateTimeVal& ts_val);
     static doris_udf::DateTimeVal str_to_date(doris_udf::FunctionContext* ctx,

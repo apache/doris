@@ -258,7 +258,6 @@ private:
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
-
     void _update_cumulative_compaction_policy();
 
     bool _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,

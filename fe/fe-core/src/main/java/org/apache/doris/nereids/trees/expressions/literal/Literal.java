@@ -82,6 +82,22 @@ public abstract class Literal extends Expression implements LeafExpression {
 
     public abstract Object getValue();
 
+    /**
+     * Map literal to double, and keep "<=" order.
+     * for numeric literal (int/long/double/float), directly convert to double
+     * for char/varchar/string, we take first 8 chars as a int64, and convert it to double
+     * for other literals, getDouble() is not used.
+     *
+     * And hence, we could express the range of a datatype, and used in stats derive.
+     * for example:
+     *'abcxxxxxxxxxxx' is between ('abb', 'zzz')
+     *
+     * @return double representation of literal.
+     */
+    public double getDouble() {
+        return Double.parseDouble(getValue().toString());
+    }
+
     public String getStringValue() {
         return String.valueOf(getValue());
     }

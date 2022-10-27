@@ -672,7 +672,7 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // Reset properties to correct values.
-                    remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable);
+                    remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, replicaAlloc);
 
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
@@ -943,7 +943,7 @@ public class RestoreJob extends AbstractJob {
             } else {
                 try {
                     // restore resource
-                    resourceMgr.createResource(remoteOdbcResource);
+                    resourceMgr.createResource(remoteOdbcResource, false);
                 } catch (DdlException e) {
                     status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
                     return;

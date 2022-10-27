@@ -17,9 +17,17 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
@@ -813,5 +821,120 @@ public class SelectStmtTest {
         Assert.assertFalse(stmt1.getAnalyzer().getSlotDescriptor("r.username").getIsNullable());
         FunctionCallExpr expr = (FunctionCallExpr) stmt1.getSelectList().getItems().get(1).getExpr();
         Assert.assertTrue(expr.getFnParams().isDistinct());
+    }
+
+    @Test
+    public void testSelectTablet() throws Exception {
+        String sql1 = "SELECT * FROM db1.table1 TABLET(10031,10032,10033)";
+        OriginalPlanner planner = (OriginalPlanner) dorisAssert.query(sql1).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds = ((OlapScanNode) planner.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertTrue(sampleTabletIds.contains(10031L));
+        Assert.assertTrue(sampleTabletIds.contains(10032L));
+        Assert.assertTrue(sampleTabletIds.contains(10033L));
+    }
+
+    @Test
+    public void testSelectSampleTable() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("table1");
+        long tabletId = 10031L;
+        for (Partition partition : tbl.getPartitions()) {
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    tablet.setTabletId(tabletId);
+                    tabletId += 1;
+                }
+            }
+        }
+
+        // 1. TABLESAMPLE ROWS
+        String sql1 = "SELECT * FROM db1.table1 TABLESAMPLE(10 ROWS)";
+        OriginalPlanner planner1 = (OriginalPlanner) dorisAssert.query(sql1).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds1 = ((OlapScanNode) planner1.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds1.size());
+
+        String sql2 = "SELECT * FROM db1.table1 TABLESAMPLE(1000 ROWS)";
+        OriginalPlanner planner2 = (OriginalPlanner) dorisAssert.query(sql2).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds2 = ((OlapScanNode) planner2.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds2.size());
+
+        String sql3 = "SELECT * FROM db1.table1 TABLESAMPLE(1001 ROWS)";
+        OriginalPlanner planner3 = (OriginalPlanner) dorisAssert.query(sql3).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds3 = ((OlapScanNode) planner3.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(2, sampleTabletIds3.size());
+
+        String sql4 = "SELECT * FROM db1.table1 TABLESAMPLE(9500 ROWS)";
+        OriginalPlanner planner4 = (OriginalPlanner) dorisAssert.query(sql4).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds4 = ((OlapScanNode) planner4.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(0, sampleTabletIds4.size()); // no sample, all tablet
+
+        String sql5 = "SELECT * FROM db1.table1 TABLESAMPLE(11000 ROWS)";
+        OriginalPlanner planner5 = (OriginalPlanner) dorisAssert.query(sql5).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds5 = ((OlapScanNode) planner5.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(0, sampleTabletIds5.size()); // no sample, all tablet
+
+        String sql6 = "SELECT * FROM db1.table1 TABLET(10033) TABLESAMPLE(900 ROWS)";
+        OriginalPlanner planner6 = (OriginalPlanner) dorisAssert.query(sql6).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds6 = ((OlapScanNode) planner6.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertTrue(sampleTabletIds6.size() >= 1 && sampleTabletIds6.size() <= 2);
+        Assert.assertTrue(sampleTabletIds6.contains(10033L));
+
+        // 2. TABLESAMPLE PERCENT
+        String sql7 = "SELECT * FROM db1.table1 TABLESAMPLE(10 PERCENT)";
+        OriginalPlanner planner7 = (OriginalPlanner) dorisAssert.query(sql7).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds7 = ((OlapScanNode) planner7.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds7.size());
+
+        String sql8 = "SELECT * FROM db1.table1 TABLESAMPLE(15 PERCENT)";
+        OriginalPlanner planner8 = (OriginalPlanner) dorisAssert.query(sql8).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds8 = ((OlapScanNode) planner8.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(2, sampleTabletIds8.size());
+
+        String sql9 = "SELECT * FROM db1.table1 TABLESAMPLE(100 PERCENT)";
+        OriginalPlanner planner9 = (OriginalPlanner) dorisAssert.query(sql9).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds9 = ((OlapScanNode) planner9.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(0, sampleTabletIds9.size());
+
+        String sql10 = "SELECT * FROM db1.table1 TABLESAMPLE(110 PERCENT)";
+        OriginalPlanner planner10 = (OriginalPlanner) dorisAssert.query(sql10).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds10 = ((OlapScanNode) planner10.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(0, sampleTabletIds10.size());
+
+        String sql11 = "SELECT * FROM db1.table1 TABLET(10033) TABLESAMPLE(5 PERCENT)";
+        OriginalPlanner planner11 = (OriginalPlanner) dorisAssert.query(sql11).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds11 = ((OlapScanNode) planner11.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertTrue(sampleTabletIds11.size() >= 1 && sampleTabletIds11.size() <= 2);
+        Assert.assertTrue(sampleTabletIds11.contains(10033L));
+
+        // 3. TABLESAMPLE REPEATABLE
+        String sql12 = "SELECT * FROM db1.table1 TABLESAMPLE(900 ROWS)";
+        OriginalPlanner planner12 = (OriginalPlanner) dorisAssert.query(sql12).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds12 = ((OlapScanNode) planner12.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds12.size());
+
+        String sql13 = "SELECT * FROM db1.table1 TABLESAMPLE(900 ROWS) REPEATABLE 2";
+        OriginalPlanner planner13 = (OriginalPlanner) dorisAssert.query(sql13).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds13 = ((OlapScanNode) planner13.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds13.size());
+        Assert.assertTrue(sampleTabletIds13.contains(10033L));
+
+        String sql14 = "SELECT * FROM db1.table1 TABLESAMPLE(900 ROWS) REPEATABLE 10";
+        OriginalPlanner planner14 = (OriginalPlanner) dorisAssert.query(sql14).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds14 = ((OlapScanNode) planner14.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds14.size());
+        Assert.assertTrue(sampleTabletIds14.contains(10031L));
+
+        String sql15 = "SELECT * FROM db1.table1 TABLESAMPLE(900 ROWS) REPEATABLE 0";
+        OriginalPlanner planner15 = (OriginalPlanner) dorisAssert.query(sql15).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds15 = ((OlapScanNode) planner15.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds15.size());
+        Assert.assertTrue(sampleTabletIds15.contains(10031L));
+
+        // 4. select returns 900 rows of results
+        String sql16 = "SELECT * FROM (SELECT * FROM db1.table1 TABLESAMPLE(900 ROWS) REPEATABLE 9999999 limit 900) t";
+        OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(1, sampleTabletIds16.size());
     }
 }

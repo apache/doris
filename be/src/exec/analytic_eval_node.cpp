@@ -426,7 +426,8 @@ inline void AnalyticEvalNode::try_remove_rows_before_window(int64_t stream_idx) 
     // The start of the window may have been before the current partition, in which case
     // there is no tuple to remove in _window_tuples. Check the index of the row at which
     // tuples from _window_tuples should begin to be removed.
-    int64_t remove_idx = stream_idx - _rows_end_offset + std::min(_rows_start_offset, 0L) - 1;
+    int64_t remove_idx =
+            stream_idx - _rows_end_offset + std::min<int64_t>(_rows_start_offset, 0L) - 1;
 
     if (remove_idx < _curr_partition_idx) {
         return;
@@ -434,7 +435,7 @@ inline void AnalyticEvalNode::try_remove_rows_before_window(int64_t stream_idx) 
 
     VLOG_ROW << id() << " Remove idx=" << remove_idx << " stream_idx=" << stream_idx;
     DCHECK(!_window_tuples.empty()) << debug_state_string(true);
-    DCHECK_EQ(remove_idx + std::max(_rows_start_offset, 0L), _window_tuples.front().first)
+    DCHECK_EQ(remove_idx + std::max<int64_t>(_rows_start_offset, 0L), _window_tuples.front().first)
             << debug_state_string(true);
     TupleRow* remove_row = reinterpret_cast<TupleRow*>(&_window_tuples.front().second);
     AggFnEvaluator::remove(_evaluators, _fn_ctxs, remove_row, _curr_tuple);

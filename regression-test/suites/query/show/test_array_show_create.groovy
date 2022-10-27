@@ -18,11 +18,8 @@
 suite("test_array_show_create", "query") {
     // define a sql table
     def testTable = "test_array_show_create"
-    
+
     def create_test_table = {testTablex ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-        
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL COMMENT "",
@@ -31,7 +28,7 @@ suite("test_array_show_create", "query") {
               `k4` ARRAY<BIGINT> NOT NULL COMMENT "",
               `k5` ARRAY<CHAR> NOT NULL COMMENT "",
               `k6` ARRAY<VARCHAR(20)> NULL COMMENT "",
-              `k7` ARRAY<DATE> NOT NULL COMMENT "", 
+              `k7` ARRAY<DATE> NOT NULL COMMENT "",
               `k8` ARRAY<DATETIME> NOT NULL COMMENT "",
               `k9` ARRAY<FLOAT> NOT NULL COMMENT "",
               `k10` ARRAY<DOUBLE> NOT NULL COMMENT "",
@@ -44,15 +41,15 @@ suite("test_array_show_create", "query") {
             "storage_format" = "V2"
             );
             """
-        
+
         // DDL/DML return 1 row and 3 column, the only value is update row count
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
-        
+
         // insert 1 row to check whether the table is ok
         def result2 = sql """ INSERT INTO ${testTable} VALUES
-                        (100, [1, 2, 3], [32767, 32768, 32769], [65534, 65535, 65536], ['a', 'b', 'c'], ["hello", "world"], 
+                        (100, [1, 2, 3], [32767, 32768, 32769], [65534, 65535, 65536], ['a', 'b', 'c'], ["hello", "world"],
                         ['2022-07-13'], ['2022-07-13 12:30:00'], [0.33, 0.67], [3.1415926, 0.878787878], [4, 5.5, 6.67])
                         """
         assertTrue(result2.size() == 1)

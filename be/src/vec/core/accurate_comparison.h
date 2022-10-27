@@ -30,7 +30,7 @@
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
-/** Preceptually-correct number comparisons.
+/** Perceptually-correct number comparisons.
   * Example: Int8(-1) != UInt8(255)
 */
 
@@ -42,7 +42,7 @@ namespace accurate {
         b) uint vs any uint
         c) float vs any float
     2) int vs uint
-        a) sizeof(int) <= sizeof(uint). Accurate comparison with MAX_INT tresholds
+        a) sizeof(int) <= sizeof(uint). Accurate comparison with MAX_INT thresholds
         b) sizeof(int)  > sizeof(uint). Casting to int
     3) integral_type vs floating_type
         a) sizeof(integral_type) <= 4. Comparison via casting arguments to Float64
@@ -160,7 +160,7 @@ inline bool_if_double_can_be_used<TAInt, TAFloat> equalsOpTmpl(TAFloat a, TAInt 
     return static_cast<double>(a) == static_cast<double>(b);
 }
 
-/* Final realiztions */
+/* Final realizations */
 
 template <typename A, typename B>
 inline bool_if_not_safe_conversion<A, B> greaterOp(A a, B b) {

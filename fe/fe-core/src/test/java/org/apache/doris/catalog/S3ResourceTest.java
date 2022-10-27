@@ -97,7 +97,7 @@ public class S3ResourceTest {
         };
 
         // resource with default settings
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, s3Properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
         S3Resource s3Resource = (S3Resource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, s3Resource.getName());
@@ -115,7 +115,7 @@ public class S3ResourceTest {
         s3Properties.put("s3_max_connections", "100");
         s3Properties.put("s3_request_timeout_ms", "2000");
         s3Properties.put("s3_connection_timeout_ms", "2000");
-        stmt = new CreateResourceStmt(true, name, s3Properties);
+        stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
 
         s3Resource = (S3Resource) Resource.fromStmt(stmt);
@@ -142,7 +142,7 @@ public class S3ResourceTest {
             }
         };
         s3Properties.remove("s3_root_path");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, s3Properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
         Resource.fromStmt(stmt);
     }

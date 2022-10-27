@@ -63,7 +63,7 @@ Status LoadPathMgr::init() {
     RETURN_IF_ERROR(FileUtils::create_dir(_error_log_dir));
 
     _idx = 0;
-    _reserved_hours = std::max(config::load_data_reserve_hours, 1L);
+    _reserved_hours = std::max<int64_t>(config::load_data_reserve_hours, 1L);
     RETURN_IF_ERROR(Thread::create(
             "LoadPathMgr", "clean_expired_temp_path",
             [this]() {

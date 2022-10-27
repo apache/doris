@@ -104,6 +104,7 @@ Status FileHandler::close() {
         return Status::OK();
     }
 
+#ifndef __APPLE__
     // try to sync page cache if have written some bytes
     if (_wr_length > 0) {
         posix_fadvise(_fd, 0, 0, POSIX_FADV_DONTNEED);
@@ -111,6 +112,7 @@ Status FileHandler::close() {
         sync_file_range(_fd, 0, 0, SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
         _wr_length = 0;
     }
+#endif
 
     // In some extreme cases (fd is available, but fsync fails) can cause handle leaks
     if (::close(_fd) < 0) {
@@ -180,6 +182,8 @@ Status FileHandler::write(const void* buf, size_t buf_size) {
         ptr += wr_size;
     }
     _wr_length += org_buf_size;
+
+#ifndef __APPLE__
     // try to sync page cache if cache size is bigger than threshold
     if (_wr_length >= _cache_threshold) {
         posix_fadvise(_fd, 0, 0, POSIX_FADV_DONTNEED);
@@ -187,6 +191,8 @@ Status FileHandler::write(const void* buf, size_t buf_size) {
         sync_file_range(_fd, 0, 0, SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
         _wr_length = 0;
     }
+#endif
+
     return Status::OK();
 }
 

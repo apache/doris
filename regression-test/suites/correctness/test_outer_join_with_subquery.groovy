@@ -19,7 +19,7 @@
      sql """ DROP TABLE IF EXISTS dim_comp_tags """
      sql """ DROP TABLE IF EXISTS ods_comp_info_q """
      sql """
-        CREATE TABLE `dim_comp_tags`
+        CREATE TABLE IF NOT EXISTS `dim_comp_tags`
         (
             `stock_code` varchar(100) NULL COMMENT "",
             `first_tag`  varchar(100) NULL COMMENT "",
@@ -35,7 +35,7 @@
         );
      """
      sql """
-        CREATE TABLE `ods_comp_info_q`
+        CREATE TABLE IF NOT EXISTS `ods_comp_info_q`
         (
             `stock_code`             varchar(100) NULL COMMENT "",
             `data_time`              date NOT NULL COMMENT "",

@@ -54,7 +54,7 @@ CONF_mInt64(tc_use_memory_min, "10737418240");
 // free memory rate.[0-100]
 CONF_mInt64(tc_free_memory_rate, "20");
 // tcmallc aggressive_memory_decommit
-CONF_mBool(tc_enable_aggressive_memory_decommit, "false");
+CONF_Bool(tc_enable_aggressive_memory_decommit, "false");
 
 // Bound on the total amount of bytes allocated to thread caches.
 // This bound is not strict, so it is possible for the cache to go over this bound
@@ -183,7 +183,7 @@ CONF_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 CONF_mInt32(doris_scanner_row_bytes, "10485760");
 // number of max scan keys
-CONF_mInt32(doris_max_scan_key_num, "1024");
+CONF_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 CONF_mInt32(max_pushdown_conditions_per_column, "1024");
@@ -265,16 +265,6 @@ CONF_Bool(enable_base_compaction_idle_sched, "true");
 // dup key not compaction big files
 CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
 CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
-
-// config the cumulative compaction policy
-// Valid configs: num_based, size_based
-// num_based policy, the original version of cumulative compaction, cumulative version compaction once.
-// size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
-// lower write amplification, trading off read amplification and space amplification.
-CONF_mString(cumulative_compaction_policy, "size_based");
-CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "num_based";
-});
 
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
@@ -403,7 +393,6 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
-CONF_mBool(disable_stream_load_2pc, "false");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -809,9 +798,12 @@ CONF_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
+// OrcReader
+CONF_mInt32(orc_natural_read_size_mb, "8");
+
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
 CONF_Bool(enable_decimalv3, "false");
 
@@ -839,6 +831,7 @@ CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
 });
+CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
@@ -864,15 +857,15 @@ CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 // so as to avoid occupying the execution thread for a long time.
 CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 
-// Temp config. True to use new file scan node to do load job. Will remove after fully test.
-CONF_mBool(enable_new_load_scan_node, "false");
-
-// Temp config. True to use new file scanner. Will remove after fully test.
-CONF_mBool(enable_new_file_scanner, "false");
+// Node role tag for backend. Mix role is the default role, and computation role have no
+// any tablet.
+CONF_String(be_node_role, "mix");
 
 // Hide webserver page for safety.
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
+
+CONF_String(jvm_max_heap_size, "1024M");
 
 #ifdef BE_TEST
 // test s3

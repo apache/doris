@@ -56,13 +56,13 @@ void ThreadMemTrackerMgr::exceeded(const std::string& failed_msg) {
     if (_cb_func != nullptr) {
         _cb_func();
     }
+    auto cancel_msg = _limiter_tracker_raw->mem_limit_exceeded(
+            fmt::format("exec node:<{}>", last_consumer_tracker()),
+            _limiter_tracker_raw->parent().get(), failed_msg);
     if (is_attach_query()) {
-        auto cancel_msg = _limiter_tracker_raw->mem_limit_exceeded(
-                fmt::format("exec node:<{}>", last_consumer_tracker()),
-                _limiter_tracker_raw->parent().get(), failed_msg);
         exceeded_cancel_task(cancel_msg);
-        _check_limit = false; // Make sure it will only be canceled once
     }
+    _check_limit = false; // Make sure it will only be canceled once
 }
 
 } // namespace doris

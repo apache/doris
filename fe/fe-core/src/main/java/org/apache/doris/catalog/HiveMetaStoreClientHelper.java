@@ -810,6 +810,8 @@ public class HiveMetaStoreClientHelper {
                 return Type.FLOAT;
             case "double":
                 return Type.DOUBLE;
+            case "string":
+                return Type.STRING;
             default:
                 break;
         }
@@ -923,3 +925,4 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 }
+

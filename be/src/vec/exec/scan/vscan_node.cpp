@@ -202,6 +202,13 @@ Status VScanNode::_acquire_runtime_filter() {
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        // If all targets are local, scan node will use hash node's runtime filter, and we don't
+        // need to allocate memory again
+        if (runtime_filter->has_remote_target()) {
+            if (auto bf = runtime_filter->get_bloomfilter()) {
+                RETURN_IF_ERROR(bf->init_with_fixed_length());
+            }
+        }
         bool ready = runtime_filter->is_ready();
         if (!ready) {
             ready = runtime_filter->await();
@@ -543,11 +550,20 @@ void VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Push
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
             //  predicate `like` will return a ColumnVector<UInt8> which contains a single value.
+            LOG(WARNING) << "Expr[" << vexpr->debug_string()
+                         << "] should return a const column but actually is "
+                         << vexpr->get_const_col(expr_ctx)->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
-            constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
-            if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
-                *pdt = PushDownType::ACCEPTABLE;
-                _eos = true;
+            if (bool_column->size() == 1) {
+                constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
+                if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
+                    *pdt = PushDownType::ACCEPTABLE;
+                    _eos = true;
+                }
+            } else {
+                LOG(WARNING) << "Constant predicate in scan node should return a bool column with "
+                                "`size == 1` but actually is "
+                             << bool_column->size();
             }
         } else {
             LOG(WARNING) << "Expr[" << vexpr->debug_string()

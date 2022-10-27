@@ -59,7 +59,6 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/exec/file_scan_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -613,13 +612,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::FILE_SCAN_NODE:
-        //        *node = pool->add(new vectorized::FileScanNode(pool, tnode, descs));
-        if (config::enable_new_scan_node) {
+        if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewFileScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new vectorized::FileScanNode(pool, tnode, descs));
+            return Status::InternalError("Not support file scan node in non-vec engine");
         }
-
         return Status::OK();
 
     case TPlanNodeType::REPEAT_NODE:

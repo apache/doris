@@ -101,7 +101,7 @@ inline UInt32 least_decimal_precision_for(TypeIndex int_type) {
 /// Int128  38
 /// Operation between two decimals leads to Decimal(P, S), where
 ///     P is one of (9, 18, 38); equals to the maximum precision for the biggest underlying type of operands.
-///     S is maximum scale of operands. The allowed valuas are [0, precision]
+///     S is maximum scale of operands. The allowed values are [0, precision]
 template <typename T>
 class DataTypeDecimal final : public IDataType {
     static_assert(IsDecimalNumber<T>);

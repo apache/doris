@@ -1,4 +1,4 @@
-create TABLE `hll_basic_agg` (
+create TABLE if not exists `hll_basic_agg` (
   `k1` int(11) NULL,
   `k2` hll HLL_UNION NULL
 )AGGREGATE KEY(`k1`)

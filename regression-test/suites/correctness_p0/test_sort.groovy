@@ -22,7 +22,7 @@ suite("test_sort") {
     """
 
     sql """
-        CREATE TABLE `test_sort_table` (
+        CREATE TABLE IF NOT EXISTS `test_sort_table` (
           `p_partkey` int(11) NOT NULL COMMENT "",
           `p_name` varchar(23) NOT NULL COMMENT "",
           `p_mfgr` varchar(7) NOT NULL COMMENT "",
@@ -53,4 +53,8 @@ suite("test_sort") {
     """
 
     sql "DROP TABLE test_sort_table"
+
+    qt_sql """
+        select b.k1, a.k1, b.k4, a.k4 from test_query_db.baseall a left join test_query_db.test b on a.k2 = b.k4  order by 1, 2, 3, 4;
+    """
 }

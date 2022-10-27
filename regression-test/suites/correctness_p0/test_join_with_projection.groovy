@@ -25,7 +25,7 @@ suite("test_join_with_projection") {
     """
 
     sql """
-        create table test_join_with_projection_outerjoin_A ( a int not null )
+        create table if not exists test_join_with_projection_outerjoin_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -36,7 +36,7 @@ suite("test_join_with_projection") {
     """
 
     sql """
-        create table test_join_with_projection_outerjoin_B ( a int not null )
+        create table if not exists test_join_with_projection_outerjoin_B ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (

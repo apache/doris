@@ -51,7 +51,7 @@ constexpr T get_exp(std::size_t x) {
 
 } // namespace exp_details
 
-/// On overlow, the function returns unspecified value.
+/// On overflow, the function returns unspecified value.
 
 inline uint64_t int_exp2(int x) {
     return 1ULL << x;

@@ -506,7 +506,7 @@ struct DecimalBinaryOperation {
     }
 
 private:
-    /// there's implicit type convertion here
+    /// there's implicit type conversion here
     static NativeResultType apply(NativeResultType a, NativeResultType b) {
         if (config::enable_decimalv3) {
             if constexpr (OpTraits::can_overflow && check_overflow) {
