@@ -15,22 +15,10 @@
  // specific language governing permissions and limitations
  // under the License.
 
-
-/*
-How to produce the bug:
-suppose we have table T, and a view V: select * from T where T.id>0
-When we execute sql: select * from V as v1 join V as v2 on v1.id=v2.id where v1.id in (1,2);
-by InferFilterRule, { v1.id=v2.id , v1.id in (1,2) } => v2.id in (1,2)
-and then we push v1.id in (1,2) and v2.id in (1,2) down to v1 and v2, respectively.
-
-In re-analyze phase, we expand v1 with infered condition, we have sql: select * from T where T.id>0 and v1.id in (1,2)
-The bug is we cannot resolve v1.id in context of the expanded sql.
-The same resolve error occurs when re-analyze v2.
-*/
- suite("test_pushdown_pred_to_view") {
-     sql """ DROP TABLE IF EXISTS T """
+suite("test_table_alias") {
+     sql """ DROP TABLE IF EXISTS tbl_alias """
      sql """
-         CREATE TABLE `T` (
+         CREATE TABLE tbl_alias (
              `id` int
          ) ENGINE=OLAP
          AGGREGATE KEY(`id`)
@@ -42,17 +30,18 @@ The same resolve error occurs when re-analyze v2.
              "storage_format" = "V2"
          );
      """
-     sql "drop view if exists V;"
-     sql """
-         create view V as select * from T where id > 0;
-     """
 
-     sql """
-         insert into T values(1);
-     """
-
-     qt_sql """
-         select * from V as v1 join V as v2 where v1.id=v2.id and v1.id>0;
-     """
- }
-
+    try {
+        test {
+            sql """
+            select * 
+            from (select t3.id 
+                  from (select * from tbl_alias) t1
+                 ) t2
+            """
+            exception "errCode = 2, detailMessage = Unknown column 'id' in 't3'"            
+        }
+    } finally {
+        sql "drop table if exists tbl_alias"
+    }
+}

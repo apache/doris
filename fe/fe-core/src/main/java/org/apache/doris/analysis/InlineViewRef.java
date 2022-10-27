@@ -104,13 +104,13 @@ public class InlineViewRef extends TableRef {
         setJoinAttrs(origTblRef);
         explicitColLabels = view.getColLabels();
         // Set implicit aliases if no explicit one was given.
-        if (hasExplicitAlias()) return;
+        if (hasExplicitAlias) return;
         // TODO(zc)
         // view_.getTableName().toString().toLowerCase(), view.getName().toLowerCase()
         if (view.isLocalView()) {
-            aliases_ = new String[]{view.getName()};
+            aliases = new String[]{view.getName()};
         } else {
-            aliases_ = new String[]{name.toString(), view.getName()};
+            aliases = new String[]{name.toString(), view.getName()};
         }
         if (origTblRef.getLateralViewRefs() != null) {
             lateralViewRefs = (ArrayList<LateralViewRef>) origTblRef.getLateralViewRefs().clone();
@@ -171,20 +171,23 @@ public class InlineViewRef extends TableRef {
             return;
         }
 
-        if (view == null && !hasExplicitAlias()) {
+        if (view == null && !hasExplicitAlias) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
         }
 
         // Analyze the inline view query statement with its own analyzer
         inlineViewAnalyzer = new Analyzer(analyzer);
         inlineViewAnalyzer.setInlineView(true);
+        if (hasExplicitAlias) {
+            inlineViewAnalyzer.setExplicitViewAlias(aliases[0]);
+        }
         queryStmt.analyze(inlineViewAnalyzer);
         correlatedTupleIds_.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
 
         queryStmt.getMaterializedTupleIds(materializedTupleIds);
-        if (view != null && !hasExplicitAlias() && !view.isLocalView()) {
+        if (view != null && !hasExplicitAlias && !view.isLocalView()) {
             name = analyzer.getFqTableName(name);
-            aliases_ = new String[] { name.toString(), view.getName() };
+            aliases = new String[] { name.toString(), view.getName() };
         }
         //TODO(chenhao16): fix TableName in Db.Table style
         // name.analyze(analyzer);

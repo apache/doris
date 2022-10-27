@@ -84,10 +84,10 @@ public class TableRef implements ParseNode, Writable {
     // analysis. By convention, for table refs with multiple implicit aliases, aliases_[0]
     // contains the fully-qualified implicit alias to ensure that aliases_[0] always
     // uniquely identifies this table ref regardless of whether it has an explicit alias.
-    protected String[] aliases_;
+    protected String[] aliases;
 
     // Indicates whether this table ref is given an explicit alias,
-    protected boolean hasExplicitAlias_;
+    protected boolean hasExplicitAlias;
 
     protected JoinOperator joinOp;
     protected List<String> usingColNames;
@@ -151,10 +151,10 @@ public class TableRef implements ParseNode, Writable {
             if (Catalog.isStoredTableNamesLowerCase()) {
                 alias = alias.toLowerCase();
             }
-            aliases_ = new String[]{alias};
-            hasExplicitAlias_ = true;
+            aliases = new String[]{alias};
+            hasExplicitAlias = true;
         } else {
-            hasExplicitAlias_ = false;
+            hasExplicitAlias = false;
         }
         this.partitionNames = partitionNames;
         this.commonHints = commonHints;
@@ -165,8 +165,8 @@ public class TableRef implements ParseNode, Writable {
     // this will reset all the 'analyzed' stuff
     protected TableRef(TableRef other) {
         name = other.name;
-        aliases_ = other.aliases_;
-        hasExplicitAlias_ = other.hasExplicitAlias_;
+        aliases = other.aliases;
+        hasExplicitAlias = other.hasExplicitAlias;
         joinOp = other.joinOp;
         // NOTE: joinHints and sortHints maybe changed after clone. so we new one List.
         joinHints =
@@ -684,7 +684,7 @@ public class TableRef implements ParseNode, Writable {
      * Returns all legal aliases of this table ref.
      */
     public String[] getAliases() {
-        return aliases_;
+        return aliases;
     }
 
     /**
@@ -693,7 +693,7 @@ public class TableRef implements ParseNode, Writable {
      * be ambiguous).
      */
     public String getUniqueAlias() {
-        return aliases_[0];
+        return aliases[0];
     }
 
     /**
@@ -702,7 +702,7 @@ public class TableRef implements ParseNode, Writable {
      * nested collection refs have only a single implicit alias.
      */
     public boolean hasExplicitAlias() {
-        return hasExplicitAlias_;
+        return hasExplicitAlias;
     }
 
     /**
@@ -785,8 +785,8 @@ public class TableRef implements ParseNode, Writable {
         if (partitionNames != null) {
             sb.append(partitionNames.toSql());
         }
-        if (aliases_ != null && aliases_.length > 0) {
-            sb.append(" AS ").append(aliases_[0]);
+        if (aliases != null && aliases.length > 0) {
+            sb.append(" AS ").append(aliases[0]);
         }
         return sb.toString();
     }
@@ -818,7 +818,7 @@ public class TableRef implements ParseNode, Writable {
 
         if (in.readBoolean()) {
             String alias = Text.readString(in);
-            aliases_ = new String[]{alias};
+            aliases = new String[]{alias};
         }
     }
 }
