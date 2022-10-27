@@ -49,14 +49,18 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.planner.PlannerContext;
 
@@ -246,6 +250,22 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return new LogicalSort<>(sortItemList, sort.child());
                 })
             ),
+            RuleType.BINDING_SORT_SET_OPERATION_SLOT.build(
+                logicalSort(logicalSetOperation()).when(Plan::canBind).thenApply(ctx -> {
+                    LogicalSort<LogicalSetOperation> sort = ctx.root;
+                    List<OrderKey> sortItemList = sort.getOrderKeys()
+                            .stream()
+                            .map(orderKey -> {
+                                Expression item = bind(orderKey.getExpr(), sort.children(), sort, ctx.cascadesContext);
+                                if (item.containsType(UnboundSlot.class)) {
+                                    item = bind(item, sort.child().children(), sort, ctx.cascadesContext);
+                                }
+                                return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
+                            }).collect(Collectors.toList());
+
+                    return new LogicalSort<>(sortItemList, sort.child());
+                })
+            ),
             RuleType.BINDING_HAVING_SLOT.build(
                 logicalHaving(any()).when(Plan::canBind).thenApply(ctx -> {
                     LogicalHaving<Plan> having = ctx.root;
@@ -270,6 +290,29 @@ public class BindSlotReference implements AnalysisRuleFactory {
                             .map(project -> bind(project, ImmutableList.of(), oneRowRelation, ctx.cascadesContext))
                             .collect(Collectors.toList());
                     return new LogicalOneRowRelation(projects);
+                })
+            ),
+            RuleType.BINDING_SET_OPERATION_SLOT.build(
+                logicalSetOperation().when(Plan::canBind).then(setOperation -> {
+                    // check whether the left and right child output columns are the same
+                    if (setOperation.child(0).getOutput().size() != setOperation.child(1).getOutput().size()) {
+                        throw new AnalysisException("Operands have unequal number of columns:\n"
+                                + "'" + setOperation.child(0).getOutput() + "' has "
+                                + setOperation.child(0).getOutput().size() + " column(s)\n"
+                                + "'" + setOperation.child(1).getOutput() + "' has "
+                                + setOperation.child(1).getOutput().size() + " column(s)");
+                    }
+
+                    // INTERSECT and EXCEPT does not support ALL qualifie
+                    if (setOperation.getQualifier() == Qualifier.ALL
+                            && (setOperation instanceof LogicalExcept || setOperation instanceof LogicalIntersect)) {
+                        throw new AnalysisException("INTERSECT and EXCEPT does not support ALL qualifie");
+                    }
+
+                    List<List<Expression>> castExpressions = setOperation.collectCastExpressions();
+                    List<NamedExpression> newOutputs = setOperation.buildNewOutputs(castExpressions.get(0));
+
+                    return setOperation.withNewOutputs(newOutputs);
                 })
             ),
 

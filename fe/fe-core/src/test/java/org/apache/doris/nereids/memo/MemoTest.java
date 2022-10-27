@@ -50,6 +50,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.opentest4j.AssertionFailedError;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -176,7 +177,7 @@ class MemoTest implements PatternMatchSupported {
         // when unboundRelation contains id, the case is illegal.
         LogicalJoin<UnboundRelation, UnboundRelation> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA);
 
-        Assertions.assertThrows(IllegalStateException.class, () -> PlanChecker.from(connectContext, topJoin));
+        Assertions.assertThrows(AssertionFailedError.class, () -> PlanChecker.from(connectContext, topJoin));
     }
 
     @Test

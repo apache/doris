@@ -131,6 +131,15 @@ public class StatsDeriveResult {
         for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
             statsDeriveResult.addColumnStats(entry.getKey(), entry.getValue().multiply(selectivity));
         }
+        // When the table is first created, rowCount is empty.
+        // This leads to NPE if there is SetOperation outside the limit.
+        // Therefore, when rowCount is empty, slotIdToColumnStats is also imported,
+        // but the possible problem is that the first query statistics are not derived accurately.
+        if (statsDeriveResult.slotIdToColumnStats.isEmpty()) {
+            for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
+                statsDeriveResult.addColumnStats(entry.getKey(), entry.getValue());
+            }
+        }
         return statsDeriveResult;
     }
 

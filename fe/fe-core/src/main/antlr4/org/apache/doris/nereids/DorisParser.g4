@@ -23,12 +23,6 @@ options { tokenVocab = DorisLexer; }
 
 @members {
   /**
-   * When false, INTERSECT is given the greater precedence over the other set
-   * operations (UNION, EXCEPT and MINUS) as per the SQL standard.
-   */
-  public boolean legacy_setops_precedence_enabled = false;
-
-  /**
    * When false, a literal with an exponent would be converted into
    * double type rather than decimal type.
    */
@@ -37,7 +31,7 @@ options { tokenVocab = DorisLexer; }
   /**
    * When true, the behavior of keywords follows ANSI SQL standard.
    */
-  public boolean SQL_standard_keyword_behavior = false;
+  public boolean SQL_standard_keyword_behavior = true;
 }
 
 multiStatements
@@ -77,6 +71,13 @@ query
 
 queryTerm
     : queryPrimary                                                                       #queryTermDefault
+    | left=queryTerm operator=(UNION | EXCEPT | INTERSECT)
+      setQuantifier? right=queryTerm                                                     #setOperation
+    ;
+
+setQuantifier
+    : DISTINCT
+    | ALL
     ;
 
 queryPrimary
@@ -461,6 +462,7 @@ ansiNonReserved
     | FUNCTIONS
     | GLOBAL
     | GROUPING
+    | GRAPH
     | HOUR
     | IF
     | IGNORE
@@ -517,6 +519,7 @@ ansiNonReserved
     | PIVOT
     | PLACING
     | PLAN
+    | POLICY
     | POSITION
     | PRECEDING
     | PRINCIPALS
@@ -596,6 +599,7 @@ ansiNonReserved
     | UPDATE
     | USE
     | VALUES
+    | VERBOSE
     | VERSION
     | VIEW
     | VIEWS

@@ -45,6 +45,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -63,9 +64,11 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -74,20 +77,26 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.EmptySetNode;
+import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
+import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
@@ -96,6 +105,7 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SelectNode;
+import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -104,6 +114,7 @@ import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -115,6 +126,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -364,6 +376,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation,
             PlanTranslatorContext context) {
+        if (oneRowRelation.notBuildUnionNode()) {
+            return null;
+        }
+
         List<Slot> slots = oneRowRelation.getLogicalProperties().getOutput();
         TupleDescriptor oneRowTuple = generateTupleDesc(slots, null, context);
 
@@ -382,7 +398,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         UnionNode unionNode = new UnionNode(context.nextPlanNodeId(), oneRowTuple.getId());
         unionNode.setCardinality(1L);
         unionNode.addConstExprList(legacyExprs);
-        unionNode.finalizeForNereids(oneRowTuple, oneRowTuple.getSlots());
+        unionNode.finalizeForNereids(oneRowTuple.getSlots(), new ArrayList<>());
 
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), unionNode, DataPartition.UNPARTITIONED);
         context.addPlanFragment(planFragment);
@@ -1061,6 +1077,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             join.getFilterConjuncts().addAll(ExpressionUtils.extractConjunction(filter.getPredicates()));
         }
         PlanFragment inputFragment = filter.child(0).accept(this, context);
+
+        // Union contains oneRowRelation --> inputFragment = null
+        if (inputFragment == null) {
+            return inputFragment;
+        }
+
         PlanNode planNode = inputFragment.getPlanRoot();
         if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
             // the three nodes don't support conjuncts, need create a SelectNode to filter data
@@ -1086,6 +1108,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalLimit(PhysicalLimit<? extends Plan> physicalLimit, PlanTranslatorContext context) {
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
+
+        // Union contains oneRowRelation
+        if (inputFragment == null) {
+            return inputFragment;
+        }
+
         PlanNode child = inputFragment.getPlanRoot();
 
         // physical plan:  limit --> sort
@@ -1152,6 +1180,163 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         currentFragment.addPlanRoot(assertNumRowsNode);
         return currentFragment;
+    }
+
+    /**
+     * Returns a new fragment with a UnionNode as its root. The data partition of the
+     * returned fragment and how the data of the child fragments is consumed depends on the
+     * data partitions of the child fragments:
+     * - All child fragments are unpartitioned or partitioned: The returned fragment has an
+     *   UNPARTITIONED or RANDOM data partition, respectively. The UnionNode absorbs the
+     *   plan trees of all child fragments.
+     * - Mixed partitioned/unpartitioned child fragments: The returned fragment is
+     *   RANDOM partitioned. The plan trees of all partitioned child fragments are absorbed
+     *   into the UnionNode. All unpartitioned child fragments are connected to the
+     *   UnionNode via a RANDOM exchange, and remain unchanged otherwise.
+     */
+    @Override
+    public PlanFragment visitPhysicalSetOperation(
+            PhysicalSetOperation setOperation, PlanTranslatorContext context) {
+        List<PlanFragment> childrenFragments = new ArrayList<>();
+        Map<Plan, PlanFragment> childNodeToFragment = new HashMap<>();
+        for (Plan plan : setOperation.children()) {
+            PlanFragment planFragment = plan.accept(this, context);
+            if (planFragment != null) {
+                childrenFragments.add(planFragment);
+            }
+            childNodeToFragment.put(plan, planFragment);
+        }
+
+        PlanFragment setOperationFragment;
+        SetOperationNode setOperationNode;
+
+        List<Slot> allSlots = new Builder<Slot>()
+                .addAll(setOperation.getOutput())
+                .build();
+        TupleDescriptor setTuple = generateTupleDesc(allSlots, null, context);
+        List<SlotDescriptor> outputSLotDescs = new ArrayList<>(setTuple.getSlots());
+
+        // create setOperationNode
+        if (setOperation instanceof PhysicalUnion) {
+            setOperationNode = new UnionNode(
+                    context.nextPlanNodeId(), setTuple.getId());
+        } else if (setOperation instanceof PhysicalExcept) {
+            setOperationNode = new ExceptNode(
+                    context.nextPlanNodeId(), setTuple.getId());
+        } else if (setOperation instanceof PhysicalIntersect) {
+            setOperationNode = new IntersectNode(
+                    context.nextPlanNodeId(), setTuple.getId());
+        } else {
+            throw new RuntimeException("not support");
+        }
+
+        SetOperationResult setOperationResult = collectSetOperationResult(setOperation, childNodeToFragment);
+        for (List<Expression> expressions : setOperationResult.getResultExpressions()) {
+            List<Expr> resultExprs = expressions
+                    .stream()
+                    .map(expr -> ExpressionTranslator.translate(expr, context))
+                    .collect(ImmutableList.toImmutableList());
+            setOperationNode.addResultExprLists(resultExprs);
+        }
+
+        for (List<Expression> expressions : setOperationResult.getConstExpressions()) {
+            List<Expr> constExprs = expressions
+                    .stream()
+                    .map(expr -> ExpressionTranslator.translate(expr, context))
+                    .collect(ImmutableList.toImmutableList());
+            setOperationNode.addConstExprList(constExprs);
+        }
+
+        for (PlanFragment childFragment : childrenFragments) {
+            if (childFragment != null) {
+                setOperationNode.addChild(childFragment.getPlanRoot());
+            }
+        }
+        setOperationNode.finalizeForNereids(outputSLotDescs, outputSLotDescs);
+
+        // create setOperationFragment
+        // If all child fragments are unpartitioned, return a single unpartitioned fragment
+        // with a UnionNode that merges all child fragments.
+        if (allChildFragmentsUnPartitioned(childrenFragments)) {
+            setOperationFragment = new PlanFragment(
+                    context.nextFragmentId(), setOperationNode, DataPartition.UNPARTITIONED);
+            // Absorb the plan trees of all childFragments into unionNode
+            // and fix up the fragment tree in the process.
+            for (int i = 0; i < childrenFragments.size(); ++i) {
+                setOperationFragment.setFragmentInPlanTree(setOperationNode.getChild(i));
+                setOperationFragment.addChildren(childrenFragments.get(i).getChildren());
+            }
+        } else {
+            setOperationFragment = new PlanFragment(context.nextFragmentId(), setOperationNode,
+                    new DataPartition(TPartitionType.HASH_PARTITIONED,
+                            setOperationNode.getMaterializedResultExprLists().get(0)));
+            for (int i = 0; i < childrenFragments.size(); ++i) {
+                PlanFragment childFragment = childrenFragments.get(i);
+                // Connect the unpartitioned child fragments to SetOperationNode via a random exchange.
+                connectChildFragmentNotCheckExchangeNode(
+                        setOperationNode, i, setOperationFragment, childFragment, context);
+                childFragment.setOutputPartition(
+                        DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists().get(i)));
+            }
+        }
+        context.addPlanFragment(setOperationFragment);
+        return setOperationFragment;
+    }
+
+    private List<Expression> castCommonDataTypeOutputs(List<Slot> outputs, List<Slot> childOutputs) {
+        List<Expression> newChildOutputs = new ArrayList<>();
+        for (int i = 0; i < outputs.size(); ++i) {
+            Slot right = childOutputs.get(i);
+            DataType tightestCommonType = outputs.get(i).getDataType();
+            Expression newRight = TypeCoercionUtils.castIfNotSameType(right, tightestCommonType);
+            newChildOutputs.add(newRight);
+        }
+        return ImmutableList.copyOf(newChildOutputs);
+    }
+
+    private SetOperationResult collectSetOperationResult(
+            PhysicalSetOperation setOperation, Map<Plan, PlanFragment> childPlanToFragment) {
+        List<List<Expression>> resultExprs = new ArrayList<>();
+        List<List<Expression>> constExprs = new ArrayList<>();
+        List<Slot> outputs = setOperation.getOutput();
+        for (Plan child : setOperation.children()) {
+            List<Expression> castCommonDataTypeOutputs = castCommonDataTypeOutputs(outputs, child.getOutput());
+            if (child.anyMatch(PhysicalOneRowRelation.class::isInstance) && childPlanToFragment.get(child) == null) {
+                constExprs.add(collectConstExpressions(castCommonDataTypeOutputs, child));
+            } else {
+                resultExprs.add(castCommonDataTypeOutputs);
+            }
+        }
+        return new SetOperationResult(resultExprs, constExprs);
+    }
+
+    private List<Expression> collectConstExpressions(
+            List<Expression> castExpressions, Plan child) {
+        List<Expression> newCastExpressions = new ArrayList<>();
+        for (int i = 0; i < castExpressions.size(); ++i) {
+            Expression expression = castExpressions.get(i);
+            if (expression instanceof Cast) {
+                newCastExpressions.add(expression.withChildren(
+                        (collectPhysicalOneRowRelation(child).getProjects().get(i).children())));
+            } else {
+                newCastExpressions.add(
+                        (collectPhysicalOneRowRelation(child).getProjects().get(i)));
+            }
+        }
+        return newCastExpressions;
+    }
+
+    private PhysicalOneRowRelation collectPhysicalOneRowRelation(Plan child) {
+        return (PhysicalOneRowRelation)
+                ((ImmutableSet) child.collect(PhysicalOneRowRelation.class::isInstance)).asList().get(0);
+    }
+
+    private boolean allChildFragmentsUnPartitioned(List<PlanFragment> childrenFragments) {
+        boolean allChildFragmentsUnPartitioned = true;
+        for (PlanFragment child : childrenFragments) {
+            allChildFragmentsUnPartitioned = allChildFragmentsUnPartitioned && !child.isPartitioned();
+        }
+        return allChildFragmentsUnPartitioned;
     }
 
     private void extractExecSlot(Expr root, Set<Integer> slotRefList) {
@@ -1223,6 +1408,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
             exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         }
+        childFragment.setPlanRoot(exchange.getChild(0));
+        exchange.setFragment(parentFragment);
+        parent.setChild(childIdx, exchange);
+        childFragment.setDestination((ExchangeNode) exchange);
+    }
+
+    private void connectChildFragmentNotCheckExchangeNode(PlanNode parent, int childIdx,
+                                      PlanFragment parentFragment, PlanFragment childFragment,
+                                      PlanTranslatorContext context) {
+        PlanNode exchange = new ExchangeNode(
+                context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
+        exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.setPlanRoot(exchange.getChild(0));
         exchange.setFragment(parentFragment);
         parent.setChild(childIdx, exchange);
@@ -1431,6 +1628,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return Optional.of(new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs));
         } else {
             return Optional.empty();
+        }
+    }
+
+    private static class SetOperationResult {
+        private final List<List<Expression>> resultExpressions;
+        private final List<List<Expression>> constExpressions;
+
+        public SetOperationResult(List<List<Expression>> resultExpressions, List<List<Expression>> constExpressions) {
+            this.resultExpressions = ImmutableList.copyOf(resultExpressions);
+            this.constExpressions = ImmutableList.copyOf(constExpressions);
+        }
+
+        public List<List<Expression>> getConstExpressions() {
+            return constExpressions;
+        }
+
+        public List<List<Expression>> getResultExpressions() {
+            return resultExpressions;
         }
     }
 }
