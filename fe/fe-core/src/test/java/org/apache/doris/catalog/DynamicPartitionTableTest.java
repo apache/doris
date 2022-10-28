@@ -108,6 +108,28 @@ public class DynamicPartitionTableTest {
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_normal");
         Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().isNotSet());
+
+        // test only set dynamic_partition.replication_num
+        createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_normal2` (\n"
+                + "`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"32\",\n"
+                + "\"dynamic_partition.replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");\n"
+                + "\n";
+        createTable(createOlapTblStmt);
     }
 
     @Test

@@ -585,19 +585,18 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
         }
 
-        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
-            String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
-            checkReplicationNum(val);
-            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
-            analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                    new ReplicaAllocation(Short.valueOf(val)).toCreateStmt());
-        }
-
+        // check replication_allocation first, then replciation_num
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
             checkReplicaAllocation(replicaAlloc, db);
             properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+        } else if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
+            checkReplicationNum(val);
+            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
+                    new ReplicaAllocation(Short.valueOf(val)).toCreateStmt());
         } else {
             checkReplicaAllocation(olapTable.getDefaultReplicaAllocation(), db);
         }
