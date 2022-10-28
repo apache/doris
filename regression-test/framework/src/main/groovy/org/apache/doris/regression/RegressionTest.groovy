@@ -298,7 +298,7 @@ class RegressionTest {
         if (!pluginPath.exists() || !pluginPath.isDirectory()) {
             return
         }
-        pluginPath.eachFileRecurse { it ->
+        pluginPath.eachFileRecurse({ it ->
             if (it.name.endsWith(".groovy")) {
                 ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
                         config, [], { name -> true })
@@ -314,7 +314,7 @@ class RegressionTest {
                     }
                 }
             }
-        }
+        })
     }
 
     static void printPassed() {
