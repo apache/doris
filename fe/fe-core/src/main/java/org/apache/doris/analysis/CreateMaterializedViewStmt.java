@@ -490,7 +490,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     // in vectorized schema_change mode, so we should rewrite the function to
     // bitmap_union(to_bitmap_with_check(column))
     private void rewriteToBitmapWithCheck() {
-        for (SelectListItem item : selectStmt.selectList.getItems()) {
+        for (SelectListItem item : selectStmt.getSelectList().getItems()) {
             if (item.getExpr() instanceof FunctionCallExpr) {
                 String functionName = ((FunctionCallExpr) item.getExpr()).getFnName().getFunction();
                 if (functionName.equalsIgnoreCase("bitmap_union")) {
