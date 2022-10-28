@@ -30,6 +30,7 @@ class Edge {
     BitSet left = new BitSet(32);
     BitSet right = new BitSet(32);
     BitSet constraints = new BitSet(32);
+    double selectivity = 1;
 
     /**
      * Create simple edge.
@@ -37,6 +38,14 @@ class Edge {
     public Edge(int index, LogicalJoin join) {
         this.index = index;
         this.join = join;
+    }
+
+    public LogicalJoin getJoin() {
+        return join;
+    }
+
+    public double getSelectivity() {
+        return selectivity;
     }
 
     public boolean isSimple() {
