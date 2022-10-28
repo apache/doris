@@ -453,23 +453,17 @@ public class DynamicPartitionTableTest {
                 + "PROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"dynamic_partition.enable\" = \"true\",\n"
                 + "\"dynamic_partition.start\" = \"-3\",\n" + "\"dynamic_partition.end\" = \"3\",\n"
                 + "\"dynamic_partition.time_unit\" = \"day\",\n" + "\"dynamic_partition.prefix\" = \"p\",\n"
-                + "\"dynamic_partition.buckets\" = \"1\",\n" + "\"dynamic_partition.replication_num\" = \"2\"\n" + ");";
+                + "\"dynamic_partition.buckets\" = \"1\",\n" + "\"dynamic_partition.replication_num\" = \"1\"\n" + ");";
         createTable(createOlapTblStmt);
         Database db =
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException(tableName);
-        Assert.assertEquals(2,
-                table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
-
-        String alter1 =
-                "alter table test.dynamic_partition_replication_num set ('dynamic_partition.replication_num' = '1')";
-        ExceptionChecker.expectThrowsNoException(() -> alterTable(alter1));
         Assert.assertEquals(1,
                 table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
 
-        String alter2 =
+        String alter1 =
                 "alter table test.dynamic_partition_replication_num set ('dynamic_partition.replication_num' = '0')";
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alter2));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alter1));
         Assert.assertEquals(1,
                 table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
     }
