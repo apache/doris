@@ -22,8 +22,8 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
-import org.apache.doris.nereids.rules.mv.SelectRollupWithAggregate;
-import org.apache.doris.nereids.rules.mv.SelectRollupWithoutAggregate;
+import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
+import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
@@ -73,8 +73,8 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
-                .add(topDownBatch(ImmutableList.of(new SelectRollupWithAggregate())))
-                .add(topDownBatch(ImmutableList.of(new SelectRollupWithoutAggregate())))
+                .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithAggregate())))
+                .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithoutAggregate())))
                 .build();
 
         rulesJob.addAll(jobs);

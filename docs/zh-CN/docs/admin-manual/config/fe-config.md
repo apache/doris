@@ -1680,12 +1680,6 @@ mysql 中处理任务的最大线程数。
 
 mysql 中处理 io 事件的线程数。
 
-### `mysql_service_nio_enabled`
-
-默认值：true
-
-mysql 服务 nio 选项是否启用，默认启用
-
 ### `query_port`
 
 默认值：9030
@@ -2278,15 +2272,15 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 默认值为`max_be_exec_version`，如果有特殊需要，我们可以手动设置将格式版本降低，但不应低于`min_be_exec_version`。
 
-需要注意的是，我们应该始终保持该变量的值处于**所有**BE的`HeartbeatServer::min_data_version`和`HeartbeatServer::max_data_version`之间。（也就是说如果一个已经完成更新的集群如果需要降级，应该保证先降级FE再降级BE的顺序，或者手动在设置中将该变量调低再降级BE）
+需要注意的是，我们应该始终保持该变量的值处于**所有**BE的`BeExecVersionManager::min_be_exec_version`和`BeExecVersionManager::max_be_exec_version`之间。（也就是说如果一个已经完成更新的集群如果需要降级，应该保证先降级FE再降级BE的顺序，或者手动在设置中将该变量调低再降级BE）
 
 ### `max_be_exec_version`
 
-目前支持的最新数据版本，不可修改，应与配套版本的BE中的`HeartbeatServer::max_data_version`一致。
+目前支持的最新数据版本，不可修改，应与配套版本的BE中的`BeExecVersionManager::max_be_exec_version`一致。
 
 ### `min_be_exec_version`
 
-目前支持的最旧数据版本，不可修改，应与配套版本的BE中的`HeartbeatServer::min_data_version`一致。
+目前支持的最旧数据版本，不可修改，应与配套版本的BE中的`BeExecVersionManager::min_be_exec_version`一致。
 
 ### `max_query_profile_num`
 
@@ -2297,3 +2291,25 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：false
+
+### `disable_backend_black_list`
+
+用于禁止BE黑名单功能。禁止该功能后，如果向BE发送查询请求失败，也不会将这个BE添加到黑名单。
+该参数适用于回归测试环境，以减少偶发的错误导致大量回归测试失败。
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_backend_heartbeat_failure_tolerance_count`
+
+最大可容忍的BE节点心跳失败次数。如果连续心跳失败次数超过这个值，则会将BE状态置为 dead。
+该参数适用于回归测试环境，以减少偶发的心跳失败导致大量回归测试失败。
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true

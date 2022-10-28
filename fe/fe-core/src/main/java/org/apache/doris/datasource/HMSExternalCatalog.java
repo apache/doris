@@ -70,6 +70,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             client = new HiveMetaStoreClient(hiveConf);
         } catch (MetaException e) {
             LOG.warn("Failed to create HiveMetaStoreClient: {}", e.getMessage());
+            return;
         }
         List<String> allDatabases;
         try {

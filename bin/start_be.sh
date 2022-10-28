@@ -21,7 +21,7 @@ set -eo pipefail
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
-    PATH="$(brew --repo)/opt/gnu-getopt/bin:${PATH}"
+    PATH="$(brew --prefix)/opt/gnu-getopt/bin:${PATH}"
     export PATH
 fi
 
@@ -103,35 +103,6 @@ jdk_version() {
     echo "${result}"
     return 0
 }
-
-setup_java_env() {
-    local java_version
-
-    if [[ -z "${JAVA_HOME}" ]]; then
-        return 1
-    fi
-
-    local jvm_arch='amd64'
-    if [[ "$(uname -m)" == 'aarch64' ]]; then
-        jvm_arch='aarch64'
-    fi
-    java_version="$(
-        set -e
-        jdk_version "${JAVA_HOME}/bin/java"
-    )"
-    if [[ "${java_version}" -gt 8 ]]; then
-        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
-        # JAVA_HOME is jdk
-    elif [[ -d "${JAVA_HOME}/jre" ]]; then
-        export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
-        # JAVA_HOME is jre
-    else
-        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
-    fi
-}
-
-# prepare jvm if needed
-setup_java_env || true
 
 # export env variables from be.conf
 #

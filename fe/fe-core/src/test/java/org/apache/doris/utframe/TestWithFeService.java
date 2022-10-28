@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
@@ -29,6 +30,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.SqlParser;
@@ -73,7 +75,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -116,6 +117,7 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
+        beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         createDorisCluster();
         runBeforeAll();
@@ -134,6 +136,10 @@ public abstract class TestWithFeService {
         runBeforeEach();
     }
 
+    protected void beforeCreatingConnectContext() throws Exception {
+
+    }
+
     protected void runBeforeAll() throws Exception {
     }
 
@@ -149,7 +155,9 @@ public abstract class TestWithFeService {
     }
 
     protected StatementContext createStatementCtx(String sql) {
-        return new StatementContext(connectContext, new OriginStatement(sql, 0));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        return statementContext;
     }
 
     protected CascadesContext createCascadesContext(String sql) {
@@ -452,6 +460,12 @@ public abstract class TestWithFeService {
         createTables(sql);
     }
 
+    public void dropTable(String table, boolean force) throws Exception {
+        DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(
+                "drop table " + table + (force ? " force" : "") + ";", connectContext);
+        Env.getCurrentEnv().dropTable(dropTableStmt);
+    }
+
     public void createTableAsSelect(String sql) throws Exception {
         CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
@@ -522,7 +536,16 @@ public abstract class TestWithFeService {
         Thread.sleep(100);
     }
 
-    private void checkAlterJob() throws InterruptedException, MetaNotFoundException {
+    protected void createMv(String sql) throws Exception {
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+                (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().createMaterializedView(createMaterializedViewStmt);
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(100);
+    }
+
+    private void checkAlterJob() throws InterruptedException {
         // check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
@@ -532,17 +555,23 @@ public abstract class TestWithFeService {
                 Thread.sleep(100);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
 
-            // Add table state check in case of below Exception:
-            // there is still a short gap between "job finish" and "table become normal",
-            // so if user send next alter job right after the "job finish",
-            // it may encounter "table's state not NORMAL" error.
-            Database db =
-                    Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
-            OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
-            while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
-                Thread.sleep(1000);
+            try {
+                // Add table state check in case of below Exception:
+                // there is still a short gap between "job finish" and "table become normal",
+                // so if user send next alter job right after the "job finish",
+                // it may encounter "table's state not NORMAL" error.
+                Database db =
+                        Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
+                OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
+                while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                    Thread.sleep(1000);
+                }
+            } catch (MetaNotFoundException e) {
+                // Sometimes table could be dropped by tests, but the corresponding alter job is not deleted yet.
+                // Ignore this error.
+                System.out.println(e.getMessage());
             }
         }
     }

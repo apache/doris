@@ -19,21 +19,23 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
@@ -45,26 +47,25 @@ public class NereidsParser {
     private static final PostProcessor POST_PROCESSOR = new PostProcessor();
 
     /**
-     * In MySQL protocol, client could send multi-statement in.
-     * a single packet.
-     * https://dev.mysql.com/doc/internals/en/com-set-option.html
+     * In MySQL protocol, client could send multi-statement in a single packet.
+     * see <a href="https://dev.mysql.com/doc/internals/en/com-set-option.html">docs</a> for more information.
      */
     public List<StatementBase> parseSQL(String originStr) {
-        List<LogicalPlan> logicalPlans = parseMultiple(originStr);
-        List<StatementBase> statementBases = new ArrayList<>();
-        for (LogicalPlan logicalPlan : logicalPlans) {
+        List<Pair<LogicalPlan, StatementContext>> logicalPlans = parseMultiple(originStr);
+        List<StatementBase> statementBases = Lists.newArrayList();
+        for (Pair<LogicalPlan, StatementContext> logicalPlan : logicalPlans) {
             // TODO: this is a trick to support explain. Since we do not support any other command in a short time.
             //     It is acceptable. In the future, we need to refactor this.
-            if (logicalPlan instanceof ExplainCommand) {
-                ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+            if (logicalPlan.first instanceof ExplainCommand) {
+                ExplainCommand explainCommand = (ExplainCommand) logicalPlan.first;
                 LogicalPlan innerPlan = explainCommand.getLogicalPlan();
-                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan);
+                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan, logicalPlan.second);
                 logicalPlanAdapter.setIsExplain(new ExplainOptions(
                         explainCommand.getLevel() == ExplainLevel.VERBOSE,
                         explainCommand.getLevel() == ExplainLevel.GRAPH));
                 statementBases.add(logicalPlanAdapter);
             } else {
-                statementBases.add(new LogicalPlanAdapter(logicalPlan));
+                statementBases.add(new LogicalPlanAdapter(logicalPlan.first, logicalPlan.second));
             }
         }
         return statementBases;
@@ -77,21 +78,21 @@ public class NereidsParser {
      * @return logical plan
      */
     public LogicalPlan parseSingle(String sql) {
-        return (LogicalPlan) parse(sql, DorisParser::singleStatement);
+        return parse(sql, DorisParser::singleStatement);
     }
 
-    public List<LogicalPlan> parseMultiple(String sql) {
-        return (List<LogicalPlan>) parse(sql, DorisParser::multiStatements);
+    public List<Pair<LogicalPlan, StatementContext>> parseMultiple(String sql) {
+        return parse(sql, DorisParser::multiStatements);
     }
 
     public Expression parseExpression(String expression) {
-        return (Expression) parse(expression, DorisParser::expression);
+        return parse(expression, DorisParser::expression);
     }
 
-    private Object parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
+    private <T> T parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         ParserRuleContext tree = toAst(sql, parseFunction);
         LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-        return logicalPlanBuilder.visit(tree);
+        return (T) logicalPlanBuilder.visit(tree);
     }
 
     private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {

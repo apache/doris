@@ -19,12 +19,11 @@
 
 #include <string>
 
-#include "client_cache.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/plan_fragment_executor.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
@@ -109,13 +108,10 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
 
     return Status::OK();
 }
-
-Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request, const char* data) {
+Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request,
+                                       butil::IOBufAsZeroCopyInputStream* data) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
-    UpdateRuntimeFilterParams params;
-    params.request = request;
-    params.data = data;
-    params.pool = &_pool;
+    UpdateRuntimeFilterParams params(request, data, &_pool);
     int filter_id = request->filter_id();
     IRuntimeFilter* real_filter = nullptr;
     RETURN_IF_ERROR(get_consume_filter(filter_id, &real_filter));
@@ -149,7 +145,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cntVal->runtime_filter_desc = *runtime_filter_desc;
     cntVal->target_info = *target_info;
     cntVal->pool.reset(new ObjectPool());
-    cntVal->filter = cntVal->pool->add(new IRuntimeFilter(nullptr, cntVal->pool.get()));
+    cntVal->filter = cntVal->pool->add(new IRuntimeFilter(_state, cntVal->pool.get()));
 
     std::string filter_id = std::to_string(runtime_filter_desc->filter_id);
     // LOG(INFO) << "entity filter id:" << filter_id;
@@ -184,7 +180,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
 
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
-                                                 const char* data) {
+                                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
     // SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     std::shared_ptr<RuntimeFilterCntlVal> cntVal;
     int merged_size = 0;
@@ -197,12 +193,13 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             return Status::InvalidArgument("unknown filter id");
         }
         cntVal = iter->second;
-        MergeRuntimeFilterParams params;
-        params.data = data;
-        params.request = request;
+        if (auto bf = cntVal->filter->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
+        }
+        MergeRuntimeFilterParams params(request, attach_data);
         ObjectPool* pool = iter->second->pool.get();
         RuntimeFilterWrapperHolder holder;
-        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, pool, holder.getHandle()));
+        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, &params, pool, holder.getHandle()));
         RETURN_IF_ERROR(cntVal->filter->merge_from(holder.getHandle()->get()));
         cntVal->arrive_id.insert(UniqueId(request->fragment_id()).to_string());
         merged_size = cntVal->arrive_id.size();
@@ -279,7 +276,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
 
 Status RuntimeFilterMergeController::add_entity(
         const TExecPlanFragmentParams& params,
-        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle) {
+        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeState* state) {
     if (!params.params.__isset.runtime_filter_params ||
         params.params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
         return Status::OK();
@@ -297,7 +294,7 @@ Status RuntimeFilterMergeController::add_entity(
 
     if (iter == _filter_controller_map[shard].end()) {
         *handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
-                new RuntimeFilterMergeControllerEntity(), entity_closer);
+                new RuntimeFilterMergeControllerEntity(state), entity_closer);
         _filter_controller_map[shard][query_id_str] = *handle;
         const TRuntimeFilterParams& filter_params = params.params.runtime_filter_params;
         RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,

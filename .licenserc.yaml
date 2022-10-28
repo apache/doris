@@ -70,5 +70,7 @@ header:
     - "docs/package-lock.json"
     - "regression-test/script/README"
     - "regression-test/suites/load_p0/stream_load/data"
+    - "docker/thirdparties/docker-compose/hive/scripts/README"
+    - "docker/thirdparties/docker-compose/hive/scripts/create.hql"
 
   comment: on-failure

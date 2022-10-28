@@ -59,7 +59,7 @@ suite("test_explain_tpch_sf_1_q15") {
 		explainStr.contains("vec output tuple id: 11") && 
 		explainStr.contains("output slot ids: 28 29 30 31 33 \n" + 
 				"  |  hash output slot ids: 19 20 21 5 22 ") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> `s_suppkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: max(<slot 16> max(<slot 13> sum(`l_extendedprice` * (1 - `l_discount`))))\n" + 
@@ -74,7 +74,7 @@ suite("test_explain_tpch_sf_1_q15") {
 				"  |  STREAMING\n" + 
 				"  |  output: sum(`l_extendedprice` * (1 - `l_discount`))\n" + 
 				"  |  group by: `l_suppkey`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipdate` >= '1996-01-01 00:00:00', `l_shipdate` < '1996-04-01 00:00:00'") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: sum(<slot 5> sum(`l_extendedprice` * (1 - `l_discount`)))\n" + 
@@ -83,7 +83,7 @@ suite("test_explain_tpch_sf_1_q15") {
 				"  |  STREAMING\n" + 
 				"  |  output: sum(`l_extendedprice` * (1 - `l_discount`))\n" + 
 				"  |  group by: `l_suppkey`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipdate` >= '1996-01-01 00:00:00', `l_shipdate` < '1996-04-01 00:00:00'") 
             
         }

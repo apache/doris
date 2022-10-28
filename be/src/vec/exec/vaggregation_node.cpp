@@ -128,10 +128,14 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     // init aggregate functions
     _aggregate_evaluators.reserve(tnode.agg_node.aggregate_functions.size());
+
+    TSortInfo dummy;
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {
         AggFnEvaluator* evaluator = nullptr;
-        RETURN_IF_ERROR(AggFnEvaluator::create(_pool, tnode.agg_node.aggregate_functions[i],
-                                               tnode.agg_node.agg_sort_infos[i], &evaluator));
+        RETURN_IF_ERROR(AggFnEvaluator::create(
+                _pool, tnode.agg_node.aggregate_functions[i],
+                tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
+                &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
 

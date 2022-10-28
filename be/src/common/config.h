@@ -239,7 +239,7 @@ CONF_Int32(storage_page_cache_shard_size, "16");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-CONF_Bool(disable_storage_page_cache, "true");
+CONF_Bool(disable_storage_page_cache, "false");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -393,7 +393,6 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
-CONF_mBool(disable_stream_load_2pc, "false");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -428,21 +427,15 @@ CONF_Bool(disable_mem_pools, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_String(chunk_reserved_bytes_limit, "10%");
-
-// Whether using chunk allocator to cache memory chunk
-CONF_Bool(disable_chunk_allocator, "true");
+CONF_mString(chunk_reserved_bytes_limit, "10%");
+// 1024, The minimum chunk allocator size (in bytes)
+CONF_Int32(min_chunk_reserved_bytes, "1024");
 // Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
 // For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-CONF_mBool(disable_chunk_allocator_in_vec, "true");
-
-// Both MemPool and vectorized engine's podarray allocator, vectorized engine's arena will try to allocate memory as power of two.
-// But if the memory is very large then power of two is also very large. This config means if the allocated memory's size is larger
-// than this limit then all allocators will not use RoundUpToPowerOfTwo to allocate memory.
-CONF_mInt64(memory_linear_growth_threshold, "134217728"); // 128Mb
+CONF_mBool(disable_chunk_allocator_in_vec, "false");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -864,9 +857,15 @@ CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 // so as to avoid occupying the execution thread for a long time.
 CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 
+// Node role tag for backend. Mix role is the default role, and computation role have no
+// any tablet.
+CONF_String(be_node_role, "mix");
+
 // Hide webserver page for safety.
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
+
+CONF_String(jvm_max_heap_size, "1024M");
 
 #ifdef BE_TEST
 // test s3

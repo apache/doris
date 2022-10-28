@@ -346,9 +346,8 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 }
 
-std::string UrlParser::extract_url(const StringValue& url, const StringValue& name) {
-    std::string result;
-    std::string str_name = name.to_string();
+StringValue UrlParser::extract_url(StringValue url, StringValue name) {
+    StringValue result("", 0);
     // Remove leading and trailing spaces.
     StringValue trimmed_url = url.trim();
     // find '?'
@@ -358,45 +357,45 @@ std::string UrlParser::extract_url(const StringValue& url, const StringValue& na
         // Example: https://doris.apache.org/
         return result;
     }
+
     // find '#'
     int32_t hash_pos = _s_hash_search.search(&trimmed_url);
-    std::string sub_url = "";
+    StringValue sub_url;
     if (hash_pos < 0) {
-        sub_url = trimmed_url.substring(question_pos + 1, trimmed_url.len - question_pos - 1)
-                          .to_string();
+        sub_url = trimmed_url.substring(question_pos + 1, trimmed_url.len - question_pos - 1);
     } else {
-        sub_url = trimmed_url.substring(question_pos + 1, hash_pos - question_pos - 1).to_string();
+        sub_url = trimmed_url.substring(question_pos + 1, hash_pos - question_pos - 1);
     }
 
     // find '&' and '=', and extract target parameter
     // Example: k1=aa&k2=bb&k3=cc&test=dd
-    std::string::size_type and_pod;
-    std::string::size_type len = sub_url.length();
-    std::string key_url;
+    int64_t and_pod;
+    auto len = sub_url.len;
+    StringValue key_url;
     while (true) {
         if (len <= 0) {
             break;
         }
         and_pod = sub_url.find_first_of('&');
-        if (and_pod != std::string::npos) {
-            key_url = sub_url.substr(0, and_pod);
-            sub_url = sub_url.substr(and_pod + 1, len - and_pod);
+        if (and_pod != -1) {
+            key_url = sub_url.substring(0, and_pod);
+            sub_url = sub_url.substring(and_pod + 1, len - and_pod);
         } else {
-            key_url = sub_url;
-            sub_url = "";
+            auto end_pos = sub_url.find_first_of('#');
+            key_url = end_pos == -1 ? sub_url : sub_url.substring(0, end_pos);
+            sub_url = result;
         }
-        len = sub_url.length();
+        len = sub_url.len;
 
-        std::string::size_type eq_pod = key_url.find_first_of('=');
-        if (eq_pod == std::string::npos) {
+        auto eq_pod = key_url.find_first_of('=');
+        if (eq_pod == -1) {
             // invalid url. like: k1&k2=bb
             continue;
         }
-        int32_t key_len = key_url.length();
-        std::string key = key_url.substr(0, eq_pod);
-        if (str_name == key) {
-            result = key_url.substr(eq_pod + 1, key_len - eq_pod);
-            return result;
+        int32_t key_len = key_url.len;
+        auto key = key_url.substring(0, eq_pod);
+        if (name == key) {
+            return key_url.substring(eq_pod + 1, key_len - eq_pod - 1);
         }
     }
     return result;

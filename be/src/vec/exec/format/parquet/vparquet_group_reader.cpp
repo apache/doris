@@ -30,6 +30,7 @@ RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
           _read_columns(read_columns),
           _row_group_id(row_group_id),
           _row_group_meta(row_group),
+          _remaining_rows(row_group.num_rows),
           _ctz(ctz) {}
 
 RowGroupReader::~RowGroupReader() {
@@ -38,6 +39,10 @@ RowGroupReader::~RowGroupReader() {
 
 Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
                             std::unordered_map<int, tparquet::OffsetIndex>& col_offsets) {
+    if (_read_columns.size() == 0) {
+        // Query task that only select columns in path.
+        return Status::OK();
+    }
     const size_t MAX_GROUP_BUF_SIZE = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
     size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
@@ -62,6 +67,10 @@ Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>
 
 Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_rows,
                                   bool* _batch_eof) {
+    // Process external table query task that select columns are all from path.
+    if (_read_columns.empty()) {
+        return _read_empty_batch(batch_size, read_rows, _batch_eof);
+    }
     size_t batch_read_rows = 0;
     bool has_eof = false;
     int col_idx = 0;
@@ -91,6 +100,19 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
     _read_rows += batch_read_rows;
     *_batch_eof = has_eof;
     // use data fill utils read column data to column ptr
+    return Status::OK();
+}
+
+Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* _batch_eof) {
+    if (batch_size < _remaining_rows) {
+        *read_rows = batch_size;
+        _remaining_rows -= batch_size;
+        *_batch_eof = false;
+    } else {
+        *read_rows = _remaining_rows;
+        _remaining_rows = 0;
+        *_batch_eof = true;
+    }
     return Status::OK();
 }
 

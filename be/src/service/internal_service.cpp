@@ -17,6 +17,8 @@
 
 #include "service/internal_service.h"
 
+#include <butil/iobuf.h>
+
 #include <string>
 
 #include "common/config.h"
@@ -85,8 +87,9 @@ private:
 
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
-          _tablet_worker_pool(config::number_tablet_writer_threads, 10240),
-          _slave_replica_worker_pool(config::number_slave_replica_download_threads, 10240) {
+          _tablet_worker_pool(config::number_tablet_writer_threads, 10240, "tablet_writer"),
+          _slave_replica_worker_pool(config::number_slave_replica_download_threads, 10240,
+                                     "replica_download") {
     REGISTER_HOOK_METRIC(add_batch_task_queue_size,
                          [this]() { return _tablet_worker_pool.get_queue_size(); });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
@@ -127,18 +130,18 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
                                           const Status& extract_st) {
     std::string query_id;
     TUniqueId finst_id;
-    std::shared_ptr<MemTrackerLimiter> transmit_tracker;
+    std::shared_ptr<MemTrackerLimiter> transmit_tracker = nullptr;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
         transmit_tracker =
                 _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
-    } else {
+    }
+    if (!transmit_tracker) {
         query_id = "unkown_transmit_data";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_data");
     }
-    SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
     VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
              << " query_id=" << query_id << " node=" << request->node_id();
     // The response is accessed when done->Run is called in transmit_data(),
@@ -146,6 +149,7 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
     Status st;
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
+        SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
         st = _exec_env->stream_mgr()->transmit_data(request, &done);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_data failed, message=" << st.get_error_msg()
@@ -491,8 +495,9 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
                                         ::doris::PMergeFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    auto buf = static_cast<brpc::Controller*>(controller)->request_attachment();
-    Status st = _exec_env->fragment_mgr()->merge_filter(request, buf.to_string().data());
+    auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
+    butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
+    Status st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
     if (!st.ok()) {
         LOG(WARNING) << "merge meet error" << st.to_string();
     }
@@ -505,10 +510,10 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
                                         ::google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
+    butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
     UniqueId unique_id(request->query_id());
-    // TODO: avoid copy attachment copy
     VLOG_NOTICE << "rpc apply_filter recv";
-    Status st = _exec_env->fragment_mgr()->apply_filter(request, attachment.to_string().data());
+    Status st = _exec_env->fragment_mgr()->apply_filter(request, &zero_copy_input_stream);
     if (!st.ok()) {
         LOG(WARNING) << "apply filter meet error: " << st.to_string();
     }
@@ -635,18 +640,19 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
                                            const Status& extract_st) {
     std::string query_id;
     TUniqueId finst_id;
-    std::shared_ptr<MemTrackerLimiter> transmit_tracker;
+    std::shared_ptr<MemTrackerLimiter> transmit_tracker = nullptr;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
+        // phmap `parallel_flat_hash_map` is not thread safe, so get query mem tracker may be null pointer.
         transmit_tracker =
                 _exec_env->task_pool_mem_tracker_registry()->get_task_mem_tracker(query_id);
-    } else {
+    }
+    if (!transmit_tracker) {
         query_id = "unkown_transmit_block";
         transmit_tracker = std::make_shared<MemTrackerLimiter>(-1, "unkown_transmit_block");
     }
-    SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
     VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
              << " query_id=" << query_id << " node=" << request->node_id();
     // The response is accessed when done->Run is called in transmit_block(),
@@ -654,6 +660,7 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
     Status st;
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
+        SCOPED_ATTACH_TASK(transmit_tracker, ThreadContext::TaskType::QUERY, query_id, finst_id);
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()

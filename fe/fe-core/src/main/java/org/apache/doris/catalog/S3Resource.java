@@ -209,7 +209,7 @@ public class S3Resource extends Resource {
             this.usedByPolicySet.forEach(
                     policy -> {
                         List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr()
-                                .getPoliciesByType(PolicyTypeEnum.STORAGE);
+                                .getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
                         Optional<Policy> findPolicy = policiesByType.stream()
                                 .filter(p -> p.getType() == PolicyTypeEnum.STORAGE && policy.equals(p.getPolicyName()))
                                 .findAny();

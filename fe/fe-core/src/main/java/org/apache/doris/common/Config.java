@@ -410,11 +410,6 @@ public class Config extends ConfigBase {
     @ConfField public static int query_port = 9030;
 
     /**
-     * mysql service nio option.
-     */
-    @ConfField public static boolean mysql_service_nio_enabled = true;
-
-    /**
      * num of thread to handle io events in mysql.
      */
     @ConfField public static int mysql_service_io_threads_num = 4;
@@ -455,7 +450,7 @@ public class Config extends ConfigBase {
      * In order not to wait too long for create table(index), set a max timeout.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_create_table_timeout_second = 60;
+    public static int max_create_table_timeout_second = 3600;
 
     /**
      * Maximal waiting time for all publish version tasks of one transaction to be finished
@@ -1690,7 +1685,7 @@ public class Config extends ConfigBase {
      * Temp config for multi catalog feature.
      * Should be removed when this feature is ready.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_multi_catalog = false;
 
     @ConfField(mutable = true, masterOnly = false)
@@ -1788,10 +1783,50 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
 
+    /*
+     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_mtmv_scheduler_framework = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_running_mtmv_scheduler_task_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_pending_mtmv_scheduler_task_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_task_expire_ms = 24 * 60 * 60 * 1000L; // 1day
+
+    /**
+     * The candidate of the backend node for federation query such as hive table and es table query.
+     * If the backend of computation role is less than this value, it will acquire some mix backend.
+     * If the computation backend is enough, federation query will only assign to computation backend.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int backend_num_for_federation = 3;
+
     /**
      * Max query profile num.
      */
     @ConfField(mutable = true, masterOnly = false)
     public static int max_query_profile_num = 100;
 
+    /**
+     * Set to true to disable backend black list, so that even if we failed to send task to a backend,
+     * that backend won't be added to black list.
+     * This should only be set when running tests, such as regression test.
+     * Highly recommended NOT disable it in product environment.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_backend_black_list = false;
+
+    /**
+     * Maximum backend heartbeat failure tolerance count.
+     * Default is 1, which means if 1 heart failed, the backend will be marked as dead.
+     * A larger value can improve the tolerance of the cluster to occasional heartbeat failures.
+     * For example, when running regression tests, this value can be increased.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_backend_heartbeat_failure_tolerance_count = 1;
 }

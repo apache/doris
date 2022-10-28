@@ -158,7 +158,7 @@ BROKER does not currently have, nor does it need, priority\_networks. Broker's s
 
 By default, doris is case-sensitive. If there is a need for case-insensitive table names, you need to set it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
 
-See the section on `lower_case_table_names` variables in [Variables](../advanced/variables) for details.
+See the section on `lower_case_table_names` variables in [Variables](../../advanced/variables) for details.
 
 ## Cluster deployment
 

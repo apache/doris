@@ -36,14 +36,14 @@ public:
               const std::vector<SlotDescriptor*>& file_slot_descs);
     ~CsvReader() override;
 
-    Status init_reader();
+    Status init_reader(bool is_query);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
 private:
     Status _create_decompressor();
-    Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns);
+    Status _fill_dest_columns(const Slice& line, Block* block, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
@@ -57,6 +57,13 @@ private:
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
+    // Only for query task, save the columns' index which need to be read.
+    // eg, there are 3 cols in "_file_slot_descs" named: k1, k2, k3
+    // and the corressponding position in file is 0, 3, 5.
+    // So the _col_idx will be: <0, 3, 5>
+    std::vector<int> _col_idxs;
+    // True if this is a load task
+    bool _is_load = false;
 
     // _file_reader_s is for stream load pipe reader,
     // and _file_reader is for other file reader.

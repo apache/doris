@@ -1,4 +1,4 @@
-CREATE TABLE parquet_s3_case1 (
+CREATE TABLE IF NOT EXISTS parquet_s3_case1 (
     p_partkey          int NOT NULL DEFAULT "1",
     p_name        VARCHAR(55) NOT NULL DEFAULT "2",
     p_mfgr        VARCHAR(25) NOT NULL DEFAULT "3",

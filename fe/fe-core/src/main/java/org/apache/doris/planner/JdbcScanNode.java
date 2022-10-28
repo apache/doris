@@ -101,7 +101,7 @@ public class JdbcScanNode extends ScanNode {
                 continue;
             }
             Column col = slot.getColumn();
-            columns.add(col.getName());
+            columns.add(OdbcTable.databaseProperName(jdbcType, col.getName()));
         }
         if (0 == columns.size()) {
             columns.add("*");

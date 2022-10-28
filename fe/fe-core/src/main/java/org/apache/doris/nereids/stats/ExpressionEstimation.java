@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -47,6 +50,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
 
     private static ExpressionEstimation INSTANCE = new ExpressionEstimation();
 
+    /**
+     * returned columnStat is newly created or a copy of stats
+     */
     public static ColumnStat estimate(Expression expression, StatsDeriveResult stats) {
         return INSTANCE.visit(expression, stats);
     }
@@ -56,12 +62,30 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
         return expr.accept(this, context);
     }
 
+    //TODO: case-when need to re-implemented
+    @Override
+    public ColumnStat visitCaseWhen(CaseWhen caseWhen, StatsDeriveResult context) {
+        ColumnStat columnStat = new ColumnStat();
+        columnStat.setNdv(caseWhen.getWhenClauses().size() + 1);
+        columnStat.setSelectivity(1.0);
+        columnStat.setMinValue(0);
+        columnStat.setMaxValue(Double.MAX_VALUE);
+        columnStat.setAvgSizeByte(8);
+        columnStat.setNumNulls(0);
+        columnStat.setMaxSizeByte(8);
+        return columnStat;
+    }
+
+    public ColumnStat visitCast(Cast cast, StatsDeriveResult context) {
+        return cast.child().accept(this, context);
+    }
+
     @Override
     public ColumnStat visitLiteral(Literal literal, StatsDeriveResult context) {
-        if (literal.isStringLiteral()) {
+        if (ColumnStat.MAX_MIN_UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
             return ColumnStat.UNKNOWN;
         }
-        double literalVal = Double.parseDouble(literal.getValue().toString());
+        double literalVal = literal.getDouble();
         ColumnStat columnStat = new ColumnStat();
         columnStat.setMaxValue(literalVal);
         columnStat.setMinValue(literalVal);
@@ -75,7 +99,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
     public ColumnStat visitSlotReference(SlotReference slotReference, StatsDeriveResult context) {
         ColumnStat columnStat = context.getColumnStatsBySlot(slotReference);
         Preconditions.checkState(columnStat != null);
-        return columnStat;
+        return columnStat.copy();
     }
 
     @Override
@@ -163,14 +187,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
 
     @Override
     public ColumnStat visitCount(Count count, StatsDeriveResult context) {
-        Expression child = count.child(0);
-        ColumnStat columnStat = child.accept(this, context);
-        if (columnStat == ColumnStat.UNKNOWN) {
-            return ColumnStat.UNKNOWN;
-        }
-        double expectedValue = context.getRowCount() - columnStat.getNumNulls();
-        return new ColumnStat(1,
-                count.getDataType().width(), count.getDataType().width(), 0, expectedValue, expectedValue);
+        //count() returns long type
+        return new ColumnStat(1.0, 8.0, 8.0, 0.0,
+                Double.MIN_VALUE, Double.MAX_VALUE);
     }
 
     // TODO: return a proper estimated stat after supports histogram
@@ -206,5 +225,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
     @Override
     public ColumnStat visitSubstring(Substring substring, StatsDeriveResult context) {
         return substring.child(0).accept(this, context);
+    }
+
+    @Override
+    public ColumnStat visitAlias(Alias alias, StatsDeriveResult context) {
+        return alias.child().accept(this, context);
     }
 }

@@ -94,18 +94,18 @@ suite("test_explain_tpch_sf_1_q18") {
 		explainStr.contains("vec output tuple id: 11") && 
 		explainStr.contains("output slot ids: 30 31 32 33 34 35 \n" + 
 				"  |  hash output slot ids: 16 17 5 11 14 15 ") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 11>, RF003[in_or_bloom] -> `l_orderkey`") && 
 		explainStr.contains("VAGGREGATE (update finalize)\n" + 
 				"  |  output: sum(`l_quantity`)\n" + 
 				"  |  group by: `l_orderkey`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON") && 
 		explainStr.contains("VAGGREGATE (update finalize)\n" + 
 				"  |  output: sum(`l_quantity`)\n" + 
 				"  |  group by: `l_orderkey`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.customer(customer), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF001[in_or_bloom] -> <slot 5>, RF002[in_or_bloom] -> <slot 17>")
             
         }

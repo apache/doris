@@ -62,4 +62,8 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_contains(k5, 'hi') FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_contains(k5, 'hi222') FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_contains(k6, null) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_enumerate(k2) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_enumerate(k5) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_enumerate(k6) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_enumerate(k7) from ${tableName} ORDER BY k1"
 }

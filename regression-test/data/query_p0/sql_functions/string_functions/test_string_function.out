@@ -272,3 +272,9 @@ a
 -- !sql --
 
 
+-- !sql --
+tNEW-STRorigin str
+
+-- !sql --
+d***is
+

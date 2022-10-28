@@ -781,8 +781,7 @@ public class SystemInfoService {
      */
     public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
         Preconditions.checkArgument(number >= -1);
-        List<Backend> candidates =
-                idToBackendRef.values().stream().filter(policy::isMatch).collect(Collectors.toList());
+        List<Backend> candidates = policy.getCandidateBackends(idToBackendRef.values());
         if ((number != -1 && candidates.size() < number) || candidates.isEmpty()) {
             LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
             return Lists.newArrayList();
@@ -1162,7 +1161,8 @@ public class SystemInfoService {
     public void checkReplicaAllocation(String cluster, ReplicaAllocation replicaAlloc) throws DdlException {
         List<Backend> backends = getClusterBackends(cluster);
         for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-            if (backends.stream().filter(b -> b.getLocationTag().equals(entry.getKey())).count() < entry.getValue()) {
+            if (backends.stream().filter(Backend::isMixNode).filter(b -> b.getLocationTag().equals(entry.getKey()))
+                    .count() < entry.getValue()) {
                 throw new DdlException(
                         "Failed to find enough host with tag(" + entry.getKey() + ") in all backends. need: "
                                 + entry.getValue());
@@ -1174,6 +1174,9 @@ public class SystemInfoService {
         List<Backend> bes = getClusterBackends(clusterName);
         Set<Tag> tags = Sets.newHashSet();
         for (Backend be : bes) {
+            if (be == null || !be.isMixNode()) {
+                continue;
+            }
             tags.add(be.getLocationTag());
         }
         return tags;
@@ -1181,6 +1184,7 @@ public class SystemInfoService {
 
     public List<Backend> getBackendsByTagInCluster(String clusterName, Tag tag) {
         List<Backend> bes = getClusterBackends(clusterName);
-        return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
+        return bes.stream().filter(Backend::isMixNode).filter(b -> b.getLocationTag().equals(tag))
+            .collect(Collectors.toList());
     }
 }

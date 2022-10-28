@@ -1,4 +1,4 @@
-CREATE TABLE `nation` (
+CREATE TABLE IF NOT EXISTS `nation` (
   `n_nationkey` integer NOT NULL,
   `n_name` char(25) NOT NULL,
   `n_regionkey` integer NOT NULL,

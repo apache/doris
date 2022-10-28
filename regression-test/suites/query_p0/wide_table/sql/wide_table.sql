@@ -1,6 +1,6 @@
 DROP TABLE IF EXISTS wide_table;
 
-CREATE TABLE `wide_table` (
+CREATE TABLE IF NOT EXISTS `wide_table` (
 `k1` tinyint(4) NULL,
 `k2` decimal(10, 2) NULL DEFAULT "10.5",
 `k3` varchar(10) NULL COMMENT 'string column',

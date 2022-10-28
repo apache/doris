@@ -21,7 +21,7 @@ suite("test_window_fn") {
     sql """ DROP TABLE IF EXISTS ${tbName2} """
 
     sql """
-        CREATE TABLE ${tbName1}
+        CREATE TABLE IF NOT EXISTS ${tbName1}
         (
             `depname` varchar(20) NULL COMMENT "",
             `empno`  bigint NULL COMMENT "",
@@ -38,7 +38,7 @@ suite("test_window_fn") {
         );
      """
     sql """
-        CREATE TABLE ${tbName2} (
+        CREATE TABLE IF NOT EXISTS ${tbName2} (
         stringu1 varchar(20) NULL COMMENT "",
         stringu2 varchar(20) NULL COMMENT "",
         string4 varchar(20) NULL COMMENT "",

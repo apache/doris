@@ -1,6 +1,6 @@
 DROP TABLE IF EXISTS retention_test;
 
-CREATE TABLE retention_test(
+CREATE TABLE IF NOT EXISTS retention_test(
                 `uid` int COMMENT 'user id', 
                 `date` datetime COMMENT 'date time' 
                 )
