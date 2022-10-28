@@ -126,6 +126,9 @@ public enum RuleType {
     PUSH_LIMIT_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_LIMIT_THROUGH_PROJECT_JOIN(RuleTypeClass.REWRITE),
 
+    // Join Reorder
+    JOIN_REORDER(RuleTypeClass.REWRITE),
+
     // exploration rules
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
     LOGICAL_JOIN_COMMUTATE(RuleTypeClass.EXPLORATION),

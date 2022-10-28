@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_nullif") {
+    qt_ifnull_const1 """select CONCAT('a', ifnull(split_part('A.B','.',1), 'x'));"""
+    qt_ifnull_const2 """select CONCAT('a', ifnull(split_part('A.B','.',1), null));"""
+
     def tableName = "datetype"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

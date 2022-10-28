@@ -689,6 +689,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMask>();
     factory.register_function<FunctionMaskPartial<true>>();
     factory.register_function<FunctionMaskPartial<false>>();
+    factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
+    factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

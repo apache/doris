@@ -58,24 +58,10 @@
 
 namespace doris::vectorized {
 
-inline size_t get_utf8_byte_length(unsigned char byte) {
-    size_t char_size = 0;
-    if (byte < 0xC0) {
-        char_size = 1;
-    } else if (byte >= 0xF0) {
-        char_size = 4;
-    } else if (byte >= 0xE0) {
-        char_size = 3;
-    } else {
-        char_size = 2;
-    }
-    return char_size;
-}
-
 inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
-        char_size = get_utf8_byte_length(str[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)str[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -85,7 +71,7 @@ inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str
 inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -95,7 +81,7 @@ inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index)
 inline size_t get_char_len(const StringValue& str, size_t end_pos) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < std::min(str.len, end_pos); i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         ++char_len;
     }
     return char_len;
@@ -192,7 +178,7 @@ private:
             size_t byte_pos = 0;
             index.clear();
             for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(raw_str)[j]);
+                char_size = UTF8_BYTE_LENGTH[(unsigned char)(raw_str)[j]];
                 index.push_back(j);
                 if (start[i] > 0 && index.size() > start[i] + len[i]) {
                     break;
@@ -1818,6 +1804,141 @@ struct ReverseImpl {
             StringOP::push_value_string(std::string_view(dst, src_len), i, res_data, res_offsets);
         }
         return Status::OK();
+    }
+};
+
+template <typename Impl>
+class FunctionSubReplace : public IFunction {
+public:
+    static constexpr auto name = "sub_replace";
+
+    static FunctionPtr create() { return std::make_shared<FunctionSubReplace<Impl>>(); }
+
+    String get_name() const override { return name; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+struct SubReplaceImpl {
+    static Status replace_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                                  size_t input_rows_count) {
+        auto res_column = ColumnString::create();
+        auto result_column = assert_cast<ColumnString*>(res_column.get());
+        auto args_null_map = ColumnUInt8::create(input_rows_count, 0);
+        ColumnPtr argument_columns[4];
+        for (int i = 0; i < 4; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
+                VectorizedUtils::update_null_map(args_null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            }
+        }
+
+        auto data_column = assert_cast<const ColumnString*>(argument_columns[0].get());
+        auto mask_column = assert_cast<const ColumnString*>(argument_columns[1].get());
+        auto start_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+        auto length_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[3].get());
+
+        vector(data_column, mask_column, start_column->get_data(), length_column->get_data(),
+               args_null_map->get_data(), result_column, input_rows_count);
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_column), std::move(args_null_map));
+        return Status::OK();
+    }
+
+private:
+    static void vector(const ColumnString* data_column, const ColumnString* mask_column,
+                       const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& length,
+                       NullMap& args_null_map, ColumnString* result_column,
+                       size_t input_rows_count) {
+        ColumnString::Chars& res_chars = result_column->get_chars();
+        ColumnString::Offsets& res_offsets = result_column->get_offsets();
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            StringRef origin_str = data_column->get_data_at(row);
+            StringRef new_str = mask_column->get_data_at(row);
+            size_t origin_str_len = origin_str.size;
+            //input is null, start < 0, len < 0, str_size <= start. return NULL
+            if (args_null_map[row] || start[row] < 0 || length[row] < 0 ||
+                origin_str_len <= start[row]) {
+                res_offsets.push_back(res_chars.size());
+                args_null_map[row] = 1;
+            } else {
+                std::string_view replace_str = new_str.to_string_view();
+                std::string result = origin_str.to_string();
+                result.replace(start[row], length[row], replace_str);
+                result_column->insert_data(result.data(), result.length());
+            }
+        }
+    }
+};
+
+struct SubReplaceThreeImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeInt32>()};
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        auto params = ColumnInt32::create(input_rows_count);
+        auto& strlen_data = params->get_data();
+
+        auto str_col =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
+            str_col = nullable->get_nested_column_ptr();
+        }
+        auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            strlen_data[i] = str_offset[i] - str_offset[i - 1];
+        }
+
+        block.insert({std::move(params), std::make_shared<DataTypeInt32>(), "strlen"});
+        ColumnNumbers temp_arguments = {arguments[0], arguments[1], arguments[2],
+                                        block.columns() - 1};
+        return SubReplaceImpl::replace_execute(block, temp_arguments, result, input_rows_count);
+    }
+};
+
+struct SubReplaceFourImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()};
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, size_t result,
+                               size_t input_rows_count) {
+        return SubReplaceImpl::replace_execute(block, arguments, result, input_rows_count);
     }
 };
 
