@@ -1715,7 +1715,6 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     if (context.rowset_type == ALPHA_ROWSET) {
         context.rowset_type = StorageEngine::instance()->default_rowset_type();
     }
-    context.rowset_dir = tablet_path();
     if (context.fs != nullptr && context.fs->type() != io::FileSystemType::LOCAL) {
         context.rowset_dir = BetaRowset::remote_tablet_path(tablet_id());
     } else {

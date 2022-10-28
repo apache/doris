@@ -2374,6 +2374,8 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         *sc_directly = true;
     }
 
+    // if rs_reader has remote files, link schema change is not supported,
+    // use directly schema change instead.
     if (!(*sc_directly) && !(*sc_sorting)) {
         // check has remote rowset
         for (auto& rs_reader : sc_params.ref_rowset_readers) {
