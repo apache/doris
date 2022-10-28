@@ -963,7 +963,8 @@ public class ShowExecutor {
             for (Index index : indexes) {
                 rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
                         "", String.join(",", index.getColumns()), "", "", "", "",
-                        "", index.getIndexType().name(), index.getComment()));
+                        "", index.getIndexType().name(), index.getComment(),
+                        index.getPropertiesString(), Integer.toString(index.getIndexId())));
             }
         } finally {
             table.readUnlock();
