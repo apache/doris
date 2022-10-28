@@ -1473,8 +1473,9 @@ public:
             }
              
         }
-        //block.replace_by_position(result, std::move(col_res));
-        block.get_by_position(std::move(col_res));
+        block.replace_by_position(result, std::move(col_res));
+        //block.get_by_position(result).column = ColumnNullable::create(std::move(col_res));
+        //block.get_by_position(std::move(col_res));
         return Status::OK();
     }
 };
