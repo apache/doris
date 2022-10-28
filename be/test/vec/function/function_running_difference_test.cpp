@@ -14,8 +14,8 @@ namespace doris::vectorized {
 
     InputTypeSet input_types = {TypeIndex::Int64};
 
-    DataSet data_set = {{{(int64_t)0}, (int64_t)0},
-                        {{(int64_t)1}, (int64_t)1},
+    DataSet data_set = {
+                        {{(int64_t)1}, (int64_t)0},
                         {{(int64_t)2}, (int64_t)1},
                         {{(int64_t)3}, (int64_t)1},
                         {{(int64_t)5}, (int64_t)2}};

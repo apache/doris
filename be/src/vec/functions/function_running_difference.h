@@ -4,6 +4,8 @@
 #include "vec/data_types/number_traits.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "common/status.h"
 #include "vec/common/assert_cast.h"
 #include "vec/functions/function.h"
@@ -16,17 +18,6 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized{
-
-// //template <bool is_first_line_zero>
-// struct FunctionRunningDifferenceName;
-
-// //template <>
-// struct FunctionRunningDifferenceName{
-//     static constexpr auto name = "running_difference";
-// };
-
-
-//template <bool is_first_line_zero=true>
 class FunctionRunningDifference : public IFunction
 {
 private:
@@ -102,11 +93,11 @@ private:
             f(Float64());
         else if (which.is_date())
             f(DataTypeDate::FieldType());
-       // else if (which.is_date32())
-          //  f(DataTypeDate32::FieldType());
-       // else if (which.is_date_time())
-            //f(DataTypeDateTime::FieldType());
-        //else
+        else if (which.is_date_v2())
+            f(DataTypeDateV2::FieldType());
+        else if (which.is_date_time())
+            f(DataTypeDateTime::FieldType());
+        else
             throw Exception("Argument for function " + get_name() + " must have numeric type.", 1/*ErrorCode::ILLEGAL_TYPE_OF_ARGUMENT*/);
     }
 
@@ -136,7 +127,7 @@ public:
          return false;
     } 
 
-    // bool isSuitableForShortCircuitArgumentsExecution(const DataTypesWithConstInfo & /*arguments*/) const override { return false; }
+   // bool is_suitable_for_short_circuit_arguments_execution(const DataTypesWithConstInfo & /*arguments*/) const override { return false; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes & arguments) const override
@@ -152,14 +143,12 @@ public:
 
         return res;
     }
-   
-    //ColumnPtr execute_impl(const ColumnNumbers& arguments, const DataTypePtr & result_type, size_t input_rows_count) const override
+
     Status execute_impl(FunctionContext* context, Block& block,
                                  const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) override
     {
-        const auto  src =  block.get_by_position(arguments[0]); //取出第一个参数
-        //auto src=assert_cast<const IColumn*>(src_m.get());
+        const auto  src =  block.get_by_position(arguments[0]); 
         const DataTypePtr result_type=src.type;
         /// When column is constant, its difference is zero.
         if (is_column_const(*src.column)) {
@@ -169,19 +158,16 @@ public:
         }   
         auto res_column = remove_nullable(result_type)->create_column();
 
-        const auto * src_column = src.column.get(); //获取src的行
+        const auto * src_column = src.column.get(); 
         ColumnPtr null_map_column = nullptr;
         const NullMap * null_map = nullptr;
         
-        if (const auto * nullable_column = check_and_get_column<ColumnNullable>(src_column))
-        {
+        if (const auto * nullable_column = check_and_get_column<ColumnNullable>(src_column)){
             src_column = &nullable_column->get_nested_column();
             null_map_column = nullable_column->get_null_map_column_ptr();
             null_map = &nullable_column->get_null_map_data();
         }
-        //removeNullable?
-        dispatchForSourceType(*remove_nullable(src.type), [&](auto field_type_tag)
-        {
+        dispatchForSourceType(*remove_nullable(src.type), [&](auto field_type_tag){
             using SrcFieldType = decltype(field_type_tag);
             
             process(assert_cast<const ColumnVector<SrcFieldType> &>(*src_column).get_data(),
@@ -189,8 +175,8 @@ public:
         });
 
         if(null_map_column){
-           // auto res=ColumnNullable::create(std::move(res_column), null_map_column);
-           // block.replace_by_position(result, std::move(res));
+            auto res=ColumnNullable::create(std::move(res_column), null_map_column);
+            block.replace_by_position(result, std::move(res));
         }
         else{
             block.replace_by_position(result, std::move(res_column));
