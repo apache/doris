@@ -87,7 +87,6 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Add;
-import org.apache.doris.nereids.trees.expressions.AliasQuery;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -227,22 +226,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * ******************************************************************************************** */
 
     /**
-     * process withClauses and store the results in a logical plan node LogicalCTE
+     * process CTE and store the results in a logical plan node LogicalCTE
      */
     public LogicalPlan withCte(CteContext ctx, LogicalPlan plan) {
-        return new LogicalCTE<>(visit(ctx.aliasQuery(), AliasQuery.class), plan);
+        return new LogicalCTE<>(visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan);
     }
 
+    /**
+     * processs CTE's alias queries and column aliases
+     */
     @Override
-    public AliasQuery visitAliasQuery(AliasQueryContext ctx) {
+    public LogicalSubQueryAlias visitAliasQuery(AliasQueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             LogicalPlan queryPlan = plan(ctx.query());
             List<String> columnNames = null;
             if (ctx.columnAliases() != null) {
                 columnNames = ctx.columnAliases().identifier().stream()
-                    .map(id -> id.getText()).collect(Collectors.toList());
+                    .map(id -> id.getText())
+                    .collect(ImmutableList.toImmutableList());
             }
-            return new AliasQuery(ctx.identifier().getText(), queryPlan, Optional.ofNullable(columnNames));
+            return new LogicalSubQueryAlias(ctx.identifier().getText(), Optional.ofNullable(columnNames), queryPlan);
         });
     }
 

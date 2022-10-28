@@ -21,11 +21,13 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Query with alias and column alias
@@ -79,22 +81,22 @@ public class AliasQuery extends Expression {
 
     @Override
     public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append(name + " ");
-        columnAliases.ifPresent(column -> stringBuilder.append(column.stream()
-                .collect(Collectors.joining(", ", "(", ") "))));
-        stringBuilder.append("AS (" + queryPlan + ")");
-        return stringBuilder.toString();
+        if (columnAliases.isPresent()) {
+            return Utils.toSqlString("AliasQuery",
+                "name", name,
+                "columnAliases", StringUtils.join(columnAliases.get(), ","),
+                "queryPlan", queryPlan
+            );
+        }
+        return Utils.toSqlString("AliasQuery",
+            "name", name,
+            "queryPlan", queryPlan
+        );
     }
 
     @Override
     public String toString() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("[(name: " + name + "), ");
-        columnAliases.ifPresent(column -> stringBuilder.append(column.stream()
-                .collect(Collectors.joining(", ", "(columnAliases: ", "), "))));
-        stringBuilder.append(queryPlan + "]");
-        return stringBuilder.toString();
+        return toSql();
     }
 
     @Override

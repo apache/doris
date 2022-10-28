@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class NereidsParserTest extends ParserTestBase {
@@ -98,7 +99,8 @@ public class NereidsParserTest extends ParserTestBase {
         logicalPlan = nereidsParser.parseSingle(cteSql3);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
-        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().get(0).getColumnAliases().get().size(), 2);
+        Optional<List<String>> columnAliases = ((LogicalCTE<?>) logicalPlan).getAliasQueries().get(0).getColumnAliases();
+        Assertions.assertEquals(columnAliases.get().size(), 2);
     }
 
     @Test

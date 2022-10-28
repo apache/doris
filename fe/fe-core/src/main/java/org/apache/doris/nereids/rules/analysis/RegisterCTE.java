@@ -27,7 +27,6 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.AliasQuery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -64,17 +63,17 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
     /**
      * register and store CTEs in CTEContext
      */
-    private void register(List<AliasQuery> aliasQueryList, StatementContext statementContext) {
+    private void register(List<LogicalSubQueryAlias> aliasQueryList, StatementContext statementContext) {
         CTEContext cteContext = statementContext.getCteContext();
 
-        for (AliasQuery aliasQuery : aliasQueryList) {
-            String cteName = aliasQuery.getName();
+        for (LogicalSubQueryAlias<LogicalPlan> aliasQuery : aliasQueryList) {
+            String cteName = aliasQuery.getAlias();
             if (cteContext.containsCTE(cteName)) {
                 throw new AnalysisException("CTE name [" + cteName + "] cannot be used more than once.");
             }
 
             // inline CTE's initialPlan if it is referenced by another CTE
-            LogicalPlan plan = aliasQuery.getQueryPlan();
+            LogicalPlan plan = aliasQuery.child();
             plan = (LogicalPlan) new CTEVisitor().inlineCTE(cteContext, plan);
             cteContext.putInitialPlan(cteName, plan);
 
@@ -94,7 +93,8 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
     /**
      * deal with columnAliases of CTE
      */
-    private LogicalPlan withColumnAliases(LogicalPlan analyzedPlan, AliasQuery aliasQuery, CTEContext cteContext) {
+    private LogicalPlan withColumnAliases(LogicalPlan analyzedPlan,
+                                          LogicalSubQueryAlias<LogicalPlan> aliasQuery, CTEContext cteContext) {
         List<Slot> outputSlots = analyzedPlan.getOutput();
         List<String> columnAliases = aliasQuery.getColumnAliases().get();
 
@@ -110,7 +110,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
                     : new UnboundAlias(new UnboundSlot(outputSlots.get(i).getName()), columnAliases.get(i)))
                 .collect(Collectors.toList());
 
-        String name = aliasQuery.getName();
+        String name = aliasQuery.getAlias();
         LogicalPlan initialPlan = cteContext.getInitialCTEPlan(name);
         cteContext.putInitialPlan(name, new LogicalProject<>(unboundProjects, initialPlan));
 
@@ -126,12 +126,12 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
     /**
      * check columnAliases' size and name
      */
-    private void checkColumnAlias(AliasQuery aliasQuery, List<Slot> outputSlots) {
+    private void checkColumnAlias(LogicalSubQueryAlias<LogicalPlan> aliasQuery, List<Slot> outputSlots) {
         List<String> columnAlias = aliasQuery.getColumnAliases().get();
         // if the size of columnAlias is smaller than outputSlots' size, we will replace the corresponding number
         // of front slots with columnAlias.
         if (columnAlias.size() > outputSlots.size()) {
-            throw new AnalysisException("CTE [" + aliasQuery.getName() + "] returns " + columnAlias.size()
+            throw new AnalysisException("CTE [" + aliasQuery.getAlias() + "] returns " + columnAlias.size()
                 + " columns, but " + outputSlots.size() + " labels were specified. The number of column labels must "
                 + "be smaller or equal to the number of returned columns.");
         }
@@ -141,7 +141,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
         columnAlias.stream().forEach(alias -> {
             if (names.contains(alias.toLowerCase())) {
                 throw new AnalysisException("Duplicated CTE column alias: [" + alias.toLowerCase()
-                    + "] in CTE [" + aliasQuery.getName() + "]");
+                    + "] in CTE [" + aliasQuery.getAlias() + "]");
             }
             names.add(alias);
         });

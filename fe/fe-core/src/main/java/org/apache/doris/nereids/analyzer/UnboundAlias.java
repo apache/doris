@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -53,11 +54,21 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     }
 
     @Override
+    public String toSql() {
+        if (alias.isPresent()) {
+            return Utils.toSqlString("UnboundAlias",
+                            "alias", alias.get(),
+                            "child", child()
+                );
+        }
+        return Utils.toSqlString("UnboundAlias",
+            "child", child()
+        );
+    }
+
+    @Override
     public String toString() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("UnboundAlias(" + child() + ")");
-        alias.ifPresent(name -> stringBuilder.append(" AS " + name));
-        return stringBuilder.toString();
+        return toSql();
     }
 
     @Override

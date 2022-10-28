@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.AliasQuery;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -39,19 +38,19 @@ import java.util.Optional;
  */
 public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
-    private final List<AliasQuery> aliasQueries;
+    private final List<LogicalSubQueryAlias> aliasQueries;
 
-    public LogicalCTE(List<AliasQuery> aliasQueries, CHILD_TYPE child) {
+    public LogicalCTE(List<LogicalSubQueryAlias> aliasQueries, CHILD_TYPE child) {
         this(aliasQueries, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalCTE(List<AliasQuery> aliasQueries, Optional<GroupExpression> groupExpression,
+    public LogicalCTE(List<LogicalSubQueryAlias> aliasQueries, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
         this.aliasQueries = aliasQueries;
     }
 
-    public List<AliasQuery> getAliasQueries() {
+    public List<LogicalSubQueryAlias> getAliasQueries() {
         return aliasQueries;
     }
 
