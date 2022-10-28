@@ -31,17 +31,17 @@ public:
     static FileSystemMap* instance();
     ~FileSystemMap() = default;
 
-    void insert(ResourceId id, FileSystemPtr fs);
+    void insert(ResourceId id, FileSystemSPtr fs);
 
     // If `id` is not in `_map`, return nullptr.
-    FileSystemPtr get(const ResourceId& id);
+    FileSystemSPtr get(const ResourceId& id);
 
 private:
     FileSystemMap() = default;
 
 private:
     std::shared_mutex _mu;
-    std::unordered_map<ResourceId, FileSystemPtr> _map; // GUARED_BY(_mu)
+    std::unordered_map<ResourceId, FileSystemSPtr> _map; // GUARED_BY(_mu)
 };
 
 } // namespace io

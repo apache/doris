@@ -23,7 +23,7 @@ suite("test_query_sys_data_type", 'query,p0') {
 
     sql """ DROP TABLE IF EXISTS ${tbName} """
     sql """
-        create table ${tbName} (dt date, id int, name char(10), province char(10), os char(1), set1 hll hll_union, set2 bitmap bitmap_union)
+        create table if not exists ${tbName} (dt date, id int, name char(10), province char(10), os char(1), set1 hll hll_union, set2 bitmap bitmap_union)
         distributed by hash(id) buckets 1 properties("replication_num"="1");
     """
 

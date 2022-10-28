@@ -22,7 +22,7 @@ suite("test_dup_tab_char_nullable") {
     sql "drop table if exists ${table1}"
 
     sql """
-CREATE TABLE `${table1}` (
+CREATE TABLE IF NOT EXISTS `${table1}` (
   `city` char(20) NULL COMMENT "",
   `name` char(20) NULL COMMENT "",
   `addr` char(20) NULL COMMENT "",

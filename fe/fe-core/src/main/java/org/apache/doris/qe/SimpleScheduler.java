@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -169,7 +170,9 @@ public class SimpleScheduler {
     }
 
     public static void addToBlacklist(Long backendID, String reason) {
-        if (backendID == null) {
+        if (backendID == null || Config.disable_backend_black_list) {
+            LOG.warn("ignore backend black list for backend: {}, disabled: {}", backendID,
+                    Config.disable_backend_black_list);
             return;
         }
 

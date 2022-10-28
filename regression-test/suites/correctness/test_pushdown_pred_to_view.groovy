@@ -32,7 +32,7 @@ The same resolve error occurs when re-analyze v2.
      def viewName = "v_pushdown_pred_to_view";
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-         CREATE TABLE ${tableName} (
+         CREATE TABLE IF NOT EXISTS ${tableName} (
              `id` int
          ) ENGINE=OLAP
          AGGREGATE KEY(`id`)
@@ -54,7 +54,7 @@ The same resolve error occurs when re-analyze v2.
      """
 
      qt_sql """
-         select * from ${viewName} as v1 join ${viewName} as v2 on v1.id=v2.id and v1.id>0;
+         select * from ${viewName} as v1 join ${viewName} as v2 where v1.id=v2.id and v1.id>0;
      """
      sql "DROP VIEW ${viewName}"
      sql "DROP TABLE ${tableName}"

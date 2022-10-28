@@ -231,7 +231,7 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::build_side_output_column(
                     mcol[i + column_offset]->insert_indices_from(column, _build_block_rows.data(),
                                                                  _build_block_rows.data() + size);
                 } else {
-                    mcol[i + column_offset]->resize(size);
+                    mcol[i + column_offset]->insert_many_defaults(size);
                 }
             }
         } else {
@@ -267,7 +267,7 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::build_side_output_column(
                         }
                     }
                 } else {
-                    mcol[i + column_offset]->resize(size);
+                    mcol[i + column_offset]->insert_many_defaults(size);
                 }
             }
         }
@@ -300,7 +300,7 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::probe_side_output_column(
                 column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
             }
         } else {
-            mcol[i]->resize(size);
+            mcol[i]->insert_many_defaults(size);
         }
     }
 
@@ -350,7 +350,20 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
         while (probe_index < probe_rows) {
             if constexpr (ignore_null && need_null_map_for_probe) {
                 if ((*null_map)[probe_index]) {
-                    _items_counts[probe_index++] = (uint32_t)0;
+                    if constexpr (probe_all) {
+                        _items_counts[probe_index++] = (uint32_t)1;
+                        // only full outer / left outer need insert the data of right table
+                        if (LIKELY(current_offset < _build_block_rows.size())) {
+                            _build_block_offsets[current_offset] = -1;
+                            _build_block_rows[current_offset] = -1;
+                        } else {
+                            _build_block_offsets.emplace_back(-1);
+                            _build_block_rows.emplace_back(-1);
+                        }
+                        ++current_offset;
+                    } else {
+                        _items_counts[probe_index++] = (uint32_t)0;
+                    }
                     all_match_one = false;
                     continue;
                 }
@@ -472,6 +485,8 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
     using KeyGetter = typename HashTableType::State;
     using Mapped = typename HashTableType::Mapped;
     if constexpr (std::is_same_v<Mapped, RowRefListWithFlags>) {
+        constexpr auto probe_all = JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
+                                   JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
         KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
         int right_col_idx = _join_node->_left_table_data_types.size();
@@ -494,7 +509,23 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
             // ignore null rows
             if constexpr (ignore_null && need_null_map_for_probe) {
                 if ((*null_map)[probe_index]) {
-                    _items_counts[probe_index++] = (uint32_t)0;
+                    if constexpr (probe_all) {
+                        _items_counts[probe_index++] = (uint32_t)1;
+                        same_to_prev.emplace_back(false);
+                        visited_map.emplace_back(nullptr);
+                        // only full outer / left outer need insert the data of right table
+                        if (LIKELY(current_offset < _build_block_rows.size())) {
+                            _build_block_offsets[current_offset] = -1;
+                            _build_block_rows[current_offset] = -1;
+                        } else {
+                            _build_block_offsets.emplace_back(-1);
+                            _build_block_rows.emplace_back(-1);
+                        }
+                        ++current_offset;
+                    } else {
+                        _items_counts[probe_index++] = (uint32_t)0;
+                    }
+                    all_match_one = false;
                     continue;
                 }
             }
@@ -898,9 +929,12 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _output_expr_ctxs.push_back(ctx);
     }
 
-    for (const auto& filter_desc : _runtime_filter_descs) {
+    _runtime_filters.resize(_runtime_filter_descs.size());
+    for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
-                RuntimeFilterRole::PRODUCER, filter_desc, state->query_options()));
+                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
+                _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
 
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
@@ -1038,16 +1072,15 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         probe_rows = _probe_block.rows();
         if (probe_rows != 0) {
             COUNTER_UPDATE(_probe_rows_counter, probe_rows);
-            if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-                _probe_column_convert_to_null = _convert_block_to_null(_probe_block);
-            }
-
             int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
             _probe_columns.resize(probe_expr_ctxs_sz);
 
             std::vector<int> res_col_ids(probe_expr_ctxs_sz);
             RETURN_IF_ERROR(_do_evaluate(_probe_block, _probe_expr_ctxs, *_probe_expr_call_timer,
                                          res_col_ids));
+            if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+                _probe_column_convert_to_null = _convert_block_to_null(_probe_block);
+            }
             // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
             //  so we have to initialize this flag by the first probe block.
             if (!_has_set_need_null_map_for_probe) {
@@ -1176,7 +1209,7 @@ void HashJoinNode::_prepare_probe_block() {
     // remove add nullmap of probe columns
     for (auto index : _probe_column_convert_to_null) {
         auto& column_type = _probe_block.safe_get_by_position(index);
-        DCHECK(column_type.column->is_nullable());
+        DCHECK(column_type.column->is_nullable() || is_column_const(*(column_type.column.get())));
         DCHECK(column_type.type->is_nullable());
 
         column_type.column = remove_nullable(column_type.column);
@@ -1198,6 +1231,11 @@ void HashJoinNode::_construct_mutable_join_block() {
 Status HashJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
+        if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
+        }
+    }
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
@@ -1213,7 +1251,7 @@ Status HashJoinNode::open(RuntimeState* state) {
     std::thread([this, state, thread_status_p = &thread_status,
                  parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
         OpentelemetryScope scope {parent_span};
-        this->_hash_table_build_thread(state, thread_status_p);
+        this->_probe_side_open_thread(state, thread_status_p);
     }).detach();
 
     // Open the probe-side child so that it may perform any initialisation in parallel.
@@ -1222,16 +1260,16 @@ Status HashJoinNode::open(RuntimeState* state) {
     // ISSUE-1247, check open_status after buildThread execute.
     // If this return first, build thread will use 'thread_status'
     // which is already destructor and then coredump.
-    Status open_status = child(0)->open(state);
+    Status status = _hash_table_build(state);
     RETURN_IF_ERROR(thread_status.get_future().get());
-    return open_status;
+    return status;
 }
 
-void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
+void HashJoinNode::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    status->set_value(_hash_table_build(state));
+    status->set_value(child(0)->open(state));
 }
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
@@ -1378,9 +1416,6 @@ bool HashJoinNode::_need_null_map(Block& block, const std::vector<int>& res_col_
 
 Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uint8_t offset) {
     SCOPED_TIMER(_build_table_timer);
-    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _convert_block_to_null(block);
-    }
     size_t rows = block.rows();
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
@@ -1392,6 +1427,9 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     ColumnUInt8::MutablePtr null_map_val;
     std::vector<int> res_col_ids(_build_expr_ctxs.size());
     RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
+    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+        _convert_block_to_null(block);
+    }
     // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
     //  so we have to initialize this flag by the first build block.
     if (!_has_set_need_null_map_for_build) {

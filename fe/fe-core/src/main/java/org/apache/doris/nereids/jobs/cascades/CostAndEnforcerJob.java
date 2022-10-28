@@ -122,6 +122,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
                 curNodeCost = CostCalculator.calculateCost(groupExpression);
+                groupExpression.setCost(curNodeCost);
                 curTotalCost += curNodeCost;
             }
 
@@ -192,6 +193,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 StatsCalculator.estimate(groupExpression);
                 curTotalCost -= curNodeCost;
                 curNodeCost = CostCalculator.calculateCost(groupExpression);
+                groupExpression.setCost(curNodeCost);
                 curTotalCost += curNodeCost;
 
                 // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },

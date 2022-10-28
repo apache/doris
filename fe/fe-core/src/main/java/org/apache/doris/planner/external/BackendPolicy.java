@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.qe.ConnectContext;
@@ -30,9 +31,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.Random;
 import java.util.Set;
 
 public class BackendPolicy {
@@ -58,17 +57,13 @@ public class BackendPolicy {
                 .needQueryAvailable()
                 .needLoadAvailable()
                 .addTags(tags)
+                .preferComputeNode()
+                .assignCandidateNum(Config.backend_num_for_federation)
                 .build();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (policy.isMatch(be)) {
-                backends.add(be);
-            }
-        }
+        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getIdToBackend().values()));
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
         }
-        Random random = new Random(System.currentTimeMillis());
-        Collections.shuffle(backends, random);
     }
 
     public Backend getNextBe() {

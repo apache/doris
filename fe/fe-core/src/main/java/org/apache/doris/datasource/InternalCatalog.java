@@ -142,6 +142,7 @@ import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
+import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -188,6 +189,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -885,6 +887,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        // TODO: impl real logic of drop multi-table MaterializedView here.
+        if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+            if (Env.getCurrentEnv().getMTMVJobManager().getJob(table.getName()) != null) {
+                long jobId = Env.getCurrentEnv().getMTMVJobManager().getJob(table.getName()).getId();
+                Env.getCurrentEnv().getMTMVJobManager().dropJobs(Collections.singletonList(jobId), false);
+            }
+        }
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
     }
@@ -2090,6 +2099,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             throw e;
+        }
+
+        // TODO: impl the real logic of create multi-table MaterializedView here.
+        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+            Env.getCurrentEnv().getMTMVJobManager().createJob(MTMVJobFactory.buildJob((MaterializedView) olapTable),
+                    false);
         }
     }
 

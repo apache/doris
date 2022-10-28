@@ -79,7 +79,7 @@ suite("test_csv_with_header") {
 
     sql "DROP TABLE IF EXISTS ${testTable}"
     def result1 = sql """
-            CREATE TABLE `${testTable}` (
+            CREATE TABLE IF NOT EXISTS `${testTable}` (
                 `event_day` date NULL COMMENT "",
                 `event_day1` datev2 NULL COMMENT "",
                 `event_day2` datetimev2 NULL COMMENT "",

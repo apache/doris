@@ -75,7 +75,6 @@ public:
     // Guarded by external lock.
     void set_sk(std::string sk) { _s3_conf.sk = std::move(sk); }
 
-private:
     std::string get_key(const Path& path) const;
 
 private:

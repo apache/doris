@@ -810,6 +810,9 @@ public class HiveMetaStoreClientHelper {
                 return Type.FLOAT;
             case "double":
                 return Type.DOUBLE;
+            case "string":
+            case "binary":
+                return Type.STRING;
             default:
                 break;
         }
@@ -847,9 +850,7 @@ public class HiveMetaStoreClientHelper {
             }
             return ScalarType.createDecimalType(precision, scale);
         }
-        // TODO: Handle unsupported types.
-        LOG.warn("Hive type {} may not supported yet, will use STRING instead.", hiveType);
-        return Type.STRING;
+        return Type.INVALID;
     }
 
     public static String showCreateTable(org.apache.hadoop.hive.metastore.api.Table remoteTable) {
@@ -923,3 +924,4 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 }
+

@@ -1,4 +1,4 @@
-CREATE TABLE visits
+CREATE TABLE IF NOT EXISTS visits
 (
     CounterID BIGINT,
     StartDate DATE,

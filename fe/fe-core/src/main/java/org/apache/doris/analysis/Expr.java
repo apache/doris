@@ -1207,6 +1207,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public Expr getRealSlotRef() {
+        return this;
+    }
+
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
         Preconditions.checkState(tableIdToColumnNames != null);
         for (Expr child : children) {

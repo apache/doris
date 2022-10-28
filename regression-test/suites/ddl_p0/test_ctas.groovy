@@ -34,8 +34,8 @@ suite("test_ctas") {
 
         sql """ INSERT INTO test_ctas(test_varchar, test_datetime) VALUES ('test1','2022-04-27 16:00:33'),('test2','2022-04-27 16:00:54') """
 
-        sql """ 
-    CREATE TABLE IF NOT EXISTS `test_ctas1` 
+        sql """
+    CREATE TABLE IF NOT EXISTS `test_ctas1`
     PROPERTIES (
       "replication_allocation" = "tag.location.default: 1",
       "in_memory" = "false",

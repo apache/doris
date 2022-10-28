@@ -55,7 +55,7 @@ public:
     const std::string& path() const { return _path; }
     size_t path_hash() const { return _path_hash; }
 
-    const io::FileSystemPtr& fs() const { return _fs; }
+    const io::FileSystemSPtr& fs() const { return _fs; }
 
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }
@@ -169,7 +169,7 @@ private:
     std::string _path;
     size_t _path_hash;
 
-    io::FileSystemPtr _fs;
+    io::FileSystemSPtr _fs;
     // user specified capacity
     int64_t _capacity_bytes;
     // the actual available capacity of the disk of this data dir

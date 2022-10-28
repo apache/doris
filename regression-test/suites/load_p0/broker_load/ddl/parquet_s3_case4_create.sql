@@ -1,4 +1,4 @@
-CREATE TABLE parquet_s3_case4 (
+CREATE TABLE IF NOT EXISTS parquet_s3_case4 (
     col1        int NOT NULL DEFAULT "1",
     col2        VARCHAR(55) NOT NULL DEFAULT "2",
     col3        VARCHAR(25) NOT NULL DEFAULT "3",

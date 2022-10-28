@@ -29,6 +29,8 @@ import org.apache.doris.planner.HashJoinNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +39,9 @@ import java.util.List;
  * Derive HashJoinNode statistics.
  */
 public class HashJoinStatsDerive extends BaseStatsDerive {
+
+    private static final Logger LOG = LogManager.getLogger(HashJoinStatsDerive.class);
+
     private JoinOperator joinOp;
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
 
@@ -60,7 +65,9 @@ public class HashJoinStatsDerive extends BaseStatsDerive {
         } else if (joinOp.isInnerJoin() || joinOp.isOuterJoin()) {
             rowCount = getJoinrowCount();
         } else {
-            Preconditions.checkState(false, "joinOp is not supported");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("joinOp:{} is not supported for HashJoinStatsDerive", joinOp);
+            }
         }
         capRowCountAtLimit();
         return rowCount;

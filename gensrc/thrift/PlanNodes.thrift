@@ -289,6 +289,8 @@ struct TFileScanRangeParams {
     14: optional list<Types.TNetworkAddress> broker_addresses
     15: optional TFileAttributes file_attributes
     16: optional Exprs.TExpr pre_filter_exprs
+    // For csv query task, same the column index in file, order by dest_tuple
+    17: optional list<i32> column_idxs
 }
 
 struct TFileRangeDesc {
@@ -304,6 +306,8 @@ struct TFileRangeDesc {
     5: optional i64 file_size;
     // columns parsed from file path should be after the columns read from file
     6: optional list<string> columns_from_path;
+    // column names from file path, in the same order with columns_from_path
+    7: optional list<string> columns_from_path_keys;
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

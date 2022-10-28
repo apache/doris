@@ -37,6 +37,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Alter policy
+ **/
 @Data
 public class AlterPolicyStmt extends DdlStmt {
     private final String policyName;
@@ -65,7 +68,8 @@ public class AlterPolicyStmt extends DdlStmt {
         }
 
         // check resource existence
-        List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr()
+                .getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
         Optional<Policy> hasPolicy = policiesByType.stream()
                 .filter(policy -> policy.getPolicyName().equals(this.policyName)).findAny();
         StoragePolicy storagePolicy = (StoragePolicy) hasPolicy.orElseThrow(

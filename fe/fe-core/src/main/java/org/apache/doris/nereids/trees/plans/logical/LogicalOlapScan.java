@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.mv.SelectRollupWithAggregate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -50,7 +49,7 @@ public class LogicalOlapScan extends LogicalRelation {
     private final boolean partitionPruned;
 
     private final List<Long> candidateIndexIds;
-    private final boolean rollupSelected;
+    private final boolean indexSelected;
 
     private final PreAggStatus preAggStatus;
 
@@ -74,7 +73,7 @@ public class LogicalOlapScan extends LogicalRelation {
     public LogicalOlapScan(RelationId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIdList, boolean partitionPruned, List<Long> candidateIndexIds,
-            boolean rollupSelected, PreAggStatus preAggStatus) {
+            boolean indexSelected, PreAggStatus preAggStatus) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties, selectedPartitionIdList);
         // TODO: use CBO manner to select best index id, according to index's statistics info,
@@ -87,7 +86,7 @@ public class LogicalOlapScan extends LogicalRelation {
         }
         this.partitionPruned = partitionPruned;
         this.candidateIndexIds = candidateIndexIds;
-        this.rollupSelected = rollupSelected;
+        this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
     }
 
@@ -128,18 +127,18 @@ public class LogicalOlapScan extends LogicalRelation {
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, candidateIndexIds, rollupSelected, preAggStatus);
+                selectedPartitionIds, partitionPruned, candidateIndexIds, indexSelected, preAggStatus);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
-                partitionPruned, candidateIndexIds, rollupSelected, preAggStatus);
+                partitionPruned, candidateIndexIds, indexSelected, preAggStatus);
     }
 
     public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
         return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionId, true, candidateIndexIds, rollupSelected, preAggStatus);
+                selectedPartitionId, true, candidateIndexIds, indexSelected, preAggStatus);
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, List<Long> candidateIndexIds) {
@@ -164,30 +163,17 @@ public class LogicalOlapScan extends LogicalRelation {
         return selectedIndexId;
     }
 
-    public boolean isRollupSelected() {
-        return rollupSelected;
+    public boolean isIndexSelected() {
+        return indexSelected;
     }
 
     public PreAggStatus getPreAggStatus() {
         return preAggStatus;
     }
 
-    /**
-     * Should apply {@link SelectRollupWithAggregate} or not.
-     */
-    public boolean shouldSelectRollup() {
-        switch (((OlapTable) table).getKeysType()) {
-            case AGG_KEYS:
-            case UNIQUE_KEYS:
-                return !rollupSelected;
-            default:
-                return false;
-        }
-    }
-
     @VisibleForTesting
-    public Optional<String> getSelectRollupName() {
-        return rollupSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
+    public Optional<String> getSelectedMaterializedIndexName() {
+        return indexSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
                 : Optional.empty();
     }
 }
