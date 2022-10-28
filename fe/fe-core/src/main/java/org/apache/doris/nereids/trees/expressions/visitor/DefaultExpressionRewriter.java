@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Default implementation for expression rewriting, delegating to child expressions and rewrite current root
  * when any one of its children changed.
@@ -27,6 +30,15 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
 
     @Override
     public Expression visit(Expression expr, C context) {
-        return expr.withChildren(child -> child.accept(this, context));
+        List<Expression> newChildren = new ArrayList<>();
+        boolean hasNewChildren = false;
+        for (Expression child : expr.children()) {
+            Expression newChild = child.accept(this, context);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            newChildren.add(newChild);
+        }
+        return hasNewChildren ? expr.withChildren(newChildren) : expr;
     }
 }

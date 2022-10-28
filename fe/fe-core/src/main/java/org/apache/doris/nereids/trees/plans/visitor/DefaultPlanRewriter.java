@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Default implementation for plan rewriting, delegating to child plans and rewrite current root
  * when any one of its children changed.
@@ -27,6 +30,15 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
 
     @Override
     public Plan visit(Plan plan, C context) {
-        return plan.withChildren(child -> child.accept(this, context));
+        List<Plan> newChildren = new ArrayList<>();
+        boolean hasNewChildren = false;
+        for (Plan child : plan.children()) {
+            Plan newChild = child.accept(this, context);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            newChildren.add(newChild);
+        }
+        return hasNewChildren ? plan.withChildren(newChildren) : plan;
     }
 }
