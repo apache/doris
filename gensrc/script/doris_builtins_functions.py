@@ -2065,6 +2065,11 @@ visible_functions = [
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['mask'], 'STRING', ['STRING', '...'], '', '', '', 'vec', ''],
+    [['mask_first_n'], 'STRING', ['STRING'], '', '', '', 'vec', ''],
+    [['mask_first_n'], 'STRING', ['STRING', 'INT'], '', '', '', 'vec', ''],
+    [['mask_last_n'], 'STRING', ['STRING'], '', '', '', 'vec', ''],
+    [['mask_last_n'], 'STRING', ['STRING', 'INT'], '', '', '', 'vec', ''],
     [['strleft', 'left'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions4leftEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
