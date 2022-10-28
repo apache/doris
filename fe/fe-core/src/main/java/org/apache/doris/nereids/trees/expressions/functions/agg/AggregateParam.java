@@ -84,12 +84,13 @@ public class AggregateParam {
             return false;
         }
         AggregateParam that = (AggregateParam) o;
-        return isDistinct == that.isDistinct && Objects.equals(inputTypesBeforeDissemble,
-                that.inputTypesBeforeDissemble);
+        return isDistinct == that.isDistinct
+                && Objects.equals(isGlobal, that.isGlobal)
+                && Objects.equals(inputTypesBeforeDissemble, that.inputTypesBeforeDissemble);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(isDistinct, inputTypesBeforeDissemble);
+        return Objects.hash(isDistinct, isGlobal, inputTypesBeforeDissemble);
     }
 }
