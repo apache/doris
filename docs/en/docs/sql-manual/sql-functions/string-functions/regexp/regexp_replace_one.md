@@ -51,4 +51,4 @@ mysql> SELECT regexp_replace_one('a b b','(b)','<\\1>');
 +----------------------------------------+
 ```
 ### keywords
-    REGEXP_REPLACE_ONE,REGEXP,REPLACE
+    REGEXP_REPLACE_ONE,REGEXP,REPLACE,ONE
