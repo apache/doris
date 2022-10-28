@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <hs/hs.h>
+
+#include <boost/container_hash/hash.hpp>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -27,9 +30,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <boost/container_hash/hash.hpp>
-#include <hs/hs.h>
 
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
@@ -48,14 +48,19 @@ struct HyperscanDeleter {
 };
 
 /// Helper unique pointers to correctly delete the allocated space when hyperscan cannot compile something and we throw an exception.
-using CompilerError = std::unique_ptr<hs_compile_error_t, HyperscanDeleter<decltype(&hs_free_compile_error), &hs_free_compile_error>>;
-using ScratchPtr = std::unique_ptr<hs_scratch_t, HyperscanDeleter<decltype(&hs_free_scratch), &hs_free_scratch>>;
-using DataBasePtr = std::unique_ptr<hs_database_t, HyperscanDeleter<decltype(&hs_free_database), &hs_free_database>>;
+using CompilerError =
+        std::unique_ptr<hs_compile_error_t,
+                        HyperscanDeleter<decltype(&hs_free_compile_error), &hs_free_compile_error>>;
+using ScratchPtr = std::unique_ptr<hs_scratch_t,
+                                   HyperscanDeleter<decltype(&hs_free_scratch), &hs_free_scratch>>;
+using DataBasePtr =
+        std::unique_ptr<hs_database_t,
+                        HyperscanDeleter<decltype(&hs_free_database), &hs_free_database>>;
 
 /// Database is thread safe across multiple threads and Scratch is not but we can copy it whenever we use it in the searcher.
 class Regexps {
 public:
-    Regexps(hs_database_t* db_, hs_scratch_t* scratch_) : db{db_}, scratch{scratch_} {}
+    Regexps(hs_database_t* db_, hs_scratch_t* scratch_) : db {db_}, scratch {scratch_} {}
 
     hs_database_t* getDB() const { return db.get(); }
     hs_scratch_t* getScratch() const { return scratch.get(); }
@@ -68,12 +73,11 @@ private:
 class DeferredConstructedRegexps {
 public:
     explicit DeferredConstructedRegexps(std::function<Regexps()> constructor_)
-        : constructor(std::move(constructor_)) {}
+            : constructor(std::move(constructor_)) {}
 
     Regexps* get() {
         std::lock_guard lock(mutex);
-        if (regexps)
-            return &*regexps;
+        if (regexps) return &*regexps;
         regexps = constructor();
         return &*regexps;
     }
@@ -87,7 +91,8 @@ private:
 using DeferredConstructedRegexpsPtr = std::shared_ptr<DeferredConstructedRegexps>;
 
 template <bool save_indices, bool WithEditDistance>
-inline Regexps constructRegexps(const std::vector<String>& str_patterns, [[maybe_unused]] std::optional<UInt32> edit_distance) {
+inline Regexps constructRegexps(const std::vector<String>& str_patterns,
+                                [[maybe_unused]] std::optional<UInt32> edit_distance) {
     /// Common pointers
     std::vector<const char*> patterns;
     std::vector<unsigned int> flags;
@@ -133,8 +138,7 @@ inline Regexps constructRegexps(const std::vector<String>& str_patterns, [[maybe
     /// We mark the patterns to provide the callback results.
     if constexpr (save_indices) {
         ids.reset(new unsigned int[patterns.size()]);
-        for (size_t i = 0; i < patterns.size(); ++i)
-            ids[i] = static_cast<unsigned>(i + 1);
+        for (size_t i = 0; i < patterns.size(); ++i) ids[i] = static_cast<unsigned>(i + 1);
     }
 
     for (auto& pattern : patterns) {
@@ -143,26 +147,13 @@ inline Regexps constructRegexps(const std::vector<String>& str_patterns, [[maybe
 
     hs_error_t err;
     if constexpr (!WithEditDistance)
-        err = hs_compile_multi(
-            patterns.data(),
-            flags.data(),
-            ids.get(),
-            static_cast<unsigned>(patterns.size()),
-            HS_MODE_BLOCK,
-            nullptr,
-            &db,
-            &compile_error);
+        err = hs_compile_multi(patterns.data(), flags.data(), ids.get(),
+                               static_cast<unsigned>(patterns.size()), HS_MODE_BLOCK, nullptr, &db,
+                               &compile_error);
     else
-        err = hs_compile_ext_multi(
-            patterns.data(),
-            flags.data(),
-            ids.get(),
-            ext_exprs_ptrs.data(),
-            static_cast<unsigned>(patterns.size()),
-            HS_MODE_BLOCK,
-            nullptr,
-            &db,
-            &compile_error);
+        err = hs_compile_ext_multi(patterns.data(), flags.data(), ids.get(), ext_exprs_ptrs.data(),
+                                   static_cast<unsigned>(patterns.size()), HS_MODE_BLOCK, nullptr,
+                                   &db, &compile_error);
 
     if (err != HS_SUCCESS) {
         /// CompilerError is a unique_ptr, so correct memory free after the exception is thrown.
@@ -172,17 +163,16 @@ inline Regexps constructRegexps(const std::vector<String>& str_patterns, [[maybe
             LOG(FATAL) << "Logical error: " + String(error->message);
         else
             LOG(FATAL) << "Bad arguments: Pattern " + str_patterns[error->expression] +
-                    "failed with error " + String(error->message);
+                                  "failed with error " + String(error->message);
     }
 
     /// We allocate the scratch space only once, then copy it across multiple threads with hs_clone_scratch
     /// function which is faster than allocating scratch space each time in each thread.
-    hs_scratch_t * scratch = nullptr;
+    hs_scratch_t* scratch = nullptr;
     err = hs_alloc_scratch(db, &scratch);
 
     /// If not HS_SUCCESS, it is guaranteed that the memory would not be allocated for scratch.
-    if (err != HS_SUCCESS)
-        LOG(FATAL) << "Could not allocate scratch space for hyperscan";
+    if (err != HS_SUCCESS) LOG(FATAL) << "Could not allocate scratch space for hyperscan";
 
     return {db, scratch};
 }
@@ -195,8 +185,8 @@ struct GlobalCacheTable {
     constexpr static size_t CACHE_SIZE = 500; /// collision probability
 
     struct Bucket {
-        std::vector<String> patterns;     /// key
-        std::optional<UInt32> edit_distance;   /// key
+        std::vector<String> patterns;        /// key
+        std::optional<UInt32> edit_distance; /// key
         /// The compiled patterns and their state (vectorscan 'database' + scratch space) are wrapped in a shared_ptr. Refcounting guarantees
         /// that eviction of a pattern does not affect parallel threads still using the pattern.
         DeferredConstructedRegexpsPtr regexps; /// value
@@ -205,10 +195,10 @@ struct GlobalCacheTable {
     std::mutex mutex;
     std::array<Bucket, CACHE_SIZE> known_regexps;
 
-    static size_t getBucketIndexFor(const std::vector<String> patterns, std::optional<UInt32> edit_distance) {
+    static size_t getBucketIndexFor(const std::vector<String> patterns,
+                                    std::optional<UInt32> edit_distance) {
         size_t hash = 0;
-        for (const auto &pattern : patterns)
-            boost::hash_combine(hash, pattern);
+        for (const auto& pattern : patterns) boost::hash_combine(hash, pattern);
         boost::hash_combine(hash, edit_distance);
         return hash % CACHE_SIZE;
     }
@@ -217,13 +207,14 @@ struct GlobalCacheTable {
 /// If WithEditDistance is False, edit_distance must be nullopt. Also, we use templates here because each instantiation of function template
 /// has its own copy of local static variables which must not be the same for different hyperscan compilations.
 template <bool save_indices, bool WithEditDistance>
-inline DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patterns, std::optional<UInt32> edit_distance) {
-    static GlobalCacheTable pool; /// Different variables for different pattern parameters, thread-safe in C++11
+inline DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patterns,
+                                              std::optional<UInt32> edit_distance) {
+    static GlobalCacheTable
+            pool; /// Different variables for different pattern parameters, thread-safe in C++11
 
     std::vector<String> str_patterns;
     str_patterns.reserve(patterns.size());
-    for (const auto& pattern : patterns)
-        str_patterns.emplace_back(pattern.to_string());
+    for (const auto& pattern : patterns) str_patterns.emplace_back(pattern.to_string());
 
     size_t bucket_idx = GlobalCacheTable::getBucketIndexFor(str_patterns, edit_distance);
 
@@ -241,16 +232,18 @@ inline DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patt
 
     if (bucket.regexps == nullptr) [[unlikely]] {
         /// insert new entry
-        auto deferred_constructed_regexps = std::make_shared<DeferredConstructedRegexps>(
-                [str_patterns, edit_distance]() {
-                    return constructRegexps<save_indices, WithEditDistance>(str_patterns, edit_distance);
+        auto deferred_constructed_regexps =
+                std::make_shared<DeferredConstructedRegexps>([str_patterns, edit_distance]() {
+                    return constructRegexps<save_indices, WithEditDistance>(str_patterns,
+                                                                            edit_distance);
                 });
         bucket = {std::move(str_patterns), edit_distance, deferred_constructed_regexps};
     } else if (bucket.patterns != str_patterns || bucket.edit_distance != edit_distance) {
         /// replace existing entry
-        auto deferred_constructed_regexps = std::make_shared<DeferredConstructedRegexps>(
-                [str_patterns, edit_distance]() {
-                    return constructRegexps<save_indices, WithEditDistance>(str_patterns, edit_distance);
+        auto deferred_constructed_regexps =
+                std::make_shared<DeferredConstructedRegexps>([str_patterns, edit_distance]() {
+                    return constructRegexps<save_indices, WithEditDistance>(str_patterns,
+                                                                            edit_distance);
                 });
         bucket = {std::move(str_patterns), edit_distance, deferred_constructed_regexps};
     }

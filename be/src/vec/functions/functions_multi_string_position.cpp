@@ -55,15 +55,21 @@ public:
         ColumnPtr haystack_ptr = block.get_by_position(arguments[0]).column;
         ColumnPtr needles_ptr = block.get_by_position(arguments[1]).column;
 
-        const ColumnString* col_haystack_vector = check_and_get_column<ColumnString>(&*haystack_ptr);
-        const ColumnConst* col_haystack_const = check_and_get_column_const<ColumnString>(&*haystack_ptr);
+        const ColumnString* col_haystack_vector =
+                check_and_get_column<ColumnString>(&*haystack_ptr);
+        const ColumnConst* col_haystack_const =
+                check_and_get_column_const<ColumnString>(&*haystack_ptr);
 
-        const ColumnArray* col_needles_vector = check_and_get_column<ColumnArray>(needles_ptr.get());
-        const ColumnConst* col_needles_const = check_and_get_column_const<ColumnArray>(needles_ptr.get());
+        const ColumnArray* col_needles_vector =
+                check_and_get_column<ColumnArray>(needles_ptr.get());
+        const ColumnConst* col_needles_const =
+                check_and_get_column_const<ColumnArray>(needles_ptr.get());
 
         if (col_haystack_const && col_needles_vector)
             return Status::InvalidArgument(
-                "function '{}' doesn't support search with non-constant needles in constant haystack", name);
+                    "function '{}' doesn't support search with non-constant needles "
+                    "in constant haystack",
+                    name);
 
         using ResultType = typename Impl::ResultType;
         auto col_res = ColumnVector<ResultType>::create();
@@ -74,19 +80,16 @@ public:
 
         Status status;
         if (col_needles_const)
-            status = Impl::vector_constant(col_haystack_vector->get_chars(),
-                                           col_haystack_vector->get_offsets(),
-                                           col_needles_const->get_value<Array>(),
-                                           vec_res, offsets_res);
+            status = Impl::vector_constant(
+                    col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
+                    col_needles_const->get_value<Array>(), vec_res, offsets_res);
         else
             status = Impl::vector_vector(col_haystack_vector->get_chars(),
                                          col_haystack_vector->get_offsets(),
                                          col_needles_vector->get_data(),
-                                         col_needles_vector->get_offsets(),
-                                         vec_res, offsets_res);
+                                         col_needles_vector->get_offsets(), vec_res, offsets_res);
 
-        if (!status.ok())
-            return status;
+        if (!status.ok()) return status;
 
         auto nullable_col =
                 ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_res->size(), 0));
@@ -104,21 +107,21 @@ struct FunctionMultiSearchAllPositionsImpl {
 
     static Status vector_constant(const ColumnString::Chars& haystack_data,
                                   const ColumnString::Offsets& haystack_offsets,
-                                  const Array& needles_arr,
-                                  PaddedPODArray<Int32>& vec_res,
+                                  const Array& needles_arr, PaddedPODArray<Int32>& vec_res,
                                   PaddedPODArray<UInt64>& offsets_res) {
         if (needles_arr.size() > std::numeric_limits<UInt8>::max())
             return Status::InvalidArgument(
-                    "number of arguments for function {} doesn't match: passed {}, should be at most 255",
+                    "number of arguments for function {} doesn't match: "
+                    "passed {}, should be at most 255",
                     name, needles_arr.size());
 
         std::vector<StringRef> needles;
         needles.reserve(needles_arr.size());
-        for (const auto& needle : needles_arr)
-            needles.emplace_back(needle.get<StringRef>());
+        for (const auto& needle : needles_arr) needles.emplace_back(needle.get<StringRef>());
 
         auto res_callback = [](const UInt8* start, const UInt8* end) -> Int32 {
-            return 1 + Impl::count_chars(reinterpret_cast<const char*>(start), reinterpret_cast<const char*>(end));
+            return 1 + Impl::count_chars(reinterpret_cast<const char*>(start),
+                                         reinterpret_cast<const char*>(end));
         };
 
         auto searcher = Impl::create_multi_searcher(needles);
@@ -160,13 +163,15 @@ struct FunctionMultiSearchAllPositionsImpl {
         size_t prev_needles_offset = 0;
 
         auto res_callback = [](const UInt8* start, const UInt8* end) -> Int32 {
-            return 1 + Impl::count_chars(reinterpret_cast<const char*>(start), reinterpret_cast<const char*>(end));
+            return 1 + Impl::count_chars(reinterpret_cast<const char*>(start),
+                                         reinterpret_cast<const char*>(end));
         };
 
         offsets_res.reserve(haystack_offsets.size());
 
         auto& nested_column =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(needles_data)->get_nested_column();
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(needles_data)
+                        ->get_nested_column();
         const ColumnString* needles_data_string = check_and_get_column<ColumnString>(nested_column);
 
         std::vector<StringRef> needles;
@@ -180,7 +185,8 @@ struct FunctionMultiSearchAllPositionsImpl {
             const size_t needles_size = needles.size();
             if (needles_size > std::numeric_limits<UInt8>::max())
                 return Status::InvalidArgument(
-                        "number of arguments for function {} doesn't match: passed {}, should be at most 255", 
+                        "number of arguments for function {} doesn't match: "
+                        "passed {}, should be at most 255",
                         name, needles_size);
 
             vec_res.resize(vec_res.size() + needles_size);
@@ -192,7 +198,8 @@ struct FunctionMultiSearchAllPositionsImpl {
             while (searcher.hasMoreToSearch()) {
                 const auto* haystack = &haystack_data[prev_haystack_offset];
                 const auto* haystack_end = haystack + haystack_offsets[i] - prev_haystack_offset;
-                searcher.searchOneAll(haystack, haystack_end, &vec_res[vec_res.size() - needles_size], res_callback);
+                searcher.searchOneAll(haystack, haystack_end,
+                                      &vec_res[vec_res.size() - needles_size], res_callback);
             }
 
             if (offsets_res.empty())
