@@ -69,12 +69,42 @@ public class JoinEstimation {
         public double rowCount = 0;
     }
 
-    private static double estimateInnerJoinV2(Join join, EqualTo equalto,
+    private static double getBuildSideSelectivity(EqualTo equalTo, StatsDeriveResult buildStats) {
+        SlotReference buildSlot = (SlotReference) equalTo.child(0).getInputSlots().toArray()[0];
+        ColumnStat buildSlotStat = buildStats.getColumnStatsBySlot(buildSlot);
+        if (buildSlotStat != null) {
+            return buildSlotStat.getSelectivity();
+        }
+        buildSlot = (SlotReference) equalTo.child(1).getInputSlots().toArray()[0];
+        buildSlotStat = buildStats.getColumnStatsBySlot(buildSlot);
+        if (buildSlotStat != null) {
+            return buildSlotStat.getSelectivity();
+        }
+        //TODO: handle exception
+        return 1.0;
+    }
+
+    private static double getSlotNdvFromEqualTo(EqualTo equalTo, StatsDeriveResult stats) {
+        SlotReference buildSlot = (SlotReference) equalTo.child(0).getInputSlots().toArray()[0];
+        ColumnStat buildSlotStat = stats.getColumnStatsBySlot(buildSlot);
+        if (buildSlotStat != null) {
+            return buildSlotStat.getNdv();
+        }
+        buildSlot = (SlotReference) equalTo.child(1).getInputSlots().toArray()[0];
+        buildSlotStat = stats.getColumnStatsBySlot(buildSlot);
+        if (buildSlotStat != null) {
+            return buildSlotStat.getNdv();
+        }
+        //TODO: handle exception
+        return 1.0;
+    }
+
+    private static double estimateInnerJoinV2(Join join, EqualTo equalTo,
             StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
-        SlotReference eqRight = (SlotReference) equalto.child(1).getInputSlots().toArray()[0];
+        SlotReference eqRight = (SlotReference) equalTo.child(1).getInputSlots().toArray()[0];
 
         ColumnStat rColumnStats = rightStats.getSlotToColumnStats().get(eqRight);
-        SlotReference eqLeft = (SlotReference) equalto.child(0).getInputSlots().toArray()[0];
+        SlotReference eqLeft = (SlotReference) equalTo.child(0).getInputSlots().toArray()[0];
 
         if (rColumnStats == null) {
             rColumnStats = rightStats.getSlotToColumnStats().get(eqLeft);
@@ -147,6 +177,18 @@ public class JoinEstimation {
         return result;
     }
 
+    //private static double estimateSemiJoin(double probeRowCount, double buildRowCount, double buildSelectivity) {
+    //    return probeRowCount * (buildSelectivity * (Math.atan(Math.log10(buildRowCount)) / 3.142 + 0.5));
+    //}
+
+    private static double estimateLeftSemiJoin(double probeRowCount, double probeNdv, double buildNdv) {
+        return probeRowCount * 0.5 * (Math.atan(buildNdv) / 3.142);
+    }
+
+    private static double estimateLeftSemiJoinSelectivity(List<Expression> otherJoinConditions, double x) {
+        return Math.pow(FilterEstimation.DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY, otherJoinConditions.size());
+    }
+
     /**
      * estimate join
      */
@@ -154,9 +196,28 @@ public class JoinEstimation {
         JoinType joinType = join.getJoinType();
         double rowCount = Double.MAX_VALUE;
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
-            rowCount = leftStats.getRowCount();
+            double rightCount = rightStats.getRowCount();
+            double leftCount = leftStats.getRowCount();
+            if (join.getHashJoinConjuncts().isEmpty()) {
+                rowCount = joinType == JoinType.LEFT_SEMI_JOIN ? leftCount : 0;
+            } else {
+                EqualTo equalTo = (EqualTo) join.getHashJoinConjuncts().get(0);
+                double leftNdv = getSlotNdvFromEqualTo(equalTo, leftStats);
+                double rightNdv = getSlotNdvFromEqualTo(equalTo, rightStats);
+                rowCount = leftCount * rightCount;
+            }
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
-            rowCount = rightStats.getRowCount();
+            double rightCount = rightStats.getRowCount();
+            double leftCount = leftStats.getRowCount();
+            if (join.getHashJoinConjuncts().isEmpty()) {
+                rowCount = joinType == JoinType.RIGHT_SEMI_JOIN ? rightCount : 0;
+            } else {
+                EqualTo equalTo = (EqualTo) join.getHashJoinConjuncts().get(0);
+                double leftNdv = getSlotNdvFromEqualTo(equalTo, leftStats);
+                double rightNdv = getSlotNdvFromEqualTo(equalTo, rightStats);
+                rowCount = rightCount + leftCount;
+            }
+
         } else if (joinType == JoinType.INNER_JOIN) {
             if (join.getHashJoinConjuncts().isEmpty()) {
                 //TODO: consider other join conjuncts
