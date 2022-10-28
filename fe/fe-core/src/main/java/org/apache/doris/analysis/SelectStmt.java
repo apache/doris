@@ -1410,7 +1410,6 @@ public class SelectStmt extends QueryStmt {
                 rewriter.rewriteList(oriGroupingExprs, analyzer);
                 // after rewrite, need reset the analyze status for later re-analyze
                 for (Expr expr : oriGroupingExprs) {
-                    expr.reset();
                     if (!(expr instanceof SlotRef)) {
                         expr.reset();
                     }
