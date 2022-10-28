@@ -40,6 +40,10 @@ public class TransformEvent extends Event {
         this.ruleType = ruleType;
     }
 
+    public GroupExpression getGroupExpression() {
+        return groupExpression;
+    }
+
     @Override
     public String toString() {
         return "TransformEvent{"

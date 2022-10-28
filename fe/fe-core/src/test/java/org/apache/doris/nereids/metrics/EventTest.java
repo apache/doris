@@ -18,6 +18,10 @@
 package org.apache.doris.nereids.metrics;
 
 import org.apache.doris.nereids.metrics.event.CounterEvent;
+import org.apache.doris.nereids.metrics.event.EnforcerEvent;
+import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
+import org.apache.doris.nereids.metrics.event.MemoTransformEvent;
+import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -36,13 +40,17 @@ public class EventTest extends TestWithFeService {
     private List<EventProducer> producers;
     private final List<Event> events = ImmutableList.of(
             new CounterEvent(0, 0, CounterType.PLAN_CONSTRUCTOR, null, null, null),
-            new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE)
+            new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE),
+            new EnforcerEvent(null, null, null, null),
+            new GroupMergeEvent(null, null, null),
+            new MemoTransformEvent(0, 1, null),
+            new StatsStateEvent(null, null)
     );
 
     private final StringBuilder builder = new StringBuilder();
     private final PrintStream printStream = new PrintStream(new OutputStream() {
         @Override
-        public void write(int b) throws IOException {
+        public void write(int b) {
             builder.append((char) b);
         }
     });
@@ -54,11 +62,19 @@ public class EventTest extends TestWithFeService {
         channel = new EventChannel(
                 ImmutableList.of(
                         new PrintConsumer(CounterEvent.class, printStream),
-                        new PrintConsumer(TransformEvent.class, printStream)),
+                        new PrintConsumer(TransformEvent.class, printStream),
+                        new PrintConsumer(EnforcerEvent.class, printStream),
+                        new PrintConsumer(GroupMergeEvent.class, printStream),
+                        new PrintConsumer(MemoTransformEvent.class, printStream)),
                 ImmutableList.of(
                         new EventFilter(CounterEvent.class),
                         new EventFilter(CounterEvent.class),
-                        new EventFilter(TransformEvent.class))
+                        new EventFilter(TransformEvent.class) {
+                            @Override
+                            public Event checkEvent(Event event) {
+                                return ((TransformEvent) event).getGroupExpression() == null ? null : event;
+                            }
+                        })
         );
         channel.start();
         producers = ImmutableList.of(
