@@ -396,6 +396,9 @@
                                 "sql-manual/sql-functions/string-functions/money_format",
                                 "sql-manual/sql-functions/string-functions/parse_url",
                                 "sql-manual/sql-functions/string-functions/extract_url_parameter",
+                                "sql-manual/sql-functions/string-functions/mask/mask",
+                                "sql-manual/sql-functions/string-functions/mask/mask_first_n",
+                                "sql-manual/sql-functions/string-functions/mask/mask_last_n",
                                 {
                                     "type": "category",
                                     "label": "Fuzzy Match",
