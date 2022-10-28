@@ -250,7 +250,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 throw new RuntimeException("Unsupported yet");
         }
         currentFragment.setPlanRoot(aggregationNode);
-        aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
+        if (aggregate.getStats() != null) {
+            aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
+        }
         return currentFragment;
     }
 
@@ -438,7 +440,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode childNode = childFragment.getPlanRoot();
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true);
         sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
-        sortNode.setCardinality((long) sort.getStats().getRowCount());
+        if (sort.getStats() != null) {
+            sortNode.setCardinality((long) sort.getStats().getRowCount());
+        }
         childFragment.addPlanRoot(sortNode);
         return childFragment;
     }
@@ -660,7 +664,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hashJoinNode.setvOutputTupleDesc(outputDescriptor);
             hashJoinNode.setvSrcToOutputSMap(srcToOutput);
         }
-        hashJoinNode.setCardinality((long) hashJoin.getStats().getRowCount());
+        if (hashJoin.getStats() != null) {
+            hashJoinNode.setCardinality((long) hashJoin.getStats().getRowCount());
+        }
         return currentFragment;
     }
 
@@ -685,7 +691,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextPlanNodeId(),
                     leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds);
-            crossJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
+            if (nestedLoopJoin.getStats() != null) {
+                crossJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
+            }
             rightFragment.getPlanRoot().setCompactData(false);
             crossJoinNode.setChild(0, leftFragment.getPlanRoot());
             connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);
