@@ -397,7 +397,7 @@ Status TabletMeta::deserialize(const string& meta_binary) {
     return Status::OK();
 }
 
-void TabletMeta::init_rs_metas_fs(const io::FileSystemPtr& fs) {
+void TabletMeta::init_rs_metas_fs(const io::FileSystemSPtr& fs) {
     for (auto& rs_meta : _rs_metas) {
         if (rs_meta->is_local()) {
             rs_meta->set_fs(fs);
