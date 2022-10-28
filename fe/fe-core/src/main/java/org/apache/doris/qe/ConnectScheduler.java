@@ -193,6 +193,7 @@ public class ConnectScheduler {
                     return;
                 }
 
+                context.setUserQueryTimeout(context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser()));
                 context.setStartTime();
                 ConnectProcessor processor = new ConnectProcessor(context);
                 processor.loop();

@@ -48,7 +48,7 @@ Status VOdbcTableSink::open(RuntimeState* state) {
 
     // create writer
     _writer.reset(new ODBCConnector(_odbc_param));
-    RETURN_IF_ERROR(_writer->open());
+    RETURN_IF_ERROR(_writer->open(state));
     if (_use_transaction) {
         RETURN_IF_ERROR(_writer->begin_trans());
     }

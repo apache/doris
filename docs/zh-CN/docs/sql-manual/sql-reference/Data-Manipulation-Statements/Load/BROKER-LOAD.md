@@ -72,6 +72,7 @@ WITH BROKER broker_name
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
+  [PROPERTIES ("key1"="value1", ...)]
   ```
 
   - `[MERGE|APPEND|DELETE]`
@@ -127,6 +128,10 @@ WITH BROKER broker_name
   - `ORDER BY`
 
     仅针对 Unique Key 模型的表。用于指定导入数据中表示 Sequence Col 的列。主要用于导入时保证数据顺序。
+
+  - `PROPERTIES ("key1"="value1", ...)`
+
+    指定导入的format的一些参数。如导入的文件是`json`格式，则可以在这里指定`json_root`、`jsonpaths`、`fuzzy_parse`等参数。
 
 - `WITH BROKER broker_name`
 
@@ -403,6 +408,56 @@ WITH BROKER broker_name
    ```
 
    `my_table` 必须是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
+
+10. 从 HDFS 导入一批数据，指定文件格式为 `json` 并指定 `json_root`、`jsonpaths`
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.city, $.code]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+    ```
+
+    `jsonpaths` 可与 `column list` 及 `SET (column_mapping)`配合：
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (id, code, city)
+        SET (id = id * 10)
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.code, $.city]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+    ```
 
 ### Keywords
 

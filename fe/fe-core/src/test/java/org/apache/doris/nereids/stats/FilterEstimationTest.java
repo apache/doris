@@ -88,7 +88,10 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(or);
         Assertions.assertTrue(
-                Precision.equals((0.5 * 0.1 + 0.1 / 0.3 - 0.5 * 0.1 * 0.1 / 0.3) * 1000, expected.getRowCount(), 0.01));
+                Precision.equals((0.5 * 0.1
+                        + FilterEstimation.DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY
+                        - 0.5 * 0.1 * FilterEstimation.DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY) * 1000,
+                        expected.getRowCount(), 0.01));
     }
 
     // a >= 500
