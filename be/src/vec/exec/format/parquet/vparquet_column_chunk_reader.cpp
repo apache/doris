@@ -199,19 +199,6 @@ Status ColumnChunkReader::skip_values(size_t num_values, bool skip_data) {
     }
 }
 
-void ColumnChunkReader::insert_null_values(ColumnPtr& doris_column, size_t num_values) {
-    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    DCHECK_GE(_remaining_num_values, num_values);
-    CHECK(doris_column->is_nullable());
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-            (*std::move(doris_column)).mutate().get());
-    MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    for (int i = 0; i < num_values; ++i) {
-        data_column->insert_default();
-    }
-    _remaining_num_values -= num_values;
-}
-
 void ColumnChunkReader::insert_null_values(MutableColumnPtr& doris_column, size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     doris_column->insert_many_defaults(num_values);
@@ -228,24 +215,24 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
     return _def_level_decoder.get_levels(levels, n);
 }
 
-Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, DataTypePtr& data_type,
-                                        size_t num_values) {
-    if (UNLIKELY(_remaining_num_values < num_values)) {
-        return Status::IOError("Decode too many values in current page");
-    }
-    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    _remaining_num_values -= num_values;
-    return _page_decoder->decode_values(doris_column, data_type, num_values);
-}
-
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                        size_t num_values) {
+                                        RunLengthNullMap& null_map) {
+    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+    size_t num_nulls = 0;
+    size_t num_values = 0;
+    bool is_null = false;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            num_nulls += run_length;
+        }
+        num_values += run_length;
+        is_null = !is_null;
+    }
     if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
-    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     _remaining_num_values -= num_values;
-    return _page_decoder->decode_values(doris_column, data_type, num_values);
+    return _page_decoder->decode_values(doris_column, data_type, null_map, num_values, num_nulls);
 }
 
 int32_t ColumnChunkReader::_get_type_length() {
