@@ -58,7 +58,7 @@ suite("test_explain_tpch_sf_1_q1") {
 				"  |  STREAMING\n" + 
 				"  |  output: sum(`l_quantity`), sum(`l_extendedprice`), sum(`l_extendedprice` * (1 - `l_discount`)), sum(`l_extendedprice` * (1 - `l_discount`) * (1 + `l_tax`)), avg(`l_quantity`), avg(`l_extendedprice`), avg(`l_discount`), count(*)\n" + 
 				"  |  group by: `l_returnflag`, `l_linestatus`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipdate` <= '1998-09-02 00:00:00'") 
             
         }

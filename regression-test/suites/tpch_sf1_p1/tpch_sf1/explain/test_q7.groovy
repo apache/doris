@@ -107,18 +107,18 @@ suite("test_explain_tpch_sf_1_q7") {
 		explainStr.contains("vec output tuple id: 9") && 
 		explainStr.contains("output slot ids: 27 28 29 31 33 \n" + 
 				"  |  hash output slot ids: 2 3 4 8 11 ") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipdate` >= '1995-01-01 00:00:00', `l_shipdate` <= '1996-12-31 00:00:00'\n" + 
 				"     runtime filters: RF003[in_or_bloom] -> <slot 8>, RF004[in_or_bloom] -> `l_suppkey`") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: (`n2`.`n_name` = 'FRANCE' OR `n2`.`n_name` = 'GERMANY')") && 
-		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.customer(customer), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 13>") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: (`n1`.`n_name` = 'FRANCE' OR `n1`.`n_name` = 'GERMANY')") && 
-		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF001[in_or_bloom] -> <slot 10>") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF002[in_or_bloom] -> <slot 11>")
             
         }
