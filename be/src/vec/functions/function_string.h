@@ -642,6 +642,11 @@ public:
     }
 };
 
+
+/**
+ * very important can copy
+ * 
+*/
 class FunctionStringConcat : public IFunction {
 public:
     static constexpr auto name = "concat";
@@ -1399,23 +1404,23 @@ private:
     }
 public:
     static constexpr auto name = "split_by_char";
+
     static FunctionPtr create() { return std::make_shared<FunctionSplitByChar>(); }
+
     String get_name() const override { return name; }
+
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+        return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
     }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 2);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        //auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto col_res = ColumnArray::create(ColumnString::create());
 
         auto& res_data = typeid_cast<ColumnString &>(col_res->get_data());
@@ -1423,8 +1428,6 @@ public:
 
         auto& res_data_chars = res_data.get_chars();
         auto& res_data_offsets = res_data.get_offsets();
-
-        //auto& null_map_data = null_map->get_data();
 
         res_data_offsets.resize(input_rows_count);
 
@@ -1435,21 +1438,25 @@ public:
         ColumnPtr argument_columns[argument_size];
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
         }
+
         auto str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
-        
+
+
+
+        // ColumnString::Offset current_src_offset = 0;
+        // ColumnArray::Offset current_dst_offset = 0;
+        // ColumnString::Offset current_dst_strings_offset = 0;
+        //int32 current_src_offset = 0;
+
+        int32 current_dst_offset = 0;
+        int32 current_dst_strings_offset = 0;
         /**
          * 取出列元素中的每一行(delimiter,str)，并且进行相关的操作
         */
         for (size_t i = 0; i < input_rows_count; ++i) {    
+            int32 j = 0;
             auto delimiter = delimiter_col->get_data_at(i);
             auto delimiter_str = delimiter_col->get_data_at(i).to_string();
             auto str = str_col->get_data_at(i);
@@ -1460,22 +1467,21 @@ public:
                 std::vector<int> v_offset;
                 std::vector<int> v_charlen;
                 getOffsetsAndLen(str_col->get_data_at(i).to_string(), delimiter_str, v_offset, v_charlen);
-                for (size_t i = 0; i < v_offset.size(); i++) {
-                    StringOP::push_value_string1(
-                            std::string_view {
-                                    reinterpret_cast<const char*>(str.data + v_offset[i] + 1),
-                                    (size_t)v_charlen[i] - 1},
-                            i, res_data_chars, res_data_offsets);
-                    //res_data_offsets.emplace_back(v_charlen[i]);
-                }
-                res_offsets.emplace_back(v_offset.size()); 
 
-            }
-             
+                for (size_t i = 0; i < v_offset.size(); i++) {
+                    res_data_chars.resize(res_data_chars.size() + v_charlen[i] + 1);
+                    memcpy(&res_data_offsets[current_dst_strings_offset], &str + v_offset[i], v_charlen[i]);
+                    res_data_chars[current_dst_strings_offset + v_charlen[i]] = 0;
+
+                    current_dst_strings_offset += v_charlen[i] + 1;
+                    res_data_offsets.push_back(current_dst_strings_offset);
+                    ++j;
+                }
+                current_dst_offset += j;
+                res_offsets.push_back(current_dst_offset);
+            }           
         }
-        block.replace_by_position(result, std::move(col_res));
-        //block.get_by_position(result).column = ColumnNullable::create(std::move(col_res));
-        //block.get_by_position(std::move(col_res));
+        block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
     }
 };
