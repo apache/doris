@@ -44,7 +44,7 @@ public class GroupExpression {
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;
-    private final ImmutableList<Group> children;
+    private ImmutableList<Group> children;
     private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
@@ -103,6 +103,10 @@ public class GroupExpression {
 
     public List<Group> children() {
         return children;
+    }
+
+    public void setChildren(ImmutableList<Group> children) {
+        this.children = children;
     }
 
     /**

@@ -387,13 +387,15 @@ public class Memo {
         }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
-            List<Group> children = groupExpression.children();
+            List<Group> children = new ArrayList<>(groupExpression.children());
             // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
                     children.set(i, destination);
                 }
             }
+            groupExpression.setChildren(ImmutableList.copyOf(children));
+
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
