@@ -29,6 +29,7 @@
 #include "common/config.h"
 #include "gutil/once.h"
 #include "gutil/strings/substitute.h"
+#include "libjvm_loader.h"
 
 using std::string;
 
@@ -67,7 +68,7 @@ const std::string GetDorisJNIClasspath() {
 
 void FindOrCreateJavaVM() {
     int num_vms;
-    int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
+    int rv = LibJVMLoader::JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
     if (rv == 0) {
         auto classpath = GetDorisJNIClasspath();
         std::string heap_size = fmt::format("-Xmx{}", config::jvm_max_heap_size);
@@ -91,7 +92,7 @@ void FindOrCreateJavaVM() {
         // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
         vm_args.ignoreUnrecognized = JNI_FALSE;
 
-        jint res = JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
+        jint res = LibJVMLoader::JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
@@ -213,6 +214,8 @@ Status JniUtil::LocalToGlobalRef(JNIEnv* env, jobject local_ref, jobject* global
 }
 
 Status JniUtil::Init() {
+    RETURN_IF_ERROR(LibJVMLoader::instance().load());
+
     // Get the JNIEnv* corresponding to current thread.
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));

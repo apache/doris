@@ -127,6 +127,10 @@ if (OS_MACOSX)
     list(APPEND UTIL_FILES perf_counters_mac.cpp disk_info_mac.cpp)
 endif()
 
+if (BUILD_JAVA_UDF)
+    list(APPEND UTIL_FILES libjvm_loader.cpp)
+endif()
+
 add_library(Util STATIC
     ${UTIL_FILES}
 )
