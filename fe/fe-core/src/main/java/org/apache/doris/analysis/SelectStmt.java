@@ -1052,6 +1052,9 @@ public class SelectStmt extends QueryStmt {
         countAllMap = ExprSubstitutionMap.compose(multiCountOrSumDistinctMap, countAllMap, analyzer);
         List<Expr> substitutedAggs =
                 Expr.substituteList(aggExprs, countAllMap, analyzer, false);
+        // the resultExprs must substitute in the same way as aggExprs
+        // then resultExprs can be substitute correctly using combinedSmap
+        resultExprs = Expr.substituteList(resultExprs, countAllMap, analyzer, false);
         aggExprs.clear();
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);
 
