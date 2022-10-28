@@ -120,7 +120,7 @@ endif()
 # Set Boost
 set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
-set(BOOST_ROOT ${THIRDPARTY_DIR})
+set(Boost_ROOT ${THIRDPARTY_DIR})
 set(Boost_NO_BOOST_CMAKE OFF)
 set(BOOST_VERSION "1.73.0")
 
