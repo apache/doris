@@ -82,7 +82,7 @@ public:
     }
 
     // This method may return nullptr.
-    io::FileSystemPtr fs() {
+    io::FileSystemSPtr fs() {
         if (!_fs) {
             if (is_local()) {
                 return io::global_local_filesystem();
@@ -94,7 +94,7 @@ public:
         return _fs;
     }
 
-    void set_fs(io::FileSystemPtr fs) { _fs = std::move(fs); }
+    void set_fs(io::FileSystemSPtr fs) { _fs = std::move(fs); }
 
     const io::ResourceId& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
@@ -396,7 +396,7 @@ private:
     RowsetMetaPB _rowset_meta_pb;
     TabletSchemaSPtr _schema = nullptr;
     RowsetId _rowset_id;
-    io::FileSystemPtr _fs;
+    io::FileSystemSPtr _fs;
     bool _is_removed_from_rowset_meta = false;
 };
 

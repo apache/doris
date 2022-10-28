@@ -70,7 +70,7 @@ struct RowsetWriterContext {
     int64_t tablet_schema_hash;
     int64_t partition_id;
     RowsetTypePB rowset_type;
-    io::FileSystemPtr fs = nullptr;
+    io::FileSystemSPtr fs = nullptr;
     std::string rowset_dir = "";
     TabletSchemaSPtr tablet_schema;
     // PREPARED/COMMITTED for pending rowset
