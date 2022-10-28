@@ -155,13 +155,17 @@ public:
     IntCounter* local_file_reader_total;
     IntCounter* s3_file_reader_total;
     IntCounter* local_file_writer_total;
+    IntCounter* s3_file_writer_total;
     IntCounter* file_created_total;
+    IntCounter* s3_file_created_total;
     IntCounter* local_bytes_read_total;
     IntCounter* s3_bytes_read_total;
     IntCounter* local_bytes_written_total;
+    IntCounter* s3_bytes_written_total;
     IntGauge* local_file_open_reading;
     IntGauge* s3_file_open_reading;
     IntGauge* local_file_open_writing;
+    IntGauge* s3_file_open_writing;
 
     // Size of some global containers
     UIntGauge* rowset_count_generated_and_in_use;
