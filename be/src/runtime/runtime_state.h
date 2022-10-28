@@ -20,20 +20,13 @@
 
 #pragma once
 
-#include <atomic>
 #include <fstream>
-#include <memory>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <vector>
 
 #include "cctz/time_zone.h"
 #include "common/global_types.h"
 #include "common/object_pool.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
-#include "runtime/mem_pool.h"
 #include "runtime/query_fragments_ctx.h"
 #include "runtime/thread_resource_mgr.h"
 #include "util/runtime_profile.h"
@@ -329,6 +322,13 @@ public:
 
     bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
 
+    int be_exec_version() const {
+        if (!_query_options.__isset.be_exec_version) {
+            return 0;
+        }
+        return _query_options.be_exec_version;
+    }
+
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
     }
@@ -341,7 +341,7 @@ public:
         return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
-    segment_v2::CompressionTypePB fragement_transmission_compression_type() {
+    segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
                 return segment_v2::CompressionTypePB::LZ4;
