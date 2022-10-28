@@ -15,25 +15,24 @@
 # specific language governing permissions and limitations
 # under the License.
 #!/bin/bash
-source ../conf/mysql.conf
-source ../conf/doris.conf
+source ../conf/e_table.conf
 
 #mkdir files to store tables and tables.sql
-mkdir -p ../result
+mkdir -p ../result/mysql
 
 #The default path is ../result/mysql_to_doris.sql for create table sql
-path=${1:-../result/mysql_to_doris.sql}
+path=${1:-../result/mysql/mysql_to_doris.sql}
 
 #delete sql file if it is exists
 rm -f $path
 
 
 #get create table sql for mysql
-for table in $(cat ../conf/mysql_tables |grep -v '#' | awk -F '\n' '{print $1}')
+for table in $(cat ../conf/mysql_tables |grep -v '#' | awk -F '\n' '{print $1}' | sed 's/ //g' | sed '/^$/d')
         do
-        d_d=`echo $table` |awk -F '.' '{print $1}'
-        d_t=`echo $table` |awk -F '.' '{print $2}'
-        echo "show create table \`$d_d\`.\`$d_t\`;" |mysql -h$mysql_host -uroot -p$mysql_password  >> $path
+        m_d=`echo $table | awk -F '.' '{print $1}'`
+        m_t=`echo $table | awk -F '.' '{print $2}'`
+        echo "show create table \`$m_d\`.\`$m_t\`;" |mysql -h$mysql_host -uroot -p$mysql_password  >> $path
 done
 
 #adjust sql
@@ -52,7 +51,7 @@ mv ../result/tmp222.sql $path
 
 #start transform tables struct
 sed -i '/ENGINE=/a) ENGINE=ODBC\n COMMENT "ODBC"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "3306",\n"user" = "root",\n"password" = "ApacheDorisHostPassword",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables",\n"driver" = "MySQL",\n"odbc_type" = "mysql");' $path
-sed -i "s/\"driver\" = \"MySQL\"/\"driver\" = \"$doris_odbc_name\"/g" $path
+sed -i "s/\"driver\" = \"MySQL\"/\"driver\" = \"$mysql_odbc_name\"/g" $path
 
 
 #delete match line
@@ -68,7 +67,7 @@ sed -i -e '$!N;/\n.*ENGINE=ODBC/!P;D' $path
 
 
 
-for t_name in $(cat ../conf/mysql_tables |grep -v '#' | awk -F '\n' '{print $1}')
+for t_name in $(cat ../conf/mysql_tables |grep -v '#' | awk -F '\n' '{print $1}'| sed 's/ //g' | sed '/^$/d')
         do
         d=`echo $t_name | awk -F '.' '{print $1}'`
         t=`echo $t_name | awk -F '.' '{print $2}'`
@@ -85,15 +84,15 @@ sh ../lib/mysql_to_doris.sh $path
 
 #get an orderly table name and add if not exists statement
 x=0
-for table in $(cat ../conf/doris_tables |grep -v '#' | awk -F '\n' '{print $1}')
+for table in $(cat ../conf/doris_tables |grep -v '#' |sed 's/ //g' | sed '/^$/d')
         do
         let x++
-        d_t=`cat ../conf/mysql_tables |grep -v '#' | awk "NR==$x{print}" |awk -F '.' '{print $2}'`
-        sed -i "s/TABLE \`$d_t\`/TABLE if not exists $table/g" $path
+        d_t=`cat ../conf/mysql_tables |grep -v '#' | awk "NR==$x{print}" |awk -F '.' '{print $2}' |sed 's/ //g'`
+        sed -i "s/TABLE \`$d_t\`/TABLE IF NOT EXISTS $table/g" $path
 done
 
 #create database
-for d_doris in $(cat ../conf/doris_tables |grep -v '#' | awk -F '\n' '{print $1}' |awk -F '.' '{print $1}' |sort -u)
+for d_doris in $(cat ../conf/doris_tables |grep -v '#' | awk -F '\n' '{print $1}' |awk -F '.' '{print $1}' | sed 's/ //g' | sed '/^$/d'|sort -u)
 do
                 sed -i "1icreate database if not exists $d_doris;" $path
 done
