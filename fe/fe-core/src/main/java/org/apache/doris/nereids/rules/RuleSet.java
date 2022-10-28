@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
@@ -66,6 +67,7 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(new AggregateDisassemble())
             .add(new PushdownFilterThroughProject())
             .add(new MergeProjects())
