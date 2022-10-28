@@ -51,6 +51,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(this::typeChecker)
+                .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child()))
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
                     LogicalProject abProject = topSemi.left();
@@ -71,12 +72,18 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                             }
                     );
                     LogicalJoin newBottomSemi = new LogicalJoin(topSemi.getJoinType(), topSemi.getHashJoinConjuncts(),
-                            topSemi.getOtherJoinConjuncts(), a, c);
+                            topSemi.getOtherJoinConjuncts(), a, c,
+                            bottomSemi.getJoinReorderContext());
+                    newBottomSemi.getJoinReorderContext().setHasCommute(false);
+                    newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
                     LogicalProject acProject = new LogicalProject(acProjects.stream().collect(Collectors.toList()),
                             newBottomSemi);
                     LogicalJoin newTopSemi = new LogicalJoin(bottomSemi.getJoinType(),
                             bottomSemi.getHashJoinConjuncts(), bottomSemi.getOtherJoinConjuncts(),
-                            acProject, b);
+                            acProject, b,
+                            topSemi.getJoinReorderContext());
+                    newTopSemi.getJoinReorderContext().setHasLAsscom(true);
+                    //return newTopSemi;
                     if (topSemi.getLogicalProperties().equals(newTopSemi)) {
                         return newTopSemi;
                     } else {

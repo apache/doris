@@ -69,36 +69,6 @@ public class JoinEstimation {
         public double rowCount = 0;
     }
 
-    private static double getBuildSideSelectivity(EqualTo equalTo, StatsDeriveResult buildStats) {
-        SlotReference buildSlot = (SlotReference) equalTo.child(0).getInputSlots().toArray()[0];
-        ColumnStat buildSlotStat = buildStats.getColumnStatsBySlot(buildSlot);
-        if (buildSlotStat != null) {
-            return buildSlotStat.getSelectivity();
-        }
-        buildSlot = (SlotReference) equalTo.child(1).getInputSlots().toArray()[0];
-        buildSlotStat = buildStats.getColumnStatsBySlot(buildSlot);
-        if (buildSlotStat != null) {
-            return buildSlotStat.getSelectivity();
-        }
-        //TODO: handle exception
-        return 1.0;
-    }
-
-    private static double getSlotNdvFromEqualTo(EqualTo equalTo, StatsDeriveResult stats) {
-        SlotReference buildSlot = (SlotReference) equalTo.child(0).getInputSlots().toArray()[0];
-        ColumnStat buildSlotStat = stats.getColumnStatsBySlot(buildSlot);
-        if (buildSlotStat != null) {
-            return buildSlotStat.getNdv();
-        }
-        buildSlot = (SlotReference) equalTo.child(1).getInputSlots().toArray()[0];
-        buildSlotStat = stats.getColumnStatsBySlot(buildSlot);
-        if (buildSlotStat != null) {
-            return buildSlotStat.getNdv();
-        }
-        //TODO: handle exception
-        return 1.0;
-    }
-
     private static double estimateInnerJoinV2(Join join, EqualTo equalTo,
             StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
         SlotReference eqRight = (SlotReference) equalTo.child(1).getInputSlots().toArray()[0];
@@ -177,16 +147,8 @@ public class JoinEstimation {
         return result;
     }
 
-    //private static double estimateSemiJoin(double probeRowCount, double buildRowCount, double buildSelectivity) {
-    //    return probeRowCount * (buildSelectivity * (Math.atan(Math.log10(buildRowCount)) / 3.142 + 0.5));
-    //}
-
-    private static double estimateLeftSemiJoin(double probeRowCount, double probeNdv, double buildNdv) {
-        return probeRowCount * 0.5 * (Math.atan(buildNdv) / 3.142);
-    }
-
-    private static double estimateLeftSemiJoinSelectivity(List<Expression> otherJoinConditions, double x) {
-        return Math.pow(FilterEstimation.DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY, otherJoinConditions.size());
+    private static double estimateLeftSemiJoin(double leftCount, double rightCount) {
+        return leftCount - leftCount / Math.max(2, rightCount);
     }
 
     /**
@@ -201,10 +163,7 @@ public class JoinEstimation {
             if (join.getHashJoinConjuncts().isEmpty()) {
                 rowCount = joinType == JoinType.LEFT_SEMI_JOIN ? leftCount : 0;
             } else {
-                EqualTo equalTo = (EqualTo) join.getHashJoinConjuncts().get(0);
-                double leftNdv = getSlotNdvFromEqualTo(equalTo, leftStats);
-                double rightNdv = getSlotNdvFromEqualTo(equalTo, rightStats);
-                rowCount = leftCount * rightCount;
+                rowCount = estimateLeftSemiJoin(leftCount, rightCount);
             }
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
             double rightCount = rightStats.getRowCount();
@@ -212,10 +171,7 @@ public class JoinEstimation {
             if (join.getHashJoinConjuncts().isEmpty()) {
                 rowCount = joinType == JoinType.RIGHT_SEMI_JOIN ? rightCount : 0;
             } else {
-                EqualTo equalTo = (EqualTo) join.getHashJoinConjuncts().get(0);
-                double leftNdv = getSlotNdvFromEqualTo(equalTo, leftStats);
-                double rightNdv = getSlotNdvFromEqualTo(equalTo, rightStats);
-                rowCount = rightCount + leftCount;
+                rowCount = estimateLeftSemiJoin(rightCount, leftCount);
             }
 
         } else if (joinType == JoinType.INNER_JOIN) {
