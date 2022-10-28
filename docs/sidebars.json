@@ -370,6 +370,7 @@
                                 "sql-manual/sql-functions/string-functions/concat_ws",
                                 "sql-manual/sql-functions/string-functions/substr",
                                 "sql-manual/sql-functions/string-functions/substring",
+                                "sql-manual/sql-functions/string-functions/sub_replace",
                                 "sql-manual/sql-functions/string-functions/append_trailing_char_if_absent",
                                 "sql-manual/sql-functions/string-functions/ends_with",
                                 "sql-manual/sql-functions/string-functions/starts_with",

@@ -139,4 +139,7 @@ suite("test_string_function") {
     qt_sql "select substr('a',-1,1);"
     qt_sql "select substr('a',-2,1);"
     qt_sql "select substr('a',-3,1);"
+
+    qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
+    qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
 }
