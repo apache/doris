@@ -269,7 +269,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st = block.serialize(request.mutable_block(), &uncompressed_bytes, &compressed_bytes,
+        Status st = block.serialize(state->be_exec_version(), request.mutable_block(),
+                                    &uncompressed_bytes, &compressed_bytes,
                                     state->fragement_transmission_compression_type(),
                                     _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {

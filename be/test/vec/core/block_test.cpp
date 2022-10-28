@@ -23,6 +23,7 @@
 #include <iostream>
 #include <string>
 
+#include "agent/be_exec_version_manager.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/data.pb.h"
 #include "runtime/row_batch.h"
@@ -186,7 +187,8 @@ void block_to_pb(
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes, compression_type);
+    Status st = block.serialize(BeExecVersionManager::get_newest_version(), pblock,
+                                &uncompressed_bytes, &compressed_bytes, compression_type);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
