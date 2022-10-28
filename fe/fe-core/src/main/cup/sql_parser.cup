@@ -444,6 +444,7 @@ terminal String
     KW_MINUTE,
     KW_MODIFY,
     KW_MONTH,
+    KW_MULTI,
     KW_NAME,
     KW_NAMES,
     KW_NATURAL,
@@ -780,8 +781,8 @@ nonterminal List<List<PartitionValue>> list_partition_values_list;
 nonterminal SinglePartitionDesc single_partition_desc;
 nonterminal List<SinglePartitionDesc> opt_single_partition_desc_list;
 nonterminal List<SinglePartitionDesc> single_partition_desc_list;
-nonterminal List<SinglePartitionDesc> opt_multi_partition_desc_list;
-nonterminal List<SinglePartitionDesc> multi_partition_desc_list;
+nonterminal List<MultiPartition> opt_multi_partition_desc_list;
+nonterminal List<MultiPartition> multi_partition_desc_list;
 nonterminal PartitionKeyDesc fixed_multi_partition_key_desc;
 nonterminal MultiPartition multi_partition_desc;
 
@@ -2823,7 +2824,7 @@ opt_partition ::=
         RESULT = new ListPartitionDesc(columns, list);
     :}
     /* Multi partition */
-    | KW_PARTITION KW_BY KW_LIST LPAREN ident_list:columns RPAREN
+    | KW_PARTITION KW_BY KW_MULTI LPAREN ident_list:columns RPAREN
             LPAREN opt_multi_partition_desc_list:list RPAREN
     {:
         RESULT = new MultiPartitionDesc(columns, list).getRangePartitionDesc();
@@ -2928,8 +2929,8 @@ multi_partition_desc_list ::=
 
 
 fixed_multi_partition_key_desc ::=
-    // START (lower) END (upper) EVERY (INTERVAL time_interval time_type),
-    KW_START LPAREN partition_key_list:lower RPAREN KW_END LPAREN partition_key_list:upper RPAREN KW_EVERY LPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_type RPAREN
+    // START (lower) END (upper) EVERY (time_interval time_type),
+    KW_START LPAREN partition_key_list:lower RPAREN KW_END LPAREN partition_key_list:upper RPAREN KW_EVERY LPAREN INTEGER_LITERAL:time_interval ident:time_type RPAREN
     {:
         RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_type);
     :}

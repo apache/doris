@@ -17,14 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.nereids.util.DateUtils;
+
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -37,11 +38,12 @@ import java.util.Map;
 
 // to describe the key list partition's information in create table stmt
 public class MultiPartition {
-
-    public static final String HOUR_FORMAT = "yyyyMMddHH";
-
-    public static final String DATE_FORMAT = "yyyyMMdd";
-    public static final String MONTH_FORMAT = "yyyyMM";
+    public static final String HOURS_FORMAT = "yyyyMMddHH";
+    public static final String HOUR_FORMAT = "yyyy-MM-dd HH";
+    public static final String DATES_FORMAT = "yyyyMMdd";
+    public static final String DATE_FORMAT = "yyyy-MM-dd";
+    public static final String MONTHS_FORMAT = "yyyyMM";
+    public static final String MONTH_FORMAT = "yyyy-MM";
     public static final String YEAR_FORMAT = "yyyy";
     public static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
@@ -55,46 +57,39 @@ public class MultiPartition {
     private DateTimeFormatter endDateTimeFormat;
 
 
-    private Integer timeInterval;
+    private Long timeInterval;
     private final PartitionKeyDesc partitionKeyDesc;
     private TimestampArithmeticExpr.TimeUnit timeUnitType;
     private final Map<String, String> properties;
     private final List<SinglePartitionDesc> singlePartitionDescList = Lists.newArrayList();
 
     private final ImmutableSet<TimestampArithmeticExpr.TimeUnit> timeUnitTypeMultiPartition = ImmutableSet.of(
-        TimestampArithmeticExpr.TimeUnit.HOUR,
-        TimestampArithmeticExpr.TimeUnit.DAY,
-        TimestampArithmeticExpr.TimeUnit.WEEK,
-        TimestampArithmeticExpr.TimeUnit.MONTH,
-        TimestampArithmeticExpr.TimeUnit.YEAR
+            TimestampArithmeticExpr.TimeUnit.HOUR,
+            TimestampArithmeticExpr.TimeUnit.DAY,
+            TimestampArithmeticExpr.TimeUnit.WEEK,
+            TimestampArithmeticExpr.TimeUnit.MONTH,
+            TimestampArithmeticExpr.TimeUnit.YEAR
     );
 
     private final Integer maxAllowedLimit = Config.max_multi_partition_num;
-
-
 
     public MultiPartition(PartitionKeyDesc partitionKeyDesc,
                           Map<String, String> properties) throws AnalysisException {
         this.partitionKeyDesc = partitionKeyDesc;
         this.properties = properties;
-        this.timeTrans();
         this.timeIntervalTrans();
+        this.timeTrans();
     }
 
-    public List<SinglePartitionDesc> getSinglePartitionDescList() {
-
-       // MultiPartition to List<SinglePartitionDesc>
+    public List<SinglePartitionDesc> getSinglePartitionDescList() throws AnalysisException {
+        // MultiPartition to List<SinglePartitionDesc>
         //        PARTITION START ("2021-05-01") END ("2021-05-04") EVERY (INTERVAL 1 DAY)
         //        ->
         //        PARTITION p20210501 VALUES [('2021-05-01'), ('2021-05-02')),
         //        PARTITION p20210502 VALUES [('2021-05-02'), ('2021-05-03')),
         //        PARTITION p20210503 VALUES [('2021-05-03'), ('2021-05-04'))
-        if(singlePartitionDescList.size()==0) {
-            try {
-                buildMultiPartitionToSinglePartitionDescs();
-            } catch (AnalysisException e) {
-                throw new RuntimeException(e);
-            }
+        if (singlePartitionDescList.size() == 0) {
+            buildMultiPartitionToSinglePartitionDescs();
         }
         return singlePartitionDescList;
     }
@@ -127,7 +122,7 @@ public class MultiPartition {
             }
 
             if (properties.containsKey(DynamicPartitionProperty.CREATE_HISTORY_PARTITION)) {
-                properties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION,"false");
+                properties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, "false");
             }
             if (properties.containsKey(DynamicPartitionProperty.PREFIX)) {
                 partitionPrefix = properties.get(DynamicPartitionProperty.PREFIX);
@@ -143,23 +138,24 @@ public class MultiPartition {
             PartitionValue lowerPartitionValue = new PartitionValue(startTime.format(startDateTimeFormat));
             switch (this.timeUnitType) {
                 case HOUR:
-                    partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(HOUR_FORMAT));
+                    partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(HOURS_FORMAT));
                     startTime = startTime.plusHours(timeInterval);
                     break;
                 case DAY:
-                    partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(DATE_FORMAT));
+                    partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(DATES_FORMAT));
                     startTime = startTime.plusDays(timeInterval);
                     break;
                 case WEEK:
                     LocalDate localDate = LocalDate.of(startTime.getYear(), startTime.getMonthValue(),
-                        startTime.getDayOfMonth());
+                            startTime.getDayOfMonth());
                     int weekOfYear = localDate.get(weekFields.weekOfYear());
-                    partitionName = String.format("%s%s_%02d", partitionPrefix, startTime.format(DateTimeFormatter.ofPattern(YEAR_FORMAT)), weekOfYear);
+                    partitionName = String.format("%s%s_%02d", partitionPrefix,
+                            startTime.format(DateTimeFormatter.ofPattern(YEAR_FORMAT)), weekOfYear);
                     startTime = startTime.with(ChronoField.DAY_OF_WEEK, dayOfMonth);
                     startTime = startTime.plusWeeks(timeInterval);
                     break;
                 case MONTH:
-                    partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(MONTH_FORMAT));
+                    partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(MONTHS_FORMAT));
                     startTime = startTime.withDayOfMonth(dayOfMonth);
                     startTime = startTime.plusMonths(timeInterval);
                     break;
@@ -169,15 +165,18 @@ public class MultiPartition {
                     startTime = startTime.plusYears(timeInterval);
                     break;
                 default:
-                    throw new AnalysisException("Batch build partition does not support time interval type: " +
-                        this.timeUnitType);
+                    throw new AnalysisException("Multi build partition does not support time interval type: "
+                            + this.timeUnitType);
             }
             if (this.timeUnitType != TimestampArithmeticExpr.TimeUnit.DAY && startTime.isAfter(this.endTime)) {
                 startTime = this.endTime;
             }
 
             PartitionValue upperPartitionValue = new PartitionValue(startTime.format(startDateTimeFormat));
-            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(Lists.newArrayList(lowerPartitionValue), Lists.newArrayList(upperPartitionValue));
+            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(lowerPartitionValue),
+                    Lists.newArrayList(upperPartitionValue)
+            );
             singlePartitionDescList.add(
                 new SinglePartitionDesc(
                     false,
@@ -188,7 +187,8 @@ public class MultiPartition {
 
             countNum++;
             if (countNum > maxAllowedLimit) {
-                throw new AnalysisException("The number of batch partitions should not exceed:" + maxAllowedLimit);
+                throw new AnalysisException("The number of Multi partitions too much, should not exceed:"
+                        + maxAllowedLimit);
             }
         }
         return singlePartitionDescList;
@@ -196,27 +196,26 @@ public class MultiPartition {
 
     private void timeTrans() throws AnalysisException {
 
-        if(partitionKeyDesc.getLowerValues().size()!=1 || partitionKeyDesc.getUpperValues().size()!=1){
-            throw new AnalysisException("Batch build partition column size must be one " +
-                "but START column size is "+ partitionKeyDesc.getLowerValues().size() +
-                ", END column size is "+ partitionKeyDesc.getUpperValues().size() + ".");
+        if (partitionKeyDesc.getLowerValues().size() != 1 || partitionKeyDesc.getUpperValues().size() != 1) {
+            throw new AnalysisException("Multi build partition column size must be one "
+                    + "but START column size is " + partitionKeyDesc.getLowerValues().size()
+                    + ", END column size is " + partitionKeyDesc.getUpperValues().size() + ".");
         }
 
         String startString = partitionKeyDesc.getLowerValues().get(0).getStringValue();
         String endString = partitionKeyDesc.getUpperValues().get(0).getStringValue();
 
         try {
-            this.startDateTimeFormat = dateFormat(startString);
-            this.endDateTimeFormat = dateFormat(endString);
+            this.startDateTimeFormat = dateFormat(this.timeUnitType, startString);
+            this.endDateTimeFormat = dateFormat(this.timeUnitType, endString);
             this.startTime = DateUtils.formatDateTimeAndFullZero(startString, startDateTimeFormat);
             this.endTime = DateUtils.formatDateTimeAndFullZero(endString, endDateTimeFormat);
         } catch (Exception e) {
-            throw new AnalysisException("Batch build partition EVERY is date type " +
-                "but START or END does not type match.");
+            throw new AnalysisException("Multi build partition START or END time style is illegal.");
         }
 
         if (!this.startTime.isBefore(this.endTime)) {
-            throw new AnalysisException("Batch build partition start date should less than end date.");
+            throw new AnalysisException("Multi build partition start time should less than end time.");
         }
     }
 
@@ -225,27 +224,80 @@ public class MultiPartition {
         this.timeInterval = partitionKeyDesc.getTimeInterval();
         String timeType = partitionKeyDesc.getTimeType();
         if (timeType == null) {
-            throw new AnalysisException("Unknown timeunit for batch build partition.");
+            throw new AnalysisException("Unknown time interval type for Multi build partition.");
         }
         if (this.timeInterval <= 0) {
-            throw new AnalysisException("Batch partition every clause mush be larger than zero.");
+            throw new AnalysisException("Multi partition every clause mush be larger than zero.");
         }
-        this.timeUnitType = TimestampArithmeticExpr.TimeUnit.valueOf(timeType);
-        if ( !timeUnitTypeMultiPartition.contains(this.timeUnitType)) {
-            throw new AnalysisException("Batch build partition does not support time interval type: " + this.timeUnitType);
+        try {
+            this.timeUnitType = TimestampArithmeticExpr.TimeUnit.valueOf(timeType);
+        } catch (Exception e) {
+            throw new AnalysisException("Multi build partition got an unknow time interval type: "
+                    + timeType);
+        }
+        if (!timeUnitTypeMultiPartition.contains(this.timeUnitType)) {
+            throw new AnalysisException("Multi build partition does not support time interval type: "
+                    + this.timeUnitType);
         }
     }
 
-    private static DateTimeFormatter dateFormat(String dateTimeStr) throws AnalysisException {
-        if (dateTimeStr.length() == 8) {
-            return DateTimeFormatter.ofPattern(DATE_FORMAT);
-        } else if (dateTimeStr.length() == 10) {
-            return DateTimeFormatter.ofPattern(DATE_FORMAT);
-        } else if (dateTimeStr.length() == 19) {
-            return DateTimeFormatter.ofPattern(DATETIME_FORMAT);
-        } else {
-            throw new AnalysisException("can not probe datetime format:" + dateTimeStr);
+    private static DateTimeFormatter dateFormat(TimestampArithmeticExpr.TimeUnit timeUnitType,
+            String dateTimeStr) throws AnalysisException {
+        DateTimeFormatter res;
+        switch (timeUnitType) {
+            case HOUR:
+                if (dateTimeStr.length() == 10) {
+                    res = DateTimeFormatter.ofPattern(HOURS_FORMAT);
+                } else if (dateTimeStr.length() == 13) {
+                    res = DateTimeFormatter.ofPattern(HOUR_FORMAT);
+                } else if (dateTimeStr.length() == 19) {
+                    res = DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+                } else {
+                    throw new AnalysisException("can not probe datetime(hour) format:" + dateTimeStr);
+                }
+                break;
+            case DAY: case WEEK:
+                if (dateTimeStr.length() == 8) {
+                    res = DateTimeFormatter.ofPattern(DATES_FORMAT);
+                } else if (dateTimeStr.length() == 10) {
+                    res = DateTimeFormatter.ofPattern(DATE_FORMAT);
+                } else if (dateTimeStr.length() == 19) {
+                    res = DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+                } else {
+                    throw new AnalysisException("can not probe datetime(day or week) format:" + dateTimeStr);
+                }
+                break;
+            case MONTH:
+                if (dateTimeStr.length() == 6) {
+                    res = DateTimeFormatter.ofPattern(MONTHS_FORMAT);
+                } else if (dateTimeStr.length() == 7) {
+                    res = DateTimeFormatter.ofPattern(MONTH_FORMAT);
+                } else if (dateTimeStr.length() == 10) {
+                    res = DateTimeFormatter.ofPattern(DATE_FORMAT);
+                } else if (dateTimeStr.length() == 19) {
+                    res = DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+                } else {
+                    throw new AnalysisException("can not probe datetime(month) format:" + dateTimeStr);
+                }
+                break;
+            case YEAR:
+                if (dateTimeStr.length() == 4) {
+                    res = DateTimeFormatter.ofPattern(YEAR_FORMAT);
+                } else if (dateTimeStr.length() == 8) {
+                    res = DateTimeFormatter.ofPattern(DATES_FORMAT);
+                } else if (dateTimeStr.length() == 10) {
+                    res = DateTimeFormatter.ofPattern(DATE_FORMAT);
+                } else if (dateTimeStr.length() == 19) {
+                    res = DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+                } else {
+                    throw new AnalysisException("can not probe datetime(year) format:" + dateTimeStr);
+                }
+                break;
+            default:
+                throw new AnalysisException("Multi build partition does not support time interval type: "
+                        + timeUnitType);
         }
+        return res;
     }
 
 }

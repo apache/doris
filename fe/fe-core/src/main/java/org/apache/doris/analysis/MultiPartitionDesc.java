@@ -17,18 +17,27 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.Lists;
+
 import java.util.List;
 
 // to describe the key list partition's information in create table stmt
 public class MultiPartitionDesc {
 
-
     private RangePartitionDesc rangePartitionDesc;
 
     public MultiPartitionDesc(List<String> partitionColNames,
-                              List<MultiPartition> multiPartitionDescs) {
-        this.rangePartitionDesc = new RangePartitionDesc(partitionColNames,multiPartitionDescsToSinglePartitionDescs(multiPartitionDescs));
+                              List<MultiPartition> multiPartitionDescs) throws AnalysisException {
+        if (partitionColNames.size() != 1) {
+            throw new AnalysisException("multi partition column size except 1 but provided "
+                    + partitionColNames.size() + ".");
+        }
+        this.rangePartitionDesc = new RangePartitionDesc(
+            partitionColNames,
+            multiPartitionDescsToSinglePartitionDescs(multiPartitionDescs)
+        );
     }
 
 
@@ -36,7 +45,8 @@ public class MultiPartitionDesc {
         return this.rangePartitionDesc;
     }
 
-    private List<SinglePartitionDesc> multiPartitionDescsToSinglePartitionDescs(List<MultiPartition> multiPartitions){
+    private List<SinglePartitionDesc> multiPartitionDescsToSinglePartitionDescs(List<MultiPartition> multiPartitions)
+            throws AnalysisException {
         List<SinglePartitionDesc> res = Lists.newArrayList();
         for (MultiPartition multiPartition : multiPartitions) {
             res.addAll(multiPartition.getSinglePartitionDescList());

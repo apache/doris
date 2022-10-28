@@ -151,15 +151,24 @@ public class DateUtils {
         return builder;
     }
 
+    /**
+     * format string DateTime  And Full Zero for hour,minute,second
+     */
     public static LocalDateTime formatDateTimeAndFullZero(String datetime, DateTimeFormatter formatter) {
         TemporalAccessor temporal = formatter.parse(datetime);
-        if (
-            temporal.isSupported(ChronoField.HOUR_OF_DAY)
-                && temporal.isSupported(ChronoField.MINUTE_OF_HOUR)
-                && temporal.isSupported(ChronoField.SECOND_OF_MINUTE)
-        ) return LocalDateTime.from(temporal);
-        return LocalDateTime.of(LocalDate.from(temporal), LocalTime.of(0, 0, 0));
+        int year = temporal.isSupported(ChronoField.YEAR)
+                ? temporal.get(ChronoField.YEAR) : 0;
+        int month = temporal.isSupported(ChronoField.MONTH_OF_YEAR)
+                ? temporal.get(ChronoField.MONTH_OF_YEAR) : 1;
+        int day = temporal.isSupported(ChronoField.DAY_OF_MONTH)
+                ? temporal.get(ChronoField.DAY_OF_MONTH) : 1;
+        int hour = temporal.isSupported(ChronoField.HOUR_OF_DAY)
+                ? temporal.get(ChronoField.HOUR_OF_DAY) : 0;
+        int minute = temporal.isSupported(ChronoField.MINUTE_OF_HOUR)
+                ? temporal.get(ChronoField.MINUTE_OF_HOUR) : 0;
+        int second = temporal.isSupported(ChronoField.SECOND_OF_MINUTE)
+                ? temporal.get(ChronoField.SECOND_OF_MINUTE) : 0;
+        return LocalDateTime.of(LocalDate.of(year, month, day), LocalTime.of(hour, minute, second));
     }
-
 
 }

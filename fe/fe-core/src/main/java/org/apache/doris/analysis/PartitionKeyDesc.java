@@ -41,7 +41,7 @@ public class PartitionKeyDesc {
     private List<List<PartitionValue>> inValues;
     private PartitionKeyValueType partitionKeyValueType;
 
-    private Integer timeInterval;
+    private Long timeInterval;
     private String timeType;
 
     public static PartitionKeyDesc createMaxKeyDesc() {
@@ -74,7 +74,11 @@ public class PartitionKeyDesc {
         return desc;
     }
 
-    public static PartitionKeyDesc createMultiFixed(List<PartitionValue> lowerValues, List<PartitionValue> upperValues, Integer timeInterval, String timeType) {
+    public static PartitionKeyDesc createMultiFixed(
+            List<PartitionValue> lowerValues,
+            List<PartitionValue> upperValues,
+            Long timeInterval,
+            String timeType) {
         PartitionKeyDesc desc = new PartitionKeyDesc();
         desc.lowerValues = lowerValues;
         desc.upperValues = upperValues;
@@ -84,7 +88,7 @@ public class PartitionKeyDesc {
         return desc;
     }
 
-    public Integer getTimeInterval() {
+    public Long getTimeInterval() {
         return timeInterval;
     }
 
