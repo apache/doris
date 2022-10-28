@@ -2022,6 +2022,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         olapTable.initSchemaColumnUniqueId();
+        olapTable.initIndexUniqueId();
         olapTable.rebuildFullSchema();
 
         // analyze version info

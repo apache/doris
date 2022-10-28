@@ -1931,4 +1931,9 @@ public class OlapTable extends Table {
             indexMeta.initSchemaColumnUniqueId();
         }
     }
+
+    // for index meta
+    public void initIndexUniqueId() {
+        indexes.initIndexUniqueId();
+    }
 }

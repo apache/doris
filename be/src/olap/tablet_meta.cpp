@@ -164,16 +164,41 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                         column->set_has_bitmap_index(true);
                         break;
                     }
-                } else if (index.index_type == TIndexType::type::INVERTED) {
-                    DCHECK_EQ(index.columns.size(), 1);
-                    if (iequal(tcolumn.column_name, index.columns[0])) {
-                        column->set_has_inverted_index(true);
-                        column->set_inverted_index_parser(
-                                index.__isset.properties
-                                        ? get_parser_string_from_properties(index.properties)
-                                        : INVERTED_INDEX_PARSER_NONE);
-                        break;
+                }
+            }
+        }
+    }
+
+    // copy index meta
+    if (tablet_schema.__isset.indexes) {
+        for (auto& index : tablet_schema.indexes) {
+            TabletIndexPB* index_pb = schema->add_index();
+            index_pb->set_index_id(index.index_id);
+            index_pb->set_index_name(index.index_name);
+            // init col_unique_id in index at be side, since col_unique_id may be -1 at fe side
+            // get column unique id by name
+            for (auto column_name : index.columns) {
+                for (auto column : schema->column()) {
+                    if (iequal(column.name(), column_name)) {
+                        index_pb->add_col_unique_id(column.unique_id());
                     }
+                }
+            }
+            switch (index.index_type) {
+            case TIndexType::BITMAP:
+                index_pb->set_index_type(IndexType::BITMAP);
+                break;
+            case TIndexType::INVERTED:
+                index_pb->set_index_type(IndexType::INVERTED);
+                break;
+            case TIndexType::BLOOMFILTER:
+                index_pb->set_index_type(IndexType::BLOOMFILTER);
+                break;
+            }
+            if (index.__isset.properties) {
+                auto properties = index_pb->mutable_properties();
+                for (auto kv : index.properties) {
+                    (*properties)[kv.first] = kv.second;
                 }
             }
         }
@@ -224,8 +249,6 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_unique_id(unique_id);
     column->set_name(tcolumn.column_name);
     column->set_has_bitmap_index(tcolumn.has_bitmap_index);
-    column->set_has_inverted_index(tcolumn.has_inverted_index);
-    column->set_inverted_index_parser(tcolumn.inverted_index_parser);
     string data_type;
     EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
     column->set_type(data_type);

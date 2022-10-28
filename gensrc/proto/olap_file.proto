@@ -199,8 +199,20 @@ message ColumnPB {
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
-    optional bool has_inverted_index = 19 [default=false]; // ColumnMessage.has_inverted_index
-    optional string inverted_index_parser = 20;
+}
+
+enum IndexType {
+    BITMAP = 0;
+    INVERTED = 1;
+    BLOOMFILTER = 2;
+}
+
+message TabletIndexPB {
+    required int32 index_id = 1;
+    required string index_name = 2;
+    required IndexType index_type = 3;
+    repeated int32 col_unique_id = 4;
+    map<string, string> properties = 5;
 }
 
 enum SortType {
@@ -224,6 +236,7 @@ message TabletSchemaPB {
     optional segment_v2.CompressionTypePB compression_type = 13 [default=LZ4F];
     optional int32 schema_version = 14;
     optional bool disable_auto_compaction = 15 [default=false];
+    repeated TabletIndexPB index = 16;
 }
 
 enum TabletStatePB {

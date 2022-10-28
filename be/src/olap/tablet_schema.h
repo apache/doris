@@ -21,7 +21,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/segment_v2.pb.h"
-#include "olap/inverted_index_parser.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -56,10 +55,6 @@ public:
     bool is_nullable() const { return _is_nullable; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
-    bool has_inverted_index() const { return _has_inverted_index; }
-    InvertedIndexParserType get_inverted_index_parser_type() const {
-        return _inverted_index_parser_type;
-    }
     bool is_length_variable_type() const {
         return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
                _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
@@ -112,8 +107,6 @@ private:
     bool _is_bf_column = false;
 
     bool _has_bitmap_index = false;
-    bool _has_inverted_index = false;
-    InvertedIndexParserType _inverted_index_parser_type {InvertedIndexParserType::PARSER_UNKNOWN};
     bool _visible = true;
 
     TabletColumn* _parent = nullptr;
@@ -123,6 +116,28 @@ private:
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
 bool operator!=(const TabletColumn& a, const TabletColumn& b);
+
+class TabletSchema;
+
+class TabletIndex {
+public:
+    void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
+    void init_from_pb(const TabletIndexPB& index);
+    void to_schema_pb(TabletIndexPB* index) const;
+
+    const int32_t index_id() const { return _index_id; }
+    const std::string& index_name() const { return _index_name; }
+    const IndexType index_type() const { return _index_type; }
+    const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
+    const std::map<string, string>& properties() const { return _properties; }
+
+private:
+    int32_t _index_id;
+    std::string _index_name;
+    IndexType _index_type;
+    std::vector<int32_t> _col_unique_ids;
+    std::map<string, string> _properties;
+};
 
 class TabletSchema {
 public:
@@ -168,6 +183,12 @@ public:
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
+    const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
+    bool has_inverted_index(int32_t col_unique_id) const;
+    const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
+    void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
+
     int32_t schema_version() const { return _schema_version; }
     void clear_columns();
     vectorized::Block create_block(
@@ -203,6 +224,7 @@ private:
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumn> _cols;
+    std::vector<TabletIndex> _indexes;
     std::unordered_map<std::string, int32_t> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     size_t _num_columns = 0;

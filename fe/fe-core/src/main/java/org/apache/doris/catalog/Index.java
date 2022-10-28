@@ -40,6 +40,10 @@ import java.util.Map;
  * This class will used in olaptable
  */
 public class Index implements Writable {
+    public static final int INDEX_ID_INIT_VALUE = -1;
+
+    @SerializedName(value = "indexId")
+    private int indexId;
     @SerializedName(value = "indexName")
     private String indexName;
     @SerializedName(value = "columns")
@@ -66,6 +70,14 @@ public class Index implements Writable {
         this.indexType = null;
         this.properties = null;
         this.comment = null;
+    }
+
+    public int getIndexId() {
+        return indexId;
+    }
+
+    public void setIndexId(int indexId) {
+        this.indexId = indexId;
     }
 
     public String getIndexName() {
@@ -98,6 +110,24 @@ public class Index implements Writable {
 
     public void setProperties(Map<String, String> properties) {
         this.properties = properties;
+    }
+
+    public String getPropertiesString() {
+        if (properties == null || properties.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("(");
+        boolean first = true;
+        for (Map.Entry<String, String> e : properties.entrySet()) {
+            if (first) {
+                first = false;
+            } else {
+                sb.append(", ");
+            }
+            sb.append("\"").append(e.getKey()).append("\"=").append("\"").append(e.getValue()).append("\"");
+        }
+        sb.append(")");
+        return sb.toString();
     }
 
     public String getInvertedIndexParser() {
@@ -154,17 +184,8 @@ public class Index implements Writable {
             sb.append(" USING ").append(indexType.toString());
         }
         if (properties != null && properties.size() > 0) {
-            sb.append(" PROPERTIES(");
-            first = true;
-            for (Map.Entry<String, String> e : properties.entrySet()) {
-                if (first) {
-                    first = false;
-                } else {
-                    sb.append(", ");
-                }
-                sb.append("\"").append(e.getKey()).append("\"=").append("\"").append(e.getValue()).append("\"");
-            }
-            sb.append(")");
+            sb.append(" PROPERTIES");
+            sb.append(getPropertiesString());
         }
         if (comment != null) {
             sb.append(" COMMENT '" + comment + "'");
@@ -174,14 +195,12 @@ public class Index implements Writable {
 
     public TOlapTableIndex toThrift() {
         TOlapTableIndex tIndex = new TOlapTableIndex();
+        tIndex.setIndexId(indexId);
         tIndex.setIndexName(indexName);
         tIndex.setColumns(columns);
         tIndex.setIndexType(TIndexType.valueOf(indexType.toString()));
         if (properties != null) {
             tIndex.setProperties(properties);
-        }
-        if (columns != null) {
-            tIndex.setComment(comment);
         }
         return tIndex;
     }

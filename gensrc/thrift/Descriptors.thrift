@@ -34,8 +34,6 @@ struct TColumn {
     10: optional list<TColumn> children_column
     11: optional i32 col_unique_id  = -1
     12: optional bool has_bitmap_index = false
-    13: optional bool has_inverted_index = false
-    14: optional string inverted_index_parser
 }
 
 struct TSlotDescriptor {
@@ -120,7 +118,8 @@ enum THdfsCompression {
 
 enum TIndexType {
   BITMAP,
-  INVERTED
+  INVERTED,
+  BLOOMFILTER
 }
 
 // Mapping from names defined by Avro to the enum.
@@ -197,7 +196,8 @@ struct TOlapTableIndex {
   2: optional list<string> columns
   3: optional TIndexType index_type
   4: optional string comment
-  5: optional map<string, string> properties
+  5: optional i32 index_id
+  6: optional map<string, string> properties
 }
 
 struct TTabletLocation {
