@@ -78,11 +78,11 @@ public class GroupExpressionMatchingV2 implements Iterable<Plan> {
                 stack.push(((Integer) stack.pop()) + 1);
                 result = match(container.pattern, container.groupExpression);
             } while (result != null && stack.size() > 1);
-            return Objects.isNull(result);
+            return Objects.nonNull(result);
         }
 
         private Plan match(Pattern<? extends Plan> pattern, GroupExpression groupExpression) {
-            if (!pattern.matchRoot(groupExpression.getPlan())) {
+            if (!checkArgumentLegality(groupExpression, pattern)) {
                 return null;
             }
             childIndex = 0;
@@ -108,8 +108,35 @@ public class GroupExpressionMatchingV2 implements Iterable<Plan> {
                     .build(groupExpression.getPlan());
         }
 
+        private boolean checkArgumentLegality(GroupExpression groupExpression, Pattern<? extends Plan> pattern) {
+            if (groupExpression == null
+                    || !pattern.matchRoot(groupExpression.getPlan())) {
+                return false;
+            }
+            if (pattern.isGroup() || pattern.isMulti() || pattern.isMultiGroup()) {
+                return false;
+            }
+            int childrenGroupArity = groupExpression.arity();
+            if (!(pattern instanceof SubTreePattern)) {
+                // (logicalFilter(), multi()) match (logicalFilter()),
+                // but (logicalFilter(), logicalFilter(), multi()) not match (logicalFilter())
+                if (pattern.arity() > childrenGroupArity && !(pattern.arity() == childrenGroupArity + 1
+                        && (pattern.hasMultiChild() || pattern.hasMultiGroupChild()))) {
+                    return false;
+                }
+                // (multi()) match (logicalFilter(), logicalFilter()),
+                // but (logicalFilter()) not match (logicalFilter(), logicalFilter())
+                return pattern.isAny()
+                        || (pattern.arity() >= childrenGroupArity)
+                        || pattern.hasMultiChild()
+                        || pattern.hasMultiGroupChild();
+            }
+            return true;
+        }
+
         private boolean checkType(Pattern<? extends Plan> pattern) {
-            return pattern.patternType.equals(PatternType.MULTI) || pattern.patternType.equals(PatternType.MULTI_GROUP);
+            return pattern.patternType.equals(PatternType.MULTI)
+                    || pattern.patternType.equals(PatternType.MULTI_GROUP);
         }
 
         private boolean checkRange(int groupExpressionArity, int patternArity) {
@@ -117,7 +144,19 @@ public class GroupExpressionMatchingV2 implements Iterable<Plan> {
         }
 
         private GroupExpression extractGroupExpression(Pattern<? extends Plan> pattern, Group group) {
-            return group.getLogicalExpression();
+            if (pattern.patternType.equals(PatternType.ANY) || pattern.patternType.equals(PatternType.MULTI)) {
+                if (((Integer) stack.get(curChildIndex)) > 0) {
+                    stack.remove(curChildIndex);
+                    return null;
+                }
+                return group.getLogicalExpression();
+            }
+            int stackChildIndex = (Integer) stack.get(curChildIndex);
+            if (stackChildIndex >= group.getLogicalExpressions().size()) {
+                stack.remove(curChildIndex);
+                return null;
+            }
+            return group.logicalExpressionsAt(stackChildIndex);
         }
 
         private void addChildIndexToStack() {
