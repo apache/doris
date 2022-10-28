@@ -1107,7 +1107,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
                << ")(" << (pair.second.add_batch_wait_execution_time_us / 1000) << ")("
-               << pair.second.close_wait_time_ms << ")(" << (pair.second.add_batch_rpc_time_us / 1000)
+               << (pair.second.add_batch_rpc_time_us / 1000) << ")(" << pair.second.close_wait_time_ms
                << ")(" << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
