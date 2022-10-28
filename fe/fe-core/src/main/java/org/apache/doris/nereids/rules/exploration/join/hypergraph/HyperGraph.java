@@ -34,8 +34,8 @@ import java.util.Set;
  * It's used for join ordering
  */
 public class HyperGraph {
-    List<Edge> edges;
-    List<Node> nodes;
+    List<Edge> edges = new ArrayList<>();
+    List<Node> nodes = new ArrayList<>();
     // TODO: add system arg: limit
     Receiver receiver = new Receiver(100);
 
@@ -111,34 +111,65 @@ public class HyperGraph {
     }
 
     /**
-     For the given hyperGraph, make a textual representation in the form
-     of a dotty graph. You can save this to a file and then use Graphviz
-     to render this it a graphical representation of the hyperGraph for
-     easier debugging, e.g. like this:
-
-     dot -Tps graph.dot > graph.ps
-     display graph.ps
+     * For the given hyperGraph, make a textual representation in the form
+     * of a dotty graph. You can save this to a file and then use Graphviz
+     * to render this it a graphical representation of the hyperGraph for
+     * easier debugging, e.g. like this:
+     * <p>
+     * dot -Tps graph.dot > graph.ps
+     * display graph.ps
      */
     public String toDottyHyperGraph() {
-        // TODO: finish it
         StringBuilder builder = new StringBuilder();
         builder.append(String.format("digraph G {  # %d edges\n", edges.size() / 2));
-        List<String> names = new ArrayList<>();
+        List<String> graphvisNodes = new ArrayList<>();
         for (Node node : nodes) {
-            String name = node.plan.getType().name();
-            while (names.contains(name)) {
-                name += "_";
+            String nodeName = node.plan.getType().name() + node.index;
+            // nodeID is used to identify the node with the same name
+            String nodeID = nodeName;
+            while (graphvisNodes.contains(nodeID)) {
+                nodeID += "_";
             }
-            if (!name.equals(node.plan.getType().name())) {
-                builder.append(String.format("  %s [label=\"%s\"];\n", name, node.plan.getType().name()));
-            }
-            names.add(name);
+            builder.append(String.format("  %s [label=\"%s\"];\n", nodeID, nodeName));
+            graphvisNodes.add(nodeName);
         }
         for (int i = 0; i < edges.size(); i += 2) {
+            Edge edge = edges.get(i);
+            String label = String.valueOf(edge.getSelectivity());
             if (edges.get(i).isSimple()) {
-                // TODO
+                String arrowHead = "";
+                if (edge.getJoin().getJoinType() == JoinType.INNER_JOIN) {
+                    arrowHead = ",arrowhead=none";
+                }
+
+                int leftIndex = edge.getLeft().nextSetBit(0);
+                int rightIndex = edge.getRight().nextSetBit(0);
+                builder.append(String.format("%s -> %s [label=\"%s\"%s]\n", graphvisNodes.get(leftIndex),
+                        graphvisNodes.get(rightIndex), label, arrowHead));
             } else {
-                // TODO
+                // Hyper edge is considered as a tiny virtual node
+                builder.append(String.format("e%d [shape=circle, width=.001, label=\"\"\n", i));
+
+                String leftLabel = "";
+                String rightLabel = "";
+                if (edge.getLeft().cardinality() == 1) {
+                    rightLabel = label;
+                } else {
+                    leftLabel = label;
+                }
+
+                int finalI = i;
+                String finalLeftLabel = leftLabel;
+                edge.getLeft().stream().forEach(nodeIndex -> {
+                    builder.append(String.format("%s -> e%d [arrowhead=none, label=\"%s\"]\n",
+                                graphvisNodes.get(nodeIndex), finalI, finalLeftLabel));
+                });
+
+                String finalRightLabel = rightLabel;
+                edge.getRight().stream().forEach(nodeIndex -> {
+                    builder.append(String.format("%s -> e%d [arrowhead=none, label=\"%s\"]\n",
+                                graphvisNodes.get(nodeIndex), finalI, finalRightLabel));
+                });
             }
         }
         builder.append("}\n");
