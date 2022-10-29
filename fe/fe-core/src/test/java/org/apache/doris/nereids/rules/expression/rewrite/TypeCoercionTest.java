@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -91,7 +92,7 @@ public class TypeCoercionTest {
     @Test
     public void testYearImplicitCast() {
         Expression expression = new Year(new DateLiteral("2022-01-01"));
-        Expression expected = new Year(new DateLiteral("2022-01-01"));
+        Expression expected = new Year(new Cast(new DateLiteral("2022-01-01"), DateV2Type.INSTANCE));
         assertRewrite(expected, expression);
     }
 
