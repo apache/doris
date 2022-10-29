@@ -78,7 +78,7 @@ public:
         return Status::OK();
     }
 
-    void segcompaction(SegCompactionCandidatesSharedPtr segments);
+    void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:
     template <typename RowType>
@@ -118,7 +118,7 @@ private:
                               uint64_t row_count, uint64_t begin, uint64_t end);
     bool _check_and_set_is_doing_segcompaction();
 
-    Status _do_segcompaction(SegCompactionCandidatesSharedPtr segments);
+    Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:
     RowsetWriterContext _context;
@@ -170,6 +170,8 @@ private:
     std::condition_variable _segcompacting_cond;
 
     std::atomic<ErrorCode> _segcompaction_status;
+
+    fmt::memory_buffer vlog_buffer;
 };
 
 } // namespace doris
