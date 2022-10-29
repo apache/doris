@@ -25,12 +25,17 @@
 
 namespace doris::vectorized{
 
-template <template <typename, typename> class AggregateFunction>
+template <template <typename, typename> typename AggregateFunction>
 AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string & name,
                                                             const DataTypes & argument_types,
                                                             const Array & parameters,
                                                             const bool result_is_nullable){
     const auto arg_count = argument_types.size();
+
+    if (parameters.size() != 1){
+        LOG(WARNING) << "Aggregate function " + name + " requires exactly one parameter.";
+        return nullptr;
+    }
 
     if (arg_count < 3){
         LOG(WARNING) << "Aggregate function " + name + " requires at least 3 arguments.";
@@ -42,16 +47,22 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string &
         return nullptr;
     }
 
-     if (WhichDataType(remove_nullable(argument_types[1])).is_date_time_v2()) {
+    String pattern = parameters.front().safeGet<std::string>();
+
+    if (WhichDataType(remove_nullable(argument_types[1])).is_date_time_v2()) {
         return std::make_shared<
                 AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(
-                argument_types);
+                argument_types, pattern);
     } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_time()) {
         return std::make_shared<
                 AggregateFunction<VecDateTimeValue, Int64>>(
-                argument_types);
+                argument_types, pattern);
+    } else if (WhichDataType(remove_nullable(argument_types[1])).is_date()) {
+        return std::make_shared<
+                AggregateFunction<DataTypeDate, Int64>>(
+                argument_types, pattern);
     } else {
-        LOG(FATAL) << "Only support DateTime type as timestamp argument!";
+        LOG(FATAL) << "Only support Date and DateTime type as timestamp argument!";
     }
 }
 
