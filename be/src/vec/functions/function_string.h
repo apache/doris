@@ -1423,17 +1423,15 @@ public:
 
         auto col_res = ColumnArray::create(ColumnString::create());
 
-        auto& res_data = typeid_cast<ColumnString &>(col_res->get_data());
+        ColumnString & res_data = typeid_cast<ColumnString &>(col_res->get_data());
         auto& res_offsets = col_res->get_offsets();
 
         auto& res_data_chars = res_data.get_chars();
         auto& res_data_offsets = res_data.get_offsets();
 
-        res_data_offsets.resize(input_rows_count);
+        res_offsets.resize(input_rows_count);
 
-        /**
-         * 获得 argument参数(列数据)，并存入argument_columns数组中，[0]为str，[1]为delimiter
-        */
+
         size_t argument_size = arguments.size();
         ColumnPtr argument_columns[argument_size];
         for (size_t i = 0; i < argument_size; ++i) {
@@ -1443,18 +1441,9 @@ public:
         auto str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
 
-
-
-        // ColumnString::Offset current_src_offset = 0;
-        // ColumnArray::Offset current_dst_offset = 0;
-        // ColumnString::Offset current_dst_strings_offset = 0;
-        //int32 current_src_offset = 0;
-
         int32 current_dst_offset = 0;
         int32 current_dst_strings_offset = 0;
-        /**
-         * 取出列元素中的每一行(delimiter,str)，并且进行相关的操作
-        */
+
         for (size_t i = 0; i < input_rows_count; ++i) {    
             int32 j = 0;
             auto delimiter = delimiter_col->get_data_at(i);

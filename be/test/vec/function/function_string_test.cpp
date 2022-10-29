@@ -81,8 +81,8 @@ TEST(function_string_test, function_split_by_char_test) {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
         DataSet data_set = {
-                {{std::string("hello world"), std::string(" ")}, vec1},
-                {{std::string("helloswordsmysbaby"),std::string("s")}, vec2}};
+                {{Field("hello world"), Field(" ")}, vec1},
+                {{Field("helloswordsmysbaby"),Field("s")}, vec2}};
 
         check_function<DataTypeArray, true>(func_name, input_types, data_set);
     }
