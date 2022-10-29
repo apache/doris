@@ -469,7 +469,9 @@ struct JsonbExtractImpl {
             // value is NOT necessary to be deleted since JsonbValue will not allocate memory
             JsonbValue* value = doc->getValue()->findPath(r_raw_str, r_str_size, ".", nullptr);
             if (UNLIKELY(!value)) {
-                null_map[i] = 1;
+                if constexpr (!only_check_exists) {
+                    null_map[i] = 1;
+                }
                 res[i] = 0;
                 continue;
             }
