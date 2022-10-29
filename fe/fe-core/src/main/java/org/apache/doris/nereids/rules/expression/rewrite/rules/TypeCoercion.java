@@ -31,6 +31,10 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -176,7 +180,12 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
             AbstractDataType expectedType = expectedTypes.get(i);
             Optional<DataType> castType = TypeCoercionUtils.implicitCast(argType, expectedType);
             // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
-            boolean legacyCastCompatible = !argType.toCatalogDataType().matchesType(expectedType.toCatalogDataType());
+            boolean legacyCastCompatible = expectedType instanceof DataType
+                    && !(expectedType.getClass().equals(NumericType.class))
+                    && !(expectedType.getClass().equals(IntegralType.class))
+                    && !(expectedType.getClass().equals(FractionalType.class))
+                    && !(expectedType.getClass().equals(CharacterType.class))
+                    && !argType.toCatalogDataType().matchesType(expectedType.toCatalogDataType());
             if (!castType.isPresent() && legacyCastCompatible) {
                 castType = Optional.of((DataType) expectedType);
             }
