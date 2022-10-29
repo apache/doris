@@ -24,7 +24,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
 
-
 namespace doris::vectorized {
 class DataTypeJsonb final : public IDataType {
 public:

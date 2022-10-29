@@ -389,7 +389,8 @@ struct ConvertImplNumberToJsonb {
             } else {
                 LOG(FATAL) << "unsupported type ";
             }
-            column_string->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+            column_string->insert_data(writer.getOutput()->getBuffer(),
+                                       writer.getOutput()->getSize());
         }
 
         block.replace_by_position(result, std::move(column_string));
@@ -421,7 +422,8 @@ struct ConvertImplGenericToJsonb {
             auto str_ref = tmp_col->get_data_at(0);
             writer.writeString(str_ref.data, str_ref.size);
             writer.writeEndString();
-            column_string->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+            column_string->insert_data(writer.getOutput()->getBuffer(),
+                                       writer.getOutput()->getSize());
         }
 
         block.replace_by_position(result, std::move(column_string));
@@ -438,8 +440,7 @@ struct ConvertImplFromJsonb {
         // result column must set type
         DCHECK(block.get_by_position(result).type != nullptr);
         auto data_type_to = block.get_by_position(result).type;
-        if (const ColumnString* column_string =
-                    check_and_get_column<ColumnString>(&col_from)) {
+        if (const ColumnString* column_string = check_and_get_column<ColumnString>(&col_from)) {
             auto null_map_col = ColumnUInt8::create(input_rows_count, 0);
             auto& null_map = null_map_col->get_data();
             auto col_to = ColumnType::create();

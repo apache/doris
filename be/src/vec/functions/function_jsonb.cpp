@@ -404,9 +404,9 @@ struct JsonbExtractStringImpl {
             if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
                 writer->reset();
                 writer->writeValue(value);
-                StringOP::push_value_string(
-                    std::string_view(writer->getOutput()->getBuffer(), writer->getOutput()->getSize()),
-                    i, res_data, res_offsets);
+                StringOP::push_value_string(std::string_view(writer->getOutput()->getBuffer(),
+                                                             writer->getOutput()->getSize()),
+                                            i, res_data, res_offsets);
                 // res_data.insert(writer->getOutput()->getBuffer(),
                 //                 writer->getOutput()->getBuffer() + writer->getOutput()->getSize());
                 // res_data.push_back('\0');
