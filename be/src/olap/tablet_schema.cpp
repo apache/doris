@@ -469,7 +469,8 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
             agg_name, argument_types, {}, argument_types.back()->is_nullable());
 }
 
-void TabletIndex::init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema) {
+void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
+                                   const TabletSchema& tablet_schema) {
     _index_id = index.index_id;
     _index_name = index.index_name;
     // init col_unique_id in index at be side, since col_unique_id may be -1 at fe side
