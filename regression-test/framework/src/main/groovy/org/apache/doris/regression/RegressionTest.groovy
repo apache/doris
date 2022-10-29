@@ -303,7 +303,7 @@ class RegressionTest {
                 ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
                         config, [], { name -> true })
                 File pluginFile = it
-                context.start {
+                context.start({
                     try {
                         SuiteScript pluginScript = new GroovyFileSource(pluginFile).toScript(context, shell)
                         log.info("Begin to load plugin: ${pluginFile.getCanonicalPath()}")
@@ -312,7 +312,7 @@ class RegressionTest {
                     } catch (Throwable t) {
                         log.error("Load plugin failed: ${pluginFile.getCanonicalPath()}", t)
                     }
-                }
+                })
             }
         })
     }
