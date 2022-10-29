@@ -90,7 +90,8 @@ public class ArrayType extends DataType {
             return false;
         }
         ArrayType arrayType = (ArrayType) o;
-        return Objects.equals(itemType, arrayType.itemType);
+        return Objects.equals(itemType, arrayType.itemType)
+                && Objects.equals(containsNull, arrayType.containsNull);
     }
 
     @Override

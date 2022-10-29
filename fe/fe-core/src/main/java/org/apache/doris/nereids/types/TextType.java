@@ -61,7 +61,7 @@ public class TextType extends CharacterType {
 
     @Override
     public String toSql() {
-        return "text(" + len + ")";
+        return "TEXT(" + len + ")";
     }
 
     @Override

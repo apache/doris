@@ -64,6 +64,9 @@ public class VarcharType extends CharacterType {
 
     @Override
     public String toSql() {
+        if (len == -1) {
+            return "VARCHAR(*)";
+        }
         return "VARCHAR(" + len + ")";
     }
 

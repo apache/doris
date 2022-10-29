@@ -174,7 +174,13 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         for (int i = 0; i < inputs.size(); i++) {
             DataType argType = inputs.get(i).getDataType();
             AbstractDataType expectedType = expectedTypes.get(i);
-            implicitCastTypes.add(TypeCoercionUtils.implicitCast(argType, expectedType));
+            Optional<DataType> castType = TypeCoercionUtils.implicitCast(argType, expectedType);
+            // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
+            boolean legacyCastCompatible = !argType.toCatalogDataType().matchesType(expectedType.toCatalogDataType());
+            if (!castType.isPresent() && legacyCastCompatible) {
+                castType = Optional.of((DataType) expectedType);
+            }
+            implicitCastTypes.add(castType);
         }
         return implicitCastTypes.build();
     }

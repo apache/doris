@@ -36,7 +36,7 @@ public class StructType extends DataType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.QUANTILE_STATE;
+        return Type.STRUCT;
     }
 
     @Override
@@ -46,7 +46,7 @@ public class StructType extends DataType {
 
     @Override
     public String simpleString() {
-        return "json";
+        return "struct";
     }
 
     @Override
@@ -66,6 +66,6 @@ public class StructType extends DataType {
 
     @Override
     public String toSql() {
-        return "JSON";
+        return "STRUCT";
     }
 }

@@ -90,7 +90,7 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
 
     @Override
     public List<AbstractDataType> expectedInputTypes() {
-        if (isGlobal()) {
+        if (isGlobal() && inputTypesBeforeDissemble().isPresent()) {
             return ImmutableList.of();
         } else {
             return EXPECTED_INPUT_TYPES;

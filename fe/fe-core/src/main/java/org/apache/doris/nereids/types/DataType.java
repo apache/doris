@@ -48,7 +48,14 @@ public abstract class DataType implements AbstractDataType {
     public static final int DEFAULT_PRECISION = 9;
     public static final int DATETIME_PRECISION = 18;
 
-    private static final Pattern VARCHAR_PATTERN = Pattern.compile("varchar(\\(\\d+\\))?");
+    private static final Pattern CHAR_PATTERN = Pattern.compile("char(\\s*\\(\\s*(\\d+)\\s*\\))?");
+    private static final Pattern VARCHAR_PATTERN = Pattern.compile("varchar(\\s*\\(\\s*(\\d+)\\s*\\))?");
+    private static final Pattern DATETIME_PATTERN = Pattern.compile("datetime(\\s*\\(\\s*(\\d+)\\s*\\))?");
+    private static final Pattern DATETIMEV2_PATTERN = Pattern.compile("datetimev2(\\s*\\(\\s*(\\d+)\\s*\\))?");
+    private static final Pattern DECIMAL_PATTERN =
+            Pattern.compile("decimal(\\s*\\(\\s*(\\d+)(\\s*,\\s*(\\d+))?\\s*\\))?");
+    private static final Pattern DECIMALV3_PATTERN =
+            Pattern.compile("decimalv3(\\s*\\(\\s*(\\d+)(\\s*,\\s*(\\d+))?\\s*\\))?");
 
     // use class and supplier here to avoid class load deadlock.
     private static final Map<Class<? extends NumericType>, Supplier<DataType>> PROMOTION_MAP
@@ -114,17 +121,36 @@ public abstract class DataType implements AbstractDataType {
                     return StringType.INSTANCE;
                 case DATE:
                     return DateType.INSTANCE;
+                case DATEV2:
+                    return DateV2Type.INSTANCE;
                 case DATETIME:
                     return DateTimeType.INSTANCE;
+                case DATETIMEV2:
+                    return DateTimeV2Type.of(scalarType.getScalarScale());
                 case DECIMALV2:
                     return DecimalType.createDecimalType(scalarType.decimalPrecision(), scalarType.decimalScale());
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                    return DecimalV3Type.createDecimalV3Type(scalarType.getScalarPrecision());
+                case JSONB:
+                    return JsonType.INSTANCE;
+                case HLL:
+                    return HllType.INSTANCE;
+                case BITMAP:
+                    return BitmapType.INSTANCE;
+                case QUANTILE_STATE:
+                    return QuantileStateType.INSTANCE;
                 case NULL_TYPE:
                     return NullType.INSTANCE;
                 default:
                     throw new AnalysisException("Nereids do not support type: " + scalarType.getPrimitiveType());
             }
         } else if (catalogType.isArrayType()) {
-            throw new AnalysisException("Nereids do not support array type.");
+            org.apache.doris.catalog.ArrayType catalogArrayType = (org.apache.doris.catalog.ArrayType) catalogType;
+            return ArrayType.of(
+                    convertFromCatalogDataType(catalogArrayType.getItemType()),
+                    catalogArrayType.getContainsNull());
         } else if (catalogType.isMapType()) {
             throw new AnalysisException("Nereids do not support map type.");
         } else if (catalogType.isStructType()) {
@@ -146,7 +172,7 @@ public abstract class DataType implements AbstractDataType {
     public static DataType convertFromString(String type) {
         // TODO: use a better way to resolve types
         // TODO: support varchar, char, decimal
-        type = type.toLowerCase();
+        type = type.toLowerCase().trim();
         switch (type) {
             case "bool":
             case "boolean":
@@ -171,11 +197,7 @@ public abstract class DataType implements AbstractDataType {
             case "double":
                 return DoubleType.INSTANCE;
             case "decimal":
-                return DecimalType.SYSTEM_DEFAULT;
-            case "char":
-                return CharType.INSTANCE;
-            case "varchar":
-                return VarcharType.SYSTEM_DEFAULT;
+                return fromCatalogType(ScalarType.createDecimalType());
             case "text":
             case "string":
                 return StringType.INSTANCE;
@@ -183,10 +205,9 @@ public abstract class DataType implements AbstractDataType {
             case "null_type": // ScalarType.NULL.toSql() return "null_type", so support it
                 return NullType.INSTANCE;
             case "date":
-                return DateType.INSTANCE;
-            case "datetime":
-            case "datetime(0)":
-                return DateTimeType.INSTANCE;
+                return fromCatalogType(ScalarType.createDateType());
+            case "datev2":
+                return DateV2Type.INSTANCE;
             case "time":
                 return TimeType.INSTANCE;
             case "hll":
@@ -195,10 +216,27 @@ public abstract class DataType implements AbstractDataType {
                 return BitmapType.INSTANCE;
             case "quantile_state":
                 return QuantileStateType.INSTANCE;
+            case "json":
+                return JsonType.INSTANCE;
             default:
-                Optional<VarcharType> varcharType = matchVarchar(type);
-                if (varcharType.isPresent()) {
-                    return varcharType.get();
+                Optional<DataType> newType = matchVarchar(type);
+                if (newType.isPresent()) {
+                    return newType.get();
+                }
+
+                newType = matchChar(type);
+                if (newType.isPresent()) {
+                    return newType.get();
+                }
+
+                newType = matchDateTime(type);
+                if (newType.isPresent()) {
+                    return newType.get();
+                }
+
+                newType = matchDecimalType(type);
+                if (newType.isPresent()) {
+                    return newType.get();
                 }
                 if (type.startsWith("array")) {
                     return resolveArrayType(type);
@@ -232,23 +270,23 @@ public abstract class DataType implements AbstractDataType {
             return DoubleType.INSTANCE;
         } else if (type == Type.STRING) {
             return StringType.INSTANCE;
-        } else if (type == Type.NULL) {
+        } else if (type.isNull()) {
             return NullType.INSTANCE;
-        } else if (type == Type.DATE) {
-            return DateType.INSTANCE;
-        } else if (type == Type.DATEV2) {
-            return DateV2Type.INSTANCE;
-        } else if (type == Type.DATETIME) {
+        } else if (type.isDatetimeV2()) {
+            return DateTimeV2Type.of(((ScalarType) type).getScalarScale());
+        } else if (type.isDatetime()) {
             return DateTimeType.INSTANCE;
-        } else if (type == Type.DATETIMEV2) {
-            return DateTimeV2Type.INSTANCE;
-        } else if (type == Type.TIME) {
-            return TimeType.INSTANCE;
-        } else if (type == Type.TIMEV2) {
+        } else if (type.isDateV2()) {
+            return DateV2Type.INSTANCE;
+        } else if (type.isDateType()) {
+            return DateType.INSTANCE;
+        } else if (type.isTimeV2()) {
             return TimeV2Type.INSTANCE;
-        } else if (type == Type.HLL) {
+        } else if (type.isTime()) {
+            return TimeType.INSTANCE;
+        } else if (type.isHllType()) {
             return HllType.INSTANCE;
-        } else if (type == Type.BITMAP) {
+        } else if (type.isBitmapType()) {
             return BitmapType.INSTANCE;
         } else if (type.isQuantileStateType()) {
             return QuantileStateType.INSTANCE;
@@ -256,15 +294,15 @@ public abstract class DataType implements AbstractDataType {
             return CharType.createCharType(type.getLength());
         } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
             return VarcharType.createVarcharType(type.getLength());
+        } else if (type.isDecimalV3()) {
+            ScalarType scalarType = (ScalarType) type;
+            int precision = scalarType.getScalarPrecision();
+            return DecimalV3Type.createDecimalV3Type(precision);
         } else if (type.isDecimalV2()) {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
             int scale = scalarType.getScalarScale();
             return DecimalV2Type.createDecimalV2Type(precision, scale);
-        } else if (type.isDecimalV3()) {
-            ScalarType scalarType = (ScalarType) type;
-            int precision = scalarType.getScalarPrecision();
-            return DecimalV3Type.createDecimalV3Type(precision);
         } else if (type.isJsonbType()) {
             return JsonType.INSTANCE;
         } else if (type.isStructType()) {
@@ -409,13 +447,81 @@ public abstract class DataType implements AbstractDataType {
 
     public abstract int width();
 
-    private static Optional<VarcharType> matchVarchar(String type) {
+    private static Optional<DataType> matchChar(String type) {
+        Matcher matcher = CHAR_PATTERN.matcher(type);
+        if (matcher.find() && matcher.group().equals(type)) {
+            String len = matcher.group(2);
+            CharType charType = len != null
+                    ? CharType.createCharType(Integer.valueOf(len))
+                    : CharType.SYSTEM_DEFAULT;
+            return Optional.of(charType);
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<DataType> matchVarchar(String type) {
         Matcher matcher = VARCHAR_PATTERN.matcher(type);
-        if (matcher.find()) {
-            VarcharType varcharType = matcher.groupCount() > 1
-                    ? VarcharType.createVarcharType(Integer.valueOf(matcher.group(1)))
+        if (matcher.find() && matcher.group().equals(type)) {
+            String scale = matcher.group(2);
+            VarcharType varcharType = scale != null
+                    ? VarcharType.createVarcharType(Integer.valueOf(scale))
                     : VarcharType.SYSTEM_DEFAULT;
             return Optional.of(varcharType);
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<DataType> matchDateTime(String type) {
+        Matcher matcher = DATETIME_PATTERN.matcher(type);
+        if (matcher.find() && matcher.group().equals(type)) {
+            String scale = matcher.group(2);
+            return Optional.of(
+                    fromCatalogType(scale != null
+                        ? ScalarType.createDatetimeV2Type(Integer.valueOf(scale))
+                        : ScalarType.createDatetimeType())
+            );
+        }
+        matcher = DATETIMEV2_PATTERN.matcher(type);
+        if (matcher.find()) {
+            String scale = matcher.group(2);
+            return Optional.of(
+                    fromCatalogType(scale != null
+                            ? ScalarType.createDatetimeV2Type(Integer.valueOf(scale))
+                            : ScalarType.createDatetimeV2Type(0))
+            );
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<DataType> matchDecimalType(String type) {
+        Matcher matcher = DECIMAL_PATTERN.matcher(type);
+        if (matcher.find() && matcher.group().equals(type)) {
+            String precision = matcher.group(2);
+            String scale = matcher.group(4);
+            if (scale != null) {
+                return Optional.of(fromCatalogType(
+                        ScalarType.createDecimalType(Integer.valueOf(precision), Integer.valueOf(scale))));
+            }
+
+            if (precision != null) {
+                return Optional.of(fromCatalogType(ScalarType.createDecimalType(Integer.valueOf(precision))));
+            }
+            return Optional.of(fromCatalogType(ScalarType.createDecimalType()));
+        }
+
+        matcher = DECIMALV3_PATTERN.matcher(type);
+        if (matcher.find() && matcher.group().equals(type)) {
+            String precision = matcher.group(2);
+            String scale = matcher.group(4);
+            if (scale != null) {
+                return Optional.of(fromCatalogType(
+                        ScalarType.createDecimalV3Type(Integer.valueOf(precision), Integer.valueOf(scale))));
+            }
+
+            if (precision != null) {
+                return Optional.of(fromCatalogType(ScalarType.createDecimalV3Type(Integer.valueOf(precision))));
+            }
+            return Optional.of(fromCatalogType(ScalarType.createDecimalV3Type()));
         }
         return Optional.empty();
     }

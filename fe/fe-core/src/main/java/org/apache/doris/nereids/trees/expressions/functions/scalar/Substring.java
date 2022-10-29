@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -54,7 +55,7 @@ public class Substring extends ScalarFunction
      * constructor with 2 arguments.
      */
     public Substring(Expression arg0, Expression arg1) {
-        super("substring", arg0, arg1);
+        super("substring", arg0, arg1, Literal.of(Integer.MAX_VALUE));
     }
 
     /**

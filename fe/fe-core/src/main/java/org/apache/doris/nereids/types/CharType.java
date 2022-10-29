@@ -78,6 +78,9 @@ public class CharType extends CharacterType {
 
     @Override
     public String toSql() {
+        if (len == -1) {
+            return "CHAR";
+        }
         return "CHAR(" + len + ")";
     }
 }

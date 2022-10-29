@@ -126,7 +126,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
                 new Alias(new Sum(rStudent.getOutput().get(0)), "sum"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
 
-        Expression localOutput0 = new Sum(rStudent.getOutput().get(0).toSlot());
+        Sum localOutput0 = new Sum(rStudent.getOutput().get(0).toSlot());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new AggregateDisassemble())

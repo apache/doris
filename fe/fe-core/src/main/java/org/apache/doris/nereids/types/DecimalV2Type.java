@@ -108,7 +108,7 @@ public class DecimalV2Type extends FractionalType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.DECIMALV2;
+        return Type.MAX_DECIMALV2_TYPE;
     }
 
     public int getPrecision() {

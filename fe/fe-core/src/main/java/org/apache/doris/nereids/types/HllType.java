@@ -64,6 +64,6 @@ public class HllType extends DataType {
 
     @Override
     public String toSql() {
-        return "BITMAP";
+        return "HLL";
     }
 }
