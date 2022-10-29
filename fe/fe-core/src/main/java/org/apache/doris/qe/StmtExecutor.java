@@ -716,11 +716,10 @@ public class StmtExecutor implements ProfileWriter {
                 } catch (UserException e) {
                     throw e;
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     if (parsedStmt instanceof LogicalPlanAdapter) {
                         throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
                     }
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());
                 } finally {
                     MetaLockUtils.readUnlockTables(tables);
