@@ -91,6 +91,7 @@ public class TypeCoercionTest {
 
     @Test
     public void testYearImplicitCast() {
+        // date to datev2
         Expression expression = new Year(new DateLiteral("2022-01-01"));
         Expression expected = new Year(new Cast(new DateLiteral("2022-01-01"), DateV2Type.INSTANCE));
         assertRewrite(expected, expression);
