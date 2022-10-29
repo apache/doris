@@ -49,7 +49,6 @@
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
-//#include "olap/rowset/beta_rowset_writer.h"
 
 namespace doris {
 

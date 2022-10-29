@@ -696,7 +696,7 @@ Status StorageEngine::submit_quick_compaction_task(TabletSharedPtr tablet) {
 
 Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
                                              SegCompactionCandidatesSharedPtr segments) {
-    writer->segcompaction(segments);
+    writer->compact_segments(segments);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
