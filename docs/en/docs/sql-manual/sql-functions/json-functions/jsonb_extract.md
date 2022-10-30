@@ -1,7 +1,7 @@
 ---
 {
     "title": "jsonb_extract",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -26,6 +26,20 @@ under the License.
 
 ## jsonb_extract
 ### description
+
+jsonb_extract functions extract field specified by json_path from JSONB. A series of functions are provided for different datatype.
+- jsonb_extract extract and return JSONB datatype
+- jsonb_extract_isnull check if the field is json null and return BOOLEAN datatype
+- jsonb_extract_bool extract and return BOOLEAN datatype
+- jsonb_extract_int extract and return INT datatype
+- jsonb_extract_bigint extract and return BIGINT datatype
+- jsonb_extract_double extract and return DOUBLE datatype
+- jsonb_extract_STRING extract and return STRING datatype
+
+Exception handling is as follows:
+- if the field specified by json_path does not exist, return NULL
+- if datatype of the field specified by json_path is not the same with type of jsonb_extract_t, return t if it can be cast to t else NULL
+
 #### Syntax
 
 `JSONB jsonb_extract(JSONB j, VARCHAR json_path)`
@@ -42,24 +56,9 @@ under the License.
 
 `STRING jsonb_extract_string(JSONB j, VARCHAR json_path)`
 
-jsonb_extract functions extract field specified by json_path from JSONB. A series of functions are provided for different datatype.
-- jsonb_extract extract and return JSONB datatype
-- jsonb_extract_isnull check if the field is json null and return BOOLEAN datatype
-- jsonb_extract_bool extract and return BOOLEAN datatype
-- jsonb_extract_int extract and return INT datatype
-- jsonb_extract_bigint extract and return BIGINT datatype
-- jsonb_extract_double extract and return DOUBLE datatype
-- jsonb_extract_STRING extract and return STRING datatype
 
-Exception handling is as follows:
-- if the field specified by json_path does not exist, return NULL
-- if datatype of the field specified by json_path is not the same with type of jsonb_extract_t, return t if it can be cast to t else NULL
-
-
-
-`BOOLEAN jsonb_exists_path(JSONB j, VARCHAR json_path)`
-
-`STRING jsonb_type(JSONB j, VARCHAR json_path)`
+## jsonb_exists_path and jsonb_type
+### description
 
 There are two extra functions to check field existence and type
 - jsonb_exists_path check the existence of the field specified by json_path, return TRUE or FALS
@@ -73,10 +72,14 @@ There are two extra functions to check field existence and type
   - double
   - string
 
+`BOOLEAN jsonb_exists_path(JSONB j, VARCHAR json_path)`
+
+`STRING jsonb_type(JSONB j, VARCHAR json_path)`
+
 
 ### example
 
-refer to jsonb tutorial
+refer to jsonb tutorial for more.
 
 
 ### keywords
