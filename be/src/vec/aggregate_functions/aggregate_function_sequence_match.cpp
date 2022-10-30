@@ -67,6 +67,7 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string &
                 argument_types, pattern);
     } else {
         LOG(FATAL) << "Only support Date and DateTime type as timestamp argument!";
+        return nullptr;
     }
 }
 

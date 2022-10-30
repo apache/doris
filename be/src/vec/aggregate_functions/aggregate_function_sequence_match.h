@@ -27,6 +27,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/io/var_int.h"
+#include "vec/io/io_helper.h"
 #include <bitset>
 
 namespace doris::vectorized {
@@ -99,24 +100,24 @@ struct AggregateFunctionSequenceMatchData final
         sorted = true;
     }
 
-    void serialize(BufferWritable& buf) const
+    void write(BufferWritable& buf) const
     {
-        writeBinary(sorted, buf);
-        writeBinary(events_list.size(), buf);
+        write_binary(sorted, buf);
+        write_binary(events_list.size(), buf);
 
         for (const auto & events : events_list)
         {
-            writeBinary(events.first, buf);
-            writeBinary(events.second.to_ulong(), buf);
+            write_binary(events.first, buf);
+            write_binary(events.second.to_ulong(), buf);
         }
     }
 
-    void deserialize(BufferReadable & buf)
+    void read(BufferReadable & buf)
     {
-        readBinary(sorted, buf);
+        read_binary(sorted, buf);
 
         size_t size;
-        readBinary(size, buf);
+        read_binary(size, buf);
 
         events_list.clear();
         events_list.reserve(size);
@@ -124,10 +125,10 @@ struct AggregateFunctionSequenceMatchData final
         for (size_t i = 0; i < size; ++i)
         {
             Timestamp timestamp;
-            readBinary(timestamp, buf);
+            read_binary(timestamp, buf);
 
             UInt64 events;
-            readBinary(events, buf);
+            read_binary(events, buf);
 
             events_list.emplace_back(timestamp, Events{events});
         }
@@ -158,7 +159,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn ** columns, const size_t row_num, Arena *) const override
     {
-        const auto timestamp = assert_cast<const ColumnVector<DataValueType> *>(columns[0])->get_data()[row_num];
+        const auto timestamp = assert_cast<const ColumnVector<DateValueType> *>(columns[0])->get_data()[row_num];
 
         typename AggregateFunctionSequenceMatchData<DateValueType, NativeType>::Events events;
 
@@ -178,12 +179,12 @@ public:
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override
     {
-        this->data(place).serialize(buf);
+        this->data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena *) const override
     {
-        this->data(place).deserialize(buf);
+        this->data(place).read(buf);
     }
 
 
@@ -213,6 +214,7 @@ private:
 
     Derived & derived() { return static_cast<Derived &>(*this); }
 
+
     void parsePattern()
     {
         actions.clear();
@@ -226,11 +228,11 @@ private:
         const char * pos = pattern.data();
         const char * begin = pos;
         const char * end = pos + pattern.size();
-
         auto throw_exception = [&](const std::string & msg)
         {
-            throw Exception{msg + " '" + std::string(pos, end) + "' at position " + to_string(pos - begin), ErrorCodes::SYNTAX_ERROR};
+            LOG(FATAL)<<msg + " '" + std::string(pos, end) + "' at position " + std::to_string(pos - begin);
         };
+
 
         auto match = [&pos, end](const char * str) mutable
         {
@@ -266,14 +268,14 @@ private:
 
                     UInt64 duration = 0;
                     const auto * prev_pos = pos;
-                    pos = tryReadIntText(duration, pos, end);
+                    pos = try_read_int_text(duration, pos, end);
                     if (pos == prev_pos)
                         throw_exception("Could not parse number");
 
                     if (actions.back().type != PatternActionType::SpecificEvent &&
                         actions.back().type != PatternActionType::AnyEvent &&
                         actions.back().type != PatternActionType::KleeneStar)
-                        throw Exception{"Temporal condition should be preceded by an event condition", ErrorCodes::BAD_ARGUMENTS};
+                        throw_exception("Temporal condition should be preceded by an event condition");
 
                     pattern_has_time = true;
                     actions.emplace_back(type, duration);
@@ -282,12 +284,12 @@ private:
                 {
                     UInt64 event_number = 0;
                     const auto * prev_pos = pos;
-                    pos = tryReadIntText(event_number, pos, end);
+                    pos = try_read_int_text(event_number, pos, end);
                     if (pos == prev_pos)
                         throw_exception("Could not parse number");
 
                     if (event_number > arg_count - 1)
-                        throw Exception{"Event number " + to_string(event_number) + " is out of range", ErrorCodes::BAD_ARGUMENTS};
+                        throw_exception("Event number " + std::to_string(event_number) + " is out of range");
 
                     actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
                     dfa_states.back().transition = DFATransition::SpecificEvent;
@@ -498,11 +500,10 @@ protected:
                     break;
             }
             else
-                throw Exception{"Unknown PatternActionType", ErrorCodes::LOGICAL_ERROR};
+                LOG(FATAL)<<"Unknown PatternActionType";
 
             if (++i > sequence_match_max_iterations)
-                throw Exception{"Pattern application proves too difficult, exceeding max iterations (" + to_string(sequence_match_max_iterations) + ")",
-                    ErrorCodes::TOO_SLOW};
+                LOG(FATAL)<<"Pattern application proves too difficult, exceeding max iterations (" + std::to_string(sequence_match_max_iterations) + ")";
         }
 
         /// if there are some actions remaining
@@ -562,8 +563,7 @@ protected:
                 }
 
                 if (limit_iterations && ++events_processed > sequence_match_max_iterations)
-                    throw Exception{"Pattern application proves too difficult, exceeding max iterations (" + std::to_string(sequence_match_max_iterations) + ")",
-                        ErrorCodes::TOO_SLOW};
+                    LOG(FATAL)<<"Pattern application proves too difficult, exceeding max iterations are " + std::to_string(sequence_match_max_iterations);
             }
 
             return det_part_it == actions_it;
@@ -656,7 +656,7 @@ public:
             output.push_back(false);
             return;
         }
-        this->data(place).sort();
+        this->data(const_cast<AggregateDataPtr>(place)).sort();
 
         const auto & data_ref = this->data(place);
 
@@ -696,7 +696,7 @@ public:
             output.push_back(0);
             return;
         }
-        this->data(place).sort();
+        this->data(const_cast<AggregateDataPtr>(place)).sort();
         output.push_back(count(place));
     }
 

@@ -360,6 +360,14 @@ bool try_read_int_text(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
+static inline const char * try_read_int_text(T & x, const char * pos, const char * end)
+{
+    ReadBuffer in((char*)pos, end - pos);
+    try_read_int_text(x, in);
+    return pos + in.count();
+}
+
+template <typename T>
 bool try_read_float_text(T& x, ReadBuffer& in) {
     return read_float_text_fast_impl<T>(x, in);
 }
