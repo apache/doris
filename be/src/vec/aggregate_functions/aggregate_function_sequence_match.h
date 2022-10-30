@@ -99,7 +99,7 @@ struct AggregateFunctionSequenceMatchData final
         sorted = true;
     }
 
-    void serialize(WriteBuffer & buf) const
+    void serialize(BufferWritable& buf) const
     {
         writeBinary(sorted, buf);
         writeBinary(events_list.size(), buf);
@@ -111,7 +111,7 @@ struct AggregateFunctionSequenceMatchData final
         }
     }
 
-    void deserialize(ReadBuffer & buf)
+    void deserialize(BufferReadable & buf)
     {
         readBinary(sorted, buf);
 
@@ -162,7 +162,7 @@ public:
 
         typename AggregateFunctionSequenceMatchData<DateValueType, NativeType>::Events events;
 
-        for (const auto i =1;i< arg_count;i++)
+        for (auto i =1;i< arg_count;i++)
         {
             const auto event = assert_cast<const ColumnUInt8 *>(columns[i])->get_data()[row_num];
             events.set(i - 1, event);
@@ -635,20 +635,20 @@ template <typename DateValueType, typename NativeType>
 class AggregateFunctionSequenceMatch final : public AggregateFunctionSequenceBase<
                                                     DateValueType,
                                                     NativeType,
-                                                    AggregateFunctionSequenceMatchData<DateValueType,NativeType>>{
+                                                    AggregateFunctionSequenceMatch<DateValueType,NativeType>>{
 public:
     AggregateFunctionSequenceMatch(const DataTypes & arguments, const String & pattern_)
         : AggregateFunctionSequenceBase<DataTypes,
                                         NativeType,
-                                        AggregateFunctionSequenceMatchData<DateValueType,NativeType>>(arguments, pattern_) {}
+                                        AggregateFunctionSequenceMatch<DateValueType,NativeType>>(arguments, pattern_) {}
 
-    using AggregateFunctionSequenceBase<DataTypes, NativeType,AggregateFunctionSequenceMatchData<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<DataTypes, NativeType,AggregateFunctionSequenceMatch<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_match"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeUInt8>(); }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn & to) const override
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
         auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
         if ((this->conditions_in_pattern & this->data(place).conditions_met) != this->conditions_in_pattern)
@@ -675,14 +675,14 @@ template <typename DateValueType, typename NativeType>
 class AggregateFunctionSequenceCount final : public AggregateFunctionSequenceBase<
                                                     DateValueType,
                                                     NativeType,
-                                                    AggregateFunctionSequenceMatchData<DateValueType,NativeType>>{
+                                                    AggregateFunctionSequenceCount<DateValueType,NativeType>>{
 public:
-    AggregateFunctionSequenceCount(const DataTypes & arguments, const Array & params, const String & pattern_)
+    AggregateFunctionSequenceCount(const DataTypes & arguments, const String & pattern_)
         : AggregateFunctionSequenceBase<DataTypes,
                                         NativeType,
-                                        AggregateFunctionSequenceMatchData<DateValueType,NativeType>>(arguments, pattern_) {}
+                                        AggregateFunctionSequenceCount<DateValueType,NativeType>>(arguments, pattern_) {}
 
-    using AggregateFunctionSequenceBase<DataTypes, NativeType,AggregateFunctionSequenceMatchData<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<DataTypes, NativeType,AggregateFunctionSequenceCount<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_count"; }
 
