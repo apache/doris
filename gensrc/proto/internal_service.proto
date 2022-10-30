@@ -525,6 +525,32 @@ message PTabletWriteSlaveDoneResult {
     optional PStatus status = 1;
 };
 
+// TODO(ftw): these should be deleted after
+enum PStorageType {
+    S3_STORAGE = 1;
+};
+
+// TODO(ftw): these should be deleted after
+enum PFormatType {
+   CSV = 1;
+};
+
+message PFetchTableSchemaRequest {
+  optional bytes file_scan_range = 1;
+
+  // TODO(ftw): these should be deleted after
+  required PStorageType storage_type = 6;
+  required PFormatType format_type = 7;
+  map<string, string> properties = 8;
+};
+
+message PFetchTableSchemaResult {
+  required PStatus status = 1;
+  optional int32 column_nums = 2;
+  repeated string column_names = 3;
+  repeated PTypeDesc column_types = 4;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
