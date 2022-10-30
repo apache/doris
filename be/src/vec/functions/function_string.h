@@ -1448,7 +1448,7 @@ public:
             int32 j = 0;
             auto delimiter = delimiter_col->get_data_at(i);
             auto delimiter_str = delimiter_col->get_data_at(i).to_string();
-            auto str = str_col->get_data_at(i);
+            //auto str = str_col->get_data_at(i);
             auto str_str = str_col->get_data_at(i).to_string();
             if (delimiter.size == 0) {
                 res_data_offsets[i] = res_data_chars.size();
@@ -1456,13 +1456,13 @@ public:
                 std::vector<int> v_offset;
                 std::vector<int> v_charlen;
                 getOffsetsAndLen(str_col->get_data_at(i).to_string(), delimiter_str, v_offset, v_charlen);
-
+ 
                 for (size_t i = 0; i < v_offset.size(); i++) {
                     res_data_chars.resize(res_data_chars.size() + v_charlen[i] + 1);
-                    memcpy(&res_data_offsets[current_dst_strings_offset], &str + v_offset[i], v_charlen[i]);
-                    res_data_chars[current_dst_strings_offset + v_charlen[i]] = 0;
 
-                    current_dst_strings_offset += v_charlen[i] + 1;
+                    LOG(WARNING) << "offsets:  " << *(&(*&str_str[0]) + v_offset[i]);
+                    memcpy(&res_data_chars[current_dst_strings_offset], &(*&str_str[0]) + v_offset[i], v_charlen[i]);                     
+                    current_dst_strings_offset += v_charlen[i];
                     res_data_offsets.push_back(current_dst_strings_offset);
                     ++j;
                 }
@@ -1470,6 +1470,13 @@ public:
                 res_offsets.push_back(current_dst_offset);
             }           
         }
+        for(int i=0; i<res_data_chars.size(); i++) {
+            LOG(WARNING) << "res_data_chars:" << res_data_chars[i];
+        }
+        for(int i=0; i<res_data_offsets.size(); i++) {
+            LOG(WARNING) << "res_data_offsets:" << res_data_offsets[i];
+        }
+       
         block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
     }
