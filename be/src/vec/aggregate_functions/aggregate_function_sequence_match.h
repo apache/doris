@@ -23,13 +23,22 @@
 
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/io/var_int.h"
 #include <bitset>
 
 namespace doris::vectorized {
-    
+
+namespace ErrorCodes
+{
+    extern const int TOO_SLOW;
+    extern const int SYNTAX_ERROR;
+    extern const int BAD_ARGUMENTS;
+    extern const int LOGICAL_ERROR;
+}  
+
 template <template <typename> class Comparator>
 struct ComparePairFirst final
 {
@@ -86,7 +95,7 @@ struct AggregateFunctionSequenceMatchData final
         if (sorted)
             return;
 
-        ::sort(std::begin(events_list), std::end(events_list), Comparator{});
+        std::sort(std::begin(events_list), std::end(events_list), Comparator{});
         sorted = true;
     }
 
@@ -149,11 +158,11 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn ** columns, const size_t row_num, Arena *) const override
     {
-        const auto timestamp = assert_cast<const ColumnVector<T> *>(columns[0])->get_data()[row_num];
+        const auto timestamp = assert_cast<const ColumnVector<DataValueType> *>(columns[0])->get_data()[row_num];
 
-        AggregateFunctionSequenceMatchData<DateValueType, NativeType>::Events events;
+        typename AggregateFunctionSequenceMatchData<DateValueType, NativeType>::Events events;
 
-        for (const auto i : collections::range(1, arg_count))
+        for (const auto i =1;i< arg_count;i++)
         {
             const auto event = assert_cast<const ColumnUInt8 *>(columns[i])->get_data()[row_num];
             events.set(i - 1, event);
@@ -167,12 +176,12 @@ public:
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, WriteBuffer & buf) const override
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override
     {
         this->data(place).serialize(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, ReadBuffer & buf, Arena *) const override
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena *) const override
     {
         this->data(place).deserialize(buf);
     }
@@ -220,7 +229,7 @@ private:
 
         auto throw_exception = [&](const std::string & msg)
         {
-            throw Exception{msg + " '" + std::string(pos, end) + "' at position " + toString(pos - begin), ErrorCodes::SYNTAX_ERROR};
+            throw Exception{msg + " '" + std::string(pos, end) + "' at position " + to_string(pos - begin), ErrorCodes::SYNTAX_ERROR};
         };
 
         auto match = [&pos, end](const char * str) mutable
@@ -278,7 +287,7 @@ private:
                         throw_exception("Could not parse number");
 
                     if (event_number > arg_count - 1)
-                        throw Exception{"Event number " + toString(event_number) + " is out of range", ErrorCodes::BAD_ARGUMENTS};
+                        throw Exception{"Event number " + to_string(event_number) + " is out of range", ErrorCodes::BAD_ARGUMENTS};
 
                     actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
                     dfa_states.back().transition = DFATransition::SpecificEvent;
@@ -492,7 +501,7 @@ protected:
                 throw Exception{"Unknown PatternActionType", ErrorCodes::LOGICAL_ERROR};
 
             if (++i > sequence_match_max_iterations)
-                throw Exception{"Pattern application proves too difficult, exceeding max iterations (" + toString(sequence_match_max_iterations) + ")",
+                throw Exception{"Pattern application proves too difficult, exceeding max iterations (" + to_string(sequence_match_max_iterations) + ")",
                     ErrorCodes::TOO_SLOW};
         }
 
@@ -553,7 +562,7 @@ protected:
                 }
 
                 if (limit_iterations && ++events_processed > sequence_match_max_iterations)
-                    throw Exception{"Pattern application proves too difficult, exceeding max iterations (" + toString(sequence_match_max_iterations) + ")",
+                    throw Exception{"Pattern application proves too difficult, exceeding max iterations (" + to_string(sequence_match_max_iterations) + ")",
                         ErrorCodes::TOO_SLOW};
             }
 
@@ -629,9 +638,11 @@ class AggregateFunctionSequenceMatch final : public AggregateFunctionSequenceBas
                                                     AggregateFunctionSequenceMatchData<DateValueType,NativeType>>{
 public:
     AggregateFunctionSequenceMatch(const DataTypes & arguments, const String & pattern_)
-        : AggregateFunctionSequenceBase<DataTypes, NativeType>(arguments, pattern_) {}
+        : AggregateFunctionSequenceBase<DataTypes,
+                                        NativeType,
+                                        AggregateFunctionSequenceMatchData<DateValueType,NativeType>>(arguments, pattern_) {}
 
-    using AggregateFunctionSequenceBase<DataTypes, NativeType>::AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<DataTypes, NativeType,AggregateFunctionSequenceMatchData<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_match"; }
 
@@ -667,15 +678,17 @@ class AggregateFunctionSequenceCount final : public AggregateFunctionSequenceBas
                                                     AggregateFunctionSequenceMatchData<DateValueType,NativeType>>{
 public:
     AggregateFunctionSequenceCount(const DataTypes & arguments, const Array & params, const String & pattern_)
-        : AggregateFunctionSequenceBase<DataTypes, NativeType>(arguments, pattern_) {}
+        : AggregateFunctionSequenceBase<DataTypes,
+                                        NativeType,
+                                        AggregateFunctionSequenceMatchData<DateValueType,NativeType>>(arguments, pattern_) {}
 
-    using AggregateFunctionSequenceBase<DataTypes, NativeType>::AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<DataTypes, NativeType,AggregateFunctionSequenceMatchData<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_count"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeUInt64>(); }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn & to) const override
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
         auto & output = assert_cast<ColumnUInt64 &>(to).get_data();
         if ((this->conditions_in_pattern & this->data(place).conditions_met) != this->conditions_in_pattern)

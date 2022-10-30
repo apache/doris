@@ -43,23 +43,27 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string &
     }
     if (arg_count - 1 > max_events){
         LOG(WARNING) << "Aggregate function " + name + " supports up to "
-            + toString(max_events) + " event arguments.";
+            + std::to_string(max_events) + " event arguments.";
         return nullptr;
     }
 
-    String pattern = parameters.front().safeGet<std::string>();
+    String pattern = parameters.front().safe_get<std::string>();
 
-    if (WhichDataType(remove_nullable(argument_types[1])).is_date_time_v2()) {
+    if (WhichDataType(remove_nullable(argument_types[0])).is_date_time_v2()) {
         return std::make_shared<
                 AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(
                 argument_types, pattern);
-    } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_time()) {
+    } else if (WhichDataType(remove_nullable(argument_types[0])).is_date_time()) {
         return std::make_shared<
                 AggregateFunction<VecDateTimeValue, Int64>>(
                 argument_types, pattern);
-    } else if (WhichDataType(remove_nullable(argument_types[1])).is_date()) {
+    } else if (WhichDataType(remove_nullable(argument_types[0])).is_date_v2()) {
         return std::make_shared<
-                AggregateFunction<DataTypeDate, Int64>>(
+                AggregateFunction<DateV2Value<DateV2ValueType>, UInt64>>(
+                argument_types, pattern);
+    } else if(WhichDataType(remove_nullable(argument_types[0])).is_date()){
+        return std::make_shared<
+                AggregateFunction<DateTypeDate, Int64>>(
                 argument_types, pattern);
     } else {
         LOG(FATAL) << "Only support Date and DateTime type as timestamp argument!";
