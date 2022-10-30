@@ -60,6 +60,8 @@ import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
+import org.apache.doris.analysis.ShowMTMVJobStmt;
+import org.apache.doris.analysis.ShowMTMVTaskStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
@@ -170,6 +172,9 @@ import org.apache.doris.load.LoadErrorHub.HubType;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.system.Backend;
@@ -375,6 +380,10 @@ public class ShowExecutor {
             handleCopyTablet();
         } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
             handleShowCatalogRecycleBin();
+        } else if (stmt instanceof ShowMTMVJobStmt) {
+            handleMTMVJobs();
+        } else if (stmt instanceof ShowMTMVTaskStmt) {
+            handleMTMVTasks();
         } else {
             handleEmtpy();
         }
@@ -2392,5 +2401,45 @@ public class ShowExecutor {
                 .collect(Collectors.toList());
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleMTMVJobs() throws AnalysisException {
+        ShowMTMVJobStmt showStmt = (ShowMTMVJobStmt) stmt;
+        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
+        List<MTMVJob> jobs = Lists.newArrayList();
+        if (showStmt.isShowAllJobs()) {
+            jobs.addAll(jobManager.showAllJobs());
+        } else if (showStmt.isShowAllJobsFromDb()) {
+            jobs.addAll(jobManager.showJobs(showStmt.getDbName()));
+        } else if (showStmt.isShowAllJobsOnMv()) {
+            jobs.addAll(jobManager.showJobs(showStmt.getDbName(), showStmt.getMVName()));
+        } else if (showStmt.isSpecificJob()) {
+            jobs.add(jobManager.getJob(showStmt.getJobName()));
+        }
+        List<List<String>> results = Lists.newArrayList();
+        for (MTMVJob job : jobs) {
+            results.add(job.toStringRow());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleMTMVTasks() throws AnalysisException {
+        ShowMTMVTaskStmt showStmt = (ShowMTMVTaskStmt) stmt;
+        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
+        List<MTMVTask> tasks = Lists.newArrayList();
+        if (showStmt.isShowAllTasks()) {
+            tasks.addAll(jobManager.getTaskManager().showAllTasks());
+        } else if (showStmt.isShowAllTasksFromDb()) {
+            tasks.addAll(jobManager.getTaskManager().showTasks(showStmt.getDbName()));
+        } else if (showStmt.isShowAllTasksOnMv()) {
+            tasks.addAll(jobManager.getTaskManager().showTasks(showStmt.getDbName(), showStmt.getMVName()));
+        } else if (showStmt.isSpecificTask()) {
+            tasks.add(jobManager.getTaskManager().getTask(showStmt.getTaskId()));
+        }
+        List<List<String>> results = Lists.newArrayList();
+        for (MTMVTask task : tasks) {
+            results.add(task.toStringRow());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 }

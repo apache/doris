@@ -25,6 +25,8 @@ import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -33,6 +35,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -59,6 +62,9 @@ public class MTMVJob implements Writable {
 
     @SerializedName("dbName")
     private String dbName;
+
+    @SerializedName("mvName")
+    private String mvName;
 
     @SerializedName("query")
     private String query;
@@ -149,6 +155,14 @@ public class MTMVJob implements Writable {
 
     public void setDbName(String dbName) {
         this.dbName = dbName;
+    }
+
+    public String getMvName() {
+        return mvName;
+    }
+
+    public void setMvName(String mvName) {
+        this.mvName = mvName;
     }
 
     public String getQuery() {
@@ -247,5 +261,40 @@ public class MTMVJob implements Writable {
             return " (START " + LocalDateTime.ofInstant(Instant.ofEpochSecond(startTime), ZoneId.systemDefault())
                     + " EVERY(" + period + " " + timeUnit + "))";
         }
+    }
+
+    public static final ImmutableList<String> SHOW_TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+                    .add("Id")
+                    .add("Name")
+                    .add("TriggerMode")
+                    .add("Schedule")
+                    .add("DBName")
+                    .add("MVName")
+                    .add("Query")
+                    .add("CreateUser")
+                    .add("RetryPolicy")
+                    .add("State")
+                    .add("CreateTime")
+                    .add("ExpireTime")
+                    .add("LastModifyTime")
+                    .build();
+
+    public List<String> toStringRow() {
+        List<String> list = Lists.newArrayList();
+        list.add(Long.toString(getId()));
+        list.add(getName());
+        list.add(getTriggerMode().toString());
+        list.add(getSchedule().toString());
+        list.add(getDbName());
+        list.add(getMvName());
+        list.add(getQuery().substring(0, 10240));
+        list.add(getCreateUser());
+        list.add(getRetryPolicy().toString());
+        list.add(getState().toString());
+        list.add(Long.toString(getCreateTime()));
+        list.add(Long.toString(getExpireTime()));
+        list.add(Long.toString(getLastModifyTime()));
+        return list;
     }
 }

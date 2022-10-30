@@ -22,11 +22,14 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.mtmv.MTMVUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 public class MTMVTask implements Writable {
     // also named query id in ConnectContext
@@ -47,6 +50,9 @@ public class MTMVTask implements Writable {
 
     @SerializedName("dbName")
     private String dbName;
+
+    @SerializedName("mvName")
+    private String mvName;
 
     @SerializedName("query")
     private String query;
@@ -118,6 +124,14 @@ public class MTMVTask implements Writable {
         this.dbName = dbName;
     }
 
+    public String getMvName() {
+        return mvName;
+    }
+
+    public void setMvName(String mvName) {
+        this.mvName = mvName;
+    }
+
     public String getUser() {
         return user;
     }
@@ -183,5 +197,42 @@ public class MTMVTask implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    public static final ImmutableList<String> SHOW_TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+                    .add("TaskId")
+                    .add("JobName")
+                    .add("dbName")
+                    .add("MVName")
+                    .add("Query")
+                    .add("User")
+                    .add("Priority")
+                    .add("RetryTimes")
+                    .add("State")
+                    .add("ErrorCode")
+                    .add("ErrorMessage")
+                    .add("CreateTime")
+                    .add("ExpireTime")
+                    .add("FinishTime")
+                    .build();
+
+    public List<String> toStringRow() {
+        List<String> list = Lists.newArrayList();
+        list.add(getTaskId());
+        list.add(getJobName());
+        list.add(getDbName());
+        list.add(getMvName());
+        list.add(getQuery().substring(0, 10240));
+        list.add(getUser());
+        list.add(Integer.toString(getPriority()));
+        list.add(Integer.toString(getRetryTimes()));
+        list.add(getState().toString());
+        list.add(Integer.toString(getErrorCode()));
+        list.add(getErrorMessage().substring(0, 10240));
+        list.add(Long.toString(getCreateTime()));
+        list.add(Long.toString(getExpireTime()));
+        list.add(Long.toString(getFinishTime()));
+        return list;
     }
 }

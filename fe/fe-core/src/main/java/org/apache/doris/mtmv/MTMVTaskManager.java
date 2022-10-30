@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
@@ -63,7 +64,7 @@ public class MTMVTaskManager {
 
     private final ReentrantLock reentrantLock = new ReentrantLock(true);
 
-    // keep track of all the tasks
+    // keep track of all the completed tasks
     private final Deque<MTMVTask> historyQueue = Queues.newLinkedBlockingDeque();
 
     private final ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
@@ -253,12 +254,16 @@ public class MTMVTaskManager {
         return runningTaskMap;
     }
 
-    public void addHistory(MTMVTask task) {
+    private void addHistory(MTMVTask task) {
         historyQueue.addFirst(task);
     }
 
     public Deque<MTMVTask> getAllHistory() {
         return historyQueue;
+    }
+
+    public List<MTMVTask> showAllTasks() {
+        return showTasks(null);
     }
 
     public List<MTMVTask> showTasks(String dbName) {
@@ -283,6 +288,22 @@ public class MTMVTaskManager {
 
         }
         return taskList;
+    }
+
+    public List<MTMVTask> showTasks(String dbName, String mvName) {
+        return showTasks(dbName).stream().filter(u -> u.getMvName().equals(mvName)).collect(Collectors.toList());
+    }
+
+    public MTMVTask getTask(String taskId) throws AnalysisException {
+        List<MTMVTask> tasks =
+                showAllTasks().stream().filter(u -> u.getTaskId().equals(taskId)).collect(Collectors.toList());
+        if (tasks.size() == 0) {
+            throw new AnalysisException("Can't find the task id in the task list.");
+        } else if (tasks.size() > 1) {
+            throw new AnalysisException("Find more than one task id in the task list.");
+        } else {
+            return tasks.get(0);
+        }
     }
 
     public void replayCreateJobTask(MTMVTask task) {

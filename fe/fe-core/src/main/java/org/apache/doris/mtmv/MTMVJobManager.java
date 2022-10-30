@@ -286,6 +286,10 @@ public class MTMVJobManager {
         return jobList;
     }
 
+    public List<MTMVJob> showJobs(String dbName, String mvName) {
+        return showJobs(dbName).stream().filter(u -> u.getMvName().equals(mvName)).collect(Collectors.toList());
+    }
+
     private boolean tryLock() {
         try {
             return reentrantLock.tryLock(5, TimeUnit.SECONDS);

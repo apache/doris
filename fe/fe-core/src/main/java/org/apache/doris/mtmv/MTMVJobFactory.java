@@ -22,16 +22,19 @@ import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVJob.JobSchedule;
 
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class MTMVJobFactory {
     public static MTMVJob buildJob(MaterializedView materializedView) {
-        MTMVJob job = new MTMVJob(materializedView.getName());
+        MTMVJob job = new MTMVJob(materializedView.getName() + "_" + UUID.randomUUID());
         JobSchedule jobSchedule = new JobSchedule(System.currentTimeMillis() / 1000, 1, TimeUnit.MINUTES);
         job.setSchedule(jobSchedule);
         job.setTriggerMode(TriggerMode.PERIODICAL);
         job.setDbName("fake");
-        job.setQuery("select * from fake");
+        job.setMvName(materializedView.getName());
+        job.setQuery(materializedView.getQuery());
+        job.setCreateTime(System.currentTimeMillis() / 1000);
         return job;
     }
 }
