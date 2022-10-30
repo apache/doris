@@ -125,7 +125,7 @@ class Config {
             ConfigObject configObj = configSlurper.parse(new File(confFilePath).toURI().toURL())
             config = Config.fromConfigObject(configObj)
         }
-        String customConfFilePath = confFile.getPath() + "regression-conf-custom.groovy"
+        String customConfFilePath = confFile.getParentFile().getPath() + "/regression-conf-custom.groovy"
         File custFile = new File(customConfFilePath)
         if (custFile.exists() && custFile.isFile()) {
             log.info("Load custom config file ${customConfFilePath}".toString())
