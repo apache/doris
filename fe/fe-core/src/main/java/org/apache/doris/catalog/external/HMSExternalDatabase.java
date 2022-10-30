@@ -21,13 +21,16 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -37,11 +40,12 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external database.
  */
-public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
+public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDatabase.class);
 
     // Cache of table name to table id.
     private Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    @SerializedName(value = "idToTbl")
     private Map<Long, HMSExternalTable> idToTbl = Maps.newHashMap();
 
     /**
@@ -118,5 +122,20 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     public HMSExternalTable getTableNullable(long tableId) {
         makeSureInitialized();
         return idToTbl.get(tableId);
+    }
+
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        tableNameToId = Maps.newConcurrentMap();
+        for (HMSExternalTable tbl : idToTbl.values()) {
+            tableNameToId.put(tbl.getName(), tbl.getId());
+            tbl.setCatalog(extCatalog);
+        }
+    }
+
+    public void addTableForTest(HMSExternalTable tbl) {
+        idToTbl.put(tbl.getId(), tbl);
+        tableNameToId.put(tbl.getName(), tbl.getId());
     }
 }

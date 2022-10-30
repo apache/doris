@@ -24,6 +24,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,11 +45,16 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
 
     private ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "name")
     protected String name;
-    protected ExternalCatalog extCatalog;
-    protected DatabaseProperty dbProperties;
+    @SerializedName(value = "dbProperties")
+    protected DatabaseProperty dbProperties = new DatabaseProperty();
+    @SerializedName(value = "initialized")
     protected boolean initialized = false;
+
+    protected ExternalCatalog extCatalog;
 
     /**
      * Create external database.
@@ -61,6 +67,10 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T> 
         this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
+    }
+
+    public void setExtCatalog(ExternalCatalog extCatalog) {
+        this.extCatalog = extCatalog;
     }
 
     public synchronized void setUnInitialized() {

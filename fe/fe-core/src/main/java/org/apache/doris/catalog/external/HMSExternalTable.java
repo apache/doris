@@ -39,11 +39,8 @@ import java.util.Map;
  * Hive metastore external table.
  */
 public class HMSExternalTable extends ExternalTable {
-
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
-    private final HMSExternalCatalog catalog;
-    private final String dbName;
     private final List<String> supportedHiveFileFormats = Lists.newArrayList(
             "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
             "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
@@ -157,7 +154,7 @@ public class HMSExternalTable extends ExternalTable {
                     fullSchema = Lists.newArrayList();
                     try {
                         for (FieldSchema field : HiveMetaStoreClientHelper.getSchema(dbName, name,
-                                catalog.getHiveMetastoreUris())) {
+                                ((HMSExternalCatalog) catalog).getHiveMetastoreUris())) {
                             fullSchema.add(new Column(field.getName(),
                                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null, true,
                                     null, field.getComment()));
@@ -177,11 +174,11 @@ public class HMSExternalTable extends ExternalTable {
         if (remoteTable == null) {
             synchronized (this) {
                 if (remoteTable == null) {
+                    String uri = ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
                     try {
-                        remoteTable = HiveMetaStoreClientHelper.getTable(dbName, name, catalog.getHiveMetastoreUris());
+                        remoteTable = HiveMetaStoreClientHelper.getTable(dbName, name, uri);
                     } catch (DdlException e) {
-                        LOG.warn("Fail to get remote hive table. db {}, table {}, uri {}", dbName, name,
-                                catalog.getHiveMetastoreUris());
+                        LOG.warn("Fail to get remote hive table. db {}, table {}, uri {}", dbName, name, uri);
                         throw new MetaNotFoundException(e);
                     }
                 }
@@ -300,7 +297,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     public String getMetastoreUri() {
-        return catalog.getHiveMetastoreUris();
+        return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
 
     public Map<String, String> getDfsProperties() {

@@ -22,8 +22,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,15 +39,23 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Such as tables from hive, iceberg, es, etc.
  */
 public class ExternalTable implements TableIf {
-
     private static final Logger LOG = LogManager.getLogger(ExternalTable.class);
 
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "name")
     protected String name;
-    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
+    @SerializedName(value = "type")
     protected TableType type = null;
+    @SerializedName(value = "fullSchema")
     protected volatile List<Column> fullSchema = null;
+    @SerializedName(value = "initialized")
     protected boolean initialized = false;
+
+    protected ExternalCatalog catalog;
+    protected String dbName;
+
+    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     /**
      * Create external table.
@@ -69,6 +79,10 @@ public class ExternalTable implements TableIf {
         this.id = id;
         this.name = name;
         this.type = type;
+    }
+
+    public void setCatalog(ExternalCatalog catalog) {
+        this.catalog = catalog;
     }
 
     public boolean isView() {
@@ -260,7 +274,6 @@ public class ExternalTable implements TableIf {
     @Override
     public String getComment(boolean escapeQuota) {
         return "";
-
     }
 
     public TTableDescriptor toThrift() {

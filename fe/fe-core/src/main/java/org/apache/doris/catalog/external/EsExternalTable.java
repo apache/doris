@@ -36,9 +36,6 @@ import java.util.List;
 public class EsExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(EsExternalTable.class);
-
-    private final EsExternalCatalog catalog;
-    private final String dbName;
     private EsTable esTable;
 
     /**
@@ -65,7 +62,7 @@ public class EsExternalTable extends ExternalTable {
     }
 
     private void init() {
-        fullSchema = EsUtil.genColumnsFromEs(catalog.getEsRestClient(), name, null);
+        fullSchema = EsUtil.genColumnsFromEs(((EsExternalCatalog) catalog).getEsRestClient(), name, null);
         esTable = toEsTable();
     }
 
@@ -123,17 +120,18 @@ public class EsExternalTable extends ExternalTable {
     }
 
     private EsTable toEsTable() {
+        EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
         EsTable esTable = new EsTable(this.id, this.name, this.fullSchema, TableType.ES_EXTERNAL_TABLE);
         esTable.setIndexName(name);
-        esTable.setClient(catalog.getEsRestClient());
-        esTable.setUserName(catalog.getUsername());
-        esTable.setPasswd(catalog.getPassword());
-        esTable.setEnableDocValueScan(catalog.isEnableDocValueScan());
-        esTable.setEnableKeywordSniff(catalog.isEnableKeywordSniff());
-        esTable.setNodesDiscovery(catalog.isEnableNodesDiscovery());
-        esTable.setHttpSslEnabled(catalog.isEnableSsl());
-        esTable.setSeeds(catalog.getNodes());
-        esTable.setHosts(String.join(",", catalog.getNodes()));
+        esTable.setClient(esCatalog.getEsRestClient());
+        esTable.setUserName(esCatalog.getUsername());
+        esTable.setPasswd(esCatalog.getPassword());
+        esTable.setEnableDocValueScan(esCatalog.isEnableDocValueScan());
+        esTable.setEnableKeywordSniff(esCatalog.isEnableKeywordSniff());
+        esTable.setNodesDiscovery(esCatalog.isEnableNodesDiscovery());
+        esTable.setHttpSslEnabled(esCatalog.isEnableSsl());
+        esTable.setSeeds(esCatalog.getNodes());
+        esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();
         return esTable;
     }

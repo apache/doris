@@ -21,8 +21,10 @@ import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang.NotImplementedException;
@@ -38,7 +40,7 @@ import java.util.Map;
  * The abstract class for all types of external catalogs.
  */
 @Data
-public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Writable {
+public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Writable, GsonPostProcessable {
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
     protected long id;
@@ -49,7 +51,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // save properties of this catalog, such as hive meta store url.
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty = new CatalogProperty();
+    @SerializedName(value = "initialized")
     protected boolean initialized = false;
+
+    // Cache of db name to db id
+    @SerializedName(value = "idToDb")
+    protected Map<Long, ExternalDatabase> idToDb = Maps.newConcurrentMap();
+    // db name does not contains "default_cluster"
+    protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
 
     /**
      * @return names of database in this catalog.
@@ -133,5 +142,19 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public static ExternalCatalog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        dbNameToId = Maps.newConcurrentMap();
+        for (ExternalDatabase db : idToDb.values()) {
+            dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+            db.setExtCatalog(this);
+        }
+    }
+
+    public void addDatabaseForTest(ExternalDatabase db) {
+        idToDb.put(db.getId(), db);
+        dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 }

@@ -20,11 +20,14 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -34,12 +37,13 @@ import java.util.Set;
 /**
  * Elasticsearch metastore external database.
  */
-public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
+public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implements GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(EsExternalDatabase.class);
 
     // Cache of table name to table id.
     private Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    @SerializedName(value = "idToTbl")
     private Map<Long, EsExternalTable> idToTbl = Maps.newHashMap();
 
     /**
@@ -109,5 +113,19 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
     public EsExternalTable getTableNullable(long tableId) {
         makeSureInitialized();
         return idToTbl.get(tableId);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        tableNameToId = Maps.newConcurrentMap();
+        for (EsExternalTable tbl : idToTbl.values()) {
+            tableNameToId.put(tbl.getName(), tbl.getId());
+            tbl.setCatalog(extCatalog);
+        }
+    }
+
+    public void addTableForTest(EsExternalTable tbl) {
+        idToTbl.put(tbl.getId(), tbl);
+        tableNameToId.put(tbl.getName(), tbl.getId());
     }
 }

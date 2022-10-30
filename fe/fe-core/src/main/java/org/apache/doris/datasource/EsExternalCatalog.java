@@ -54,10 +54,6 @@ public class EsExternalCatalog extends ExternalCatalog {
     private static final String PROP_NODES_DISCOVERY = "elasticsearch.nodes_discovery";
     private static final String PROP_SSL = "elasticsearch.ssl";
 
-    // Cache of db name to db id.
-    private Map<String, Long> dbNameToId;
-    private Map<Long, EsExternalDatabase> idToDb;
-
     private EsRestClient esRestClient;
 
     private String[] nodes;
