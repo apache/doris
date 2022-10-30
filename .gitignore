@@ -84,11 +84,11 @@ be/.devcontainer/
 ## tools
 tools/ssb-tools/ssb-data/
 tools/ssb-tools/ssb-dbgen/
-tools/tpch-tools/TPC-H_Tools_v*.zip
-tools/tpch-tools/TPC-H_Tools_v*/
-tools/tpch-tools/tpc-h_v*.docx
-tools/tpch-tools/tpc-h_v*.pdf
-tools/tpch-tools/tpch-data/
+tools/**/TPC-H_Tools_v*.zip
+tools/**/TPC-H_Tools_v*/
+tools/**/tpc-h_v*.docx
+tools/**/tpc-h_v*.pdf
+tools/**/tpch-data/
 
 # be-ut
 data_test
