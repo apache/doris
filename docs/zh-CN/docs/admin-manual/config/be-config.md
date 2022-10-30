@@ -839,6 +839,12 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 * 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
 * 默认值：80%
 
+### `memory_mode`
+
+* 类型：string
+* 描述：控制tcmalloc的回收，如果配置为performance，内存使用超过mem_limit的50%时，doris会释放tcmalloc cache中的内存，如果配置为compact，内存使用超过mem_limit的90%时，doris会释放tcmalloc cache中的内存。
+* 默认值：performance
+
 ### `memory_limitation_per_thread_for_schema_change`
 
 默认值：2 （GB）
@@ -1372,26 +1378,6 @@ tablet状态缓存的更新间隔，单位：秒
 * 默认值：false
 
 当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
-
-### `tc_free_memory_rate`
-
-默认值：20   (%)
-
-可用内存，取值范围：[0-100]
-
-### `tc_max_total_thread_cache_bytes`
-
-* 类型：int64
-* 描述：用来限制 tcmalloc 中总的线程缓存大小。这个限制不是硬限，因此实际线程缓存使用可能超过这个限制。具体可参阅 [TCMALLOC\_MAX\_TOTAL\_THREAD\_CACHE\_BYTES](https://gperftools.github.io/gperftools/tcmalloc.html)
-* 默认值： 1073741824
-
-如果发现系统在高压力场景下，通过 BE 线程堆栈发现大量线程处于 tcmalloc 的锁竞争阶段，如大量的 `SpinLock` 相关堆栈，则可以尝试增大该参数来提升系统性能。[参考](https://github.com/gperftools/gperftools/issues/1111)
-
-### `tc_use_memory_min`
-
-默认值：10737418240
-
-TCmalloc 的最小内存，当使用的内存小于这个时，不返回给操作系统
 
 ### `thrift_client_retry_interval_ms`
 

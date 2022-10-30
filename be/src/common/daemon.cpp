@@ -71,6 +71,14 @@ void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
         !defined(USE_JEMALLOC)
+
+    size_t tc_use_memory_min = config::mem_limit;
+    if (config::memory_mode == std::string("performance")) {
+        tc_use_memory_min = config::mem_limit * 0.9;
+    } else {
+        tc_use_memory_min = config::mem_limit >> 1;
+    }
+
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         size_t used_size = 0;
         size_t free_size = 0;
@@ -82,8 +90,8 @@ void Daemon::tcmalloc_gc_thread() {
         LOG(INFO) << "tcmalloc.pageheap_free_bytes " << free_size
                   << ", generic.current_allocated_bytes " << used_size;
 
-        if (alloc_size > config::tc_use_memory_min) {
-            size_t max_free_size = alloc_size * config::tc_free_memory_rate / 100;
+        if (alloc_size > tc_use_memory_min) {
+            size_t max_free_size = alloc_size * 20 / 100;
             if (free_size > max_free_size) {
                 MallocExtension::instance()->ReleaseToSystem(free_size - max_free_size);
             }
