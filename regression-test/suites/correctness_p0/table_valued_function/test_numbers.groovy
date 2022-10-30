@@ -49,12 +49,12 @@
     qt_left_join """
                     select a.number as num1, b.number as num2
                     from numbers("10") a left join numbers("5") b 
-                    on a.number=b.number;
+                    on a.number=b.number order by num1;
                   """
     qt_right_join """
                     select a.number as num1, b.number as num2
                     from numbers("5") a right join numbers("10") b 
-                    on a.number=b.number;
+                    on a.number=b.number order by num2;
                   """
     
     // Test where and GroupBy
