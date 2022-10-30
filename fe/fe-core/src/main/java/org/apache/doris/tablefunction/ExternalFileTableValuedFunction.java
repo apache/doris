@@ -40,9 +40,13 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-public abstract class FileTableValuedFunction extends TableValuedFunctionInf {
-    public static final Logger LOG = LogManager.getLogger(FileTableValuedFunction.class);
+public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
+    public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
 
+    public abstract PFetchTableSchemaRequest getFetchTableStructureRequest();
+
+
+    // TODO(ftw): no use, deleted.
     public enum FileFormatType {
         CSV, CSV_WITH_NAMES, CSV_WITH_NAMES_AND_TYPES;
         public String toFileFormatName() {
@@ -94,8 +98,6 @@ public abstract class FileTableValuedFunction extends TableValuedFunctionInf {
     public List<TableValuedFunctionTask> getTasks() throws AnalysisException {
         return null;
     }
-
-    public abstract PFetchTableSchemaRequest getFetchTableStructureRequest();
 
     private void fillColumns(InternalService.PFetchTableSchemaResult result, List<Column> columns)
                             throws AnalysisException {

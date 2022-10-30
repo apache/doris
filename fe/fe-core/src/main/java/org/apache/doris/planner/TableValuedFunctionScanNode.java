@@ -22,7 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.tablefunction.TableValuedFunctionInf;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
@@ -44,11 +44,11 @@ public class TableValuedFunctionScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(TableValuedFunctionScanNode.class.getName());
 
     private List<TScanRangeLocations> shardScanRanges;
-    private TableValuedFunctionInf tvf;
+    private TableValuedFunctionIf tvf;
     private boolean isFinalized = false;
 
     public TableValuedFunctionScanNode(PlanNodeId id, TupleDescriptor desc,
-                                       String planNodeName, TableValuedFunctionInf tvf) {
+                                       String planNodeName, TableValuedFunctionIf tvf) {
         super(id, desc, planNodeName, StatisticalType.TABLE_VALUED_FUNCTION_NODE);
         this.tvf = tvf;
     }

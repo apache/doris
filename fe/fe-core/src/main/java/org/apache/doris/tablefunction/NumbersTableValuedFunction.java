@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TTVFNumbersScanRange;
@@ -40,7 +41,7 @@ import java.util.List;
 /**
  * The Implement of table valued function——numbers(N,M).
  */
-public class NumbersTableValuedFunction extends TableValuedFunctionInf {
+public class NumbersTableValuedFunction extends TableValuedFunctionIf {
     public static final String NAME = "numbers";
     // The total numbers will be generated.
     private long totalNumbers;
@@ -106,5 +107,10 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
             res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
         }
         return res;
+    }
+
+    @Override
+    public ScanNode getScanNode() {
+        return null;
     }
 }

@@ -19,6 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.InternalService.PFormatType;
@@ -34,7 +35,7 @@ import java.util.Map;
 /**
  * The Implement of table valued function——S3(path, AK, SK, format).
  */
-public class S3TableValuedFunction extends FileTableValuedFunction {
+public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     public static final String NAME = "s3";
     private String path;
@@ -84,6 +85,11 @@ public class S3TableValuedFunction extends FileTableValuedFunction {
                 .putAllProperties(properties)
                 .build();
         return request;
+    }
+
+    @Override
+    public ScanNode getScanNode() {
+        return null;
     }
 
     @Override

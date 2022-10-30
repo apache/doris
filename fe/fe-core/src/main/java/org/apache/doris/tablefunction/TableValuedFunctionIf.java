@@ -22,11 +22,12 @@ import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TTVFunctionName;
 
 import java.util.List;
 
-public abstract class TableValuedFunctionInf {
+public abstract class TableValuedFunctionIf {
 
     public abstract TTVFunctionName getFunctionName();
 
@@ -37,7 +38,7 @@ public abstract class TableValuedFunctionInf {
     }
 
     // All table functions should be registered here
-    public static TableValuedFunctionInf getTableFunction(String funcName, List<String> params) throws UserException {
+    public static TableValuedFunctionIf getTableFunction(String funcName, List<String> params) throws UserException {
         switch (funcName.toLowerCase()) {
             case NumbersTableValuedFunction.NAME:
                 return new NumbersTableValuedFunction(params);
@@ -52,5 +53,5 @@ public abstract class TableValuedFunctionInf {
 
     public abstract List<Column> getTableColumns() throws AnalysisException;
 
-    public abstract List<TableValuedFunctionTask> getTasks() throws AnalysisException;
+    public abstract ScanNode getScanNode();
 }
