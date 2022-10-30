@@ -562,7 +562,7 @@ protected:
                 }
 
                 if (limit_iterations && ++events_processed > sequence_match_max_iterations)
-                    throw Exception{"Pattern application proves too difficult, exceeding max iterations (" + to_string(sequence_match_max_iterations) + ")",
+                    throw Exception{"Pattern application proves too difficult, exceeding max iterations (" + std::to_string(sequence_match_max_iterations) + ")",
                         ErrorCodes::TOO_SLOW};
             }
 
@@ -638,11 +638,11 @@ class AggregateFunctionSequenceMatch final : public AggregateFunctionSequenceBas
                                                     AggregateFunctionSequenceMatch<DateValueType,NativeType>>{
 public:
     AggregateFunctionSequenceMatch(const DataTypes & arguments, const String & pattern_)
-        : AggregateFunctionSequenceBase<DataTypes,
+        : AggregateFunctionSequenceBase<DateValueType,
                                         NativeType,
                                         AggregateFunctionSequenceMatch<DateValueType,NativeType>>(arguments, pattern_) {}
 
-    using AggregateFunctionSequenceBase<DataTypes, NativeType,AggregateFunctionSequenceMatch<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<DateValueType, NativeType,AggregateFunctionSequenceMatch<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_match"; }
 
@@ -678,11 +678,11 @@ class AggregateFunctionSequenceCount final : public AggregateFunctionSequenceBas
                                                     AggregateFunctionSequenceCount<DateValueType,NativeType>>{
 public:
     AggregateFunctionSequenceCount(const DataTypes & arguments, const String & pattern_)
-        : AggregateFunctionSequenceBase<DataTypes,
+        : AggregateFunctionSequenceBase<DateValueType,
                                         NativeType,
                                         AggregateFunctionSequenceCount<DateValueType,NativeType>>(arguments, pattern_) {}
 
-    using AggregateFunctionSequenceBase<DataTypes, NativeType,AggregateFunctionSequenceCount<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<DateValueType, NativeType,AggregateFunctionSequenceCount<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_count"; }
 
