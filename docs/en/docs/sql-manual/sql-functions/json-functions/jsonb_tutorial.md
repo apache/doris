@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-## 创建库表
+## create database and table
 
 ```
 CREATE DATABASE testdb;
