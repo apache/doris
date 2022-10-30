@@ -50,8 +50,8 @@
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
-#include "vec/exec/table_schema_parser/file_schema_parser.h"
-#include "vec/exec/table_schema_parser/s3_file_schema_parser.h"
+#include "vec/exec/format/csv/csv_reader.h"
+#include "vec/exec/format/generic_reader.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
@@ -416,29 +416,70 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                                               const PFetchTableSchemaRequest* request,
                                               PFetchTableSchemaResult* result,
                                               google::protobuf::Closure* done) {
-    SCOPED_SWITCH_BTHREAD_TLS();
+    VLOG_RPC << "fetch table schema";
     brpc::ClosureGuard closure_guard(done);
-    std::string path;
-    Status status;
-    if (!request->properties().contains("path")) {
-        status = Status::InvalidArgument("no path for this query");
-        status.to_protobuf(result->mutable_status());
-        return;
-    } else {
-        path = request->properties().at("path");
+    TFileScanRange file_scan_range;
+    Status st = Status::OK();
+    {
+        const uint8_t* buf = (const uint8_t*)(request->file_scan_range().data());
+        uint32_t len = request->file_scan_range().size();
+        st = deserialize_thrift_msg(buf, &len, false, &file_scan_range);
+        if (!st.ok()) {
+            LOG(WARNING) << "fetch table schema failed, errmsg=" << st.get_error_msg();
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
     }
-    std::unique_ptr<FileSchemaParser> file_schema_parser;
-    switch (request->storage_type()) {
-    case S3_STORAGE:
-        file_schema_parser.reset(new S3FileSchemaParser(request, result, path));
+
+    if (file_scan_range.__isset.ranges == false) {
+        st = Status::InternalError("can not get TFileRangeDesc.");
+        st.to_protobuf(result->mutable_status());
+        return;
+    }
+    if (file_scan_range.__isset.params == false) {
+        st = Status::InternalError("can not get TFileScanRangeParams.");
+        st.to_protobuf(result->mutable_status());
+        return;
+    }
+    const TFileRangeDesc& range = file_scan_range.ranges.at(0);
+    const TFileScanRangeParams& params = file_scan_range.params;
+    // file_slots is no use
+    std::vector<SlotDescriptor*> file_slots;
+    std::unique_ptr<vectorized::GenericReader> reader(nullptr);
+    switch (params.format_type) {
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE: {
+        reader.reset(new vectorized::CsvReader(params, range, file_slots));
         break;
+    }
     default:
-        status = Status::InvalidArgument("no support storage");
+        st = Status::InternalError("Not supported file format in fetch table schema: {}",
+                                   params.format_type);
+        st.to_protobuf(result->mutable_status());
         return;
     }
-    status = file_schema_parser->parse();
-    LOG(INFO) << "--ftw: complete parse, status: " << status;
-    status.to_protobuf(result->mutable_status());
+    std::unordered_map<std::string, TypeDescriptor> name_to_col_type;
+    std::vector<std::string> col_names;
+    std::vector<TypeDescriptor> col_types;
+    st = reader->get_parsered_schema(&col_names, &col_types);
+    if (!st.ok()) {
+        LOG(WARNING) << "fetch table schema failed, errmsg=" << st.get_error_msg();
+        st.to_protobuf(result->mutable_status());
+        return;
+    }
+    for (size_t idx = 0; idx < col_names.size(); ++idx) {
+        result->add_column_names(col_names[idx]);
+    }
+    for (size_t idx = 0; idx < col_types.size(); ++idx) {
+        PTypeDesc* type_desc = result->add_column_types();
+        col_types[idx].to_protobuf(type_desc);
+    }
+    LOG(INFO) << "--ftw: complete parse, status: " << st;
+    st.to_protobuf(result->mutable_status());
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
