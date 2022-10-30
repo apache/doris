@@ -67,8 +67,8 @@ class OutputUtils {
                 double expectDouble = Double.parseDouble(expectCell)
                 double realDouble = Double.parseDouble(realCell)
 
-                double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
-                double expectRelativeError = 1e-10
+                double realRelativeError = Math.abs(expectDouble - realDouble);
+                double expectRelativeError = 1e-3
 
                 if(expectRelativeError < realRelativeError) {
                     // Keep the scale of low precision data to solve TPCH cases like:
