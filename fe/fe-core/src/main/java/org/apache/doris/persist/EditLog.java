@@ -172,7 +172,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_DB: {
                     DropDbInfo dropDbInfo = (DropDbInfo) journal.getData();
-                    env.replayDropDb(dropDbInfo.getDbName(), dropDbInfo.isForceDrop());
+                    env.replayDropDb(dropDbInfo.getDbName(), dropDbInfo.isForceDrop(), dropDbInfo.getRecycleTime());
                     break;
                 }
                 case OperationType.OP_ALTER_DB: {
@@ -218,7 +218,7 @@ public class EditLog {
                     Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = " + db.getFullName() + " table = "
                             + info.getTableId());
-                    env.replayDropTable(db, info.getTableId(), info.isForceDrop());
+                    env.replayDropTable(db, info.getTableId(), info.isForceDrop(), info.getRecycleTime());
                     break;
                 }
                 case OperationType.OP_ADD_PARTITION: {
@@ -310,7 +310,8 @@ public class EditLog {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
-                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), env);
+                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false, 0),
+                                env);
                     }
                     break;
                 }
