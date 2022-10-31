@@ -42,6 +42,21 @@ In the Aggregate, Unique and Duplicate data models. The underlying data storage 
 
 The prefix index, which is based on sorting, is an indexing method to query data quickly based on a given prefix column.
 
+It should be noted that in order to prevent the expansion of index data, on the basis of the 36-byte limit and varchar truncation limit, the limit on the number of columns is supposed to be noticed. **By default, only the first three key columns of the table participate in the construction of the index**. If the user expects to incorporate more columns into the prefix index, they need to modify the `PROPERTIES` when creating the table as follows:
+
+```sql
+CREATE TABLE xxx
+(
+    ...
+)
+...
+PROPERTIES(
+    "shortkey_max_column_count" = "n" -- n is the number of columns to be calculated during the construction of the prefix index
+)
+```
+
+
+
 ## Example
 
 We use the first 36 bytes of a row of data as the prefix index of this row of data. Prefix indexes are simply truncated when a VARCHAR type is encountered. We give an example:
