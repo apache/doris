@@ -308,6 +308,9 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
             has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
                                          sequence_col_idx) == _return_columns.end()) {
+            // return columns doesn't contain sequence column, so don't need
+            // output sequence column
+            _tablet_reader_params.output_sequence_col = false;
             _return_columns.push_back(sequence_col_idx);
         }
     }

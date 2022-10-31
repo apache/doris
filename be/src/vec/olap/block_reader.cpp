@@ -109,12 +109,11 @@ Status BlockReader::init(const ReaderParams& read_params) {
     RETURN_NOT_OK(TabletReader::init(read_params));
 
     int32_t return_column_size = 0;
-    // read sequence column if not reader_query
-    if (read_params.reader_type != ReaderType::READER_QUERY) {
-        return_column_size = read_params.origin_return_columns->size();
-    } else {
+    if (!read_params.output_sequence_col) {
         return_column_size =
                 read_params.origin_return_columns->size() - (_sequence_col_idx != -1 ? 1 : 0);
+    } else {
+        return_column_size = read_params.origin_return_columns->size();
     }
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
