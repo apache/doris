@@ -1545,7 +1545,7 @@ public class FunctionSet<T> {
                 "",
                 true, false, true, true));
 
-            // sequenceCount
+        // sequenceCount
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
                 Lists.newArrayList(Type.STRING, Type.DATE, Type.BOOLEAN),
                 Type.INT,

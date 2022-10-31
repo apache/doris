@@ -1045,8 +1045,8 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_MATCH) ||
-            fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_COUNT)) {
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_MATCH)
+            || fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_COUNT)) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
                 throw new AnalysisException("The " + fnName + " function must have at least four params");
             }
