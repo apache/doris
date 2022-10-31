@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -136,6 +135,7 @@ public class MultiPartition {
         }
         WeekFields weekFields = WeekFields.of(DayOfWeek.of(dayOfWeek), 1);
         while (startTime.isBefore(this.endTime)) {
+            System.out.println("---" + startTime.format(dateTypeFormat()));
             PartitionValue lowerPartitionValue = new PartitionValue(startTime.format(dateTypeFormat()));
             switch (this.timeUnitType) {
                 case HOUR:
@@ -301,7 +301,7 @@ public class MultiPartition {
     }
 
     private DateTimeFormatter dateTypeFormat() {
-        return DateTimeFormatter.ofPattern(this.timeUnitType.equals(TimeUnit.HOUR) ? DATETIME_FORMAT : DATE_FORMAT);
+        return DateTimeFormatter.ofPattern(DATETIME_FORMAT);
     }
 
 }
