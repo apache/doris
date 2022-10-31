@@ -76,18 +76,18 @@ SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
-    if (config::memory_verbose_track) {
-        thread_context()->_thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
-    }
+    thread_context()->_thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
+}
+
+AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(const std::shared_ptr<MemTracker>& mem_tracker) : _mem_tracker(mem_tracker) {
+    thread_context()->_thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
 }
 
 AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
-    if (config::memory_verbose_track) {
 #ifndef NDEBUG
-        DorisMetrics::instance()->add_thread_mem_tracker_consumer_count->increment(1);
+    DorisMetrics::instance()->add_thread_mem_tracker_consumer_count->increment(1);
 #endif // NDEBUG
-        thread_context()->_thread_mem_tracker_mgr->pop_consumer_tracker();
-    }
+    thread_context()->_thread_mem_tracker_mgr->pop_consumer_tracker();
 }
 
 } // namespace doris

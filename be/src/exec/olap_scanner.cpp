@@ -43,7 +43,7 @@ namespace doris {
 
 OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
                          bool need_agg_finalize, const TPaloScanRange& scan_range,
-                         MemTracker* tracker)
+                         const std::shared_ptr<MemTracker>& tracker)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -51,8 +51,8 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1) {
-    _mem_tracker = tracker;
+          _version(-1),
+          _mem_tracker(tracker) {
     _tablet_schema = std::make_shared<TabletSchema>();
 }
 
@@ -326,7 +326,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     bzero(tuple_buf, _batch_size * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {
