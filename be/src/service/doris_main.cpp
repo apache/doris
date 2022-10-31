@@ -52,6 +52,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/memory/mem_tracker_task_pool.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
@@ -508,6 +509,7 @@ int main(int argc, char** argv) {
         doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consume(
                 allocator_cache_mem_diff);
         CONSUME_THREAD_MEM_TRACKER(allocator_cache_mem_diff);
+        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
 
         // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
         // this will cause coredump for ASAN build when running regression test,

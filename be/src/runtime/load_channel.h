@@ -39,9 +39,8 @@ class Cache;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
-                bool is_vec);
+    LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker, int64_t timeout_s,
+                bool is_high_priority, const std::string& sender_ip, bool is_vec);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -67,7 +66,14 @@ public:
     template <typename TabletWriterAddResult>
     Status handle_mem_exceed_limit(TabletWriterAddResult* response);
 
-    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
+    int64_t mem_consumption() const {
+        int64_t mem_usage = 0;
+        for (auto& it : _tablets_channels) {
+            mem_usage += it.second->mem_consumption();
+        }
+        _mem_tracker->set_consumption(mem_usage);
+        return mem_usage;
+    }
 
     int64_t timeout() const { return _timeout_s; }
 
@@ -102,7 +108,7 @@ private:
 
     UniqueId _load_id;
     // Tracks the total memory consumed by current load job on this BE
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;
