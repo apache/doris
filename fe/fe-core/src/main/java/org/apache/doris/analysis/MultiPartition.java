@@ -17,12 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.planner.DateTools;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -83,7 +84,7 @@ public class MultiPartition {
 
     public List<SinglePartitionDesc> getSinglePartitionDescList() throws AnalysisException {
         // MultiPartition to List<SinglePartitionDesc>
-        //        PARTITION START ("2021-05-01") END ("2021-05-04") EVERY (INTERVAL 1 DAY)
+        //        PARTITIONS START ("2021-05-01") END ("2021-05-04") EVERY (INTERVAL 1 DAY)
         //        ->
         //        PARTITION p20210501 VALUES [('2021-05-01'), ('2021-05-02')),
         //        PARTITION p20210502 VALUES [('2021-05-02'), ('2021-05-03')),
@@ -135,7 +136,7 @@ public class MultiPartition {
         }
         WeekFields weekFields = WeekFields.of(DayOfWeek.of(dayOfWeek), 1);
         while (startTime.isBefore(this.endTime)) {
-            PartitionValue lowerPartitionValue = new PartitionValue(startTime.format(startDateTimeFormat));
+            PartitionValue lowerPartitionValue = new PartitionValue(startTime.format(dateTypeFormat()));
             switch (this.timeUnitType) {
                 case HOUR:
                     partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(HOURS_FORMAT));
@@ -171,8 +172,7 @@ public class MultiPartition {
             if (this.timeUnitType != TimestampArithmeticExpr.TimeUnit.DAY && startTime.isAfter(this.endTime)) {
                 startTime = this.endTime;
             }
-
-            PartitionValue upperPartitionValue = new PartitionValue(startTime.format(startDateTimeFormat));
+            PartitionValue upperPartitionValue = new PartitionValue(startTime.format(dateTypeFormat()));
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(lowerPartitionValue),
                     Lists.newArrayList(upperPartitionValue)
@@ -208,8 +208,8 @@ public class MultiPartition {
         try {
             this.startDateTimeFormat = dateFormat(this.timeUnitType, startString);
             this.endDateTimeFormat = dateFormat(this.timeUnitType, endString);
-            this.startTime = DateUtils.formatDateTimeAndFullZero(startString, startDateTimeFormat);
-            this.endTime = DateUtils.formatDateTimeAndFullZero(endString, endDateTimeFormat);
+            this.startTime = DateTools.formatDateTimeAndFullZero(startString, startDateTimeFormat);
+            this.endTime = DateTools.formatDateTimeAndFullZero(endString, endDateTimeFormat);
         } catch (Exception e) {
             throw new AnalysisException("Multi build partition START or END time style is illegal.");
         }
@@ -298,6 +298,10 @@ public class MultiPartition {
                         + timeUnitType);
         }
         return res;
+    }
+
+    private DateTimeFormatter dateTypeFormat() {
+        return DateTimeFormatter.ofPattern(this.timeUnitType.equals(TimeUnit.HOUR) ? HOURS_FORMAT : DATE_FORMAT);
     }
 
 }
