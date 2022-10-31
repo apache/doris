@@ -39,5 +39,19 @@ suite("test_zone_map_delete") {
     sql """delete from ${tableName} where v1 IS NOT NULL;"""
     qt_sql """select * from ${tableName} ORDER BY k1;"""
 
+    // not in predicate
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName} (   `k1` int(11) NULL,   `k2` int(11) NULL,   `v1` int(11) NULL )DUPLICATE KEY(`k1`,k2) DISTRIBUTED BY HASH(`k1`) BUCKETS 1 PROPERTIES("replication_num" = "1");"""
+    sql """insert into ${tableName} values(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5);"""
+    sql """delete from ${tableName} where v1 not in (3);"""
+    qt_sql """select * from ${tableName} ORDER BY k1;"""
+
+    // not in predicate
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName} (   `k1` int(11) NULL,   `k2` int(11) NULL,   `v1` int(11) NULL )DUPLICATE KEY(`k1`,k2) DISTRIBUTED BY HASH(`k1`) BUCKETS 1 PROPERTIES("replication_num" = "1");"""
+    sql """insert into ${tableName} values(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5),(1,1,1), (2,2,2),(3,3,3),(4,4,4),(5,5,5);"""
+    sql """delete from ${tableName} where v1 not in (0);"""
+    qt_sql """select * from ${tableName} ORDER BY k1;"""
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }
