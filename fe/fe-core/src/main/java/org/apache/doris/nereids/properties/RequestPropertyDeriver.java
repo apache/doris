@@ -38,7 +38,6 @@ import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -48,7 +47,6 @@ import java.util.stream.Collectors;
  * Used for parent property drive.
  */
 public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
-    public static final Logger LOG = Logger.getLogger(RequestPropertyDeriver.class);
     private static final Map<GroupExpression, List<List<PhysicalProperties>>> cache = Maps.newHashMap();
     /*
      * requestPropertyFromParent
@@ -81,8 +79,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
         if (cache.containsKey(groupExpression)) {
-            LOG.warn(requestPropertyToChildren);
-            LOG.warn(cache.get(groupExpression));
+            System.out.println(requestPropertyToChildren);
+            System.out.println(cache.get(groupExpression));
         }
         if (!(groupExpression.getPlan() instanceof PhysicalAggregate)) {
             cache.put(groupExpression, requestPropertyToChildren);
