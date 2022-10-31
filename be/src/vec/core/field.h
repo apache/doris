@@ -610,11 +610,6 @@ private:
         case Types::Null:
             f(field.template get<Null>());
             return;
-// gcc 7.3.0
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
         case Types::UInt64:
             f(field.template get<UInt64>());
             return;
@@ -630,9 +625,6 @@ private:
         case Types::Float64:
             f(field.template get<Float64>());
             return;
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
         case Types::String:
             f(field.template get<String>());
             return;
