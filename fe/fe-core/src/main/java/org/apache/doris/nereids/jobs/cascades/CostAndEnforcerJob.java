@@ -31,7 +31,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.stats.StatsCalculator;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -110,17 +109,17 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // [ child item: [leftProperties, rightPropertie]]
             // like :[ [Properties {"", ANY}, Properties {"", BROADCAST}],
             //         [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}] ]
-            if (groupExpression.isHasCalculateCost()) {
-                Preconditions.checkArgument(RequestPropertyDeriver.getCache().containsKey(groupExpression));
-                for (List<PhysicalProperties> list : RequestPropertyDeriver.getCache().get(groupExpression)) {
-                    if (!calculateEnforce(list)) {
-                        return;
-                    }
-                }
-                return;
-            }
             RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(context);
             requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+        }
+
+        if (groupExpression.isHasCalculateCost()) {
+            for (List<PhysicalProperties> list : requestChildrenPropertiesList) {
+                if (!calculateEnforce(list)) {
+                    return;
+                }
+            }
+            return;
         }
 
         for (; requestPropertiesIndex < requestChildrenPropertiesList.size(); requestPropertiesIndex++) {
