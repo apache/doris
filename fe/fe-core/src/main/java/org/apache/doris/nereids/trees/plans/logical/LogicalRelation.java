@@ -42,8 +42,8 @@ import java.util.Optional;
 public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     protected final Table table;
-    protected final List<String> qualifier;
-    protected final List<Long> selectedPartitionIds;
+    protected final ImmutableList<String> qualifier;
+    protected final ImmutableList<Long> selectedPartitionIds;
 
     protected final RelationId id;
 
