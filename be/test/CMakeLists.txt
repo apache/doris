@@ -220,7 +220,6 @@ set(RUNTIME_TEST_FILES
     # runtime/tmp_file_mgr_test.cpp
     # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
-    # runtime/qsorter_test.cpp
     # runtime/buffered_block_mgr2_test.cpp
     # runtime/buffered_tuple_stream2_test.cpp
     # runtime/export_task_mgr_test.cpp
