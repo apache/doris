@@ -888,6 +888,7 @@ precedence left KW_LIKE, KW_REGEXP;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
+precedence left KW_EXCEPT;
 precedence left BITAND, BITOR, BITXOR;
 precedence left KW_PIPE;
 precedence left BITNOT;
@@ -4739,6 +4740,12 @@ select_list ::=
     {:
         SelectList list = new SelectList();
         list.addItem(SelectListItem.createStarItem(null));
+        RESULT = list;
+    :}
+    | STAR KW_EXCEPT LPAREN select_sublist: list RPAREN
+    {:
+        SelectList res = new SelectList(list);
+        list.setIsExcept(true);
         RESULT = list;
     :}
     ;
