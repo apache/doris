@@ -632,13 +632,15 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                     if (str_val.size > type.len) {
                         fmt::format_to(error_msg, "{}",
                                        "the length of input is too long than schema. ");
-                        fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ", str_val.to_prefix(32));
+                        fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ", 
+                                       str_val.to_prefix(32));
                         fmt::format_to(error_msg, "schema length: {}; ", type.len);
                         fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                     } else if (str_val.size > limit) {
                         fmt::format_to(error_msg, "{}",
                                        "the length of input string is too long than vec schema. ");
-                        fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ", str_val.to_prefix(32));
+                        fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ", 
+                                       str_val.to_prefix(32));
                         fmt::format_to(error_msg, "schema length: {}; ", type.len);
                         fmt::format_to(error_msg, "limit length: {}; ", limit);
                         fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
