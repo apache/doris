@@ -264,6 +264,8 @@ public class Analyzer {
         // corresponding value could be an empty list. There is no entry for non-outer joins.
         public final Map<TupleId, List<ExprId>> conjunctsByOjClause = Maps.newHashMap();
 
+        public final Map<TupleId, List<ExprId>> conjunctsByAntiJoinClause = Maps.newHashMap();
+
         // map from registered conjunct to its containing outer join On clause (represented
         // by its right-hand side table ref); only conjuncts that can only be correctly
         // evaluated by the originating outer join are registered here
@@ -1263,6 +1265,27 @@ public class Analyzer {
     }
 
     /**
+     * Return all unassigned conjuncts of the anti join referenced by
+     * right-hand side table ref.
+     */
+    public List<Expr> getUnassignedAntiJoinConjuncts(TableRef ref) {
+        Preconditions.checkState(ref.getJoinOp().isAntiJoin());
+        List<Expr> result = Lists.newArrayList();
+        List<ExprId> candidates = globalState.conjunctsByAntiJoinClause.get(ref.getId());
+        if (candidates == null) {
+            return result;
+        }
+        for (ExprId conjunctId : candidates) {
+            if (!globalState.assignedConjuncts.contains(conjunctId)) {
+                Expr e = globalState.conjuncts.get(conjunctId);
+                Preconditions.checkState(e != null);
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns true if 'e' must be evaluated after or by a join node. Note that it may
      * still be safe to evaluate 'e' elsewhere as well, but in any case 'e' must be
      * evaluated again by or after a join.
@@ -1507,6 +1530,10 @@ public class Analyzer {
             }
             if (rhsRef.getJoinOp().isSemiJoin()) {
                 globalState.sjClauseByConjunct.put(conjunct.getId(), rhsRef);
+                if (rhsRef.getJoinOp().isAntiJoin()) {
+                    globalState.conjunctsByAntiJoinClause.computeIfAbsent(rhsRef.getId(), k -> Lists.newArrayList())
+                            .add(conjunct.getId());
+                }
             }
             if (rhsRef.getJoinOp().isInnerJoin()) {
                 globalState.ijClauseByConjunct.put(conjunct.getId(), rhsRef);
@@ -1524,7 +1551,7 @@ public class Analyzer {
      * Throws an AnalysisException if there is an error evaluating `conjunct`
      */
     private void markConstantConjunct(Expr conjunct, boolean fromHavingClause) throws AnalysisException {
-        if (!conjunct.isConstant() || isOjConjunct(conjunct)) {
+        if (!conjunct.isConstant() || isOjConjunct(conjunct) || isAntiJoinedConjunct(conjunct)) {
             return;
         }
         if ((!fromHavingClause && !hasEmptySpjResultSet_) || (fromHavingClause && !hasEmptyResultSet_)) {
