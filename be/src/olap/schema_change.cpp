@@ -2186,7 +2186,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                 rs_reader->version(), VISIBLE,
                 rs_reader->rowset()->rowset_meta()->segments_overlap(), new_tablet->tablet_schema(),
                 rs_reader->oldest_write_timestamp(), rs_reader->newest_write_timestamp(),
-                &rowset_writer);
+                rs_reader->rowset()->rowset_meta()->fs(), &rowset_writer);
         if (!status.ok()) {
             res = Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
             return process_alter_exit();
@@ -2372,6 +2372,18 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         new_tablet->tablet_meta()->preferred_rowset_type()) {
         // If the base_tablet and new_tablet rowset types are different, just use directly type
         *sc_directly = true;
+    }
+
+    // if rs_reader has remote files, link schema change is not supported,
+    // use directly schema change instead.
+    if (!(*sc_directly) && !(*sc_sorting)) {
+        // check has remote rowset
+        for (auto& rs_reader : sc_params.ref_rowset_readers) {
+            if (!rs_reader->rowset()->is_local()) {
+                *sc_directly = true;
+                break;
+            }
+        }
     }
 
     return Status::OK();

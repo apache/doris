@@ -19,7 +19,9 @@ suite("test_aggregate_collect") {
     sql "set enable_vectorized_engine = true"
 
     def tableName = "collect_test"
+    def tableCTAS = "collect_test_ctas"
     sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS ${tableCTAS}"
     sql """
 	    CREATE TABLE IF NOT EXISTS ${tableName} (
 	        c_int INT,
@@ -42,4 +44,7 @@ suite("test_aggregate_collect") {
     // test without GROUP BY
     qt_select "select collect_list(c_string),collect_list(c_string_not_null) from ${tableName}"
     qt_select "select collect_set(c_string),collect_set(c_string_not_null) from ${tableName}"
+
+    sql """ CREATE TABLE ${tableCTAS} PROPERTIES("replication_num" = "1") AS SELECT 1,collect_list(c_int),collect_set(c_string),collect_list(c_date),collect_set(c_decimal),collect_list(c_string_not_null) FROM ${tableName} """
+    qt_select "SELECT * from ${tableCTAS}"
 }

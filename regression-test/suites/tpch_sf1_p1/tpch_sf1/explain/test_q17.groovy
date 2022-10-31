@@ -63,7 +63,7 @@ suite("test_explain_tpch_sf_1_q17") {
 		explainStr.contains("vec output tuple id: 7") && 
 		explainStr.contains("output slot ids: 14 15 17 \n" + 
 				"  |  hash output slot ids: 6 7 8 ") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF001[in_or_bloom] -> `l_partkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: avg(<slot 3> avg(`l_quantity`))\n" + 
@@ -72,8 +72,8 @@ suite("test_explain_tpch_sf_1_q17") {
 				"  |  STREAMING\n" + 
 				"  |  output: avg(`l_quantity`)\n" + 
 				"  |  group by: `l_partkey`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_brand` = 'Brand#23', `p_container` = 'MED BOX'\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 7>")
             

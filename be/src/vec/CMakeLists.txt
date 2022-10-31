@@ -153,6 +153,7 @@ set(VEC_FILES
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
   functions/array/function_array_enumerate.cpp
+  functions/array/function_array_range.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -209,6 +210,7 @@ set(VEC_FILES
   functions/function_convert_tz.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
+  functions/url/function_url.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
@@ -258,6 +260,7 @@ set(VEC_FILES
   exec/scan/new_es_scan_node.cpp
   exec/format/csv/csv_reader.cpp
   exec/format/orc/vorc_reader.cpp
+  exec/format/json/new_json_reader.cpp
   )
 
 add_library(Vec STATIC

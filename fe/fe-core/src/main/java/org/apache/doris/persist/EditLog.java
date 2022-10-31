@@ -63,6 +63,12 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.metadata.AlterMTMVTask;
+import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
+import org.apache.doris.mtmv.metadata.DropMTMVJob;
+import org.apache.doris.mtmv.metadata.DropMTMVTask;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -166,7 +172,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_DB: {
                     DropDbInfo dropDbInfo = (DropDbInfo) journal.getData();
-                    env.replayDropDb(dropDbInfo.getDbName(), dropDbInfo.isForceDrop());
+                    env.replayDropDb(dropDbInfo.getDbName(), dropDbInfo.isForceDrop(), dropDbInfo.getRecycleTime());
                     break;
                 }
                 case OperationType.OP_ALTER_DB: {
@@ -212,7 +218,7 @@ public class EditLog {
                     Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = " + db.getFullName() + " table = "
                             + info.getTableId());
-                    env.replayDropTable(db, info.getTableId(), info.isForceDrop());
+                    env.replayDropTable(db, info.getTableId(), info.isForceDrop(), info.getRecycleTime());
                     break;
                 }
                 case OperationType.OP_ADD_PARTITION: {
@@ -304,7 +310,8 @@ public class EditLog {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
-                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), env);
+                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false, 0),
+                                env);
                     }
                     break;
                 }
@@ -882,6 +889,36 @@ public class EditLog {
                 case OperationType.OP_CLEAN_LABEL: {
                     final CleanLabelOperationLog log = (CleanLabelOperationLog) journal.getData();
                     env.getLoadManager().replayCleanLabel(log);
+                    break;
+                }
+                case OperationType.OP_CREATE_MTMV_JOB: {
+                    final MTMVJob job = (MTMVJob) journal.getData();
+                    env.getMTMVJobManager().replayCreateJob(job);
+                    break;
+                }
+                case OperationType.OP_ALTER_MTMV_JOB: {
+                    final ChangeMTMVJob changeJob = (ChangeMTMVJob) journal.getData();
+                    env.getMTMVJobManager().replayUpdateJob(changeJob);
+                    break;
+                }
+                case OperationType.OP_DROP_MTMV_JOB: {
+                    final DropMTMVJob dropJob = (DropMTMVJob) journal.getData();
+                    env.getMTMVJobManager().replayDropJobs(dropJob.getJobIds());
+                    break;
+                }
+                case OperationType.OP_CREATE_MTMV_TASK: {
+                    final MTMVTask task = (MTMVTask) journal.getData();
+                    env.getMTMVJobManager().replayCreateJobTask(task);
+                    break;
+                }
+                case OperationType.OP_ALTER_MTMV_TASK: {
+                    final AlterMTMVTask changeTask = (AlterMTMVTask) journal.getData();
+                    env.getMTMVJobManager().replayUpdateTask(changeTask);
+                    break;
+                }
+                case OperationType.OP_DROP_MTMV_TASK: {
+                    final DropMTMVTask dropTask = (DropMTMVTask) journal.getData();
+                    env.getMTMVJobManager().replayDropJobTasks(dropTask.getTaskIds());
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
@@ -1518,6 +1555,30 @@ public class EditLog {
 
     public void logCatalogLog(short id, CatalogLog log) {
         logEdit(id, log);
+    }
+
+    public void logCreateScheduleJob(MTMVJob job) {
+        logEdit(OperationType.OP_CREATE_MTMV_JOB, job);
+    }
+
+    public void logDropScheduleJob(List<Long> jobIds) {
+        logEdit(OperationType.OP_DROP_MTMV_JOB, new DropMTMVJob(jobIds));
+    }
+
+    public void logChangeScheduleJob(ChangeMTMVJob changeJob) {
+        logEdit(OperationType.OP_ALTER_MTMV_JOB, changeJob);
+    }
+
+    public void logCreateScheduleTask(MTMVTask task) {
+        logEdit(OperationType.OP_CREATE_MTMV_TASK, task);
+    }
+
+    public void logAlterScheduleTask(AlterMTMVTask changeTaskRecord) {
+        logEdit(OperationType.OP_ALTER_MTMV_TASK, changeTaskRecord);
+    }
+
+    public void logAlterScheduleTask(List<String> taskIds) {
+        logEdit(OperationType.OP_DROP_MTMV_TASK, new DropMTMVTask(taskIds));
     }
 
     public Journal getJournal() {

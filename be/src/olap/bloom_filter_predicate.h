@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
@@ -37,10 +35,12 @@ public:
     using SpecificFilter = BloomFilterFunc<T>;
 
     BloomFilterColumnPredicate(uint32_t column_id,
-                               const std::shared_ptr<BloomFilterFuncBase>& filter)
+                               const std::shared_ptr<BloomFilterFuncBase>& filter,
+                               int be_exec_version)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(static_cast<SpecificFilter*>(_filter.get())) {}
+              _specific_filter(static_cast<SpecificFilter*>(_filter.get())),
+              _be_exec_version(be_exec_version) {}
     ~BloomFilterColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::BF; }
@@ -81,7 +81,7 @@ private:
                     new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
                 }
             }
-        } else if (IRuntimeFilter::enable_use_batch(T)) {
+        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version, T)) {
             new_size = _specific_filter->find_fixed_len_olap_engine(
                     (char*)reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
                             ->get_data()
@@ -125,6 +125,7 @@ private:
     mutable uint64_t _passed_rows = 0;
     mutable bool _always_true = false;
     mutable bool _has_calculate_filter = false;
+    int _be_exec_version;
 };
 
 template <PrimitiveType T>
@@ -178,7 +179,8 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& colu
 class BloomFilterColumnPredicateFactory {
 public:
     static ColumnPredicate* create_column_predicate(
-            uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, FieldType type);
+            uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, FieldType type,
+            int be_exec_version);
 };
 
 } //namespace doris

@@ -220,7 +220,6 @@ set(RUNTIME_TEST_FILES
     # runtime/tmp_file_mgr_test.cpp
     # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
-    # runtime/qsorter_test.cpp
     # runtime/buffered_block_mgr2_test.cpp
     # runtime/buffered_tuple_stream2_test.cpp
     # runtime/export_task_mgr_test.cpp
@@ -362,6 +361,7 @@ set(VEC_TEST_FILES
     vec/function/function_jsonb_test.cpp
     vec/function/function_geo_test.cpp
     vec/function/function_test_util.cpp
+    vec/function/function_url_test.cpp
     vec/function/table_function_test.cpp
     vec/runtime/vdata_stream_test.cpp
     vec/runtime/vdatetime_value_test.cpp

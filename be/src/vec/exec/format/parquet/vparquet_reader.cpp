@@ -143,6 +143,7 @@ Status ParquetReader::init_reader(
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_init_read_columns());
     RETURN_IF_ERROR(_init_row_group_readers());
+
     return Status::OK();
 }
 
@@ -156,12 +157,12 @@ Status ParquetReader::_init_read_columns() {
             _missing_cols.push_back(file_col_name);
         }
     }
+    // It is legal to get empty include_column_ids in query task.
     if (include_column_ids.empty()) {
-        return Status::InternalError("No columns found in parquet file");
+        return Status::OK();
     }
     // The same order as physical columns
     std::sort(include_column_ids.begin(), include_column_ids.end());
-    _read_columns.clear();
     for (int& parquet_col_id : include_column_ids) {
         _read_columns.emplace_back(parquet_col_id,
                                    _file_metadata->schema().get_column(parquet_col_id)->name);

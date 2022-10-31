@@ -99,14 +99,14 @@ suite("test_explain_tpch_sf_1_q9") {
 		explainStr.contains("vec output tuple id: 9") && 
 		explainStr.contains("output slot ids: 26 27 28 29 30 31 33 \n" + 
 				"  |  hash output slot ids: 2 3 5 7 10 13 14 ") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF001[in_or_bloom] -> <slot 13>, RF002[in_or_bloom] -> <slot 10>, RF003[in_or_bloom] -> <slot 7>, RF004[in_or_bloom] -> <slot 10>, RF005[in_or_bloom] -> `l_suppkey`") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_name` LIKE '%green%'") && 
-		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.partsupp(partsupp), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 14>")
             
         }

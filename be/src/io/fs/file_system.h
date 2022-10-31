@@ -80,7 +80,7 @@ protected:
     FileSystemType _type;
 };
 
-using FileSystemPtr = std::shared_ptr<FileSystem>;
+using FileSystemSPtr = std::shared_ptr<FileSystem>;
 
 } // namespace io
 } // namespace doris

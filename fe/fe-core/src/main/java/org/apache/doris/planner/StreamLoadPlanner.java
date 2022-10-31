@@ -42,7 +42,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -174,10 +173,6 @@ public class StreamLoadPlanner {
         // create scan node
         if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
             ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
-            if (!Util.isCsvFormat(taskInfo.getFormatType())) {
-                throw new AnalysisException(
-                        "New stream load scan load not support non-csv type now: " + taskInfo.getFormatType());
-            }
             // 1. create file group
             DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
             dataDescription.analyzeWithoutCheckPriv(db.getFullName());
@@ -255,6 +250,7 @@ public class StreamLoadPlanner {
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
+        queryOptions.setBeExecVersion(Config.be_exec_version);
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

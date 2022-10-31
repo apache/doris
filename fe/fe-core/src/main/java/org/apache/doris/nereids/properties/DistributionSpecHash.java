@@ -214,7 +214,10 @@ public class DistributionSpecHash extends DistributionSpec {
             return false;
         }
         DistributionSpecHash that = (DistributionSpecHash) o;
-        return shuffleType == that.shuffleType && orderedShuffledColumns.equals(that.orderedShuffledColumns);
+        //TODO: that.orderedShuffledColumns may have equivalent slots. This will be done later
+        return shuffleType == that.shuffleType
+                && orderedShuffledColumns.size() == that.orderedShuffledColumns.size()
+                && equalsSatisfy(that.orderedShuffledColumns);
     }
 
     @Override
@@ -248,4 +251,5 @@ public class DistributionSpecHash extends DistributionSpec {
         // output, all distribute enforce
         ENFORCED,
     }
+
 }
