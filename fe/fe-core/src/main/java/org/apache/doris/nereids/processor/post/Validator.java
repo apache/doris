@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import com.google.common.base.Preconditions;
+import org.apache.log4j.Logger;
 
 import java.util.Set;
 
@@ -33,11 +34,13 @@ import java.util.Set;
  * validator plan.
  */
 public class Validator extends PlanPostProcessor {
+    private static final Logger LOG = Logger.getLogger(Validator.class);
 
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         Plan child = project.child();
         // Forbidden project-project, we must merge project.
+        LOG.warn(child.toString());
         Preconditions.checkArgument(!(child instanceof PhysicalProject));
 
         // TODO: Check projects is from child output.
