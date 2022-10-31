@@ -30,7 +30,6 @@ import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.stats.StatsCalculator;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
@@ -114,7 +113,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         }
 
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace() && groupExpression.isHasCalculateCost()) {
+        if (false && groupExpression.isHasCalculateCost()) {
             /*for (List<PhysicalProperties> list : requestChildrenPropertiesList) {
                 if (curChildIndex == 0 && prevChildIndex == -1) {
                     curNodeCost = CostCalculator.calculateCost(groupExpression);
