@@ -37,14 +37,17 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * Used for parent property drive.
  */
 public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
+    private static final Map<GroupExpression, List<List<PhysicalProperties>>> cache = Maps.newHashMap();
     /*
      * requestPropertyFromParent
      *             │
@@ -61,9 +64,23 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         this.requestPropertyFromParent = context.getRequiredProperties();
     }
 
+    public static void cleanCache() {
+        cache.clear();
+    }
+
+    public static Map<GroupExpression, List<List<PhysicalProperties>>> getCache() {
+        return cache;
+    }
+
+    /**
+     * tmp
+     */
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
+        if (!(groupExpression.getPlan() instanceof PhysicalAggregate)) {
+            cache.putIfAbsent(groupExpression, requestPropertyToChildren);
+        }
         return requestPropertyToChildren;
     }
 
