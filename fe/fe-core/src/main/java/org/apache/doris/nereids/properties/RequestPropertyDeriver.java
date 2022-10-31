@@ -36,9 +36,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -48,6 +48,7 @@ import java.util.stream.Collectors;
  * Used for parent property drive.
  */
 public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
+    private static final Logger LOG = Logger.getLogger(RequestPropertyDeriver.class);
     private static final Map<GroupExpression, List<List<PhysicalProperties>>> cache = Maps.newHashMap();
     /*
      * requestPropertyFromParent
@@ -79,8 +80,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
-        if (cache.containsKey(groupExpression)) {
-            Preconditions.checkArgument(requestPropertyToChildren.equals(cache.get(groupExpression)), "dbg1");
+        if (cache.containsKey(groupExpression) && !requestPropertyToChildren.equals(
+                cache.get(groupExpression)
+        )) {
+            LOG.warn(requestPropertyToChildren);
+            LOG.warn(cache.get(groupExpression));
         }
         if (!(groupExpression.getPlan() instanceof PhysicalAggregate)) {
             cache.put(groupExpression, requestPropertyToChildren);
