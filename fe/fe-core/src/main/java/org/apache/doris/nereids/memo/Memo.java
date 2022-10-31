@@ -78,8 +78,8 @@ public class Memo {
      * @param target target group to add node. null to generate new Group
      * @param rewrite whether to rewrite the node to the target group
      * @return CopyInResult, in which the generateNewExpression is true if a newly generated
-     *                       groupExpression added into memo, and the correspondingExpression
-     *                       is the corresponding group expression of the plan
+     *         groupExpression added into memo, and the correspondingExpression
+     *         is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
         if (rewrite) {
@@ -139,6 +139,7 @@ public class Memo {
 
     /**
      * copyOut the group.
+     *
      * @param group the group what want to copyOut
      * @param includeGroupExpression whether include group expression in the plan
      * @return plan
@@ -150,6 +151,7 @@ public class Memo {
 
     /**
      * copyOut the logicalExpression.
+     *
      * @param logicalExpression the logicalExpression what want to copyOut
      * @param includeGroupExpression whether include group expression in the plan
      * @return plan
@@ -177,6 +179,7 @@ public class Memo {
 
     /**
      * init memo by a first plan.
+     *
      * @param plan first plan
      * @return plan's corresponding group
      */
@@ -235,8 +238,8 @@ public class Memo {
      *
      * @param plan the plan which want to rewrite or added
      * @param targetGroup target group to replace plan. null to generate new Group. It should be the ancestors
-     *                    of the plan's group, or equals to the plan's group, we do not check this constraint
-     *                    completely because of performance.
+     *         of the plan's group, or equals to the plan's group, we do not check this constraint
+     *         completely because of performance.
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
@@ -268,10 +271,11 @@ public class Memo {
 
     /**
      * add the plan into the target group
+     *
      * @param plan the plan which want added
      * @param targetGroup target group to add plan. null to generate new Group. It should be the ancestors
-     *                    of the plan's group, or equals to the plan's group, we do not check this constraint
-     *                    completely because of performance.
+     *         of the plan's group, or equals to the plan's group, we do not check this constraint
+     *         completely because of performance.
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
@@ -394,18 +398,18 @@ public class Memo {
                     children.set(i, destination);
                 }
             }
-            groupExpression.setChildren(ImmutableList.copyOf(children));
 
-            GroupExpression that = groupExpressions.get(groupExpression);
+            GroupExpression newGroupExpression = groupExpression.withChildren(ImmutableList.copyOf(children));
+            GroupExpression that = groupExpressions.get(newGroupExpression);
             if (that != null && that.getOwnerGroup() != null
-                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
+                    && !that.getOwnerGroup().equals(newGroupExpression.getOwnerGroup())) {
                 // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
                 // that.getOwnerGroup() already has this groupExpression.
-                Group ownerGroup = groupExpression.getOwnerGroup();
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
+                Group ownerGroup = newGroupExpression.getOwnerGroup();
+                newGroupExpression.getOwnerGroup().removeGroupExpression(newGroupExpression);
                 mergeGroup(ownerGroup, that.getOwnerGroup());
             } else {
-                groupExpressions.put(groupExpression, groupExpression);
+                groupExpressions.put(newGroupExpression, newGroupExpression);
             }
         }
         if (!source.equals(destination)) {
@@ -491,9 +495,9 @@ public class Memo {
      * <p>
      * the scenario is:
      * ```
-     *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
-     *               |                             =>
-     *  Group 0(logicalOlapScan, the fromGroup)
+     * Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
+     * |                             =>
+     * Group 0(logicalOlapScan, the fromGroup)
      * ```
      * <p>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to

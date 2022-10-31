@@ -44,7 +44,7 @@ public class GroupExpression {
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;
-    private ImmutableList<Group> children;
+    private final ImmutableList<Group> children;
     private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
@@ -73,6 +73,31 @@ public class GroupExpression {
         this.lowestCostTable = Maps.newHashMap();
         this.requestPropertiesMap = Maps.newHashMap();
         this.children.forEach(childGroup -> childGroup.addParentExpression(this));
+    }
+
+    private GroupExpression(double cost, CostEstimate costEstimate, Group ownerGroup, ImmutableList<Group> children,
+            Plan plan, BitSet ruleMasks, boolean statDerived,
+            Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable,
+            Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap) {
+        this.cost = cost;
+        this.costEstimate = costEstimate;
+        this.ownerGroup = ownerGroup;
+        this.children = children;
+        this.plan = plan;
+        this.ruleMasks = ruleMasks;
+        this.statDerived = statDerived;
+        this.lowestCostTable = lowestCostTable;
+        this.requestPropertiesMap = requestPropertiesMap;
+    }
+
+    /**
+     * Copy a new GroupExpression with new children.
+     */
+    public GroupExpression withChildren(ImmutableList<Group> children) {
+        return new GroupExpression(
+                cost, costEstimate, ownerGroup, children, plan, ruleMasks, statDerived, lowestCostTable,
+                requestPropertiesMap
+        );
     }
 
     public PhysicalProperties getOutputProperties(PhysicalProperties requestProperties) {
@@ -105,10 +130,6 @@ public class GroupExpression {
         return children;
     }
 
-    public void setChildren(ImmutableList<Group> children) {
-        this.children = children;
-    }
-
     /**
      * replaceChild.
      *
@@ -123,10 +144,6 @@ public class GroupExpression {
                 newChild.addParentExpression(this);
             }
         }
-    }
-
-    public void setChild(int index, Group group) {
-        this.children.set(index, group);
     }
 
     public boolean hasApplied(Rule rule) {
