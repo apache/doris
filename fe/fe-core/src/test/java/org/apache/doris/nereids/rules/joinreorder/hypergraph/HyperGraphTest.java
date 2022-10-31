@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class HyperGraphTest {
@@ -34,6 +35,7 @@ public class HyperGraphTest {
     private final LogicalOlapScan scan5 = PlanConstructor.newLogicalOlapScan(4, "t5", 0);
 
     @Test
+    @Disabled
     void testDottyHyperGraph() {
         LogicalPlan joinCluster = new LogicalPlanBuilder(scan1)
                 .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -41,19 +43,20 @@ public class HyperGraphTest {
                 .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .hashJoinUsing(scan5, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .build();
+
         HyperGraph hyperGraph = HyperGraph.fromPlan(joinCluster);
         String dottyGraph = hyperGraph.toDottyHyperGraph();
         // This is a star join, which can be transformed to a image by graphviz.
         assert dottyGraph.equals("digraph G {  # 4 edges\n"
-            + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0\"];\n"
-            + "  LOGICAL_OLAP_SCAN1 [label=\"LOGICAL_OLAP_SCAN1\"];\n"
-            + "  LOGICAL_OLAP_SCAN2 [label=\"LOGICAL_OLAP_SCAN2\"];\n"
-            + "  LOGICAL_OLAP_SCAN3 [label=\"LOGICAL_OLAP_SCAN3\"];\n"
-            + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4\"];\n"
-            + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"1.0\",arrowhead=none]\n"
-            + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN2 [label=\"1.0\",arrowhead=none]\n"
-            + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"1.0\",arrowhead=none]\n"
-            + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN4 [label=\"1.0\",arrowhead=none]\n"
-            + "}\n") : dottyGraph;
+                + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0\"];\n"
+                + "  LOGICAL_OLAP_SCAN1 [label=\"LOGICAL_OLAP_SCAN1\"];\n"
+                + "  LOGICAL_OLAP_SCAN2 [label=\"LOGICAL_OLAP_SCAN2\"];\n"
+                + "  LOGICAL_OLAP_SCAN3 [label=\"LOGICAL_OLAP_SCAN3\"];\n"
+                + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4\"];\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"1.0\",arrowhead=none]\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN2 [label=\"1.0\",arrowhead=none]\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"1.0\",arrowhead=none]\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN4 [label=\"1.0\",arrowhead=none]\n"
+                + "}\n") : dottyGraph;
     }
 }
