@@ -184,7 +184,7 @@ private:
                 stream << view;
                 stream >> value;
             }
-            *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(LargeIntVal)));
+            *val = reinterpret_cast<AnyVal*>(context->aligned_allocate(16, sizeof(LargeIntVal)));
             new (*val) LargeIntVal(value);
             break;
         }
