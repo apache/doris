@@ -274,6 +274,8 @@ Status ColumnReader::_get_filtered_pages(const AndBlockColumnPredicate* col_pred
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
                     for (auto del_pred : *delete_predicates) {
+                        // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
+                        //  So nullable only need to judge once.
                         if (min_value.get() != nullptr && max_value.get() != nullptr &&
                             del_pred->evaluate_del({min_value.get(), max_value.get()})) {
                             should_read = false;
