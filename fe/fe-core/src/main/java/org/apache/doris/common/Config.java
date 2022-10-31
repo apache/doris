@@ -1783,6 +1783,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
 
+    /*
+     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_mtmv_scheduler_framework = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_running_mtmv_scheduler_task_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_pending_mtmv_scheduler_task_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_task_expire_ms = 24 * 60 * 60 * 1000L; // 1day
+
     /**
      * The candidate of the backend node for federation query such as hive table and es table query.
      * If the backend of computation role is less than this value, it will acquire some mix backend.

@@ -436,6 +436,9 @@ visible_functions = [
     [['array_slice', '%element_slice%'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     [['array_slice', '%element_slice%'], 'ARRAY_STRING', ['ARRAY_STRING', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     
+    [['array_range'], 'ARRAY_INT',       ['INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_range'], 'ARRAY_INT',       ['INT', 'INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['array_range'], 'ARRAY_INT',       ['INT', 'INT', 'INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     # reverse function for string builtin
     [['reverse'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions7reverseEPN9doris_udf15FunctionContextERKNS1_9StringValE', '', '', 'vec', ''],
@@ -529,6 +532,14 @@ visible_functions = [
     [['last_day'], 'DATEV2', ['DATEV2'],
         '_ZN5doris18TimestampFunctions8last_dayEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['to_monday'], 'DATEV2', ['DATETIMEV2'],
+        '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['to_monday'], 'DATEV2', ['DATEV2'],
+        '','', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['to_monday'], 'DATE', ['DATETIME'],
+        '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['to_monday'], 'DATE', ['DATE'],
+        '','', '', 'vec', 'ALWAYS_NULLABLE'],
     [['to_days'], 'INT', ['DATE'],
         '_ZN5doris18TimestampFunctions7to_daysEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -2054,6 +2065,11 @@ visible_functions = [
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['mask'], 'STRING', ['STRING', '...'], '', '', '', 'vec', ''],
+    [['mask_first_n'], 'STRING', ['STRING'], '', '', '', 'vec', ''],
+    [['mask_first_n'], 'STRING', ['STRING', 'INT'], '', '', '', 'vec', ''],
+    [['mask_last_n'], 'STRING', ['STRING'], '', '', '', 'vec', ''],
+    [['mask_last_n'], 'STRING', ['STRING', 'INT'], '', '', '', 'vec', ''],
     [['strleft', 'left'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions4leftEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -2180,7 +2196,10 @@ visible_functions = [
     [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions10split_partEPN9doris_udf15FunctionContextERKNS1_9StringValES6_RKNS1_6IntValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
-     [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],'','', '', 'vec', ''],
+    [['extract_url_parameter'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],'','', '', 'vec', ''],
+
+    [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],'','', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'],'','', '', 'vec', 'ALWAYS_NULLABLE'],
 
     # Longtext function
     [['substr', 'substring'], 'STRING', ['STRING', 'INT'],

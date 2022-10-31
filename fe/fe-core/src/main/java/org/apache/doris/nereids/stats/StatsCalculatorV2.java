@@ -99,7 +99,14 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
 
     private void estimate() {
         StatsDeriveResult stats = groupExpression.getPlan().accept(this, null);
-        groupExpression.getOwnerGroup().setStatistics(stats);
+        StatsDeriveResult originStats = groupExpression.getOwnerGroup().getStatistics();
+        /*
+        in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
+        we record the lowest expression cost as group cost to avoid missing this group.
+        */
+        if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
+            groupExpression.getOwnerGroup().setStatistics(stats);
+        }
         groupExpression.setStatDerived(true);
     }
 
@@ -321,9 +328,13 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
         for (NamedExpression outputExpression : outputExpressions) {
-            slotToColumnStats.put(outputExpression.toSlot(), new ColumnStat());
+            ColumnStat columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
+            columnStat.setNdv(Math.min(columnStat.getNdv(), resultSetCount));
+            slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotToColumnStats);
+        statsDeriveResult.setWidth(childStats.getWidth());
+        statsDeriveResult.setPenalty(childStats.getPenalty() + childStats.getRowCount());
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
     }

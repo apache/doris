@@ -19,6 +19,7 @@
 
 #include <aws/core/utils/threading/Executor.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/CopyObjectRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
@@ -35,6 +36,7 @@
 #include "gutil/strings/stringpiece.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
+#include "io/fs/s3_file_writer.h"
 
 namespace doris {
 namespace io {
@@ -136,7 +138,8 @@ Status S3FileSystem::batch_upload(const std::vector<Path>& local_paths,
 }
 
 Status S3FileSystem::create_file(const Path& path, FileWriterPtr* writer) {
-    return Status::NotSupported("not support");
+    *writer = std::make_unique<S3FileWriter>(Path(get_key(path)), get_client(), _s3_conf);
+    return Status::OK();
 }
 
 Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader) {

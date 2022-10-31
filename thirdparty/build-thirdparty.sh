@@ -146,8 +146,8 @@ elif [[ "${CC}" == *clang ]]; then
     warning_option_ignored='-Wno-option-ignored'
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
-    clang_version="$("${CC}" -dumpversion)"
-    if [[ "${clang_version}" < '14.0.0' ]]; then
+
+    if "${CC}" -xc++ "${warning_unused_but_set_variable}" /dev/null 2>&1 | grep 'unknown warning option'; then
         warning_unused_but_set_variable=''
     fi
 fi

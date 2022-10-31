@@ -69,8 +69,8 @@ suite("test_explain_tpch_sf_1_q13") {
 		explainStr.contains("vec output tuple id: 6") && 
 		explainStr.contains("output slot ids: 12 15 \n" + 
 				"  |  hash output slot ids: 0 3 ") && 
-		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.customer(customer), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: NOT `o_comment` LIKE '%special%requests%'") 
             
         }

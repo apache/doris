@@ -78,6 +78,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         throw new AfterConnectedException("Reach limit of connections");
                     }
                     context.setStartTime();
+                    context.setUserQueryTimeout(
+                            context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser()));
                     ConnectProcessor processor = new ConnectProcessor(context);
                     context.startAcceptQuery(processor);
                 } catch (AfterConnectedException e) {
