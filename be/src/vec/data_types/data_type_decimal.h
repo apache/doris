@@ -376,13 +376,13 @@ convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale) 
 
     if constexpr (std::is_floating_point_v<FromFieldType>) {
         if (!std::isfinite(value)) {
-            LOG(FATAL) << "Decimal convert overflow. Cannot convert infinity or NaN to decimal";
+            return 0;
         }
 
         auto out = value * ToDataType::get_scale_multiplier(scale);
         if (out <= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::min()) ||
             out >= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::max())) {
-            LOG(FATAL) << "Decimal convert overflow. Float is out of Decimal range";
+            return 0;
         }
         return out;
     } else {
