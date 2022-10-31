@@ -113,14 +113,20 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         }
 
-        /*if (groupExpression.isHasCalculateCost()) {
+        if (groupExpression.isHasCalculateCost()) {
             for (List<PhysicalProperties> list : requestChildrenPropertiesList) {
+                if (curChildIndex == 0 && prevChildIndex == -1) {
+                    curNodeCost = CostCalculator.calculateCost(groupExpression);
+                    groupExpression.setCost(curNodeCost);
+                    curTotalCost += curNodeCost;
+                }
                 if (!calculateEnforce(list)) {
                     return;
                 }
+                clear();
             }
             return;
-        }*/
+        }
 
         for (; requestPropertiesIndex < requestChildrenPropertiesList.size(); requestPropertiesIndex++) {
             // Get one from List<request property to children>
@@ -177,7 +183,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
             // This mean that we successfully optimize all child groups.
             if (curChildIndex == groupExpression.arity()) {
-
                 if (!calculateEnforce(requestChildrenProperties)) {
                     return;
                 }
