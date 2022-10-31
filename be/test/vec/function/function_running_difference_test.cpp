@@ -12,8 +12,8 @@ namespace doris::vectorized {
     {
         InputTypeSet input_types = {TypeIndex::Int32};
 
-        DataSet data_set = {{{(int32_t)0}, (int64_t)0},
-                            {{(int32_t)1}, (int64_t)1},
+        DataSet data_set = {{{Null()}, Null()},
+                            {{(int32_t)1}, Null()},
                             {{(int32_t)2}, (int64_t)1},
                             {{(int32_t)3}, (int64_t)1},
                             {{(int32_t)5}, (int64_t)2}};
@@ -23,8 +23,8 @@ namespace doris::vectorized {
     {   
         InputTypeSet input_types = {TypeIndex::Float64};
         DataSet data_set = {{{(double)0.0},  (double)0.0}, 
-                            {{(double)1.54}, (double)1.54},
-                            {{(double)2.33},  (double)0.79},
+                            {{Null()}, Null()},
+                            {{(double)2.33},  Null()},
                             {{(double)8.45}, (double)6.12},
                             {{(double)4.22}, (double)-4.23}};
         check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
@@ -40,13 +40,23 @@ namespace doris::vectorized {
     }
     {
         InputTypeSet input_types = {TypeIndex::Date};
-        DataSet data_set = {{{std::string("2019-07-18")},  (int32_t)0}, 
+        DataSet data_set = {
+                            {{std::string("2019-07-18")},  (int32_t)0}, 
                             {{std::string("2019-08-19")}, (int32_t)32},
                             {{std::string("2019-07-20")},  (int32_t)-30},
                             {{std::string("2019-07-22")}, (int32_t)2},
                             {{std::string("2019-08-01")}, (int32_t)10}};
         check_function<DataTypeInt32, true>(func_name, input_types, data_set); 
     }
+    {
+        InputTypeSet input_types = {TypeIndex::Date};
+        DataSet data_set = {
+                            {{Null()},  Null()}, 
+                            {{std::string("2019-08-19")}, Null()},
+                            {{std::string("2019-07-20")},  (int32_t)-30},
+                            {{std::string("2019-07-22")}, (int32_t)2},
+                            {{std::string("2019-08-01")}, (int32_t)10}};
+        check_function<DataTypeInt32, true>(func_name, input_types, data_set); 
+    }
 }
-
 }
