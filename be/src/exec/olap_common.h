@@ -112,7 +112,7 @@ public:
 
     bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
                                     std::vector<OlapTuple>& end_scan_keys,
-                                    int32_t max_scan_key_num);
+                                    int32_t max_scan_key_num) const;
 
     bool has_intersection(ColumnValueRange<primitive_type>& range);
 
@@ -324,7 +324,7 @@ public:
               _is_convertible(true) {}
 
     template <PrimitiveType primitive_type>
-    Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
+    Status extend_scan_key(ColumnValueRange<primitive_type> range, int32_t max_scan_key_num,
                            bool* exact_value);
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
@@ -516,7 +516,7 @@ size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() cons
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        int32_t max_scan_key_num) {
+        int32_t max_scan_key_num) const {
     constexpr bool reject_type = primitive_type == PrimitiveType::TYPE_LARGEINT ||
                                  primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
                                  primitive_type == PrimitiveType::TYPE_HLL ||
@@ -569,6 +569,39 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             end_scan_keys.back().add_null();
         }
         return step_size != 1;
+    }
+}
+
+template <PrimitiveType primitive_type>
+void ColumnValueRange<primitive_type>::convert_to_fixed_value() {
+    if constexpr (primitive_type == PrimitiveType::TYPE_STRING ||
+                  primitive_type == PrimitiveType::TYPE_CHAR ||
+                  primitive_type == PrimitiveType::TYPE_VARCHAR ||
+                  primitive_type == PrimitiveType::TYPE_HLL ||
+                  primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
+                  primitive_type == PrimitiveType::TYPE_LARGEINT) {
+        return;
+    } else {
+        if (!is_fixed_value_convertible()) {
+            return;
+        }
+
+        // Incrementing boolean is denied in C++17, So we use int as bool type
+        using type = std::conditional_t<std::is_same<bool, CppType>::value, int, CppType>;
+        type low_value = _low_value;
+        type high_value = _high_value;
+
+        if (_low_op == FILTER_LARGER) {
+            ++low_value;
+        }
+
+        for (auto v = low_value; v < high_value; ++v) {
+            _fixed_values.insert(v);
+        }
+
+        if (_high_op == FILTER_LESS_OR_EQUAL) {
+            _fixed_values.insert(high_value);
+        }
     }
 }
 
@@ -863,7 +896,7 @@ bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primiti
 }
 
 template <PrimitiveType primitive_type>
-Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
+Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type> range,
                                      int32_t max_scan_key_num, bool* exact_value) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using ConstIterator = typename std::set<CppType>::const_iterator;
@@ -892,14 +925,19 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
             }
         }
     } else {
-        if (_begin_scan_keys.empty() && range.is_fixed_value_convertible() && _is_convertible) {
-            if (range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys,
-                                                 max_scan_key_num)) {
-                _has_range_value = true;
+        if (range.is_fixed_value_convertible() && _is_convertible) {
+            if (_begin_scan_keys.empty()) {
+                if (range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys,
+                                                     max_scan_key_num)) {
+                    _has_range_value = true;
+                }
+                _begin_include = range.is_begin_include();
+                _end_include = range.is_end_include();
+                return Status::OK();
+            } else if (range.get_convertible_fixed_value_size() <
+                       max_scan_key_num / scan_keys_size) {
+                range.convert_to_fixed_value();
             }
-            _begin_include = range.is_begin_include();
-            _end_include = range.is_end_include();
-            return Status::OK();
         }
     }
 

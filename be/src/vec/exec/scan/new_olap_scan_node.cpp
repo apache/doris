@@ -151,7 +151,6 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
     // we use `exact_range` to identify a key range is an exact range or not when we convert
     // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
-    bool exact_range = true;
     for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
          ++column_index) {
         auto iter = _colname_to_value_range.find(column_names[column_index]);
@@ -159,14 +158,14 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
             break;
         }
 
+        bool exact_range = true;
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
                     // make a copy or range and pass to extend_scan_key, keep the range unchanged
                     // because extend_scan_key method may change the first parameter.
                     // but the original range may be converted to olap filters, if it's not a exact_range.
-                    auto temp_range = range;
-                    RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
-                                                               &exact_range));
+                    RETURN_IF_ERROR(
+                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
                     if (exact_range) {
                         _colname_to_value_range.erase(iter->first);
                     }
@@ -180,7 +179,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
         std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
         for (const auto& filter : filters) {
-            _olap_filters.push_back(std::move(filter));
+            _olap_filters.push_back(filter);
         }
     }
 
