@@ -33,9 +33,15 @@ import com.google.common.base.Strings;
 
 public class RecoverTableStmt extends DdlStmt {
     private TableName dbTblName;
+    private long tableId = -1;
+    private String newTableName = "";
 
-    public RecoverTableStmt(TableName dbTblName) {
+    public RecoverTableStmt(TableName dbTblName, long tableId, String newTableName) {
         this.dbTblName = dbTblName;
+        this.tableId = tableId;
+        if (newTableName != null) {
+            this.newTableName = newTableName;
+        }
     }
 
     public String getDbName() {
@@ -44,6 +50,14 @@ public class RecoverTableStmt extends DdlStmt {
 
     public String getTableName() {
         return dbTblName.getTbl();
+    }
+
+    public long getTableId() {
+        return tableId;
+    }
+
+    public String getNewTableName() {
+        return newTableName;
     }
 
     @Override
@@ -71,6 +85,14 @@ public class RecoverTableStmt extends DdlStmt {
             sb.append(getDbName()).append(".");
         }
         sb.append(getTableName());
+        if (this.tableId != -1) {
+            sb.append(" ");
+            sb.append(this.tableId);
+        }
+        if (!Strings.isNullOrEmpty(newTableName)) {
+            sb.append(" AS ");
+            sb.append(this.newTableName);
+        }
         return sb.toString();
     }
 }
