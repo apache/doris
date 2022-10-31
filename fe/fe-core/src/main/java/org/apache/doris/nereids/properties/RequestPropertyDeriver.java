@@ -80,7 +80,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
         if (cache.containsKey(groupExpression)) {
-            Preconditions.checkArgument(requestPropertyToChildren.equals(cache.get(groupExpression)));
+            Preconditions.checkArgument(requestPropertyToChildren.equals(cache.get(groupExpression)), "dbg1");
         }
         if (!(groupExpression.getPlan() instanceof PhysicalAggregate)) {
             cache.put(groupExpression, requestPropertyToChildren);
