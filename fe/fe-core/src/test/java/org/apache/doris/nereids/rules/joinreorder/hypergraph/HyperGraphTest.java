@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join.hypergraph;
+package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.JoinType;

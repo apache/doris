@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join.hypergraph;
+package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -28,23 +28,55 @@ import java.util.List;
  * HyperGraph Node.
  */
 class Node {
-    final int index;
-    Plan plan;
+    private final int index;
+    private Plan plan;
     // We split these into simple edges (only one node on each side) and complex edges (others)
     // because we can often quickly discard all simple edges by testing the set of interesting nodes
     // against the “simple_neighborhood” bitmap.
-    List<Edge> complexEdges = Lists.newArrayList();
-    List<Edge> simpleEdges = Lists.newArrayList();
+    private List<Edge> complexEdges = Lists.newArrayList();
+    private List<Edge> simpleEdges = Lists.newArrayList();
 
-    BitSet simpleNeighborhood = new BitSet();
+    private BitSet simpleNeighborhood = new BitSet();
 
     public Node(int index, Plan plan) {
         this.plan = plan;
         this.index = index;
     }
 
+    public int getIndex() {
+        return index;
+    }
+
     public Plan getPlan() {
         return plan;
+    }
+
+    public void setPlan(Plan plan) {
+        this.plan = plan;
+    }
+
+    public List<Edge> getComplexEdges() {
+        return complexEdges;
+    }
+
+    public void setComplexEdges(List<Edge> complexEdges) {
+        this.complexEdges = complexEdges;
+    }
+
+    public List<Edge> getSimpleEdges() {
+        return simpleEdges;
+    }
+
+    public void setSimpleEdges(List<Edge> simpleEdges) {
+        this.simpleEdges = simpleEdges;
+    }
+
+    public BitSet getSimpleNeighborhood() {
+        return simpleNeighborhood;
+    }
+
+    public void setSimpleNeighborhood(BitSet simpleNeighborhood) {
+        this.simpleNeighborhood = simpleNeighborhood;
     }
 
     public void attachEdge(Edge edge) {
