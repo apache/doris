@@ -169,39 +169,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // This mean that we successfully optimize all child groups.
             if (curChildIndex == groupExpression.arity()) {
 
-                // to ensure distributionSpec has been added sufficiently.
-                ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
-                        lowestCostChildren, requestChildrenProperties, requestChildrenProperties, context);
-                double enforceCost = regulator.adjustChildrenProperties();
-                if (enforceCost < 0) {
-                    // invalid enforce, return.
+                if (!calculateEnforce(requestChildrenProperties)) {
                     return;
                 }
-                curTotalCost += enforceCost;
-
-                // Not need to do pruning here because it has been done when we get the
-                // best expr from the child group
-                ChildOutputPropertyDeriver childOutputPropertyDeriver
-                        = new ChildOutputPropertyDeriver(requestChildrenProperties);
-                PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(groupExpression);
-
-                // update current group statistics and re-compute costs.
-                if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
-                    // if we come here, mean that we have some error in stats calculator and should fix it.
-                    return;
-                }
-                StatsCalculator.estimate(groupExpression);
-                curTotalCost -= curNodeCost;
-                curNodeCost = CostCalculator.calculateCost(groupExpression);
-                groupExpression.setCost(curNodeCost);
-                curTotalCost += curNodeCost;
-
-                // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
-                recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY,
-                        requestChildrenProperties);
-                recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperties);
-                enforce(outputProperty, requestChildrenProperties);
-
                 if (curTotalCost < context.getCostUpperBound()) {
                     context.setCostUpperBound(curTotalCost);
                 }
@@ -209,6 +179,42 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
             clear();
         }
+    }
+
+    private boolean calculateEnforce(List<PhysicalProperties> requestChildrenProperties) {
+        // to ensure distributionSpec has been added sufficiently.
+        ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
+                lowestCostChildren, requestChildrenProperties, requestChildrenProperties, context);
+        double enforceCost = regulator.adjustChildrenProperties();
+        if (enforceCost < 0) {
+            // invalid enforce, return.
+            return false;
+        }
+        curTotalCost += enforceCost;
+
+        // Not need to do pruning here because it has been done when we get the
+        // best expr from the child group
+        ChildOutputPropertyDeriver childOutputPropertyDeriver
+                = new ChildOutputPropertyDeriver(requestChildrenProperties);
+        PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(groupExpression);
+
+        // update current group statistics and re-compute costs.
+        if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
+            // if we come here, mean that we have some error in stats calculator and should fix it.
+            return false;
+        }
+        StatsCalculator.estimate(groupExpression);
+        curTotalCost -= curNodeCost;
+        curNodeCost = CostCalculator.calculateCost(groupExpression);
+        groupExpression.setCost(curNodeCost);
+        curTotalCost += curNodeCost;
+
+        // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
+        recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY,
+                requestChildrenProperties);
+        recordPropertyAndCost(groupExpression, outputProperty, outputProperty, requestChildrenProperties);
+        enforce(outputProperty, requestChildrenProperties);
+        return true;
     }
 
     private void enforce(PhysicalProperties outputProperty, List<PhysicalProperties> requestChildrenProperty) {
