@@ -560,9 +560,11 @@ public class Memo {
      *       save group and groupExpression to the memo at other place.
      */
     private void moveParentExpressionsReference(Group fromGroup, Group toGroup) {
-        for (GroupExpression parentGroupExpression : fromGroup.getParentGroupExpressions()) {
-            if (parentGroupExpression.getOwnerGroup() != toGroup) {
-                parentGroupExpression.replaceChild(fromGroup, toGroup);
+        for (int i = 0; i < fromGroup.getParentGroupExpressions().size(); i++) {
+            if (fromGroup.getParentGroupExpressions().get(i).getOwnerGroup() != toGroup) {
+                GroupExpression newGroupExpression = fromGroup.getParentGroupExpressions().get(i)
+                        .replaceChild(fromGroup, toGroup);
+                fromGroup.getParentGroupExpressions().set(i, newGroupExpression);
             }
         }
     }

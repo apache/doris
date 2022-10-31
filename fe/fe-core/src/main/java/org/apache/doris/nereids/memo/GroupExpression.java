@@ -28,6 +28,7 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -136,14 +137,18 @@ public class GroupExpression {
      * @param originChild origin child group
      * @param newChild new child group
      */
-    public void replaceChild(Group originChild, Group newChild) {
+    public GroupExpression replaceChild(Group originChild, Group newChild) {
         originChild.removeParentExpression(this);
-        for (int i = 0; i < children.size(); i++) {
-            if (children.get(i) == originChild) {
-                children.set(i, newChild);
+        Builder<Group> newChildrenBuilder = ImmutableList.builder();
+        for (Group child : children) {
+            if (child == originChild) {
+                newChildrenBuilder.add(newChild);
                 newChild.addParentExpression(this);
+            } else {
+                newChildrenBuilder.add(child);
             }
         }
+        return withChildren(newChildrenBuilder.build());
     }
 
     public boolean hasApplied(Rule rule) {
