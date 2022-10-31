@@ -40,7 +40,7 @@ import java.util.Optional;
  * select * from tbl limit 0
  */
 public class LogicalEmptyRelation extends LogicalLeaf implements EmptyRelation {
-    private final List<? extends NamedExpression> projects;
+    private final ImmutableList<? extends NamedExpression> projects;
 
     public LogicalEmptyRelation(List<? extends NamedExpression> projects) {
         this(projects, Optional.empty(), Optional.empty());

@@ -44,6 +44,7 @@ public class PhysicalHashJoin<
 
     private boolean shouldTranslateOutput = true;
 
+    // TODO: What's purpose? it's alway empty.
     private final List<Expression> filterConjuncts = Lists.newArrayList();
 
     public PhysicalHashJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
