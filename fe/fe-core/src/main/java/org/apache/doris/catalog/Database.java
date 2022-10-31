@@ -333,6 +333,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         // if a table is already exists, then edit log won't be executed
         // some caller of this method may need to know this message
         boolean isTableExist = false;
+        table.setQualifiedDbName(fullQualifiedName);
         writeLockOrDdlException();
         try {
             String tableName = table.getName();

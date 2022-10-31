@@ -934,7 +934,13 @@ public class OlapScanNode extends ScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
 
-        String indexName = olapTable.getIndexNameById(selectedIndexId);
+        long selectedIndexIdForExplain = selectedIndexId;
+        if (selectedIndexIdForExplain == -1) {
+            // If there is no data in table, the selectedIndexId will be -1, set it to base index id,
+            // so that to avoid "null" in explain result.
+            selectedIndexIdForExplain = olapTable.getBaseIndexId();
+        }
+        String indexName = olapTable.getIndexNameById(selectedIndexIdForExplain);
         output.append(prefix).append("TABLE: ").append(olapTable.getQualifiedName())
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
