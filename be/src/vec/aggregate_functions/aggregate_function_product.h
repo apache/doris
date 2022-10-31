@@ -63,7 +63,7 @@ struct AggregateFunctionProductData<Decimal128> {
 
     void merge(const AggregateFunctionProductData& other) {
         DecimalV2Value decimal_product(static_cast<Int128>(product));
-        DecimalV2Value decimal_value(static_cast<Int128>(value));
+        DecimalV2Value decimal_value(static_cast<Int128>(other.value));
         DecimalV2Value ret = decimal_product * decimal_value;
         memcpy(&product, &ret, sizeof(Decimal128));
     }
