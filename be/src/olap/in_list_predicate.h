@@ -266,6 +266,11 @@ public:
         }
     }
 
+    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        // We can't determine whether delete condition is satisfied for all values according to zone map
+        return false;
+    }
+
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             for (auto value : _values) {
