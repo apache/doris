@@ -1393,6 +1393,10 @@ public class FunctionSet<T> {
 
     public static final String RETENTION = "retention";
 
+    public static final String SEQUENCE_MATCH= "sequence_match";
+
+    public static final String SEQUENCE_COUNT= "sequence_count";
+
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1483,6 +1487,120 @@ public class FunctionSet<T> {
                 "",
                 "",
                 true, false, true, true));
+
+        // sequenceMatch
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
+            Lists.newArrayList( Type.STRING, Type.DATE, Type.BOOLEAN),
+            Type.INT,
+            Type.VARCHAR,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
+            Lists.newArrayList( Type.STRING, Type.DATEV2, Type.BOOLEAN),
+            Type.INT,
+            Type.VARCHAR,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
+            Lists.newArrayList( Type.STRING, Type.DATETIME, Type.BOOLEAN),
+            Type.INT,
+            Type.VARCHAR,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
+            Lists.newArrayList( Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
+            Type.INT,
+            Type.VARCHAR,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            true, false, true, true));
+
+        // sequenceCount
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
+            Lists.newArrayList(Type.STRING, Type.DATE, Type.BOOLEAN),
+            Type.INT,
+            Type.VARCHAR,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
+            Lists.newArrayList(Type.STRING, Type.DATEV2, Type.BOOLEAN),
+            Type.INT,
+            Type.VARCHAR,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
+            Lists.newArrayList(Type.STRING, Type.DATETIME, Type.BOOLEAN),
+            Type.INT,
+            Type.VARCHAR,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
+            Lists.newArrayList(Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
+            Type.INT,
+            Type.VARCHAR,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            true, false, true, true));
 
         for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {

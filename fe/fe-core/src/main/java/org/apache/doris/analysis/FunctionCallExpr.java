@@ -999,7 +999,7 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException("The window params of " + fnName + " function must be integer");
             }
             if (!children.get(1).type.isStringType()) {
-                throw new AnalysisException("The mode params of " + fnName + " function must be integer");
+                throw new AnalysisException("The mode params of " + fnName + " function must be string");
             }
             if (!children.get(2).type.isDateType()) {
                 throw new AnalysisException("The 3rd param of " + fnName + " function must be DATE or DATETIME");
@@ -1039,12 +1039,37 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).type != Type.BOOLEAN) {
                     throw new AnalysisException("All params of "
-                            + fnName + " function must be boolean");
+                        + fnName + " function must be boolean");
                 }
                 childTypes[i] = children.get(i).type;
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_MATCH) ||
+            fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_COUNT)) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
+                throw new AnalysisException("The " + fnName + " function must have at least four params");
+            }
+            if (!children.get(0).type.isStringType()) {
+                throw new AnalysisException("The pattern params of " + fnName + " function must be string");
+            }
+            if (!children.get(1).type.isDateType()) {
+                throw new AnalysisException("The timestamp params of " + fnName + " function must be DATE or DATETIME");
+            }
+
+            Type[] childTypes = new Type[children.size()];
+            for (int i = 0; i < 2; i++) {
+                childTypes[i] = children.get(i).type;
+            }
+            for (int i = 2; i < children.size(); i++) {
+                if (children.get(i).type != Type.BOOLEAN) {
+                    throw new AnalysisException("The 3th and subsequent params of "
+                        + fnName + " function must be boolean");
+                }
+                childTypes[i] = children.get(i).type;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes,
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
