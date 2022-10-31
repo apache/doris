@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -241,6 +242,28 @@ public class MultiPartition {
         }
     }
 
+
+
+    private MultiPartition() {
+        this.partitionKeyDesc = null;
+        this.properties = null;
+    }
+
+    public static void main(String[] args) throws AnalysisException {
+        MultiPartition multiPartition = new MultiPartition();
+        multiPartition.test();
+    }
+
+    public void test() throws AnalysisException {
+        String s = "2022";
+        DateTimeFormatter dateTimeFormatter = dateFormat(TimeUnit.YEAR, s);
+        System.out.println("--1--" + dateTimeFormatter);
+        LocalDateTime localDateTime = DateTools.formatDateTimeAndFullZero(s, dateTimeFormatter);
+        System.out.println(localDateTime);
+    }
+
+
+
     private static DateTimeFormatter dateFormat(TimestampArithmeticExpr.TimeUnit timeUnitType,
             String dateTimeStr) throws AnalysisException {
         DateTimeFormatter res;
@@ -301,7 +324,7 @@ public class MultiPartition {
     }
 
     private DateTimeFormatter dateTypeFormat() {
-        return DateTimeFormatter.ofPattern(DATETIME_FORMAT);
+        return DateTimeFormatter.ofPattern(this.timeUnitType.equals(TimeUnit.HOUR) ? DATETIME_FORMAT : DATE_FORMAT);
     }
 
 }
