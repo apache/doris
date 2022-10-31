@@ -69,6 +69,7 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(new MergeProjects())
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
