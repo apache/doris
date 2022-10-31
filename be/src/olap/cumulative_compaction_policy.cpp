@@ -25,16 +25,16 @@
 namespace doris {
 
 SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
-        int64_t size_based_promotion_size, double size_based_promotion_ratio,
-        int64_t size_based_promotion_min_size, int64_t size_based_compaction_lower_bound_size)
+        int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
+        int64_t compaction_min_size)
         : CumulativeCompactionPolicy(),
-          _size_based_promotion_size(size_based_promotion_size),
-          _size_based_promotion_ratio(size_based_promotion_ratio),
-          _size_based_promotion_min_size(size_based_promotion_min_size),
-          _size_based_compaction_lower_bound_size(size_based_compaction_lower_bound_size) {
-    // init _levels by divide 2 between size_based_compaction_lower_bound_size and 1K
-    // cu compaction handle file size less then size_based_compaction_lower_bound_size
-    int64_t i_size = size_based_promotion_size / 2;
+          _promotion_size(promotion_size),
+          _promotion_ratio(promotion_ratio),
+          _promotion_min_size(promotion_min_size),
+          _compaction_min_size(compaction_min_size) {
+    // init _levels by divide 2 between promotion_size and 1K
+    // cu compaction handle file size less then promotion_size
+    int64_t i_size = promotion_size / 2;
 
     while (i_size >= 1024) {
         _levels.push_back(i_size);
@@ -122,20 +122,19 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
 void SizeBasedCumulativeCompactionPolicy::_calc_promotion_size(RowsetMetaSharedPtr base_rowset_meta,
                                                                int64_t* promotion_size) {
     int64_t base_size = base_rowset_meta->total_disk_size();
-    *promotion_size = base_size * _size_based_promotion_ratio;
+    *promotion_size = base_size * _promotion_ratio;
 
-    // promotion_size is between _size_based_promotion_size and _size_based_promotion_min_size
-    if (*promotion_size >= _size_based_promotion_size) {
-        *promotion_size = _size_based_promotion_size;
-    } else if (*promotion_size <= _size_based_promotion_min_size) {
-        *promotion_size = _size_based_promotion_min_size;
+    // promotion_size is between _promotion_size and _promotion_min_size
+    if (*promotion_size >= _promotion_size) {
+        *promotion_size = _promotion_size;
+    } else if (*promotion_size <= _promotion_min_size) {
+        *promotion_size = _promotion_min_size;
     }
-    _refresh_tablet_size_based_promotion_size(*promotion_size);
+    _refresh_tablet_promotion_size(*promotion_size);
 }
 
-void SizeBasedCumulativeCompactionPolicy::_refresh_tablet_size_based_promotion_size(
-        int64_t promotion_size) {
-    _tablet_size_based_promotion_size = promotion_size;
+void SizeBasedCumulativeCompactionPolicy::_refresh_tablet_promotion_size(int64_t promotion_size) {
+    _tablet_promotion_size = promotion_size;
 }
 
 void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
@@ -152,7 +151,7 @@ void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
         // if rowsets have no delete version, check output_rowset total disk size
         // satisfies promotion size.
         size_t total_size = output_rowset->rowset_meta()->total_disk_size();
-        if (total_size >= _tablet_size_based_promotion_size) {
+        if (total_size >= _tablet_promotion_size) {
             tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
         }
     }
@@ -240,7 +239,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score) {
-    size_t promotion_size = _tablet_size_based_promotion_size;
+    size_t promotion_size = _tablet_promotion_size;
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
@@ -319,12 +318,10 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
     // if we have a sufficient number of segments, we should process the compaction.
     // otherwise, we check number of segments and total_size whether can do compaction.
-    if (total_size < _size_based_compaction_lower_bound_size &&
-        *compaction_score < min_compaction_score) {
+    if (total_size < _compaction_min_size && *compaction_score < min_compaction_score) {
         input_rowsets->clear();
         *compaction_score = 0;
-    } else if (total_size >= _size_based_compaction_lower_bound_size &&
-               input_rowsets->size() == 1) {
+    } else if (total_size >= _compaction_min_size && input_rowsets->size() == 1) {
         auto rs_meta = input_rowsets->front()->rowset_meta();
         // if there is only one rowset and not overlapping,
         // we do not need to do compaction
