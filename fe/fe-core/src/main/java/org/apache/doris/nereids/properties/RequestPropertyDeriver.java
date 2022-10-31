@@ -76,15 +76,15 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      * tmp
      */
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
-        requestPropertyToChildren = Lists.newArrayList();
-        groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
         if (cache.containsKey(groupExpression)) {
-            System.out.println(requestPropertyToChildren);
-            System.out.println(cache.get(groupExpression));
+            // System.out.println(requestPropertyToChildren);
+            // System.out.println(cache.get(groupExpression));
             return cache.get(groupExpression);
         }
+        requestPropertyToChildren = Lists.newArrayList();
+        groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
         if (groupExpression.getPlan() instanceof PhysicalHashJoin) {
-            cache.put(groupExpression, Lists.newArrayList(requestPropertyToChildren));
+            cache.put(groupExpression, requestPropertyToChildren);
         }
         return requestPropertyToChildren;
     }
