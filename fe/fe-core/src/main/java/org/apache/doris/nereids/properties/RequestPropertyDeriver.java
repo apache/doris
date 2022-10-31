@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -78,6 +79,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
+        if (cache.containsKey(groupExpression)) {
+            Preconditions.checkArgument(cache.get(groupExpression).equals(requestPropertyToChildren));
+        }
         if (!(groupExpression.getPlan() instanceof PhysicalAggregate)) {
             cache.putIfAbsent(groupExpression, requestPropertyToChildren);
         }

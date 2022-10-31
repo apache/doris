@@ -110,14 +110,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // like :[ [Properties {"", ANY}, Properties {"", BROADCAST}],
             //         [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}] ]
             RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(context);
-            if (RequestPropertyDeriver.getCache().containsKey(groupExpression)) {
-                for (List<PhysicalProperties> list : RequestPropertyDeriver.getCache().get(groupExpression)) {
-                    if (!calculateEnforce(list)) {
-                        return;
-                    }
-                }
-                return;
-            }
             requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         }
 

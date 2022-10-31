@@ -33,6 +33,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderRule;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -87,6 +88,7 @@ public class NereidsPlanner extends Planner {
             LOG.info(memo);
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+        RequestPropertyDeriver.cleanCache();
 
         scanNodeList = planTranslatorContext.getScanNodes();
         descTable = planTranslatorContext.getDescTable();
