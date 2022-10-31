@@ -196,9 +196,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_TABLE: {
-                data = new DropInfo();
-                ((DropInfo) data).readFields(in);
-                isRead = true;
+                data = DropInfo.read(in);
                 break;
             }
             case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
@@ -244,8 +242,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_ROLLUP: {
-                data = new DropInfo();
-                ((DropInfo) data).readFields(in);
+                data = DropInfo.read(in);
                 isRead = true;
                 break;
             }
