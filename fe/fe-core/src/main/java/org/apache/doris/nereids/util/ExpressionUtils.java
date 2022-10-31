@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -291,6 +292,10 @@ public class ExpressionUtils {
 
     public static boolean isAllLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof Literal);
+    }
+
+    public static boolean matchNumericType(List<Expression> children) {
+        return children.stream().allMatch(c -> c.getDataType().isNumericType());
     }
 
     public static boolean hasNullLiteral(List<Expression> children) {
