@@ -376,19 +376,21 @@ convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale) 
 
     if constexpr (std::is_floating_point_v<FromFieldType>) {
         if (!std::isfinite(value)) {
-            return 0;
+            LOG(WARNING) << "Decimal convert overflow. Cannot convert infinity or NaN to decimal";
         }
 
         auto out = value * ToDataType::get_scale_multiplier(scale);
         if (out <= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::min()) ||
             out >= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::max())) {
-            return 0;
+            LOG(WARNING) << "Decimal convert overflow. Float is out of Decimal range";
         }
         return out;
     } else {
-        if constexpr (std::is_same_v<FromFieldType, UInt64>)
-            if (value > static_cast<UInt64>(std::numeric_limits<Int64>::max()))
+        if constexpr (std::is_same_v<FromFieldType, UInt64>) {
+            if (value > static_cast<UInt64>(std::numeric_limits<Int64>::max())) {
                 return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
+            }
+        }
         return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType>(value, 0, scale);
     }
 }
