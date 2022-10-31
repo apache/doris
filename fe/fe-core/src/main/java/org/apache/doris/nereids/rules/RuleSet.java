@@ -58,9 +58,6 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(new MergeProjects())
-            .add(new PushdownFilterThroughProject())
-            .add(new AggregateDisassemble())
             .add(JoinCommute.ZIG_ZAG)
             .add(InnerJoinLAsscom.INSTANCE)
             .add(InnerJoinLAsscomProject.INSTANCE)
@@ -69,6 +66,8 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(new AggregateDisassemble())
+            .add(new PushdownFilterThroughProject())
             .add(new MergeProjects())
             .build();
 
