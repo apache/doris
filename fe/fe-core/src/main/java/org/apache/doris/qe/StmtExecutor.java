@@ -538,8 +538,8 @@ public class StmtExecutor implements ProfileWriter {
                         queryType = "Insert";
                     }
                 } catch (Throwable t) {
-                    LOG.warn("handle insert stmt fail", t);
-                    // the transaction of this insert may already begun, we will abort it at outer finally block.
+                    LOG.warn("handle insert stmt fail: {}", t.getMessage());
+                    // the transaction of this insert may already begin, we will abort it at outer finally block.
                     throw t;
                 }
             } else if (parsedStmt instanceof DdlStmt) {
