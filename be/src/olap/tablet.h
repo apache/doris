@@ -80,8 +80,6 @@ public:
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                               const std::vector<Version>& versions_to_delete);
-    Status pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* input_rowsets,
-                                         int64_t* permits);
 
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -210,10 +208,6 @@ public:
         _last_cumu_compaction_success_millis = millis;
     }
 
-    void set_last_quick_compaction_success_time(int64_t millis) {
-        _last_quick_compaction_success_time_millis = millis;
-    }
-
     int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
     void set_last_base_compaction_success_time(int64_t millis) {
         _last_base_compaction_success_millis = millis;
@@ -262,8 +256,6 @@ public:
 
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
-
-    double calculate_scan_frequency();
 
     Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
                                                     TabletSharedPtr tablet, int64_t* permits);
@@ -358,6 +350,11 @@ public:
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
+    void set_skip_compaction(bool skip,
+                             CompactionType compaction_type = CompactionType::CUMULATIVE_COMPACTION,
+                             int64_t start = -1);
+    bool should_skip_compaction(CompactionType compaction_type, int64_t now);
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -439,7 +436,6 @@ private:
     std::atomic<int64_t> _last_cumu_compaction_success_millis;
     // timestamp of last base compaction success
     std::atomic<int64_t> _last_base_compaction_success_millis;
-    std::atomic<int64_t> _last_quick_compaction_success_time_millis;
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
@@ -447,14 +443,6 @@ private:
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string _cumulative_compaction_type;
-
-    // the value of metric 'query_scan_count' and timestamp will be recorded when every time
-    // 'config::tablet_scan_frequency_time_node_interval_second' passed to calculate tablet
-    // scan frequency.
-    // the value of metric 'query_scan_count' for the last record.
-    int64_t _last_record_scan_count;
-    // the timestamp of the last record.
-    time_t _last_record_scan_count_timestamp;
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;
@@ -469,6 +457,12 @@ private:
 
     // Max schema_version schema from Rowset or FE
     TabletSchemaSPtr _max_version_schema;
+
+    bool _skip_cumu_compaction = false;
+    int64_t _skip_cumu_compaction_ts;
+
+    bool _skip_base_compaction = false;
+    int64_t _skip_base_compaction_ts;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
