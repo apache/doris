@@ -48,7 +48,7 @@ public class EmptySetNode extends PlanNode {
     @Override
     public void computeStats(Analyzer analyzer) throws UserException {
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
         avgRowSize = 0;
         numNodes = 1;
         if (LOG.isDebugEnabled()) {

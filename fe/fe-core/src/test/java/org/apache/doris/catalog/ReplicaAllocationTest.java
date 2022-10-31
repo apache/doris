@@ -123,7 +123,7 @@ public class ReplicaAllocationTest {
 
         properties.clear();
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.12321:1");
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid tag format: location:12321",
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid tag value format: 12321",
                 () -> PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
     }
 

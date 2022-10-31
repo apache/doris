@@ -26,6 +26,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -171,7 +174,7 @@ public class Utils {
     public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
-        correlatedPredicates.stream().forEach(predicate -> {
+        correlatedPredicates.forEach(predicate -> {
             if (!(predicate instanceof BinaryExpression)) {
                 throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
             }
@@ -193,5 +196,9 @@ public class Utils {
             List<Expression> conjuncts, List<Expression> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 expr -> expr.anyMatch(slots::contains)));
+    }
+
+    public static LocalDateTime getLocalDatetimeFromLong(long dateTime) {
+        return LocalDateTime.ofInstant(Instant.ofEpochSecond(dateTime), ZoneId.systemDefault());
     }
 }

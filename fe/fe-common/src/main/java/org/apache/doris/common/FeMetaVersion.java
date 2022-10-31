@@ -40,12 +40,16 @@ public final class FeMetaVersion {
     public static final int VERSION_109 = 109;
     // For routine load user info
     public static final int VERSION_110 = 110;
-    // add catalog PrivTable in PaloAuth to support unified privilege management
+    // add catalog PrivTable in Auth to support unified privilege management
     public static final int VERSION_111 = 111;
     // add row policy and add maxColUniqueId for olapTable
     public static final int VERSION_112 = 112;
+    // add password options
+    public static final int VERSION_113 = 113;
+    // add new recover info for recover ddl
+    public static final int VERSION_114 = 114;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_112;
+    public static final int VERSION_CURRENT = VERSION_114;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...

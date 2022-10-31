@@ -66,6 +66,7 @@ public:
         os_->seekp(0);
         hasHdr_ = false;
         kvState_ = WS_Value;
+        first_ = true;
         for (; !stack_.empty(); stack_.pop())
             ;
     }
@@ -105,7 +106,8 @@ public:
     }
 
     uint32_t writeValue(const JsonbValue* value) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->write((char*)value, value->numPackedBytes());
             kvState_ = WS_Value;
             return value->size();
@@ -125,8 +127,24 @@ public:
         return 0;
     }
 
+    bool writeFirstHeader() {
+        if (first_ && stack_.empty()) {
+            first_ = false;
+            // if this is a new JSONB, write the header
+            if (!hasHdr_) {
+                writeHeader();
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return true;
+        }
+    }
+
     uint32_t writeNull() {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Null);
             kvState_ = WS_Value;
             return sizeof(JsonbValue);
@@ -136,7 +154,8 @@ public:
     }
 
     uint32_t writeBool(bool b) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             if (b) {
                 os_->put((JsonbTypeUnder)JsonbType::T_True);
             } else {
@@ -168,7 +187,8 @@ public:
     }
 
     uint32_t writeInt8(int8_t v) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Int8);
             os_->put(v);
             kvState_ = WS_Value;
@@ -179,7 +199,8 @@ public:
     }
 
     uint32_t writeInt16(int16_t v) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Int16);
             os_->write((char*)&v, sizeof(int16_t));
             kvState_ = WS_Value;
@@ -190,7 +211,8 @@ public:
     }
 
     uint32_t writeInt32(int32_t v) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Int32);
             os_->write((char*)&v, sizeof(int32_t));
             kvState_ = WS_Value;
@@ -201,7 +223,8 @@ public:
     }
 
     uint32_t writeInt64(int64_t v) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Int64);
             os_->write((char*)&v, sizeof(int64_t));
             kvState_ = WS_Value;
@@ -212,7 +235,8 @@ public:
     }
 
     uint32_t writeDouble(double v) {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Double);
             os_->write((char*)&v, sizeof(double));
             kvState_ = WS_Value;
@@ -224,7 +248,8 @@ public:
 
     // must call writeStartString before writing a string val
     bool writeStartString() {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_String);
             str_pos_ = os_->tellp();
 
@@ -280,7 +305,8 @@ public:
 
     // must call writeStartBinary before writing a binary val
     bool writeStartBinary() {
-        if (!stack_.empty() && verifyValueState()) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Binary);
             str_pos_ = os_->tellp();
 
@@ -497,6 +523,7 @@ private:
     WriteState kvState_; // key or value state
     std::streampos str_pos_;
     std::stack<WriteInfo> stack_;
+    bool first_ = true;
 };
 
 typedef JsonbWriterT<JsonbOutStream> JsonbWriter;

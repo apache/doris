@@ -882,7 +882,7 @@ The Apache Software License, Version 2.0
     * Hibernate Validator Engine:
         - org.hibernate:hibernate-validator:5.1.0.Final (http://validator.hibernate.org/hibernate-validator)
     * HikariCP:
-        - com.zaxxer:HikariCP:4.0.3 (https://github.com/brettwooldridge/HikariCP)
+        - com.zaxxer:HikariCP:3.4.5 (https://github.com/brettwooldridge/HikariCP)
     * Hive Common:
         - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
     * Hive Llap Client:
@@ -1282,6 +1282,8 @@ The Apache Software License, Version 2.0
         - org.apache.zookeeper:zookeeper:3.4.6 (no url defined)
     * commons-beanutils:
         - commons-beanutils:commons-beanutils:1.7.0 (no url defined)
+    * commons-text:
+        - corg.apache.commons:commons-text:1.10.0 (no url defined) 
     * oro:
         - oro:oro:2.0.8 (no url defined)
     * je:
@@ -1560,7 +1562,7 @@ Other dependencies:
     * leveldb: 1.23 -- license/LICENSE-leveldb.txt
     * cyrus-sasl: 2.1.27 -- license/LICENSE-cyrus-sasl.txt
     * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
-    * zstd: 1.5.0 -- license/LICENSE-zstd.txt
+    * zstd: 1.5.2 -- license/LICENSE-zstd.txt
     * brotli: 1.0.9 -- license/LICENSE-brotli.txt
     * bitshuffle: 0.3.5 -- license/LICENSE-bigshuffle.txt
     * fmt: 7.1.3 -- license/LICENSE-fmt.txt

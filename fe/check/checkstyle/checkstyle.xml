@@ -58,10 +58,6 @@ under the License.
     </module>
 
     <module name="RegexpSingleline">
-        <property name="format" value="&gt;&gt;&gt;&gt;&gt;&gt;&gt;"/>
-        <property name="message" value="Merge conflicts unresolved."/>
-    </module>
-    <module name="RegexpSingleline">
         <property name="format" value="&lt;&lt;&lt;&lt;&lt;&lt;&lt;"/>
         <property name="message" value="Merge conflicts unresolved."/>
     </module>

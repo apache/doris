@@ -531,9 +531,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
         List<UserIdentity> currentUser = Lists.newArrayList();
-        if (!Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser)) {
-            throw new AuthenticationException("Access denied for " + fullUserName + "@" + clientIp);
-        }
+        Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
 
         Preconditions.checkState(currentUser.size() == 1);
         if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
@@ -1012,7 +1010,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        List<Policy> policyList = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        List<Policy> policyList = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
         policyList.stream().filter(p -> p instanceof StoragePolicy).map(p -> (StoragePolicy) p).forEach(
                 iter -> {
                     // default policy not init.

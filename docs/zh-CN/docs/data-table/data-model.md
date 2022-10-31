@@ -66,7 +66,7 @@ Doris 的数据模型主要分为3类:
 如果转换成建表语句则如下（省略建表语句中的 Partition 和 Distribution 信息）
 
 ```sql
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
@@ -258,7 +258,7 @@ PROPERTIES (
 这是一个典型的用户基础信息表。这类数据没有聚合需求，只需保证主键唯一性。（这里的主键为 user_id + username）。那么我们的建表语句如下：
 
 ```sql
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
@@ -292,7 +292,7 @@ PROPERTIES (
 及建表语句：
 
 ```sql
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
@@ -314,7 +314,7 @@ PROPERTIES (
 
 ### 写时合并（1.2版本新增）
 
-Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种模型了，查询性能更接近于duplicate模型，在有主键约束需求的场景上相比聚合模型有较大的查询性能优势，尤其是在聚合模型上。
+Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种模型了，查询性能更接近于duplicate模型，在有主键约束需求的场景上相比聚合模型有较大的查询性能优势，尤其是在聚合查询以及需要用索引过滤大量数据的查询中。
 
 在1.2版本中，作为一个新的feature，写时合并默认关闭，用户可以通过添加下面的property来开启
 
@@ -325,7 +325,7 @@ Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种�
 仍然以上面的表为例，建表语句为
 
 ```sql
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
@@ -380,7 +380,7 @@ PROPERTIES (
 建表语句如下：
 
 ```sql
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
     `timestamp` DATETIME NOT NULL COMMENT "日志时间",
     `type` INT NOT NULL COMMENT "日志类型",
@@ -505,7 +505,7 @@ SELECT COUNT(*) FROM table;
 
 ### Unique模型的写时合并实现
 
-还是以刚才的数据为例，写时合并为每次导入的rowset增加了对应的delete bitmap，来标记哪些数据被覆盖。第一批数据导入后状态如下
+Unique模型的写时合并实现没有聚合模型的局限性，还是以刚才的数据为例，写时合并为每次导入的rowset增加了对应的delete bitmap，来标记哪些数据被覆盖。第一批数据导入后状态如下
 
 **batch 1**
 
@@ -539,7 +539,7 @@ SELECT COUNT(*) FROM table;
 
 Duplicate 模型没有聚合模型的这个局限性。因为该模型不涉及聚合语意，在做 count(*) 查询时，任意选择一列查询，即可得到语意正确的结果。
 
-### key 列
+## key 列
 Duplicate、Aggregate、Unique 模型，都会在建表指定 key 列，然而实际上是有所区别的：对于 Duplicate 模型，表的key列，可以认为只是 “排序列”，并非起到唯一标识的作用。而 Aggregate、Unique 模型这种聚合类型的表，key 列是兼顾 “排序列” 和 “唯一标识列”，是真正意义上的“ key 列”。
 
 ## 数据模型的选择建议
@@ -547,7 +547,7 @@ Duplicate、Aggregate、Unique 模型，都会在建表指定 key 列，然而�
 因为数据模型在建表时就已经确定，且**无法修改**。所以，选择一个合适的数据模型**非常重要**。
 
 1. Aggregate 模型可以通过预聚合，极大地降低聚合查询时所需扫描的数据量和查询的计算量，非常适合有固定模式的报表类查询场景。但是该模型对 count(*) 查询很不友好。同时因为固定了 Value 列上的聚合方式，在进行其他类型的聚合查询时，需要考虑语意正确性。
-2. Unique 模型针对需要唯一主键约束的场景，可以保证主键唯一性约束。但是无法利用 ROLLUP 等预聚合带来的查询优势（因为本质是 REPLACE，没有 SUM 这种聚合方式）。
+2. Unique 模型针对需要唯一主键约束的场景，可以保证主键唯一性约束。但是无法利用 ROLLUP 等预聚合带来的查询优势。
    1. 对于聚合查询有较高性能需求的用户，推荐使用自1.2版本加入的写时合并实现。
-   2. 【注意】Unique 模型仅支持整行更新，如果用户既需要唯一主键约束，又需要更新部分列（例如将多张源表导入到一张 doris 表的情形），则可以考虑使用 Aggregate 模型，同时将非主键列的聚合类型设置为 REPLACE_IF_NOT_NULL。具体的用法可以参考[语法手册](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
+   2. Unique 模型仅支持整行更新，如果用户既需要唯一主键约束，又需要更新部分列（例如将多张源表导入到一张 doris 表的情形），则可以考虑使用 Aggregate 模型，同时将非主键列的聚合类型设置为 REPLACE_IF_NOT_NULL。具体的用法可以参考[语法手册](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 3. Duplicate 适合任意维度的 Ad-hoc 查询。虽然同样无法利用预聚合的特性，但是不受聚合模型的约束，可以发挥列存模型的优势（只读取相关列，而不需要读取所有 Key 列）。

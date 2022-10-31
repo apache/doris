@@ -197,8 +197,8 @@ std::string VLiteral::debug_string() const {
     out << "VLiteral (name = " << _expr_name;
     out << ", type = " << _data_type->get_name();
     out << ", value = ";
-    if (_column_ptr.get()->size() > 0) {
-        StringRef ref = _column_ptr.get()->get_data_at(0);
+    if (_column_ptr->size() > 0) {
+        StringRef ref = _column_ptr->get_data_at(0);
         if (ref.data == nullptr) {
             out << "null";
         } else {

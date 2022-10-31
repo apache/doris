@@ -116,21 +116,21 @@ suite("test_explain_tpch_sf_1_q8") {
 		explainStr.contains("vec output tuple id: 11") && 
 		explainStr.contains("output slot ids: 29 30 32 33 \n" + 
 				"  |  hash output slot ids: 1 2 7 8 ") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF004[in_or_bloom] -> <slot 8>, RF005[in_or_bloom] -> <slot 7>, RF006[in_or_bloom] -> `l_partkey`") && 
-		explainStr.contains("TABLE: region(region), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.region(region), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `r_name` = 'AMERICA'") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 14>") && 
-		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.customer(customer), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF001[in_or_bloom] -> <slot 12>") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderdate` >= '1995-01-01 00:00:00', `o_orderdate` <= '1996-12-31 00:00:00'\n" + 
 				"     runtime filters: RF002[in_or_bloom] -> <slot 10>") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF003[in_or_bloom] -> <slot 17>") && 
-		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_type` = 'ECONOMY ANODIZED STEEL'") 
             
         }

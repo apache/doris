@@ -70,10 +70,8 @@ void ArrowReaderWrap::close() {
 }
 
 Status ArrowReaderWrap::column_indices() {
-    DCHECK(_num_of_columns_from_file <= _file_slot_descs.size());
     _include_column_ids.clear();
-    for (int i = 0; i < _num_of_columns_from_file; i++) {
-        auto slot_desc = _file_slot_descs.at(i);
+    for (auto& slot_desc : _file_slot_descs) {
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
         if (iter != _map_column.end()) {

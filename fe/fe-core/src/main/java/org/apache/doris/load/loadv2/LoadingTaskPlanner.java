@@ -146,7 +146,7 @@ public class LoadingTaskPlanner {
         // 1. Broker scan node
         ScanNode scanNode;
         if (Config.enable_new_load_scan_node) {
-            scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc, "FileScanNode");
+            scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
             ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
                     fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
         } else {

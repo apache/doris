@@ -59,7 +59,6 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/exec/file_scan_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -518,6 +517,13 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::HASH_JOIN_NODE:
         if (state->enable_vectorized_exec()) {
+            if (!tnode.hash_join_node.__isset.vintermediate_tuple_id_list) {
+                // in progress of upgrading from 1.1-lts to 1.2-lts
+                error_msg << "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized hash "
+                             "join cannot be executed, you can switch to non-vectorized engine by "
+                             "'set global enable_vectorized_engine = false'";
+                return Status::InternalError(error_msg.str());
+            }
             *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         } else {
             *node = pool->add(new HashJoinNode(pool, tnode, descs));
@@ -613,13 +619,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::FILE_SCAN_NODE:
-        //        *node = pool->add(new vectorized::FileScanNode(pool, tnode, descs));
-        if (config::enable_new_scan_node) {
+        if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewFileScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new vectorized::FileScanNode(pool, tnode, descs));
+            return Status::InternalError("Not support file scan node in non-vec engine");
         }
-
         return Status::OK();
 
     case TPlanNodeType::REPEAT_NODE:

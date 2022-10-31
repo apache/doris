@@ -120,41 +120,59 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
 
 Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_column,
                                         DataTypePtr& type) {
-    CHECK(doris_column->is_nullable());
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-            (*std::move(doris_column)).mutate().get());
-    MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    NullMap& map_data_column = nullable_column->get_null_map_data();
-    auto origin_size = map_data_column.size();
-    map_data_column.resize(origin_size + num_values);
-
-    if (_chunk_reader->max_def_level() > 0) {
-        LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
-        size_t has_read = 0;
-        while (has_read < num_values) {
-            level_t def_level;
-            size_t loop_read = def_decoder.get_next_run(&def_level, num_values - has_read);
-            bool is_null = def_level == 0;
-            // fill NullMap
-            for (int i = 0; i < loop_read; ++i) {
-                map_data_column[origin_size + has_read + i] = (UInt8)is_null;
+    if (num_values == 0) {
+        return Status::OK();
+    }
+    MutableColumnPtr data_column;
+    RunLengthNullMap null_map;
+    if (doris_column->is_nullable()) {
+        SCOPED_RAW_TIMER(&_decode_null_map_time);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(doris_column)).mutate().get());
+        data_column = nullable_column->get_nested_column_ptr();
+        NullMap& map_data_column = nullable_column->get_null_map_data();
+        auto origin_size = map_data_column.size();
+        map_data_column.resize(origin_size + num_values);
+        if (_chunk_reader->max_def_level() > 0) {
+            LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
+            size_t has_read = 0;
+            bool prev_is_null = true;
+            while (has_read < num_values) {
+                level_t def_level;
+                size_t max_read = std::min(num_values - has_read, (size_t)USHRT_MAX);
+                size_t loop_read = def_decoder.get_next_run(&def_level, max_read);
+                bool is_null = def_level == 0;
+                for (int i = 0; i < loop_read; ++i) {
+                    map_data_column[origin_size + has_read + i] = (UInt8)is_null;
+                }
+                if (!(prev_is_null ^ is_null)) {
+                    null_map.emplace_back(0);
+                }
+                null_map.emplace_back((u_short)loop_read);
+                prev_is_null = is_null;
+                has_read += loop_read;
             }
-            // decode data
-            if (is_null) {
-                // null values
-                _chunk_reader->insert_null_values(data_column, loop_read);
-            } else {
-                RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, loop_read));
+        } else {
+            for (int i = 0; i < num_values; ++i) {
+                map_data_column[origin_size + i] = (UInt8) false;
             }
-            has_read += loop_read;
         }
     } else {
-        for (int i = 0; i < num_values; ++i) {
-            map_data_column[origin_size + i] = (UInt8) false;
+        if (_chunk_reader->max_def_level() > 0) {
+            return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, num_values));
+        data_column = doris_column->assume_mutable();
     }
-    return Status::OK();
+    if (null_map.size() == 0) {
+        size_t remaining = num_values;
+        while (remaining > USHRT_MAX) {
+            null_map.emplace_back(USHRT_MAX);
+            null_map.emplace_back(0);
+            remaining -= USHRT_MAX;
+        }
+        null_map.emplace_back((u_short)remaining);
+    }
+    return _chunk_reader->decode_values(data_column, type, null_map);
 }
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
@@ -223,7 +241,8 @@ Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::C
     _chunk_reader.reset(new ColumnChunkReader(_stream_reader, chunk, &field->children[0], _ctz));
     RETURN_IF_ERROR(_chunk_reader->init());
     if (_chunk_reader->max_def_level() > 4) {
-        return Status::Corruption("Max definition level in array column can't exceed 4");
+        return Status::Corruption(
+                "Max definition level in array column can't exceed 4(not support nested array)");
     } else {
         FieldSchema& child = field->children[0];
         _CONCRETE_ELEMENT = child.definition_level;
@@ -236,7 +255,8 @@ Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::C
         }
     }
     if (_chunk_reader->max_rep_level() != 1) {
-        return Status::Corruption("Max repetition level in array column should be 1");
+        return Status::Corruption(
+                "Max repetition level in array column should be 1(not support nested array)");
     }
     return Status::OK();
 }
@@ -255,11 +275,16 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         _init_rep_levels_buf();
     }
 
-    CHECK(doris_column->is_nullable());
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-            (*std::move(doris_column)).mutate().get());
-    NullMap& map_data_column = nullable_column->get_null_map_data();
-    MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
+    MutableColumnPtr data_column;
+    NullMap* map_data_ptr = nullptr;
+    if (doris_column->is_nullable()) {
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(doris_column)).mutate().get());
+        map_data_ptr = &nullable_column->get_null_map_data();
+        data_column = nullable_column->get_nested_column_ptr();
+    } else {
+        data_column = doris_column->assume_mutable();
+    }
 
     // generate array offset
     size_t real_batch_size = 0;
@@ -298,11 +323,22 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             size_t scan_values =
                     element_offsets[offset_index + scan_rows] - element_offsets[offset_index];
             // null array, should ignore the last offset in element_offsets
-            auto origin_size = map_data_column.size();
-            map_data_column.resize(origin_size + scan_rows);
-            for (int i = offset_index; i < offset_index + scan_rows; ++i) {
-                map_data_column[origin_size + i] =
-                        (UInt8)(definitions[element_offsets[i]] == _NULL_ARRAY);
+            if (doris_column->is_nullable()) {
+                SCOPED_RAW_TIMER(&_decode_null_map_time);
+                NullMap& map_data_column = *map_data_ptr;
+                auto origin_size = map_data_column.size();
+                map_data_column.resize(origin_size + scan_rows);
+                for (int i = offset_index; i < offset_index + scan_rows; ++i) {
+                    map_data_column[origin_size + i] =
+                            (UInt8)(definitions[element_offsets[i]] == _NULL_ARRAY);
+                }
+            } else {
+                for (int i = offset_index; i < offset_index + scan_rows; ++i) {
+                    if (definitions[element_offsets[i]] == _NULL_ARRAY) {
+                        return Status::Corruption(
+                                "Not nullable column has null values in parquet file");
+                    }
+                }
             }
             // fill array offset, should skip a value when parsing null array
             _fill_array_offset(data_column, element_offsets, offset_index, scan_rows);
@@ -339,30 +375,42 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
 
 Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
                                               size_t read_values) {
-    // fill NullMap
-    CHECK(doris_column->is_nullable());
     level_t* definitions = _def_levels_buf.get();
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-            (*std::move(doris_column)).mutate().get());
-    NullMap& map_data_column = nullable_column->get_null_map_data();
-    MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    size_t null_map_size = 0;
-    for (int i = _def_offset; i < _def_offset + read_values; ++i) {
-        // should skip _EMPTY_ARRAY and _NULL_ARRAY
-        if (definitions[i] == _CONCRETE_ELEMENT || definitions[i] == _NULL_ELEMENT) {
-            null_map_size++;
+    MutableColumnPtr data_column;
+    if (doris_column->is_nullable()) {
+        SCOPED_RAW_TIMER(&_decode_null_map_time);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(doris_column)).mutate().get());
+        data_column = nullable_column->get_nested_column_ptr();
+        NullMap& map_data_column = nullable_column->get_null_map_data();
+        size_t null_map_size = 0;
+        for (int i = _def_offset; i < _def_offset + read_values; ++i) {
+            // should skip _EMPTY_ARRAY and _NULL_ARRAY
+            if (definitions[i] == _CONCRETE_ELEMENT || definitions[i] == _NULL_ELEMENT) {
+                null_map_size++;
+            }
+        }
+        auto origin_size = map_data_column.size();
+        map_data_column.resize(origin_size + null_map_size);
+        size_t null_map_idx = origin_size;
+        for (int i = _def_offset; i < _def_offset + read_values; ++i) {
+            if (definitions[i] == _CONCRETE_ELEMENT) {
+                map_data_column[null_map_idx++] = (UInt8) false;
+            } else if (definitions[i] == _NULL_ELEMENT) {
+                map_data_column[null_map_idx++] = (UInt8) true;
+            }
+        }
+    } else {
+        doris_column->assume_mutable();
+        for (int i = _def_offset; i < _def_offset + read_values; ++i) {
+            if (definitions[i] == _NULL_ELEMENT) {
+                return Status::Corruption("Not nullable column has null values in parquet file");
+            }
         }
     }
-    auto origin_size = map_data_column.size();
-    map_data_column.resize(origin_size + null_map_size);
-    size_t null_map_idx = origin_size;
-    for (int i = _def_offset; i < _def_offset + read_values; ++i) {
-        if (definitions[i] == _CONCRETE_ELEMENT) {
-            map_data_column[null_map_idx++] = (UInt8) false;
-        } else if (definitions[i] == _NULL_ELEMENT) {
-            map_data_column[null_map_idx++] = (UInt8) true;
-        }
-    }
+
+    RunLengthNullMap null_map;
+    bool map_prev_is_null = true;
     // column with null values
     int start_idx = _def_offset;
     while (start_idx < read_values) {
@@ -389,26 +437,33 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
         }
         bool curr_is_null = definitions[i] == _NULL_ELEMENT;
         if (prev_is_null ^ curr_is_null) {
-            if (prev_is_null) {
-                // null values
-                _chunk_reader->insert_null_values(data_column, num_values);
-            } else {
-                RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, num_values));
+            if (!(map_prev_is_null ^ prev_is_null)) {
+                null_map.emplace_back(0);
             }
+            size_t remaining = num_values;
+            while (remaining > USHRT_MAX) {
+                null_map.emplace_back(USHRT_MAX);
+                null_map.emplace_back(0);
+            }
+            null_map.emplace_back((u_short)remaining);
+            map_prev_is_null = prev_is_null;
             prev_is_null = curr_is_null;
             num_values = 1;
         } else {
             num_values++;
         }
     }
-    if (prev_is_null) {
-        // null values
-        _chunk_reader->insert_null_values(data_column, num_values);
-    } else {
-        RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, num_values));
+    if (!(map_prev_is_null ^ prev_is_null)) {
+        null_map.emplace_back(0);
     }
+    size_t remaining = num_values;
+    while (remaining > USHRT_MAX) {
+        null_map.emplace_back(USHRT_MAX);
+        null_map.emplace_back(0);
+    }
+    null_map.emplace_back((u_short)remaining);
     _def_offset += read_values;
-    return Status::OK();
+    return _chunk_reader->decode_values(data_column, type, null_map);
 }
 
 void ArrayColumnReader::close() {}

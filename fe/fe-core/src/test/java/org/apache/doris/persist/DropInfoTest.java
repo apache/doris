@@ -44,7 +44,7 @@ public class DropInfoTest {
         DropInfo info1 = new DropInfo();
         info1.write(dos);
 
-        DropInfo info2 = new DropInfo(1, 2, -1, true);
+        DropInfo info2 = new DropInfo(1, 2, -1, true, 0);
         info2.write(dos);
 
         dos.flush();
@@ -65,10 +65,10 @@ public class DropInfoTest {
 
         Assert.assertTrue(rInfo2.equals(rInfo2));
         Assert.assertFalse(rInfo2.equals(this));
-        Assert.assertFalse(info2.equals(new DropInfo(0, 2, -1L, true)));
-        Assert.assertFalse(info2.equals(new DropInfo(1, 0, -1L, true)));
-        Assert.assertFalse(info2.equals(new DropInfo(1, 2, -1L, false)));
-        Assert.assertTrue(info2.equals(new DropInfo(1, 2, -1L, true)));
+        Assert.assertFalse(info2.equals(new DropInfo(0, 2, -1L, true, 0)));
+        Assert.assertFalse(info2.equals(new DropInfo(1, 0, -1L, true, 0)));
+        Assert.assertFalse(info2.equals(new DropInfo(1, 2, -1L, false, 0)));
+        Assert.assertTrue(info2.equals(new DropInfo(1, 2, -1L, true, 0)));
 
         // 3. delete files
         dis.close();

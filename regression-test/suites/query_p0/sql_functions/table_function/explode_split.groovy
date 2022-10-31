@@ -20,7 +20,7 @@ suite("explode_split") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-        CREATE TABLE ${tableName} 
+        CREATE TABLE IF NOT EXISTS ${tableName} 
         (k1 INT, k2 STRING) 
         UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 8  
         PROPERTIES("replication_num" = "1")

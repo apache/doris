@@ -30,7 +30,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.FieldChecker;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -46,14 +48,15 @@ import java.util.List;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class NormalizeAggregateTest implements PatternMatchSupported {
-    private Plan rStudent;
+    private LogicalPlan rStudent;
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student, ImmutableList.of(""));
+        rStudent = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student,
+                ImmutableList.of(""));
     }
 
-    /**
+    /*-
      * original plan:
      * LogicalAggregate (phase: [GLOBAL], output: [name#2, sum(id#0) AS `sum`#4], groupBy: [name#2])
      * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
@@ -79,16 +82,18 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
                                         logicalOlapScan()
                                 ).when(FieldChecker.check("groupByExpressions", ImmutableList.of(key)))
                                         .when(aggregate -> aggregate.getOutputExpressions().get(0).equals(key))
-                                        .when(aggregate -> aggregate.getOutputExpressions().get(1).child(0).equals(aggregateFunction.child(0)))
+                                        .when(aggregate -> aggregate.getOutputExpressions().get(1).child(0)
+                                                .equals(aggregateFunction.child(0)))
                                         .when(FieldChecker.check("normalized", true))
                         ).when(project -> project.getProjects().get(0).equals(key))
                                 .when(project -> project.getProjects().get(1) instanceof Alias)
-                                .when(project -> ((Alias) (project.getProjects().get(1))).getExprId().equals(aggregateFunction.getExprId()))
+                                .when(project -> (project.getProjects().get(1)).getExprId()
+                                        .equals(aggregateFunction.getExprId()))
                                 .when(project -> project.getProjects().get(1).child(0) instanceof SlotReference)
                 );
     }
 
-    /**
+    /*-
      * original plan:
      * LogicalAggregate (phase: [GLOBAL], output: [(sum((id#0 * 1)) + 2) AS `(sum((id * 1)) + 2)`#4], groupBy: [name#2])
      * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
@@ -101,14 +106,15 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
      */
     @Test
     public void testComplexFuncWithComplexOutputOfFunc() {
-        NamedExpression key = rStudent.getOutput().get(2).toSlot();
-        List<Expression> groupExpressionList = Lists.newArrayList(key);
         Expression multiply = new Multiply(rStudent.getOutput().get(0).toSlot(), new IntegerLiteral(1));
         Expression aggregateFunction = new Sum(multiply);
         Expression complexOutput = new Add(aggregateFunction, new IntegerLiteral(2));
         Alias output = new Alias(complexOutput, complexOutput.toSql());
         List<NamedExpression> outputExpressionList = Lists.newArrayList(output);
-        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
+
+        LogicalPlan root = new LogicalPlanBuilder(rStudent)
+                .aggGroupUsingIndex(ImmutableList.of(2), outputExpressionList)
+                .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new NormalizeAggregate())
@@ -116,24 +122,27 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
                         logicalProject(
                                 logicalAggregate(
                                         logicalProject(
-                                            logicalOlapScan()
+                                                logicalOlapScan()
                                         ).when(project -> project.getProjects().size() == 2)
                                                 .when(project -> project.getProjects().get(0) instanceof SlotReference)
                                                 .when(project -> project.getProjects().get(1).child(0).equals(multiply))
-                                ).when(FieldChecker.check("groupByExpressions", ImmutableList.of(key)))
+                                ).when(FieldChecker.check("groupByExpressions",
+                                                ImmutableList.of(rStudent.getOutput().get(2))))
                                         .when(aggregate -> aggregate.getOutputExpressions().size() == 1)
-                                        .when(aggregate -> aggregate.getOutputExpressions().get(0).child(0) instanceof AggregateFunction)
+                                        .when(aggregate -> aggregate.getOutputExpressions().get(0)
+                                                .child(0) instanceof AggregateFunction)
                         ).when(project -> project.getProjects().size() == 1)
                                 .when(project -> project.getProjects().get(0) instanceof Alias)
                                 .when(project -> project.getProjects().get(0).getExprId().equals(output.getExprId()))
                                 .when(project -> project.getProjects().get(0).child(0) instanceof Add)
-                                .when(project -> project.getProjects().get(0).child(0).child(0) instanceof SlotReference)
-                                .when(project -> project.getProjects().get(0).child(0).child(1).equals(new IntegerLiteral(2)))
+                                .when(project -> project.getProjects().get(0).child(0)
+                                        .child(0) instanceof SlotReference)
+                                .when(project -> project.getProjects().get(0).child(0).child(1)
+                                        .equals(new IntegerLiteral(2)))
                 );
     }
 
-
-    /**
+    /*-
      * original plan:
      * LogicalAggregate (phase: [GLOBAL], output: [((gender#1 + 1) + 2) AS `((gender + 1) + 2)`#4], groupBy: [(gender#1 + 1)])
      * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
@@ -146,12 +155,16 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
      */
     @Test
     public void testComplexKeyWithComplexOutputOfKey() {
-        Expression key = new Add(rStudent.getOutput().get(1).toSlot(), new IntegerLiteral(1));
+        Expression key = new Add(rStudent.getOutput().get(1), new IntegerLiteral(1));
         Expression complexKeyOutput = new Add(key, new IntegerLiteral(2));
         NamedExpression keyOutput = new Alias(complexKeyOutput, complexKeyOutput.toSql());
+
         List<Expression> groupExpressionList = Lists.newArrayList(key);
         List<NamedExpression> outputExpressionList = Lists.newArrayList(keyOutput);
-        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
+
+        LogicalPlan root = new LogicalPlanBuilder(rStudent)
+                .agg(groupExpressionList, outputExpressionList)
+                .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new NormalizeAggregate())
@@ -164,12 +177,16 @@ public class NormalizeAggregateTest implements PatternMatchSupported {
                                                 .when(project -> project.getProjects().get(0) instanceof Alias)
                                                 .when(project -> project.getProjects().get(0).child(0).equals(key))
                                 ).when(aggregate -> aggregate.getGroupByExpressions().get(0) instanceof SlotReference)
-                                        .when(aggregate -> aggregate.getOutputExpressions().get(0) instanceof SlotReference)
-                                        .when(aggregate -> aggregate.getGroupByExpressions().equals(aggregate.getOutputExpressions()))
+                                        .when(aggregate -> aggregate.getOutputExpressions()
+                                                .get(0) instanceof SlotReference)
+                                        .when(aggregate -> aggregate.getGroupByExpressions()
+                                                .equals(aggregate.getOutputExpressions()))
                         ).when(project -> project.getProjects().get(0).getExprId().equals(keyOutput.getExprId()))
                                 .when(project -> project.getProjects().get(0).child(0) instanceof Add)
-                                .when(project -> project.getProjects().get(0).child(0).child(0) instanceof SlotReference)
-                                .when(project -> project.getProjects().get(0).child(0).child(1).equals(new IntegerLiteral(2)))
+                                .when(project -> project.getProjects().get(0).child(0)
+                                        .child(0) instanceof SlotReference)
+                                .when(project -> project.getProjects().get(0).child(0).child(1)
+                                        .equals(new IntegerLiteral(2)))
 
                 );
     }

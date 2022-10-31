@@ -164,6 +164,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
@@ -190,6 +191,7 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.StorageInfoV2;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
@@ -431,6 +433,8 @@ public class Env {
 
     private PolicyMgr policyMgr;
 
+    private MTMVJobManager mtmvJobManager;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -490,6 +494,10 @@ public class Env {
 
     public CatalogMgr getCatalogMgr() {
         return catalogMgr;
+    }
+
+    public MTMVJobManager getMTMVJobManager() {
+        return mtmvJobManager;
     }
 
     public CatalogIf getCurrentCatalog() {
@@ -620,6 +628,7 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
+        this.mtmvJobManager = new MTMVJobManager();
     }
 
     public static void destroyCheckpoint() {
@@ -850,6 +859,8 @@ public class Env {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
+        // 7. start mtmv jobManager
+        mtmvJobManager.start();
     }
 
     // wait until FE is ready.
@@ -1935,6 +1946,17 @@ public class Env {
         return checksum;
     }
 
+    /**
+     * Load mtmv jobManager.
+     **/
+    public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
+        if (Config.enable_mtmv_scheduler_framework) {
+            this.mtmvJobManager = MTMVJobManager.read(in, checksum);
+            LOG.info("finished replay mtmv job and tasks from image");
+        }
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2205,6 +2227,14 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
+        return checksum;
+    }
+
+    public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
+        if (Config.enable_mtmv_scheduler_framework) {
+            Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
+            LOG.info("Save mtmv job and tasks to image");
+        }
         return checksum;
     }
 
@@ -2587,7 +2617,7 @@ public class Env {
     }
 
     public void replayCreateDb(Database db) {
-        getInternalCatalog().replayCreateDb(db);
+        getInternalCatalog().replayCreateDb(db, "");
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
@@ -2598,8 +2628,8 @@ public class Env {
         getInternalCatalog().replayDropLinkDb(info);
     }
 
-    public void replayDropDb(String dbName, boolean isForceDrop) throws DdlException {
-        getInternalCatalog().replayDropDb(dbName, isForceDrop);
+    public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
+        getInternalCatalog().replayDropDb(dbName, isForceDrop, recycleTime);
     }
 
     public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
@@ -2619,13 +2649,7 @@ public class Env {
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {
-        long dbId = info.getDbId();
-        Database db = Env.getCurrentRecycleBin().replayRecoverDatabase(dbId);
-
-        // add db to catalog
-        replayCreateDb(db);
-
-        LOG.info("replay recover db[{}]", dbId);
+        getInternalCatalog().replayRecoverDatabase(info);
     }
 
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
@@ -2695,7 +2719,7 @@ public class Env {
         getInternalCatalog().replayErasePartition(partitionId);
     }
 
-    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverPartition(info);
     }
 
@@ -3180,19 +3204,21 @@ public class Env {
         getInternalCatalog().dropTable(stmt);
     }
 
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay) {
-        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay);
+    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
+                                      Long recycleTime) {
+        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
-    public void replayDropTable(Database db, long tableId, boolean isForceDrop) throws MetaNotFoundException {
-        getInternalCatalog().replayDropTable(db, tableId, isForceDrop);
+    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
+                                Long recycleTime) throws MetaNotFoundException {
+        getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
         getInternalCatalog().replayEraseTable(tableId);
     }
 
-    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverTable(info);
     }
 
@@ -4030,12 +4056,114 @@ public class Env {
         }
     }
 
-    public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
-        throw new DdlException("not implemented");
+    private void renameColumn(Database db, OlapTable table, String colName,
+            String newColName, boolean isReplay) throws DdlException {
+        if (table.getState() != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+        }
+
+        if (colName.equalsIgnoreCase(newColName)) {
+            throw new DdlException("Same column name");
+        }
+
+        Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            // rename column is not implemented for table without column unique id.
+            if (entry.getValue().getMaxColUniqueId() < 0) {
+                throw new DdlException("not implemented for table without column unique id,"
+                        + " which are created with property 'light_schema_change'.");
+            }
+            // check if new name is already used
+            if (entry.getValue().getColumnByName(newColName) != null) {
+                throw new DdlException("Column name[" + newColName + "] is already used");
+            }
+        }
+
+        // 1. modify MaterializedIndexMeta
+        boolean hasColumn = false;
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            Column column = entry.getValue().getColumnByName(colName);
+            if (column != null) {
+                column.setName(newColName);
+                hasColumn = true;
+            }
+        }
+        if (!hasColumn) {
+            throw new DdlException("Column[" + colName + "] does not exists");
+        }
+
+        // 2. modify partition key
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        for (Column column : partitionColumns) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                column.setName(newColName);
+                break;
+            }
+        }
+
+        // 3. modify index
+        List<Index> indexes = table.getIndexes();
+        for (Index index : indexes) {
+            List<String> columns = index.getColumns();
+            for (int i = 0; i < columns.size(); i++) {
+                if (columns.get(i).equalsIgnoreCase(colName)) {
+                    columns.set(i, newColName);
+                }
+            }
+        }
+
+        // 4. modify distribution info
+        DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
+        if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+            for (Column column : distributionColumns) {
+                if (column.getName().equalsIgnoreCase(colName)) {
+                    column.setName(newColName);
+                    break;
+                }
+            }
+        }
+
+        table.rebuildFullSchema();
+
+        if (!isReplay) {
+            // log
+            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName);
+            editLog.logColumnRename(info);
+            LOG.info("rename coloumn[{}] to {}", colName, newColName);
+        }
     }
 
-    public void replayRenameColumn(TableInfo tableInfo) throws DdlException {
-        throw new DdlException("not implemented");
+    public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
+        table.writeLockOrDdlException();
+        try {
+            String colName = renameClause.getColName();
+            String newColName = renameClause.getNewColName();
+            renameColumn(db, table, colName, newColName, false);
+        } finally {
+            table.writeUnlock();
+        }
+    }
+
+    public void replayRenameColumn(TableRenameColumnInfo info) throws MetaNotFoundException {
+        LOG.debug("info:{}", info);
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        String colName = info.getColName();
+        String newColName = info.getNewColName();
+
+        Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        table.writeLock();
+        try {
+            renameColumn(db, table, colName, newColName, true);
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("failed to replay rename column", e);
+        } finally {
+            table.writeUnlock();
+        }
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)

@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_cast_array_functions_by_literal") {
-    // open enable_array_type
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
     sql """ set enable_vectorized_engine = true """
     test {
@@ -33,21 +31,17 @@ suite("test_cast_array_functions_by_literal") {
     }
 
     //  ========== cast scalar to array===========
+    // string/varchar/char is allowed to convert to array
+    qt_sql1 "select cast(cast('x' as char) as array<char>)"
+    qt_sql2 "select cast(cast('x' as string) as array<string>)"
+    qt_sql3 "select cast(cast('x' as varchar) as array<int>)"
+    qt_sql4 "select cast('[1,2,3]' as array<int>)"
+    qt_sql5 "select cast('[]' as array<int>)"
+    qt_sql6 """select cast('["a", "b", "c"]' as array<int>)"""
+    qt_sql7 """select cast('["a", "b", "c"]' as array<string>)"""
 
     test {
-        sql "select cast(cast('x' as char) as array<char>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast(cast('x' as string) as array<string>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast(cast('x' as varchar) as array<int>)"
+        sql "select cast(NULL as array<int>)"
         // check exception message contains
         exception "errCode = 2,"
     }
@@ -117,19 +111,6 @@ suite("test_cast_array_functions_by_literal") {
     sql """ set enable_vectorized_engine = false """
 
     //  ========== cast scalar to array ===========
-
-    test {
-        sql "select cast(cast('x' as char) as array<char>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast(cast('x' as string) as array<string>)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
     test {
         sql "select cast(1 as array<int>)"
         // check exception message contains

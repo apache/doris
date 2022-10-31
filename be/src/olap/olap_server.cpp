@@ -79,10 +79,6 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::max_cumu_compaction_threads)
             .set_max_threads(config::max_cumu_compaction_threads)
             .build(&_cumu_compaction_thread_pool);
-    ThreadPoolBuilder("SmallCompactionTaskThreadPool")
-            .set_min_threads(config::quick_compaction_max_threads)
-            .set_max_threads(config::quick_compaction_max_threads)
-            .build(&_quick_compaction_thread_pool);
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -243,22 +239,19 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
 }
 
 void StorageEngine::check_cumulative_compaction_config() {
-    int64_t size_based_promotion_size = config::cumulative_size_based_promotion_size_mbytes;
-    int64_t size_based_promotion_min_size = config::cumulative_size_based_promotion_min_size_mbytes;
-    int64_t size_based_compaction_lower_bound_size =
-            config::cumulative_size_based_compaction_lower_size_mbytes;
+    int64_t promotion_size = config::compaction_promotion_size_mbytes;
+    int64_t promotion_min_size = config::compaction_promotion_min_size_mbytes;
+    int64_t compaction_min_size = config::compaction_min_size_mbytes;
 
     // check size_based_promotion_size must be greater than size_based_promotion_min_size and 2 * size_based_compaction_lower_bound_size
-    int64_t should_min_size_based_promotion_size =
-            std::max(size_based_promotion_min_size, 2 * size_based_compaction_lower_bound_size);
+    int64_t should_min_promotion_size = std::max(promotion_min_size, 2 * compaction_min_size);
 
-    if (size_based_promotion_size < should_min_size_based_promotion_size) {
-        size_based_promotion_size = should_min_size_based_promotion_size;
-        LOG(WARNING) << "the config size_based_promotion_size is adjusted to "
-                        "size_based_promotion_min_size or  2 * "
-                        "size_based_compaction_lower_bound_size "
-                     << should_min_size_based_promotion_size
-                     << ", because size_based_promotion_size is small";
+    if (promotion_size < should_min_promotion_size) {
+        promotion_size = should_min_promotion_size;
+        LOG(WARNING) << "the config promotion_size is adjusted to "
+                        "promotion_min_size or  2 * "
+                        "compaction_min_size "
+                     << should_min_promotion_size << ", because size_based_promotion_size is small";
     }
 }
 
@@ -409,7 +402,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t last_base_score_update_time = 0;
     static const int64_t check_score_interval_ms = 5000; // 5 secs
 
-    int64_t interval = config::generate_compaction_tasks_min_interval_ms;
+    int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
             _adjust_compaction_thread_num();
@@ -469,9 +462,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                                  << tablet->tablet_id() << ", err: " << st.get_error_msg();
                 }
             }
-            interval = config::generate_compaction_tasks_min_interval_ms;
+            interval = config::generate_compaction_tasks_interval_ms;
         } else {
-            interval = config::check_auto_compaction_interval_seconds * 1000;
+            interval = 5000; // 5s to check disable_auto_compaction
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
@@ -479,7 +472,6 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
     _update_cumulative_compaction_policy();
-
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
 
@@ -534,17 +526,18 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policy);
-            if (tablet != nullptr &&
-                !tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-                if (need_pick_tablet) {
-                    tablets_compaction.emplace_back(tablet);
+            if (tablet != nullptr) {
+                if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                    if (need_pick_tablet) {
+                        tablets_compaction.emplace_back(tablet);
+                    }
+                    max_compaction_score = std::max(max_compaction_score, disk_max_score);
+                } else {
+                    LOG_EVERY_N(INFO, 500)
+                            << "Tablet " << tablet->full_name()
+                            << " will be ignored by automatic compaction tasks since it's "
+                            << "set to disabled automatic compaction.";
                 }
-                max_compaction_score = std::max(max_compaction_score, disk_max_score);
-            } else if (tablet != nullptr &&
-                       tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
-                LOG(INFO) << "Tablet " << tablet->full_name()
-                          << " will be ignored by automatic compaction tasks since it's set to "
-                          << "disabled automatic compaction.";
             }
         }
     }
@@ -562,21 +555,9 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 }
 
 void StorageEngine::_update_cumulative_compaction_policy() {
-    std::string current_policy = "";
-    {
-        std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
-        current_policy = config::cumulative_compaction_policy;
-    }
-    boost::to_upper(current_policy);
-    if (_cumulative_compaction_policy == nullptr ||
-        _cumulative_compaction_policy->name() != current_policy) {
-        if (current_policy == CUMULATIVE_SIZE_BASED_POLICY) {
-            // check size_based cumulative compaction config
-            check_cumulative_compaction_config();
-        }
+    if (_cumulative_compaction_policy == nullptr) {
         _cumulative_compaction_policy =
-                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                        current_policy);
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
     }
 }
 
@@ -672,32 +653,11 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
                                              CompactionType compaction_type) {
     _update_cumulative_compaction_policy();
-    if (tablet->get_cumulative_compaction_policy() == nullptr ||
-        tablet->get_cumulative_compaction_policy()->name() !=
-                _cumulative_compaction_policy->name()) {
+    if (tablet->get_cumulative_compaction_policy() == nullptr) {
         tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
     }
+    tablet->set_skip_compaction(false);
     return _submit_compaction_task(tablet, compaction_type);
-}
-
-Status StorageEngine::_handle_quick_compaction(TabletSharedPtr tablet) {
-    CumulativeCompaction compact(tablet);
-    compact.quick_rowsets_compact();
-    _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
-    return Status::OK();
-}
-
-Status StorageEngine::submit_quick_compaction_task(TabletSharedPtr tablet) {
-    bool already_exist =
-            _push_tablet_into_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
-    if (already_exist) {
-        return Status::AlreadyExist(
-                "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
-                tablet->tablet_id(), CompactionType::CUMULATIVE_COMPACTION);
-    }
-    _quick_compaction_thread_pool->submit_func(
-            std::bind<void>(&StorageEngine::_handle_quick_compaction, this, tablet));
-    return Status::OK();
 }
 
 void StorageEngine::_cooldown_tasks_producer_callback() {
@@ -766,28 +726,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
     int64_t interval = config::generate_cache_cleaner_task_interval_sec;
     do {
         LOG(INFO) << "Begin to Clean cache files";
-        FileCacheManager::instance()->clean_timeout_caches();
-        std::vector<TabletSharedPtr> tablets =
-                StorageEngine::instance()->tablet_manager()->get_all_tablet();
-        for (const auto& tablet : tablets) {
-            std::vector<Path> seg_file_paths;
-            if (io::global_local_filesystem()->list(tablet->tablet_path(), &seg_file_paths).ok()) {
-                for (Path seg_file : seg_file_paths) {
-                    std::string seg_filename = seg_file.native();
-                    // check if it is a dir name
-                    if (ends_with(seg_filename, ".dat")) {
-                        continue;
-                    }
-                    std::stringstream ss;
-                    ss << tablet->tablet_path() << "/" << seg_filename;
-                    std::string cache_path = ss.str();
-                    if (FileCacheManager::instance()->exist(cache_path)) {
-                        continue;
-                    }
-                    FileCacheManager::instance()->clean_timeout_file_not_in_mem(cache_path);
-                }
-            }
-        }
+        FileCacheManager::instance()->gc_file_caches();
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 

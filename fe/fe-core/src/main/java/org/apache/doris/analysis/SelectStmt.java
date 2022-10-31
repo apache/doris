@@ -1052,6 +1052,9 @@ public class SelectStmt extends QueryStmt {
         countAllMap = ExprSubstitutionMap.compose(multiCountOrSumDistinctMap, countAllMap, analyzer);
         List<Expr> substitutedAggs =
                 Expr.substituteList(aggExprs, countAllMap, analyzer, false);
+        // the resultExprs must substitute in the same way as aggExprs
+        // then resultExprs can be substitute correctly using combinedSmap
+        resultExprs = Expr.substituteList(resultExprs, countAllMap, analyzer, false);
         aggExprs.clear();
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);
 
@@ -1389,12 +1392,44 @@ public class SelectStmt extends QueryStmt {
             }
             List<Expr> oriGroupingExprs = groupByClause.getOriGroupingExprs();
             if (oriGroupingExprs != null) {
+                // we must make sure the expr is analyzed before rewrite
+                try {
+                    for (Expr expr : oriGroupingExprs) {
+                        if (!(expr instanceof SlotRef)) {
+                            // if group expr is not a slotRef, it should be analyzed in the same way as result expr
+                            // otherwise, the group expr is either a simple column or an alias, no need to analyze
+                            expr.analyze(analyzer);
+                        }
+                    }
+                } catch (AnalysisException ex) {
+                    //ignore any exception
+                }
                 rewriter.rewriteList(oriGroupingExprs, analyzer);
+                // after rewrite, need reset the analyze status for later re-analyze
+                for (Expr expr : oriGroupingExprs) {
+                    if (!(expr instanceof SlotRef)) {
+                        expr.reset();
+                    }
+                }
             }
         }
         if (orderByElements != null) {
             for (OrderByElement orderByElem : orderByElements) {
+                // we must make sure the expr is analyzed before rewrite
+                try {
+                    if (!(orderByElem.getExpr() instanceof SlotRef)) {
+                        // if sort expr is not a slotRef, it should be analyzed in the same way as result expr
+                        // otherwise, the sort expr is either a simple column or an alias, no need to analyze
+                        orderByElem.getExpr().analyze(analyzer);
+                    }
+                } catch (AnalysisException ex) {
+                    //ignore any exception
+                }
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
+                // after rewrite, need reset the analyze status for later re-analyze
+                if (!(orderByElem.getExpr() instanceof SlotRef)) {
+                    orderByElem.getExpr().reset();
+                }
             }
         }
     }

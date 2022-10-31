@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -41,7 +40,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * initial plan:
@@ -57,26 +55,26 @@ import java.util.Optional;
 class FindHashConditionForJoinTest {
     @Test
     public void testFindHashCondition() {
-        Plan student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
-        Plan score = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+        Plan student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
+                ImmutableList.of(""));
+        Plan score = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score,
+                ImmutableList.of(""));
 
         Slot studentId = student.getOutput().get(0);
         Slot gender = student.getOutput().get(1);
         Slot scoreId = score.getOutput().get(0);
         Slot cid = score.getOutput().get(1);
 
-        Expression eq1 = new EqualTo(studentId, scoreId); //a=b
-        Expression eq2 = new EqualTo(studentId, new IntegerLiteral(1)); //a=1
-        Expression eq3 = new EqualTo(
-                new Add(studentId, new IntegerLiteral(1)),
-                cid);
+        Expression eq1 = new EqualTo(studentId, scoreId); // a=b
+        Expression eq2 = new EqualTo(studentId, new IntegerLiteral(1)); // a=1
+        Expression eq3 = new EqualTo(new Add(studentId, new IntegerLiteral(1)), cid);
         Expression or = new Or(
                 new EqualTo(scoreId, studentId),
                 new EqualTo(gender, cid));
         Expression less = new LessThan(scoreId, studentId);
-        Expression expr = ExpressionUtils.and(eq1, eq2, eq3, or, less);
-        LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, new ArrayList<>(),
-                Optional.of(expr), student, score);
+        List<Expression> expr = ImmutableList.of(eq1, eq2, eq3, or, less);
+        LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
+                expr, student, score);
         CascadesContext context = MemoTestUtils.createCascadesContext(join);
         List<Rule> rules = Lists.newArrayList(new FindHashConditionForJoin().build());
 
@@ -86,7 +84,7 @@ class FindHashConditionForJoinTest {
         Assertions.assertEquals(after.getHashJoinConjuncts().size(), 2);
         Assertions.assertTrue(after.getHashJoinConjuncts().contains(eq1));
         Assertions.assertTrue(after.getHashJoinConjuncts().contains(eq3));
-        List<Expression> others = ExpressionUtils.extractConjunction((Expression) after.getOtherJoinCondition().get());
+        List<Expression> others = after.getOtherJoinConjuncts();
         Assertions.assertEquals(others.size(), 3);
         Assertions.assertTrue(others.contains(less));
         Assertions.assertTrue(others.contains(eq2));

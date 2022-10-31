@@ -309,7 +309,7 @@ private:
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
 
-    bool _enable_local_exchange = false;
+    bool _enable_local_exchange = true;
 };
 
 template <typename Channels>

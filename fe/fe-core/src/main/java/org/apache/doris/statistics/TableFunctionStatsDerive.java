@@ -32,7 +32,7 @@ public class TableFunctionStatsDerive extends BaseStatsDerive {
     protected long deriveRowCount() {
         Preconditions.checkState(!childrenStatsResult.isEmpty());
         // TODO the rowCount = child rowCount * rowCount of list column
-        rowCount = childrenStatsResult.get(0).getRowCount();
+        rowCount = (long) childrenStatsResult.get(0).getRowCount();
         return rowCount;
     }
 }

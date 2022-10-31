@@ -152,18 +152,10 @@ public class Analyzer {
 
     // Flag indicating if this analyzer instance belongs to a subquery.
     private boolean isSubquery = false;
-
-    public boolean isInlineView() {
-        return isInlineView;
-    }
-
-    public void setInlineView(boolean inlineView) {
-        isInlineView = inlineView;
-    }
-
     // Flag indicating if this analyzer instance belongs to an inlineview.
     private boolean isInlineView = false;
 
+    private String explicitViewAlias;
     // Flag indicating whether this analyzer belongs to a WITH clause view.
     private boolean isWithClause = false;
 
@@ -311,6 +303,8 @@ public class Analyzer {
         // conjuncts in its On clause. There is always an entry for an outer join, but the
         // corresponding value could be an empty list. There is no entry for non-outer joins.
         public final Map<TupleId, List<ExprId>> conjunctsByOjClause = Maps.newHashMap();
+
+        public final Map<TupleId, List<ExprId>> conjunctsByAntiJoinClause = Maps.newHashMap();
 
         // map from registered conjunct to its containing outer join On clause (represented
         // by its right-hand side table ref); only conjuncts that can only be correctly
@@ -517,6 +511,18 @@ public class Analyzer {
 
     public int getCallDepth() {
         return callDepth;
+    }
+
+    public void setInlineView(boolean inlineView) {
+        isInlineView = inlineView;
+    }
+
+    public void setExplicitViewAlias(String alias) {
+        explicitViewAlias = alias;
+    }
+
+    public String getExplicitViewAlias() {
+        return explicitViewAlias;
     }
 
     /**
@@ -806,7 +812,7 @@ public class Analyzer {
             // ===================================================
             // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
             // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
-            if (d == null && isInlineView) {
+            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)) {
                 d = resolveColumnRef(colName);
             }
         }
@@ -1342,6 +1348,27 @@ public class Analyzer {
     }
 
     /**
+     * Return all unassigned conjuncts of the anti join referenced by
+     * right-hand side table ref.
+     */
+    public List<Expr> getUnassignedAntiJoinConjuncts(TableRef ref) {
+        Preconditions.checkState(ref.getJoinOp().isAntiJoin());
+        List<Expr> result = Lists.newArrayList();
+        List<ExprId> candidates = globalState.conjunctsByAntiJoinClause.get(ref.getId());
+        if (candidates == null) {
+            return result;
+        }
+        for (ExprId conjunctId : candidates) {
+            if (!globalState.assignedConjuncts.contains(conjunctId)) {
+                Expr e = globalState.conjuncts.get(conjunctId);
+                Preconditions.checkState(e != null);
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns true if 'e' must be evaluated after or by a join node. Note that it may
      * still be safe to evaluate 'e' elsewhere as well, but in any case 'e' must be
      * evaluated again by or after a join.
@@ -1606,6 +1633,10 @@ public class Analyzer {
             }
             if (rhsRef.getJoinOp().isSemiJoin()) {
                 globalState.sjClauseByConjunct.put(conjunct.getId(), rhsRef);
+                if (rhsRef.getJoinOp().isAntiJoin()) {
+                    globalState.conjunctsByAntiJoinClause.computeIfAbsent(rhsRef.getId(), k -> Lists.newArrayList())
+                            .add(conjunct.getId());
+                }
             }
             if (rhsRef.getJoinOp().isInnerJoin()) {
                 globalState.ijClauseByConjunct.put(conjunct.getId(), rhsRef);
@@ -1624,7 +1655,7 @@ public class Analyzer {
      */
     private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
             throws AnalysisException {
-        if (!conjunct.isConstant() || isOjConjunct(conjunct)) {
+        if (!conjunct.isConstant() || isOjConjunct(conjunct) || isAntiJoinedConjunct(conjunct)) {
             return;
         }
         if ((!fromHavingClause && !hasEmptySpjResultSet)
@@ -1878,8 +1909,13 @@ public class Analyzer {
         Type compatibleType = exprs.get(0).getType();
         for (int i = 1; i < exprs.size(); ++i) {
             exprs.get(i).analyze(this);
-            // TODO(zc)
-            compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
+            if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
+                    && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
+                // If string literal can be converted to dateV2, we use datev2 as the compatible type
+                // instead of datetimev2.
+            } else {
+                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
+            }
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {

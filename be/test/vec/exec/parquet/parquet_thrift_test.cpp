@@ -172,12 +172,21 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
     } else {
         chunk_reader.get_def_levels(definitions, rows);
     }
-    // fill nullable values
-    fill_nullable_column(doris_column, definitions, rows);
+    MutableColumnPtr data_column;
+    if (doris_column->is_nullable()) {
+        // fill nullable values
+        fill_nullable_column(doris_column, definitions, rows);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(doris_column)).mutate().get());
+        data_column = nullable_column->get_nested_column_ptr();
+    } else {
+        data_column = doris_column->assume_mutable();
+    }
     // decode page data
     if (field_schema->definition_level == 0) {
         // required column
-        return chunk_reader.decode_values(doris_column, data_type, rows);
+        std::vector<u_short> null_map = {(u_short)rows};
+        return chunk_reader.decode_values(data_column, data_type, null_map);
     } else {
         // column with null values
         level_t level_type = definitions[0];
@@ -186,10 +195,10 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
             if (definitions[i] != level_type) {
                 if (level_type == 0) {
                     // null values
-                    chunk_reader.insert_null_values(doris_column, num_values);
+                    chunk_reader.insert_null_values(data_column, num_values);
                 } else {
-                    RETURN_IF_ERROR(
-                            chunk_reader.decode_values(doris_column, data_type, num_values));
+                    std::vector<u_short> null_map = {(u_short)num_values};
+                    RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type, null_map));
                 }
                 level_type = definitions[i];
                 num_values = 1;
@@ -199,9 +208,10 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
         }
         if (level_type == 0) {
             // null values
-            chunk_reader.insert_null_values(doris_column, num_values);
+            chunk_reader.insert_null_values(data_column, num_values);
         } else {
-            RETURN_IF_ERROR(chunk_reader.decode_values(doris_column, data_type, num_values));
+            std::vector<u_short> null_map = {(u_short)num_values};
+            RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type, null_map));
         }
         return Status::OK();
     }

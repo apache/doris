@@ -17,7 +17,6 @@
 
 suite("test_array_functions_by_literal") {
     sql "set enable_vectorized_engine = true"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
     // array_contains function
     qt_sql "select array_contains([1,2,3], 1)"
@@ -73,6 +72,14 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_sum([1,2,3,null])"
     qt_sql "select array_min([1,2,3,null])"
     qt_sql "select array_max([1,2,3,null])"
+    qt_sql "select array_avg([])"
+    qt_sql "select array_sum([])"
+    qt_sql "select array_min([])"
+    qt_sql "select array_max([])"
+    qt_sql "select array_avg([null])"
+    qt_sql "select array_sum([null])"
+    qt_sql "select array_min([null])"
+    qt_sql "select array_max([null])"
 
     // array_distinct function
     qt_sql "select array_distinct([1,1,2,2,3,3])"
@@ -80,6 +87,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_distinct(['a','a','a'])"
     qt_sql "select array_distinct(['a','a','a',null])"
     qt_sql "select array_distinct([true, false, null, false])"
+    qt_sql "select array_distinct([])"
+    qt_sql "select array_distinct([null,null])"
 
 
     // array_remove function
@@ -104,6 +113,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select arrays_overlap([1,2,3], [3,4,5])"
     qt_sql "select arrays_overlap([1,2,3,null], [3,4,5])"
     qt_sql "select arrays_overlap([true], [false])"
+    qt_sql "select arrays_overlap([], [])"
 
     // array_binary function
     qt_sql "select array_union([1,2,3], [2,3,4])"
@@ -115,6 +125,18 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_union([true], [false])"
     qt_sql "select array_except([true, false], [true])"
     qt_sql "select array_intersect([false, true], [false])"
+    qt_sql "select array_union([], [])"
+    qt_sql "select array_except([], [])"
+    qt_sql "select array_intersect([], [])"
+    qt_sql "select array_union([], [1,2,3])"
+    qt_sql "select array_except([], [1,2,3])"
+    qt_sql "select array_intersect([], [1,2,3])"
+    qt_sql "select array_union([null], [1,2,3])"
+    qt_sql "select array_except([null], [1,2,3])"
+    qt_sql "select array_intersect([null], [1,2,3])"
+    qt_sql "select array_union([1], [100000000])"
+    qt_sql "select array_except([1], [100000000])"
+    qt_sql "select array_intersect([1], [100000000])"
 
     // arrat_slice function
     qt_sql "select [1,2,3][1:1]"
@@ -126,4 +148,24 @@ suite("test_array_functions_by_literal") {
     qt_sql "select [1,2,3][0:]"
     qt_sql "select [1,2,3][-5:]"
     qt_sql "select [true, false, false][2:]"
+
+    // array_join function 
+    qt_sql "select array_join([1, 2, 3], '_')"
+    qt_sql "select array_join(['1', '2', '3', null], '_')"
+    qt_sql "select array_join([null, '1', '2', '3', null], '_')"
+    qt_sql "select array_join(['', '2', '3'], '_')"
+    qt_sql "select array_join(['1', '2', ''], '_')"
+    qt_sql "select array_join(['1', '2', '', null], '_')"
+    qt_sql "select array_join(['', '', '3'], '_')"
+    qt_sql "select array_join(['1', '2', '', ''], '_')"
+    qt_sql "select array_join([null, null, '1', '2', '', '', null], '_')"
+    qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
+    qt_sql "select array_join([''], '_')"
+    qt_sql "select array_join(['', ''], '_')"
+
+    // abnormal test
+    test {
+        sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
+        exception "errCode = 2, detailMessage = No matching function with signature: array_intersect(array<tinyint(4)>, varchar(-1))"
+    }
 }

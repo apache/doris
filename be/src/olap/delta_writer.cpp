@@ -112,15 +112,17 @@ Status DeltaWriter::init() {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
             -1, fmt::format("DeltaWriter:tabletId={}", _tablet->tablet_id()), _parent_tracker);
     // check tablet version number
-    if (_tablet->version_count() > config::max_tablet_version_num) {
-        //trigger quick compaction
-        if (config::enable_quick_compaction) {
-            StorageEngine::instance()->submit_quick_compaction_task(_tablet);
+    if (_tablet->version_count() > config::max_tablet_version_num - 100) {
+        //trigger compaction
+        StorageEngine::instance()->submit_compaction_task(_tablet,
+                                                          CompactionType::CUMULATIVE_COMPACTION);
+        if (_tablet->version_count() > config::max_tablet_version_num) {
+            LOG(WARNING) << "failed to init delta writer. version count: "
+                         << _tablet->version_count()
+                         << ", exceed limit: " << config::max_tablet_version_num
+                         << ". tablet: " << _tablet->full_name();
+            return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
         }
-        LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
-                     << ", exceed limit: " << config::max_tablet_version_num
-                     << ". tablet: " << _tablet->full_name();
-        return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
     }
 
     {
@@ -383,9 +385,14 @@ Status DeltaWriter::cancel() {
     return Status::OK();
 }
 
-int64_t DeltaWriter::save_memtable_consumption_snapshot() {
+void DeltaWriter::save_mem_consumption_snapshot() {
+    _mem_consumption_snapshot = mem_consumption();
     _memtable_consumption_snapshot = memtable_consumption();
-    return _memtable_consumption_snapshot;
+}
+
+int64_t DeltaWriter::get_memtable_consumption_inflush() const {
+    if (!_is_init || _flush_token->get_stats().flush_running_count == 0) return 0;
+    return _mem_consumption_snapshot - _memtable_consumption_snapshot;
 }
 
 int64_t DeltaWriter::get_memtable_consumption_snapshot() const {

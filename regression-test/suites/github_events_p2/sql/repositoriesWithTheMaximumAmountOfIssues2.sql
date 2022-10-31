@@ -14,5 +14,5 @@ FROM
     WHERE event_type IN ('IssuesEvent', 'WatchEvent')
 ) t
 GROUP BY repo_name
-ORDER BY c DESC
+ORDER BY c DESC, repo_name
 LIMIT 50

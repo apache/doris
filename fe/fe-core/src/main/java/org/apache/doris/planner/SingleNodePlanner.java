@@ -1895,6 +1895,8 @@ public class SingleNodePlanner {
                 OlapScanNode olapNode = new OlapScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
                         "OlapScanNode");
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
+                olapNode.setSampleTabletIds(tblRef.getSampleTabletIds());
+                olapNode.setTableSample(tblRef.getTableSample());
                 scanNode = olapNode;
                 break;
             case ODBC:
@@ -1938,7 +1940,7 @@ public class SingleNodePlanner {
                         "TableValuedFunctionScanNode", ((TableValuedFunctionRef) tblRef).getTableFunction());
                 break;
             case HMS_EXTERNAL_TABLE:
-                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HMS_FILE_SCAN_NODE");
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
@@ -2064,12 +2066,13 @@ public class SingleNodePlanner {
             // Also assign conjuncts from On clause. All remaining unassigned conjuncts
             // that can be evaluated by this join are assigned in createSelectPlan().
             ojConjuncts = analyzer.getUnassignedOjConjuncts(innerRef);
-            analyzer.markConjunctsAssigned(ojConjuncts);
-        } else if (innerRef.getJoinOp().isSemiAntiJoin()) {
+        } else if (innerRef.getJoinOp().isAntiJoin()) {
+            ojConjuncts = analyzer.getUnassignedAntiJoinConjuncts(innerRef);
+        } else if (innerRef.getJoinOp().isSemiJoin()) {
             final List<TupleId> tupleIds = innerRef.getAllTupleIds();
             ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
-            analyzer.markConjunctsAssigned(ojConjuncts);
         }
+        analyzer.markConjunctsAssigned(ojConjuncts);
 
         HashJoinNode result =
                 new HashJoinNode(ctx.getNextNodeId(), outer, inner, innerRef, eqJoinConjuncts,

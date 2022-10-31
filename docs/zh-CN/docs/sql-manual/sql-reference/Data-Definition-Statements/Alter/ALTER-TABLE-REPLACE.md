@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-TABLE-REPLACE-COLUMN",
+    "title": "ALTER-TABLE-REPLACE",
     "language": "zh-CN"
 }
 ---
@@ -83,4 +83,4 @@ ALTER, TABLE, REPLACE, ALTER TABLE
 ### Best Practice
 1. 原子的覆盖写操作
 
-   某些情况下，用户希望能够重写某张表的数据，但如果采用先删除再导入的方式进行，在中间会有一段时间无法查看数据。这时，用户可以先使用 `CREATE TABLE LIKE` 语句创建一个相同结构的新表，将新的数据导入到新表后，通过替换操作，原子的替换旧表，以达到目的。分区级别的原子覆盖写操作，请参阅 [临时分区文档](../partition/table-tmp-partition.md)。
+   某些情况下，用户希望能够重写某张表的数据，但如果采用先删除再导入的方式进行，在中间会有一段时间无法查看数据。这时，用户可以先使用 `CREATE TABLE LIKE` 语句创建一个相同结构的新表，将新的数据导入到新表后，通过替换操作，原子的替换旧表，以达到目的。分区级别的原子覆盖写操作，请参阅 [临时分区文档](../../../../advanced/partition/table-temp-partition)。

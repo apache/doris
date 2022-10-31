@@ -53,8 +53,8 @@ BetaRowsetWriter::~BetaRowsetWriter() {
             return;
         }
         for (int i = 0; i < _num_segment; ++i) {
-            auto seg_path =
-                    BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id, i);
+            std::string seg_path =
+                    BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
@@ -67,8 +67,13 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     _rowset_meta.reset(new RowsetMeta);
-    if (_context.data_dir) {
+    if (_context.fs == nullptr && _context.data_dir) {
         _rowset_meta->set_fs(_context.data_dir->fs());
+    } else {
+        _rowset_meta->set_fs(_context.fs);
+    }
+    if (_context.fs != nullptr && _context.fs->resource_id().size() > 0) {
+        _rowset_meta->set_resource_id(_context.fs->resource_id());
     }
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
@@ -156,7 +161,7 @@ template Status BetaRowsetWriter::_add_row(const ContiguousRow& row);
 
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
-    RETURN_NOT_OK(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
+    RETURN_NOT_OK(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
@@ -250,7 +255,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     }
 
     RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path,
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
                                                _rowset_meta, &rowset);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
@@ -286,7 +291,7 @@ RowsetSharedPtr BetaRowsetWriter::build_tmp() {
     _build_rowset_meta(rowset_meta_);
 
     RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path,
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
                                                rowset_meta_, &rowset);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
@@ -298,8 +303,7 @@ RowsetSharedPtr BetaRowsetWriter::build_tmp() {
 Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     int32_t segment_id = _num_segment.fetch_add(1);
-    auto path =
-            BetaRowset::local_segment_path(_context.tablet_path, _context.rowset_id, segment_id);
+    auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
@@ -323,7 +327,7 @@ Status BetaRowsetWriter::_create_segment_writer(
         _file_writers.push_back(std::move(file_writer));
     }
 
-    auto s = (*writer)->init(config::push_write_mbytes_per_sec);
+    auto s = (*writer)->init();
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer->reset(nullptr);

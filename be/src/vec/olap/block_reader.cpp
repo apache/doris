@@ -282,7 +282,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         }
     } while (target_block_row < _batch_size);
 
-    // do filter detete row in base compaction, only base compaction need to do the job
+    // do filter delete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);

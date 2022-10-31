@@ -31,6 +31,7 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
@@ -48,7 +49,20 @@ int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
 
+struct Nullable {
+    TypeIndex tp;
+};
+
+struct Notnull {
+    TypeIndex tp;
+};
+
+struct ConstedNotnull {
+    TypeIndex tp;
+};
+
 namespace ut_type {
+using BOOLEAN = uint8_t;
 using TINYINT = int8_t;
 using SMALLINT = int16_t;
 using INT = int32_t;
@@ -161,8 +175,8 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
 // The type of the constant column is represented as follows: Consted {TypeIndex::String}
 // A DataSet with a constant column can only have one row of data
 template <typename ReturnType, bool nullable = false>
-void check_function(const std::string& func_name, const InputTypeSet& input_types,
-                    const DataSet& data_set) {
+Status check_function(const std::string& func_name, const InputTypeSet& input_types,
+                      const DataSet& data_set, bool expect_fail = false) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
@@ -239,7 +253,13 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
     block.insert({nullptr, return_type, "result"});
 
     auto result = block.columns() - 1;
-    func->execute(fn_ctx, block, arguments, result, row_size);
+    auto st = func->execute(fn_ctx, block, arguments, result, row_size);
+    if (expect_fail) {
+        EXPECT_NE(Status::OK(), st);
+        return st;
+    } else {
+        EXPECT_EQ(Status::OK(), st);
+    }
 
     func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
     func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
@@ -250,32 +270,47 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
 
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
-            Field field;
-            column->get(i, field);
-
-            const auto& expect_data =
-                    std::any_cast<typename ReturnType::FieldType>(data_set[i].second);
-
-            if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
-                const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
-                EXPECT_EQ(column_data.value, expect_data.value);
-            } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32>) {
-                const auto& column_data = field.get<DataTypeFloat64::FieldType>();
-                EXPECT_EQ(column_data, expect_data);
+            if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
+                const auto& expect_data = std::any_cast<String>(data_set[i].second);
+                auto s = column->get_data_at(i);
+                if (expect_data.size() == 0) {
+                    // zero size result means invalid
+                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
+                } else {
+                    // convert jsonb binary value to json string to compare with expected json text
+                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
+                            << " at row " << i;
+                }
             } else {
-                const auto& column_data = field.get<typename ReturnType::FieldType>();
-                EXPECT_EQ(column_data, expect_data);
+                Field field;
+                column->get(i, field);
+
+                const auto& expect_data =
+                        std::any_cast<typename ReturnType::FieldType>(data_set[i].second);
+
+                if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
+                    const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
+                    EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32>) {
+                    const auto& column_data = field.get<DataTypeFloat64::FieldType>();
+                    EXPECT_EQ(expect_data, column_data) << " at row " << i;
+                } else {
+                    const auto& column_data = field.get<typename ReturnType::FieldType>();
+                    EXPECT_EQ(expect_data, column_data) << " at row " << i;
+                }
             }
         };
 
         if constexpr (nullable) {
             bool is_null = data_set[i].second.type() == typeid(Null);
-            EXPECT_EQ(column->is_null_at(i), is_null);
+            EXPECT_EQ(is_null, column->is_null_at(i)) << " at row " << i;
             if (!is_null) check_column_data();
         } else {
             check_column_data();
         }
     }
+
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

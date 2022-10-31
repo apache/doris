@@ -39,6 +39,7 @@ Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
 
 Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index,
                                              ColumnValueRangeType& col_val_range,
+                                             const FieldSchema* col_schema,
                                              std::vector<int>& skipped_ranges) {
     const std::vector<std::string>& encoded_min_vals = column_index->min_values;
     const std::vector<std::string>& encoded_max_vals = column_index->max_values;
@@ -46,7 +47,7 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
 
     const int num_of_pages = column_index->null_pages.size();
     for (int page_id = 0; page_id < num_of_pages; page_id++) {
-        if (determine_filter_min_max(col_val_range, encoded_min_vals[page_id],
+        if (determine_filter_min_max(col_val_range, col_schema, encoded_min_vals[page_id],
                                      encoded_max_vals[page_id])) {
             skipped_ranges.emplace_back(page_id);
         }

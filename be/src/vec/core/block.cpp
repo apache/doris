@@ -23,7 +23,7 @@
 #include <fmt/format.h>
 #include <snappy.h>
 
-#include "agent/heartbeat_server.h"
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
@@ -31,6 +31,7 @@
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
+#include "util/exception.h"
 #include "util/faststring.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -64,7 +65,8 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
 }
 
 Block::Block(const PBlock& pblock) {
-    CHECK(HeartbeatServer::check_be_exec_version(pblock.be_exec_version()));
+    int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
+    CHECK(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
     const char* buf = nullptr;
     std::string compression_scratch;
@@ -691,11 +693,11 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     return Status::OK();
 }
 
-Status Block::serialize(PBlock* pblock,
+Status Block::serialize(int be_exec_version, PBlock* pblock,
                         /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
                         size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
-    pblock->set_be_exec_version(HeartbeatServer::be_exec_version);
+    pblock->set_be_exec_version(be_exec_version);
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
@@ -714,9 +716,9 @@ Status Block::serialize(PBlock* pblock,
         column_values.resize(content_uncompressed_size);
     } catch (...) {
         std::exception_ptr p = std::current_exception();
-        std::string msg = fmt::format(
-                "Try to alloc {} bytes for pblock column values failed. reason {}",
-                content_uncompressed_size, p ? p.__cxa_exception_type()->name() : "null");
+        std::string msg =
+                fmt::format("Try to alloc {} bytes for pblock column values failed. reason {}",
+                            content_uncompressed_size, get_current_exception_type_name(p));
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }

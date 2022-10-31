@@ -34,6 +34,8 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
@@ -58,6 +60,11 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.planner.ColumnBound;
+import org.apache.doris.planner.ColumnRange;
+import org.apache.doris.planner.ListPartitionPrunerV2;
+import org.apache.doris.planner.PartitionPruner;
+import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.QueryStateException;
@@ -81,6 +88,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -89,12 +97,14 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -162,14 +172,45 @@ public class DeleteHandler implements Writable {
                 }
 
                 if (noPartitionSpecified) {
+                    // Try to get selected partitions if no partition specified in delete statement
+                    // Use PartitionPruner to generate the select partitions
                     if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE
                             || olapTable.getPartitionInfo().getType() == PartitionType.LIST) {
-                        if (!ConnectContext.get().getSessionVariable().isDeleteWithoutPartition()) {
-                            throw new DdlException("This is a range or list partitioned table."
-                                    + " You should specify partition in delete stmt,"
-                                    + " or set delete_without_partition to true");
+                        Set<String> partitionColumnNameSet = olapTable.getPartitionColumnNames();
+                        Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
+                        for (String colName : partitionColumnNameSet) {
+                            ColumnRange columnRange = createColumnRange(colName, conditions);
+                            // Not all partition columns are involved in predicate conditions
+                            if (columnRange != null) {
+                                columnNameToRange.put(colName, columnRange);
+                            }
+                        }
+
+                        Collection<Long> selectedPartitionId = null;
+                        if (!columnNameToRange.isEmpty()) {
+                            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                            Map<Long, PartitionItem> keyItemMap = partitionInfo.getIdToItem(false);
+                            PartitionPruner pruner = olapTable.getPartitionInfo().getType() == PartitionType.RANGE
+                                    ? new RangePartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
+                                    columnNameToRange)
+                                    : new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
+                                            columnNameToRange);
+                            selectedPartitionId = pruner.prune();
+                        }
+                        // selectedPartitionId is empty means no partition matches conditions.
+                        // How to return empty set in such case?
+                        if (selectedPartitionId != null && !selectedPartitionId.isEmpty()) {
+                            for (long partitionId : selectedPartitionId) {
+                                partitionNames.add(olapTable.getPartition(partitionId).getName());
+                            }
                         } else {
-                            partitionNames.addAll(olapTable.getPartitionNames());
+                            if (!ConnectContext.get().getSessionVariable().isDeleteWithoutPartition()) {
+                                throw new DdlException("This is a range or list partitioned table."
+                                        + " You should specify partition in delete stmt,"
+                                        + " or set delete_without_partition to true");
+                            } else {
+                                partitionNames.addAll(olapTable.getPartitionNames());
+                            }
                         }
                     } else if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                         // this is a unpartitioned table, use table name as partition name
@@ -367,6 +408,83 @@ public class DeleteHandler implements Writable {
                 clearJob(deleteJob);
             }
         }
+    }
+
+    // Return null if there is no filter for the partition column
+    private ColumnRange createColumnRange(String colName, List<Predicate> conditions) {
+        ColumnRange result = ColumnRange.create();
+        boolean hasRange = false;
+        for (Predicate predicate : conditions) {
+            List<Range<ColumnBound>> bounds = createColumnRange(colName, predicate);
+            if (bounds != null) {
+                hasRange = true;
+                result.intersect(bounds);
+            }
+        }
+        if (hasRange) {
+            return result;
+        } else {
+            return null;
+        }
+    }
+
+    // Return null if the condition is not related to the partition column,
+    // or the operator is not supported.
+    private List<Range<ColumnBound>> createColumnRange(String colName, Predicate condition) {
+        List<Range<ColumnBound>> result = Lists.newLinkedList();
+        if (condition instanceof BinaryPredicate) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
+            if (!(binaryPredicate.getChild(0) instanceof SlotRef)) {
+                return null;
+            }
+            String columnName = ((SlotRef) binaryPredicate.getChild(0)).getColumnName();
+            if (!colName.equalsIgnoreCase(columnName)) {
+                return null;
+            }
+            ColumnBound bound = ColumnBound.of((LiteralExpr) binaryPredicate.getChild(1));
+            switch (binaryPredicate.getOp()) {
+                case EQ:
+                    result.add(Range.closed(bound, bound));
+                    break;
+                case GE:
+                    result.add(Range.atLeast(bound));
+                    break;
+                case GT:
+                    result.add(Range.greaterThan(bound));
+                    break;
+                case LT:
+                    result.add(Range.lessThan(bound));
+                    break;
+                case LE:
+                    result.add(Range.atMost(bound));
+                    break;
+                case NE:
+                    result.add(Range.lessThan(bound));
+                    result.add(Range.greaterThan(bound));
+                    break;
+                default:
+                    return null;
+            }
+        } else if (condition instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) condition;
+            if (!(inPredicate.getChild(0) instanceof SlotRef)) {
+                return null;
+            }
+            String columnName = ((SlotRef) inPredicate.getChild(0)).getColumnName();
+            if (!colName.equals(columnName)) {
+                return null;
+            }
+            if (inPredicate.isNotIn()) {
+                return null;
+            }
+            for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
+                ColumnBound bound = ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
+                result.add(Range.closed(bound, bound));
+            }
+        } else {
+            return null;
+        }
+        return result;
     }
 
     private void commitJob(DeleteJob job, Database db, Table table, long timeoutMs)
@@ -606,6 +724,7 @@ public class DeleteHandler implements Writable {
                 try {
                     InPredicate inPredicate = (InPredicate) condition;
                     for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
+                        value = inPredicate.getChild(i).getStringValue();
                         if (column.getDataType() == PrimitiveType.DATE
                                 || column.getDataType() == PrimitiveType.DATETIME
                                 || column.getDataType() == PrimitiveType.DATEV2

@@ -30,11 +30,9 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
 
-import java.util.Optional;
-
 /**
  * Convert InApply to LogicalJoin.
- *
+ * <p>
  * Not In -> LEFT_ANTI_JOIN
  * In -> LEFT_SEMI_JOIN
  */
@@ -54,10 +52,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             }
 
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
-                return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(), Optional.of(predicate),
+                return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(),
+                        ExpressionUtils.extractConjunction(predicate),
                         apply.left(), apply.right());
             } else {
-                return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(), Optional.of(predicate),
+                return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
+                        ExpressionUtils.extractConjunction(predicate),
                         apply.left(), apply.right());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);

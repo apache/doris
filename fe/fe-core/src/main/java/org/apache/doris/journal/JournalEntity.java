@@ -48,8 +48,14 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
+import org.apache.doris.mtmv.metadata.AlterMTMVTask;
+import org.apache.doris.mtmv.metadata.DropMTMVJob;
+import org.apache.doris.mtmv.metadata.DropMTMVTask;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -91,6 +97,7 @@ import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -252,6 +259,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RENAME_PARTITION: {
                 data = new TableInfo();
                 ((TableInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_RENAME_COLUMN: {
+                data = TableRenameColumnInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -683,6 +695,36 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CLEAN_LABEL: {
                 data = CleanLabelOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_MTMV_JOB: {
+                data = MTMVJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_MTMV_JOB: {
+                data = DropMTMVJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_MTMV_TASK: {
+                data = MTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_MTMV_TASK: {
+                data = AlterMTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_MTMV_TASK: {
+                data = DropMTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_USER: {
+                data = AlterUserOperationLog.read(in);
                 isRead = true;
                 break;
             }

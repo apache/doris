@@ -61,10 +61,10 @@ suite("test_explain_tpch_sf_1_q4") {
 		explainStr.contains("vec output tuple id: 5") && 
 		explainStr.contains("output slot ids: 41 \n" + 
 				"  |  hash output slot ids: 34 ") && 
-		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderdate` >= '1993-07-01 00:00:00', `o_orderdate` < '1993-10-01 00:00:00'\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> `o_orderkey`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_commitdate` < `l_receiptdate`") 
             
         }

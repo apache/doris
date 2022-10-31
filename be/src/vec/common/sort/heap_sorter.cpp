@@ -41,8 +41,17 @@ Status HeapSorter::append_block(Block* block) {
             }
 
             Block new_block;
+            int i = 0;
+            const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
             for (auto column_id : valid_column_ids) {
-                new_block.insert(block->get_by_position(column_id));
+                if (convert_nullable_flags[i]) {
+                    auto column_ptr = make_nullable(block->get_by_position(column_id).column);
+                    new_block.insert({column_ptr,
+                                      make_nullable(block->get_by_position(column_id).type), ""});
+                } else {
+                    new_block.insert(block->get_by_position(column_id));
+                }
+                i++;
             }
             block->swap(new_block);
         }

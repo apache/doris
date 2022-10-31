@@ -48,6 +48,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
@@ -141,6 +142,7 @@ import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
+import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -172,6 +174,7 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -187,6 +190,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -433,9 +437,12 @@ public class InternalCatalog implements CatalogIf<Database> {
      *
      * @param db
      */
-    public void replayCreateDb(Database db) {
+    public void replayCreateDb(Database db, String newDbName) {
         tryLock(true);
         try {
+            if (!Strings.isNullOrEmpty(newDbName)) {
+                db.setNameWithLock(newDbName);
+            }
             unprotectCreateDb(db);
         } finally {
             unlock();
@@ -462,6 +469,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // 2. drop tables in db
             Database db = this.fullNameToDb.get(dbName);
             db.writeLock();
+            long recycleTime = 0;
             try {
                 if (!stmt.isForceDrop()) {
                     if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
@@ -508,6 +516,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // save table names for recycling
                 Set<String> tableNames = db.getTableNamesWithLock();
                 List<Table> tableList = db.getTablesOnIdOrder();
+                Set<Long> tableIds = Sets.newHashSet();
+                for (Table table : tableList) {
+                    tableIds.add(table.getId());
+                }
                 MetaLockUtils.writeLockTables(tableList);
                 try {
                     if (!stmt.isForceDrop()) {
@@ -524,13 +536,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                             }
                         }
                     }
-                    unprotectDropDb(db, stmt.isForceDrop(), false);
+                    unprotectDropDb(db, stmt.isForceDrop(), false, 0);
                 } finally {
                     MetaLockUtils.writeUnlockTables(tableList);
                 }
 
                 if (!stmt.isForceDrop()) {
-                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames);
+                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, 0);
+                    recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
                 } else {
                     Env.getCurrentEnv().eraseDatabase(db.getId(), false);
                 }
@@ -543,7 +556,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             fullNameToDb.remove(db.getFullName());
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(dbName, db.getId());
-            DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop());
+            DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } finally {
             unlock();
@@ -552,13 +565,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finish drop database[{}], is force : {}", dbName, stmt.isForceDrop());
     }
 
-    public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay) {
+    public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime) {
         // drop Iceberg database table creation records
         if (db.getDbProperties().getIcebergProperty().isExist()) {
             icebergTableCreationRecordMgr.deregisterDb(db);
         }
         for (Table table : db.getTables()) {
-            unprotectDropTable(db, table, isForeDrop, isReplay);
+            unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
         }
         db.markDropped();
     }
@@ -578,7 +591,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void replayDropDb(String dbName, boolean isForceDrop) throws DdlException {
+    public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
         tryLock(true);
         try {
             Database db = fullNameToDb.get(dbName);
@@ -586,14 +599,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             try {
                 Set<String> tableNames = db.getTableNamesWithLock();
                 List<Table> tableList = db.getTablesOnIdOrder();
+                Set<Long> tableIds = Sets.newHashSet();
+                for (Table table : tableList) {
+                    tableIds.add(table.getId());
+                }
                 MetaLockUtils.writeLockTables(tableList);
                 try {
-                    unprotectDropDb(db, isForceDrop, true);
+                    unprotectDropDb(db, isForceDrop, true, recycleTime);
                 } finally {
                     MetaLockUtils.writeUnlockTables(tableList);
                 }
                 if (!isForceDrop) {
-                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames);
+                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, true, recycleTime);
                 } else {
                     Env.getCurrentEnv().eraseDatabase(db.getId(), false);
                 }
@@ -612,11 +629,18 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
         // check is new db with same name already exist
-        if (getDb(recoverStmt.getDbName()).isPresent()) {
-            throw new DdlException("Database[" + recoverStmt.getDbName() + "] already exist.");
+        String newDbName = recoverStmt.getNewDbName();
+        if (!Strings.isNullOrEmpty(newDbName)) {
+            if (getDb(newDbName).isPresent()) {
+                throw new DdlException("Database[" + newDbName + "] already exist.");
+            }
+        } else {
+            if (getDb(recoverStmt.getDbName()).isPresent()) {
+                throw new DdlException("Database[" + recoverStmt.getDbName() + "] already exist.");
+            }
         }
 
-        Database db = Env.getCurrentRecycleBin().recoverDatabase(recoverStmt.getDbName());
+        Database db = Env.getCurrentRecycleBin().recoverDatabase(recoverStmt.getDbName(), recoverStmt.getDbId());
 
         // add db to catalog
         if (!tryLock(false)) {
@@ -626,19 +650,34 @@ public class InternalCatalog implements CatalogIf<Database> {
         List<Table> tableList = db.getTablesOnIdOrder();
         MetaLockUtils.writeLockTables(tableList);
         try {
-            if (fullNameToDb.containsKey(db.getFullName())) {
-                throw new DdlException("Database[" + db.getFullName() + "] already exist.");
-                // it's ok that we do not put db back to CatalogRecycleBin
-                // cause this db cannot recover any more
+            if (!Strings.isNullOrEmpty(newDbName)) {
+                if (fullNameToDb.containsKey(newDbName)) {
+                    throw new DdlException("Database[" + newDbName + "] already exist.");
+                    // it's ok that we do not put db back to CatalogRecycleBin
+                    // cause this db cannot recover any more
+                }
+            } else {
+                if (fullNameToDb.containsKey(db.getFullName())) {
+                    throw new DdlException("Database[" + db.getFullName() + "] already exist.");
+                    // it's ok that we do not put db back to CatalogRecycleBin
+                    // cause this db cannot recover any more
+                }
             }
-
+            if (!Strings.isNullOrEmpty(newDbName)) {
+                try {
+                    db.writeUnlock();
+                    db.setNameWithLock(newDbName);
+                } finally {
+                    db.writeLock();
+                }
+            }
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.addDb(db.getFullName(), db.getId());
 
             // log
-            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L);
+            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
             db.unmarkDropped();
         } finally {
@@ -653,14 +692,21 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
         String dbName = recoverStmt.getDbName();
         String tableName = recoverStmt.getTableName();
+        String newTableName = recoverStmt.getNewTableName();
 
         Database db = (Database) getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
-            if (db.getTable(tableName).isPresent()) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+            if (Strings.isNullOrEmpty(newTableName)) {
+                if (db.getTable(tableName).isPresent()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+                }
+            } else {
+                if (db.getTable(newTableName).isPresent()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, newTableName);
+                }
             }
-            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName)) {
+            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, recoverStmt.getTableId(), newTableName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         } finally {
@@ -677,11 +723,21 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.writeLockOrDdlException();
         try {
             String partitionName = recoverStmt.getPartitionName();
-            if (olapTable.getPartition(partitionName) != null) {
-                throw new DdlException("partition[" + partitionName + "] already exist in table[" + tableName + "]");
+            String newPartitionName = recoverStmt.getNewPartitionName();
+            if (Strings.isNullOrEmpty(newPartitionName)) {
+                if (olapTable.getPartition(partitionName) != null) {
+                    throw new DdlException("partition[" + partitionName + "] "
+                        + "already exist in table[" + tableName + "]");
+                }
+            } else {
+                if (olapTable.getPartition(newPartitionName) != null) {
+                    throw new DdlException("partition[" + newPartitionName + "] "
+                        + "already exist in table[" + tableName + "]");
+                }
             }
 
-            Env.getCurrentRecycleBin().recoverPartition(db.getId(), olapTable, partitionName);
+            Env.getCurrentRecycleBin().recoverPartition(db.getId(), olapTable, partitionName,
+                    recoverStmt.getPartitionId(), newPartitionName);
         } finally {
             olapTable.writeUnlock();
         }
@@ -693,11 +749,12 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void replayRecoverDatabase(RecoverInfo info) {
         long dbId = info.getDbId();
+        String newDbName = info.getNewDbName();
         Database db = Env.getCurrentRecycleBin().replayRecoverDatabase(dbId);
 
         // add db to catalog
-        replayCreateDb(db);
-
+        replayCreateDb(db, newDbName);
+        db.unmarkDropped();
         LOG.info("replay recover db[{}]", dbId);
     }
 
@@ -840,8 +897,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     + " please use \"DROP table FORCE\".");
                 }
             }
-            DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop());
             table.writeLock();
+            long recycleTime = 0;
             try {
                 if (table instanceof OlapTable && !stmt.isForceDrop()) {
                     OlapTable olapTable = (OlapTable) table;
@@ -852,10 +909,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 + " please use \"DROP table FORCE\".");
                     }
                 }
-                unprotectDropTable(db, table, stmt.isForceDrop(), false);
+                unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
+                if (!stmt.isForceDrop()) {
+                    recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
+                }
             } finally {
                 table.writeUnlock();
             }
+            DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
         } finally {
             db.writeUnlock();
@@ -863,7 +924,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
     }
 
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay) {
+    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
+                                      long recycleTime) {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
         } else if (table.getType() == TableType.OLAP) {
@@ -877,23 +939,31 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         db.dropTable(table.getName());
         if (!isForceDrop) {
-            Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay);
+            Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, recycleTime);
         } else {
             if (table.getType() == TableType.OLAP) {
                 Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, isReplay);
             }
         }
 
+        // TODO: impl real logic of drop multi-table MaterializedView here.
+        if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+            if (Env.getCurrentEnv().getMTMVJobManager().getJob(table.getName()) != null) {
+                long jobId = Env.getCurrentEnv().getMTMVJobManager().getJob(table.getName()).getId();
+                Env.getCurrentEnv().getMTMVJobManager().dropJobs(Collections.singletonList(jobId), false);
+            }
+        }
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
     }
 
-    public void replayDropTable(Database db, long tableId, boolean isForceDrop) throws MetaNotFoundException {
+    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
+                                Long recycleTime) throws MetaNotFoundException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
         table.writeLock();
         try {
-            unprotectDropTable(db, table, isForceDrop, true);
+            unprotectDropTable(db, table, isForceDrop, true, recycleTime);
         } finally {
             table.writeUnlock();
             db.writeUnlock();
@@ -904,11 +974,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentRecycleBin().replayEraseTable(tableId);
     }
 
-    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException, DdlException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        db.writeLock();
+        db.writeLockOrDdlException();
         try {
-            Env.getCurrentRecycleBin().replayRecoverTable(db, info.getTableId());
+            Env.getCurrentRecycleBin().replayRecoverTable(db, info.getTableId(), info.getNewTableName());
         } finally {
             db.writeUnlock();
         }
@@ -1499,11 +1569,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // drop
+        long recycleTime = 0;
         if (isTempPartition) {
             olapTable.dropTempPartition(partitionName, true);
         } else {
+            Partition partition = null;
             if (!clause.isForceDrop()) {
-                Partition partition = olapTable.getPartition(partitionName);
+                partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
                     if (Env.getCurrentEnv().getGlobalTransactionMgr()
                             .existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
@@ -1516,11 +1588,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop());
+            if (!clause.isForceDrop() && partition != null) {
+                recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
+            }
         }
 
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
-                clause.isForceDrop());
+                clause.isForceDrop(), recycleTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
 
         LOG.info("succeed in dropping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition,
@@ -1535,7 +1610,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
-                olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
+                Partition partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(),
+                                info.isForceDrop());
+                if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
+                    Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
+                }
             }
         } finally {
             olapTable.writeUnlock();
@@ -1546,12 +1625,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentRecycleBin().replayErasePartition(partitionId);
     }
 
-    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException, DdlException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
-            Env.getCurrentRecycleBin().replayRecoverPartition(olapTable, info.getPartitionId());
+            Env.getCurrentRecycleBin().replayRecoverPartition(olapTable, info.getPartitionId(),
+                    info.getNewPartitionName());
         } finally {
             olapTable.writeUnlock();
         }
@@ -2089,6 +2169,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             throw e;
+        }
+
+        // TODO: impl the real logic of create multi-table MaterializedView here.
+        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
+            Env.getCurrentEnv().getMTMVJobManager().createJob(MTMVJobFactory.buildJob((MaterializedView) olapTable),
+                    false);
         }
     }
 
@@ -2628,7 +2714,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (AnalysisException e) {
             LOG.error("should not happen", e);
         }
-        Env.getCurrentEnv().getAuth().createUser(new CreateUserStmt(new UserDesc(adminUser, "", true)));
+        Env.getCurrentEnv().getAuth().createUser(new CreateUserStmt(new UserDesc(adminUser, new PassVar("", true))));
     }
 
     private void unprotectCreateCluster(Cluster cluster) {

@@ -25,12 +25,8 @@
 
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
-#include "common/resource_tls.h"
 #include "common/signal_handler.h"
-#include "exprs/bloomfilter_predicate.h"
-#include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/QueryPlanExtra_types.h"
@@ -426,7 +422,6 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env),
           _fragment_map(),
           _fragments_ctx_map(),
-          _bf_size_map(),
           _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
@@ -469,7 +464,6 @@ FragmentMgr::~FragmentMgr() {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.clear();
         _fragments_ctx_map.clear();
-        _bf_size_map.clear();
     }
 }
 
@@ -511,7 +505,6 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
         _fragment_map.erase(exec_state->fragment_instance_id());
         if (all_done && fragments_ctx) {
             _fragments_ctx_map.erase(fragments_ctx->query_id);
-            _bf_size_map.erase(fragments_ctx->query_id);
         }
     }
 
@@ -666,31 +659,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         exec_state->set_need_wait_execution_trigger();
     }
 
+    RETURN_IF_ERROR(exec_state->prepare(params));
+
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    _runtimefilter_controller.add_entity(params, &handler);
+    _runtimefilter_controller.add_entity(params, &handler, exec_state->executor()->runtime_state());
     exec_state->set_merge_controller_handler(handler);
 
-    auto& runtime_filter_params = params.params.runtime_filter_params;
-    if (!runtime_filter_params.rid_to_runtime_filter.empty()) {
-        _bf_size_map.insert({fragments_ctx->query_id, {}});
-    }
-    for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
-        int filter_id = filterid_to_desc.first;
-        const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
-        if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
-            continue;
-        }
-        const auto& build_iter = runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-        if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-            continue;
-        }
-        if (filterid_to_desc.second.__isset.bloom_filter_size_bytes) {
-            _bf_size_map[fragments_ctx->query_id].insert(
-                    {filter_id, filterid_to_desc.second.bloom_filter_size_bytes});
-        }
-    }
-
-    RETURN_IF_ERROR(exec_state->prepare(params));
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.insert(std::make_pair(params.params.fragment_instance_id, exec_state));
@@ -707,7 +681,6 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             // Remove the exec state added
             std::lock_guard<std::mutex> lock(_lock);
             _fragment_map.erase(params.params.fragment_instance_id);
-            _bf_size_map.erase(fragments_ctx->query_id);
         }
         exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                            "push plan fragment to thread pool failed");
@@ -946,7 +919,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     return exec_plan_fragment(exec_fragment_params);
 }
 
-Status FragmentMgr::apply_filter(const PPublishFilterRequest* request, const char* data) {
+Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
+                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId fragment_instance_id = request->fragment_id();
     TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
     std::shared_ptr<FragmentExecState> fragment_state;
@@ -971,22 +945,15 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request, const cha
     RuntimeFilterMgr* runtime_filter_mgr =
             fragment_state->executor()->runtime_state()->runtime_filter_mgr();
 
-    Status st = runtime_filter_mgr->update_filter(request, data);
+    Status st = runtime_filter_mgr->update_filter(request, attach_data);
     return st;
 }
 
-Status FragmentMgr::merge_filter(const PMergeFilterRequest* request, const char* attach_data) {
+Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
+                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
     UniqueId queryid = request->query_id();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
-    auto bf_size_for_cur_query = _bf_size_map.find(queryid.to_thrift());
-    if (bf_size_for_cur_query != _bf_size_map.end()) {
-        for (auto& iter : bf_size_for_cur_query->second) {
-            auto bf = filter_controller->get_filter(iter.first)->filter->get_bloomfilter();
-            DCHECK(bf != nullptr);
-            bf->init_with_fixed_length(iter.second);
-        }
-    }
     RETURN_IF_ERROR(filter_controller->merge(request, attach_data));
     return Status::OK();
 }

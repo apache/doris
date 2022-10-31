@@ -17,6 +17,8 @@
 
 #include "exec/table_connector.h"
 
+#include <codecvt>
+
 #include "exprs/expr.h"
 #include "runtime/primitive_type.h"
 #include "util/mysql_global.h"

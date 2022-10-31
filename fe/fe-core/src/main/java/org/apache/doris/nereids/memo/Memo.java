@@ -31,9 +31,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -45,7 +47,12 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private Group root;
+    private final Group root;
+
+    // FOR TEST ONLY
+    public Memo() {
+        root = null;
+    }
 
     public Memo(Plan plan) {
         root = init(plan);
@@ -79,6 +86,46 @@ public class Memo {
             return doRewrite(plan, target);
         } else {
             return doCopyIn(plan, target);
+        }
+    }
+
+    public List<Plan> copyOutAll() {
+        return copyOutAll(root);
+    }
+
+    public List<Plan> copyOutAll(Group group) {
+        List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
+        List<Plan> plans = logicalExpressions.stream()
+                .flatMap(groupExpr -> copyOutAll(groupExpr).stream())
+                .collect(Collectors.toList());
+        return plans;
+    }
+
+    private List<Plan> copyOutAll(GroupExpression logicalExpression) {
+        if (logicalExpression.arity() == 0) {
+            return Lists.newArrayList(logicalExpression.getPlan().withChildren(ImmutableList.of()));
+        } else if (logicalExpression.arity() == 1) {
+            List<Plan> multiChild = copyOutAll(logicalExpression.child(0));
+            return multiChild.stream()
+                    .map(children -> logicalExpression.getPlan().withChildren(children))
+                    .collect(Collectors.toList());
+        } else if (logicalExpression.arity() == 2) {
+            int leftCount = logicalExpression.child(0).getLogicalExpressions().size();
+            int rightCount = logicalExpression.child(1).getLogicalExpressions().size();
+            int count = leftCount * rightCount;
+
+            List<Plan> leftChildren = copyOutAll(logicalExpression.child(0));
+            List<Plan> rightChildren = copyOutAll(logicalExpression.child(1));
+
+            List<Plan> result = new ArrayList<>(count);
+            for (Plan leftChild : leftChildren) {
+                for (Plan rightChild : rightChildren) {
+                    result.add(logicalExpression.getPlan().withChildren(leftChild, rightChild));
+                }
+            }
+            return result;
+        } else {
+            throw new RuntimeException("arity > 2");
         }
     }
 
@@ -156,7 +203,7 @@ public class Memo {
 
     /**
      * add or replace the plan into the target group.
-     *
+     * <p>
      * the result truth table:
      * <pre>
      * +---------------------------------------+-----------------------------------+--------------------------------+
@@ -249,8 +296,7 @@ public class Memo {
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
-        GroupExpression newGroupExpression = new GroupExpression(plan);
-        newGroupExpression.setChildren(childrenGroups);
+        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
         return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
@@ -325,29 +371,31 @@ public class Memo {
      * @param destination destination group
      * @return merged group
      */
-    private Group mergeGroup(Group source, Group destination) {
+    public Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
             return source;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        groupExpressions.values().forEach(groupExpression -> {
+        for (GroupExpression groupExpression : groupExpressions.values()) {
             if (groupExpression.children().contains(source)) {
                 if (groupExpression.getOwnerGroup().equals(destination)) {
                     // cycle, we should not merge
-                    return;
+                    return null;
                 }
                 needReplaceChild.add(groupExpression);
             }
-        });
+        }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
-            List<Group> children = groupExpression.children();
+            List<Group> children = new ArrayList<>(groupExpression.children());
             // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
                     children.set(i, destination);
                 }
             }
+            groupExpression.setChildren(ImmutableList.copyOf(children));
+
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
@@ -440,14 +488,14 @@ public class Memo {
 
     /**
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
-     *
+     * <p>
      * the scenario is:
      * ```
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
      * ```
-     *
+     * <p>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */

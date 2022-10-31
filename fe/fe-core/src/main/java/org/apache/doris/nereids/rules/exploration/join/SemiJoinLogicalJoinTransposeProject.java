@@ -88,10 +88,10 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          */
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
-                                topSemiJoin.getOtherJoinCondition(), a, c);
+                                topSemiJoin.getOtherJoinConjuncts(), a, c);
 
                         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinCondition(),
+                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
                                 newBottomSemiJoin, b);
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
@@ -107,10 +107,10 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          */
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
-                                topSemiJoin.getOtherJoinCondition(), b, c);
+                                topSemiJoin.getOtherJoinConjuncts(), b, c);
 
                         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinCondition(),
+                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
                                 a, newBottomSemiJoin);
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);

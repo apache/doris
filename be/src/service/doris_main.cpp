@@ -17,6 +17,7 @@
 
 #include <errno.h>
 #include <gperftools/malloc_extension.h>
+#include <libgen.h>
 #include <setjmp.h>
 #include <sys/file.h>
 #include <unistd.h>
@@ -181,7 +182,9 @@ void check_required_instructions_impl(volatile InstructionFail& fail) {
 
 #if defined(__ARM_NEON__)
     fail = InstructionFail::ARM_NEON;
+#ifndef __APPLE__
     __asm__ volatile("vadd.i32  q8, q8, q8" : : : "q8");
+#endif
 #endif
 
     fail = InstructionFail::NONE;
@@ -513,6 +516,10 @@ int main(int argc, char** argv) {
         // The process tracker print log usage interval is 1s to avoid a large number of tasks being
         // canceled when the process exceeds the mem limit, resulting in too many duplicate logs.
         doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
+        if (doris::config::memory_verbose_track) {
+            doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage("main routine");
+            doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
+        }
         sleep(1);
     }
 

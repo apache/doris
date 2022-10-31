@@ -56,7 +56,7 @@ public class AuthProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid user ident: " + userIdent);
         }
 
-        return new UserPropertyProcNode(auth, userIdentity.getQualifiedUser());
+        return new UserPropertyProcNode(auth, userIdentity);
     }
 
     @Override

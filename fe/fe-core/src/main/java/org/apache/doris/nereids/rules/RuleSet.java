@@ -39,9 +39,9 @@ import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickS
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuter;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveFilters;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveLimits;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeConsecutiveProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
@@ -68,7 +68,7 @@ public class RuleSet {
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(new AggregateDisassemble())
             .add(new PushdownFilterThroughProject())
-            .add(new MergeConsecutiveProjects())
+            .add(new MergeProjects())
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
@@ -78,9 +78,9 @@ public class RuleSet {
             new PushdownProjectThroughLimit(),
             new PushdownFilterThroughProject(),
             EliminateOuter.INSTANCE,
-            new MergeConsecutiveProjects(),
-            new MergeConsecutiveFilters(),
-            new MergeConsecutiveLimits());
+            new MergeProjects(),
+            new MergeFilters(),
+            new MergeLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalAggToPhysicalHashAgg())

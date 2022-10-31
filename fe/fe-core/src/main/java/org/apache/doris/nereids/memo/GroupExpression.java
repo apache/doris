@@ -19,6 +19,7 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.cost.CostEstimate;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -39,8 +41,10 @@ import java.util.Optional;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
+    private double cost = 0.0;
+    private CostEstimate costEstimate = null;
     private Group ownerGroup;
-    private List<Group> children;
+    private ImmutableList<Group> children;
     private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
@@ -63,7 +67,7 @@ public class GroupExpression {
     public GroupExpression(Plan plan, List<Group> children) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null")
                 .withGroupExpression(Optional.of(this));
-        this.children = Lists.newArrayList(Objects.requireNonNull(children, "children can not be null"));
+        this.children = ImmutableList.copyOf(Objects.requireNonNull(children, "children can not be null"));
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
         this.lowestCostTable = Maps.newHashMap();
@@ -79,10 +83,6 @@ public class GroupExpression {
 
     public int arity() {
         return children.size();
-    }
-
-    public void addChild(Group child) {
-        children.add(child);
     }
 
     public Group getOwnerGroup() {
@@ -105,12 +105,13 @@ public class GroupExpression {
         return children;
     }
 
-    public void setChildren(List<Group> children) {
+    public void setChildren(ImmutableList<Group> children) {
         this.children = children;
     }
 
     /**
      * replaceChild.
+     *
      * @param originChild origin child group
      * @param newChild new child group
      */
@@ -189,7 +190,7 @@ public class GroupExpression {
      * @param property property that needs to be satisfied
      * @return Lowest cost to satisfy that property
      */
-    public double getCost(PhysicalProperties property) {
+    public double getCostByProperties(PhysicalProperties property) {
         Preconditions.checkState(lowestCostTable.containsKey(property));
         return lowestCostTable.get(property).first;
     }
@@ -197,6 +198,22 @@ public class GroupExpression {
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
             PhysicalProperties requiredPropertySet) {
         this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    }
+
+    public double getCost() {
+        return cost;
+    }
+
+    public void setCost(double cost) {
+        this.cost = cost;
+    }
+
+    public CostEstimate getCostEstimate() {
+        return costEstimate;
+    }
+
+    public void setCostEstimate(CostEstimate costEstimate) {
+        this.costEstimate = costEstimate;
     }
 
     @Override
@@ -228,13 +245,24 @@ public class GroupExpression {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append(ownerGroup.getGroupId())
-                .append("(plan=" + plan.toString() + ") children=[");
+
+        if (ownerGroup == null) {
+            builder.append("OWNER GROUP IS NULL[]");
+        } else {
+            builder.append(ownerGroup.getGroupId()).append(" cost=").append((long) cost);
+        }
+
+        if (costEstimate != null) {
+            builder.append(" est=").append(costEstimate);
+        }
+        builder.append(" (plan=" + plan.toString() + ") children=[");
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");
         }
-        builder.append("] stats=");
-        builder.append(ownerGroup.getStatistics());
+        builder.append("]");
+        if (ownerGroup != null) {
+            builder.append(" stats=").append(ownerGroup.getStatistics());
+        }
         return builder.toString();
     }
 }

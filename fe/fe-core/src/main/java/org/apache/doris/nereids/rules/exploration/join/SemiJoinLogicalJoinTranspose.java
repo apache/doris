@@ -82,9 +82,9 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          */
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinCondition(), a, c);
+                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(), a, c);
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinCondition(), newBottomSemiJoin, b);
+                                bottomJoin.getOtherJoinConjuncts(), newBottomSemiJoin, b);
                     } else {
                         /*
                          *    topSemiJoin            newTopJoin
@@ -95,9 +95,9 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          */
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinCondition(), b, c);
+                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(), b, c);
                         return new LogicalJoin<>(bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinCondition(), a, newBottomSemiJoin);
+                                bottomJoin.getOtherJoinConjuncts(), a, newBottomSemiJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
     }

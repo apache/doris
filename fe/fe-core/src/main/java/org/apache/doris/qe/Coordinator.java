@@ -38,6 +38,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -307,17 +308,12 @@ public class Coordinator {
             this.queryOptions.setInitialReservationTotalClaims(memLimit);
             this.queryOptions.setBufferPoolLimit(memLimit);
         }
-        // set load mem limit
-        memLimit = Env.getCurrentEnv().getAuth().getLoadMemLimit(qualifiedUser);
-        if (memLimit > 0) {
-            // overwrite the load_mem_limit from session variable;
-            this.queryOptions.setLoadMemLimit(memLimit);
-        }
     }
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
+        this.queryOptions.setBeExecVersion(Config.be_exec_version);
     }
 
     public long getJobId() {
@@ -730,8 +726,10 @@ public class Coordinator {
                     cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                     switch (code) {
                         case TIMEOUT:
+                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(pair.first.brpcAddr.hostname).increase(1L);
                             throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
                         case THRIFT_RPC_ERROR:
+                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(pair.first.brpcAddr.hostname).increase(1L);
                             SimpleScheduler.addToBlacklist(pair.first.beId, errMsg);
                             throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
                         default:
@@ -2156,7 +2154,7 @@ public class Coordinator {
         }
 
         public boolean isBackendStateHealthy() {
-            if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime) {
+            if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime && !backend.isAlive()) {
                 LOG.warn("backend {} is down while joining the coordinator. job id: {}",
                         backend.getId(), jobId);
                 return false;

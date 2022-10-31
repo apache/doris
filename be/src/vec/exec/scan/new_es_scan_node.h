@@ -59,8 +59,6 @@ private:
     std::vector<int> _predicate_to_conjunct;
     std::vector<int> _conjunct_to_predicate;
 
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
-
     // Profile
     std::unique_ptr<RuntimeProfile> _es_profile;
     RuntimeProfile::Counter* _rows_read_counter;
