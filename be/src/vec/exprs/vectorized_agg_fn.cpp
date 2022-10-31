@@ -45,10 +45,12 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
     }
     _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
 
-    auto& param_types = desc.agg_expr.param_types;
-    for (int i = 0; i < param_types.size(); i++) {
-        _argument_types_with_sort.push_back(
-                DataTypeFactory::instance().create_data_type(param_types[i]));
+    if (desc.agg_expr.__isset.param_types) {
+        auto& param_types = desc.agg_expr.param_types;
+        for (int i = 0; i < param_types.size(); i++) {
+            _argument_types_with_sort.push_back(
+                    DataTypeFactory::instance().create_data_type(param_types[i]));
+        }
     }
 }
 
@@ -96,24 +98,32 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     Status status = VExpr::prepare(_input_exprs_ctxs, state, desc);
     RETURN_IF_ERROR(status);
 
+    DataTypes tmp_argument_types;
+    tmp_argument_types.reserve(_input_exprs_ctxs.size());
+
     std::vector<std::string_view> child_expr_name;
 
     // prepare for argument
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
+        auto data_type = _input_exprs_ctxs[i]->root()->data_type();
+        tmp_argument_types.emplace_back(data_type);
         child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
     }
 
+    const DataTypes& argument_types =
+            _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
+
     if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
 #ifdef LIBJVM
-        _function = AggregateJavaUdaf::create(_fn, _real_argument_types, {}, _data_type);
+        _function = AggregateJavaUdaf::create(_fn, argument_types, {}, _data_type);
 #else
         return Status::InternalError("Java UDAF is disabled since no libjvm is found!");
 #endif
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
-        _function = AggregateRpcUdaf::create(_fn, _real_argument_types, {}, _data_type);
+        _function = AggregateRpcUdaf::create(_fn, argument_types, {}, _data_type);
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
-                _fn.name.function_name, _real_argument_types, {}, _data_type->is_nullable());
+                _fn.name.function_name, argument_types, {}, _data_type->is_nullable());
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.name.function_name);
