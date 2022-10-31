@@ -52,7 +52,7 @@ public class GroupExpression {
     private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
     // Each physical group expression maintains mapping incoming requests to the corresponding child requests.
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
-    private boolean hasCalculateCost;
+    private boolean hasCalculateCost = false;
 
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
