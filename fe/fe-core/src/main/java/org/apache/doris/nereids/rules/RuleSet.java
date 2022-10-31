@@ -69,6 +69,8 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(new AggregateDisassemble())
+            .add(new PushdownFilterThroughProject())
             .add(new MergeProjects())
             .build();
 
