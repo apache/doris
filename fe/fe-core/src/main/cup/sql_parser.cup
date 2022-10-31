@@ -263,6 +263,7 @@ terminal String
     KW_BEGIN,
     KW_BETWEEN,
     KW_BIGINT,
+    KW_BIN,
     KW_BINLOG,
     KW_BITMAP,
     KW_BITMAP_UNION,
@@ -481,6 +482,7 @@ terminal String
     KW_POLICY,
     KW_PRECEDING,
     KW_PERCENT,
+    KW_RECYCLE,
     KW_PROC,
     KW_PROCEDURE,
     KW_PROCESSLIST,
@@ -676,7 +678,7 @@ nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
-nonterminal String select_alias, opt_table_alias, lock_alias;
+nonterminal String select_alias, opt_table_alias, lock_alias, opt_alias;
 nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
@@ -770,6 +772,7 @@ nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
 nonterminal KeysDesc opt_mv_keys;
+nonterminal Long opt_id;
 
 nonterminal PartitionKeyDesc partition_key_desc;
 nonterminal PartitionKeyDesc list_partition_key_desc;
@@ -2753,17 +2756,17 @@ drop_stmt ::=
 
 // Recover statement
 recover_stmt ::=
-    KW_RECOVER KW_DATABASE ident:dbName
+    KW_RECOVER KW_DATABASE ident:dbName opt_id:dbId opt_alias:alias
     {:
-        RESULT = new RecoverDbStmt(dbName);
+        RESULT = new RecoverDbStmt(dbName, dbId, alias);
     :}
-    | KW_RECOVER KW_TABLE table_name:dbTblName
+    | KW_RECOVER KW_TABLE table_name:dbTblName opt_id:tableId opt_alias:alias
     {:
-        RESULT = new RecoverTableStmt(dbTblName);
+        RESULT = new RecoverTableStmt(dbTblName, tableId, alias);
     :}
-    | KW_RECOVER KW_PARTITION ident:partitionName KW_FROM table_name:dbTblName
+    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName
     {:
-        RESULT = new RecoverPartitionStmt(dbTblName, partitionName);
+        RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias);
     :}
     ;
 
@@ -3675,6 +3678,10 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
     :}
+    | KW_CATALOG KW_RECYCLE KW_BIN opt_wild_where
+    {:
+        RESULT = new ShowCatalogRecycleBinStmt(parser.where);
+    :}
     ;
 
 opt_tmp ::=
@@ -3790,6 +3797,17 @@ opt_wild_where ::=
     | KW_WHERE expr:where
     {:
         parser.where = where;
+    :}
+    ;
+
+opt_id ::=
+    /* empty */
+    {:
+        RESULT = (long)-1;
+    :}
+    | INTEGER_LITERAL:id
+    {:
+        RESULT = id;
     :}
     ;
 
@@ -5030,6 +5048,17 @@ opt_common_hints ::=
     |
     {:
         RESULT = null;
+    :}
+    ;
+
+opt_alias ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_AS ident:alias
+    {:
+        RESULT = alias;
     :}
     ;
 
@@ -6734,6 +6763,8 @@ keyword ::=
     | KW_CATALOG:id
     {: RESULT = id; :}
     | KW_CATALOGS:id
+    {: RESULT = id; :}
+    | KW_RECYCLE:id
     {: RESULT = id; :}
     ;
 
