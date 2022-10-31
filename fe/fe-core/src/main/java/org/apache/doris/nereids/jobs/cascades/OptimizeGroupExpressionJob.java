@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -45,6 +46,7 @@ public class OptimizeGroupExpressionJob extends Job {
 
         validRules.addAll(getValidRules(groupExpression, implementationRules));
         validRules.addAll(getValidRules(groupExpression, explorationRules));
+        validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
         for (Rule rule : validRules) {
             pushJob(new ApplyRuleJob(groupExpression, rule, context));
