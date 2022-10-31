@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
  * Used for parent property drive.
  */
 public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
-    private static final Logger LOG = Logger.getLogger(RequestPropertyDeriver.class);
+    public static final Logger LOG = Logger.getLogger(RequestPropertyDeriver.class);
     private static final Map<GroupExpression, List<List<PhysicalProperties>>> cache = Maps.newHashMap();
     /*
      * requestPropertyFromParent
