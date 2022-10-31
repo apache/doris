@@ -237,7 +237,7 @@ visible_functions = [
     [['array_difference'], 'ARRAY_BIGINT',    ['ARRAY_INT'], '', '', '', 'vec', ''],
     [['array_difference'], 'ARRAY_LARGEINT',  ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
     [['array_difference'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
-    [['array_difference'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_DOUBLE',    ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
     [['array_difference'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
     [['array_difference'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
 

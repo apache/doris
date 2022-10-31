@@ -16,173 +16,109 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/columns/column.h"
+#include "vec/data_types/data_type_nullable.h"
 
-namespace doris::vectorized{
-class FunctionRunningDifference : public IFunction
-{
-private:
-    /// It is possible to track value from previous columns, to calculate continuously across all columnss. Not implemented.
-    //NO_SANITIZE_UNDEFINED
-    template <typename Src, typename Dst>
-    static void process(const PaddedPODArray<Src> & src, PaddedPODArray<Dst> & dst, const NullMap * null_map)
-    {
-        size_t size = src.size();
-        dst.resize(size);
+namespace doris::vectorized {
 
-        if (size == 0)
-            return;
-
-        /// It is possible to SIMD optimize this loop. By no need for that in practice.
-
-        Src prev{};
-        bool has_prev_value = false;
-
-        for (size_t i = 0; i < size; ++i)
-        {
-            if (null_map && (*null_map)[i])
-            {
-                dst[i] = Dst{};
-                continue;
-            }
-
-            if (!has_prev_value)
-            {
-                dst[i] = 0;
-                prev = src[i];
-                has_prev_value = true;
-            }
-            else
-            {
-                auto cur = src[i];
-                /// Overflow is Ok.
-                dst[i] = static_cast<Dst>(cur) - prev;
-                prev = cur;
-            }
-        }
-    }
-
-    /// Result type is same as result of subtraction of argument types.
-    template <typename SrcFieldType>
-    using DstFieldType = typename NumberTraits::ResultOfSubtraction<SrcFieldType, SrcFieldType>::Type;
-
-    /// Call polymorphic lambda with tag argument of concrete field type of src_type.
-    template <typename F>
-    void dispatchForSourceType(const IDataType & src_type, F && f) const
-    {
-        WhichDataType which(src_type);
-
-        if (which.is_uint8())
-            f(UInt8());
-        else if (which.is_uint16())
-            f(UInt16());
-        else if (which.is_uint32())
-            f(UInt32());
-        else if (which.is_uint64())
-            f(UInt64());
-        else if (which.is_int8())
-            f(Int8());
-        else if (which.is_int16())
-            f(Int16());
-        else if (which.is_int32())
-            f(Int32());
-        else if (which.is_int64())
-            f(Int64());
-        else if (which.is_float32())
-            f(Float32());
-        else if (which.is_float64())
-            f(Float64());
-        else if (which.is_date())
-            f(DataTypeDate::FieldType());
-        else if (which.is_date_v2())
-            f(DataTypeDateV2::FieldType());
-        else if (which.is_date_time())
-            f(DataTypeDateTime::FieldType());
-        else
-            throw Exception("Argument for function " + get_name() + " must have numeric type.", 1/*ErrorCode::ILLEGAL_TYPE_OF_ARGUMENT*/);
-    }
-
+class FunctionRunningDifference : public IFunction {
 public:
     static constexpr auto name = "running_difference";
 
-    static FunctionPtr create(){
-        return std::make_shared<FunctionRunningDifference>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionRunningDifference>(); }
 
-    String get_name() const override {
-        return name;
-    }
+    String get_name() const override { return name; }
 
-    bool is_stateful() const override{
-        return true;
-    } 
+    size_t get_number_of_arguments() const override { return 1; }
 
-    size_t get_number_of_arguments() const override
-    {
-        return 1;
-    }
-
-    bool is_deterministic() const override { return false; }
-    bool is_deterministic_in_scope_of_query() const override
-    {
-         return false;
-    } 
-
-   // bool is_suitable_for_short_circuit_arguments_execution(const DataTypesWithConstInfo & /*arguments*/) const override { return false; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    DataTypePtr get_return_type_impl(const DataTypes & arguments) const override
-    {
-        DataTypePtr res;
-        dispatchForSourceType(*remove_nullable(arguments[0]), [&](auto field_type_tag)
-        {
-            res = std::make_shared<DataTypeNumber<DstFieldType<decltype(field_type_tag)>>>();
-        });
+    bool use_default_implementation_for_constants() const override { return true; }
 
-        if (arguments[0]->is_nullable())
-            res = make_nullable(res);
-
-        return res;
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) override
-    {
-        const auto  src =  block.get_by_position(arguments[0]); 
-        const DataTypePtr result_type=src.type;
-        /// When column is constant, its difference is zero.
-        if (is_column_const(*src.column)) {
-            auto res=result_type->create_column_const_with_default_value(input_rows_count);
-            block.replace_by_position(result, std::move(res));
-            return Status::OK();
-        }   
-        auto res_column = remove_nullable(result_type)->create_column();
-
-        const auto * src_column = src.column.get(); 
-        ColumnPtr null_map_column = nullptr;
-        const NullMap * null_map = nullptr;
-        
-        if (const auto * nullable_column = check_and_get_column<ColumnNullable>(src_column)){
-            src_column = &nullable_column->get_nested_column();
-            null_map_column = nullable_column->get_null_map_column_ptr();
-            null_map = &nullable_column->get_null_map_data();
+    template <typename SrcFieldType>
+    using DstFieldType = typename NumberTraits::ResultOfSubtraction<SrcFieldType, SrcFieldType>::Type;
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        bool is_nullable = arguments[0]->is_nullable();
+        auto nested_type = remove_nullable(arguments[0]);
+        WhichDataType which(nested_type);
+        //return type is promoted to prevent result overflow
+        //like: input is int32 ---> return type will be int64
+        DataTypePtr return_type = nullptr;
+        if (which.is_uint8() || which.is_int8()) {
+            return_type = std::make_shared<DataTypeInt16>();
+        } else if (which.is_uint16() || which.is_int16()) {
+            return_type = std::make_shared<DataTypeInt32>();
+        } else if (which.is_uint32() || which.is_uint64() || which.is_int32()) {
+            return_type = std::make_shared<DataTypeInt64>();
+        } else if (which.is_int64() || which.is_int128()) {
+            return_type = std::make_shared<DataTypeInt128>();
+        } else if (which.is_float32() || which.is_float64()) {
+            return_type = std::make_shared<DataTypeFloat64>();
+        } else if (which.is_decimal()) {
+            return_type = nested_type;
         }
-        dispatchForSourceType(*remove_nullable(src.type), [&](auto field_type_tag){
-            using SrcFieldType = decltype(field_type_tag);
-            
-            process(assert_cast<const ColumnVector<SrcFieldType> &>(*src_column).get_data(),
-                assert_cast<ColumnVector<DstFieldType<SrcFieldType>> &>(*res_column).get_data(), null_map);
-        });
+        else if(which.is_date_time()||which.is_date_time_v2()){
+            return_type=std::make_shared<DataTypeFloat64>();
+        }
+        else if(which.is_date()||which.is_date_v2()){
+            return_type=std::make_shared<DataTypeInt32>();
+        }
 
-        if(null_map_column){
-            auto res=ColumnNullable::create(std::move(res_column), null_map_column);
-            block.replace_by_position(result, std::move(res));
+        return_type = is_nullable ? make_nullable(return_type) : return_type;
+        const ColumnsWithTypeAndName subtract_cols {{nullptr, arguments[0], "first_arg"},
+                                                    {nullptr, arguments[0], "second_arg"}};
+        if(which.is_date_time()||which.is_date_time_v2()){
+            func_subtract = SimpleFunctionFactory::instance().get_function("timediff", subtract_cols,
+                                                                       return_type);   
+        }
+        else if(which.is_date()||which.is_date_v2()){
+            func_subtract = SimpleFunctionFactory::instance().get_function("datediff", subtract_cols,
+                                                                       return_type);   
         }
         else{
-            block.replace_by_position(result, std::move(res_column));
+            func_subtract = SimpleFunctionFactory::instance().get_function("subtract", subtract_cols,
+                                                                       return_type);
+        }                                     
+        func_return_type = return_type;
+        return return_type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        if (is_column_const(*block.get_by_position(arguments[0]).column)) {
+            auto res = func_return_type->create_column_const_with_default_value(input_rows_count);
+            block.replace_by_position(result, std::move(res));
+            return Status::OK();
         }
+
+        auto arg_first = block.get_by_position(arguments[0]).column;
+        auto arg_type = block.get_by_position(arguments[0]).type;
+        auto arg_second = arg_type->create_column();
+
+        if (is_first_block) {
+            arg_second->insert_from(*arg_first, 0);
+            is_first_block = false;
+        } else {
+            arg_second->insert_data(last_value.c_str(), last_value.length());
+        }
+        arg_second->insert_range_from(*arg_first, 0, input_rows_count - 1);
+        last_value = arg_first->get_data_at(input_rows_count - 1).to_string();
+
+        Block temporary_block {
+                ColumnsWithTypeAndName {block.get_by_position(arguments[0]),
+                                        {std::move(arg_second), arg_type, "second_arg"},
+                                        block.get_by_position(result)}};
+
+        func_subtract->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
+        block.get_by_position(result).column = temporary_block.get_by_position(2).column;
         return Status::OK();
     }
+
+private:
+    mutable FunctionBasePtr func_subtract;
+    mutable DataTypePtr func_return_type;
+    bool is_first_block = true;
+    std::string last_value;
 };
 
 }
