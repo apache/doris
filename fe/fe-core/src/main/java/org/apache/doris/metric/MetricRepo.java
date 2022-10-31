@@ -57,7 +57,7 @@ public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
 
     // METRIC_REGISTER is only used for histogram metrics
-    private static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
+    public static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
     public static final DorisMetricRegistry DORIS_METRIC_REGISTER = new DorisMetricRegistry();
 
     public static volatile boolean isInit = false;
