@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS running_difference_test;
+
 CREATE TABLE running_difference_test (
                  `id` int NULL COMMENT 'id' ,
                 `day` date COMMENT 'day', 
@@ -10,6 +11,7 @@ DISTRIBUTED BY HASH(id) BUCKETS 3
 PROPERTIES ( 
     "replication_num" = "1"
 ); 
+
 INSERT into running_difference_test (id,day, time_val,doublenum) values ('1', '2022-11-08', '2022-03-12 11:05:04', 4.7),
                                                    ('1', '2022-10-31', '2022-03-12 10:42:01', 3.3),
                                                     ('1', '2022-10-27', '2022-03-12 10:41:02', 2.6),
