@@ -301,7 +301,7 @@ public class MultiPartition {
     }
 
     private DateTimeFormatter dateTypeFormat() {
-        return DateTimeFormatter.ofPattern(this.timeUnitType.equals(TimeUnit.HOUR) ? HOURS_FORMAT : DATE_FORMAT);
+        return DateTimeFormatter.ofPattern(this.timeUnitType.equals(TimeUnit.HOUR) ? DATETIME_FORMAT : DATE_FORMAT);
     }
 
 }
