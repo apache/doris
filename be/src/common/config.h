@@ -47,7 +47,7 @@ CONF_Int32(single_replica_load_brpc_num_threads, "64");
 CONF_String(priority_networks, "");
 
 // memory mode
-CONF_String(memory_node, "performance")
+CONF_String(memory_mode, "performance")
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),

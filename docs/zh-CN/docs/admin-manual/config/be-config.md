@@ -842,7 +842,7 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 ### `memory_mode`
 
 * 类型：string
-* 描述：控制tcmalloc的回收，如果配置为performance，内存使用超过mem_limit的50%时，doris会释放tcmalloc cache中的内存，如果配置为compact，内存使用超过mem_limit的90%时，doris会释放tcmalloc cache中的内存。
+* 描述：控制tcmalloc的回收。如果配置为performance，内存使用超过mem_limit的90%时，doris会释放tcmalloc cache中的内存，如果配置为compact，内存使用超过mem_limit的50%时，doris会释放tcmalloc cache中的内存。
 * 默认值：performance
 
 ### `memory_limitation_per_thread_for_schema_change`
