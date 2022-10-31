@@ -236,9 +236,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RECOVER_DB:
             case OperationType.OP_RECOVER_TABLE:
             case OperationType.OP_RECOVER_PARTITION: {
-                data = new RecoverInfo();
-                ((RecoverInfo) data).readFields(in);
-                isRead = true;
+                data = RecoverInfo.read(in);
                 break;
             }
             case OperationType.OP_DROP_ROLLUP: {
