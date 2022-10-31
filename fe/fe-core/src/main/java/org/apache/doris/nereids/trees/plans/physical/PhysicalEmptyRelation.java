@@ -42,7 +42,7 @@ import java.util.Optional;
  * select * from tbl limit 0
  */
 public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation {
-    private final List<? extends NamedExpression> projects;
+    private final ImmutableList<? extends NamedExpression> projects;
 
     public PhysicalEmptyRelation(List<? extends NamedExpression> projects, LogicalProperties logicalProperties) {
         this(projects, Optional.empty(), logicalProperties, null, null);
