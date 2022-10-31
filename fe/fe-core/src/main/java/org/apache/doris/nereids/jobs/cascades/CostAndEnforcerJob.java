@@ -113,10 +113,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         }
 
-        if (groupExpression.isHasCalculateCost()) {
-            return;
-        }
-
         for (; requestPropertiesIndex < requestChildrenPropertiesList.size(); requestPropertiesIndex++) {
             // Get one from List<request property to children>
             // like: [ Properties {"", ANY}, Properties {"", BROADCAST} ],
@@ -128,6 +124,10 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 curNodeCost = CostCalculator.calculateCost(groupExpression);
                 groupExpression.setCost(curNodeCost);
                 curTotalCost += curNodeCost;
+            }
+
+            if (groupExpression.isHasCalculateCost()) {
+                curChildIndex = groupExpression.arity();
             }
 
             // Handle all child plan node.
