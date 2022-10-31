@@ -130,7 +130,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _stream_load_recorder(nullptr) {
     _s_instance = this;
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
-        MutexLock lock(&_gc_mutex);
+        // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
     REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
@@ -580,11 +580,11 @@ void StorageEngine::stop() {
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
 #undef THREAD_JOIN
 
-#define THREADS_JOIN(threads)           \
-    for (const auto& thread : threads) {\
-        if (thread) {                   \
-            thread->join();             \
-        }                               \
+#define THREADS_JOIN(threads)            \
+    for (const auto& thread : threads) { \
+        if (thread) {                    \
+            thread->join();              \
+        }                                \
     }
 
     THREADS_JOIN(_path_gc_threads);
@@ -742,14 +742,14 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
 
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(
-                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id(),
+                                                             rowset_meta->tablet_schema_hash());
         if (tablet == nullptr) {
             // tablet may be dropped
             // TODO(cmy): this is better to be a VLOG, because drop table is a very common case.
             // leave it as INFO log for observation. Maybe change it in future.
-            LOG(INFO) << "failed to find tablet " << rowset_meta->tablet_id() << " for rowset: " << rowset_meta->rowset_id()
-                      << ", tablet may be dropped";
+            LOG(INFO) << "failed to find tablet " << rowset_meta->tablet_id()
+                      << " for rowset: " << rowset_meta->rowset_id() << ", tablet may be dropped";
             invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
@@ -762,7 +762,8 @@ void StorageEngine::_clean_unused_rowset_metas() {
             // which will creates a new tablet with the same id but a different uid.
             // And in the historical version, when we deleted the replica, we did not delete the corresponding rowset meta,
             // thus causing the original rowset meta to remain(with same tablet id but different uid).
-            LOG(WARNING) << "rowset's tablet uid " << rowset_meta->tablet_uid() << " does not equal to tablet uid: " << tablet->tablet_uid();
+            LOG(WARNING) << "rowset's tablet uid " << rowset_meta->tablet_uid()
+                         << " does not equal to tablet uid: " << tablet->tablet_uid();
             invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
@@ -782,9 +783,10 @@ void StorageEngine::_clean_unused_rowset_metas() {
         RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
         for (auto& rowset_meta : invalid_rowset_metas) {
             RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(),
-                    rowset_meta->rowset_id());
+                                      rowset_meta->rowset_id());
         }
-        LOG(INFO) << "remove " << invalid_rowset_metas.size() << " invalid rowset meta from dir: " << data_dir->path();
+        LOG(INFO) << "remove " << invalid_rowset_metas.size()
+                  << " invalid rowset meta from dir: " << data_dir->path();
         invalid_rowset_metas.clear();
     }
 }

@@ -39,11 +39,11 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/thread_context.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -292,7 +292,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
-        ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status.to_string();
+        ss << "couldn't get a client for " << _coord_addr
+           << ", reason: " << coord_status.to_string();
         LOG(WARNING) << "query_id: " << _query_id << ", " << ss.str();
         update_status(Status::InternalError(ss.str()));
         return;
@@ -423,7 +424,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
     REGISTER_HOOK_METRIC(plan_fragment_count, [this]() {
-        std::lock_guard<std::mutex> lock(_lock);
+        // std::lock_guard<std::mutex> lock(_lock);
         return _fragment_map.size();
     });
 
@@ -661,14 +662,15 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                            "push plan fragment to thread pool failed");
         return Status::InternalError(
                 strings::Substitute("push plan fragment $0 to thread pool failed. err = $1, BE: $2",
-                                    print_id(params.params.fragment_instance_id), st.get_error_msg(),
-                                    BackendOptions::get_localhost()));
+                                    print_id(params.params.fragment_instance_id),
+                                    st.get_error_msg(), BackendOptions::get_localhost()));
     }
 
     return Status::OK();
 }
 
-void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params, QueryFragmentsCtx* fragments_ctx) {
+void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params,
+                                        QueryFragmentsCtx* fragments_ctx) {
     if (params.__isset.query_options) {
         if (params.query_options.__isset.resource_limit) {
             fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
@@ -689,7 +691,7 @@ void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params, Q
             if (node.limit > 0 && node.limit < 1024) {
                 fragments_ctx->set_serial_thread_token();
                 return;
-            } 
+            }
         }
     }
 }
