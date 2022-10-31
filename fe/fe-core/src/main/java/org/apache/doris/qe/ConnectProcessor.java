@@ -282,10 +282,11 @@ public class ConnectProcessor {
                     ctx.resetReturnRows();
                 }
                 parsedStmt = stmts.get(i);
-                if (parsedStmt instanceof SelectStmt) {
-                    if (!ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                        throw new Exception(String.format("SQL: %s", parsedStmt.toSql()), nereidsParseException);
-                    }
+                if (parsedStmt instanceof SelectStmt && nereidsParseException != null
+                        && ctx.getSessionVariable().isEnableNereidsPlanner()
+                        && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                    throw new Exception(String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
+                                parsedStmt.toSql()), nereidsParseException);
                 }
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
