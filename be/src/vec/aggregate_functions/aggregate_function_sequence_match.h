@@ -52,7 +52,10 @@ struct ComparePairFirst final
 
 static constexpr size_t max_events = 32;
 
-template <typename DateValueType, typename NativeType>
+/// Max number of iterations to match the pattern against a sequence, exception thrown when exceeded
+constexpr auto sequence_match_max_iterations = 1000000;
+
+template <typename DateValueType, typename NativeType, typename Derived>
 struct AggregateFunctionSequenceMatchData final
 {
     using Timestamp = DateValueType;
@@ -64,6 +67,15 @@ struct AggregateFunctionSequenceMatchData final
     PODArrayWithStackMemory<TimestampEvents, 64> events_list;
     /// sequenceMatch conditions met at least once in events_list
     std::bitset<max_events> conditions_met;
+
+    void init(const std::string pattern, size_t arg_count){
+        if (!init_flag){
+            this->pattern = pattern;
+            this->arg_count = arg_count;
+            parsePattern();
+            init_flag = true;
+        }
+    }
 
     void reset() {
         sorted = true;
@@ -133,62 +145,8 @@ struct AggregateFunctionSequenceMatchData final
             events_list.emplace_back(timestamp, Events{events});
         }
     }
-};
 
-
-
-/// Max number of iterations to match the pattern against a sequence, exception thrown when exceeded
-constexpr auto sequence_match_max_iterations = 1000000;
-template <typename DateValueType, typename NativeType, typename Derived>
-class AggregateFunctionSequenceBase : public IAggregateFunctionDataHelper<
-                                            AggregateFunctionSequenceMatchData<DateValueType, NativeType>,
-                                            Derived>{
-public:
-    AggregateFunctionSequenceBase(const DataTypes & arguments, const String & pattern_)
-        : IAggregateFunctionDataHelper<
-                    AggregateFunctionSequenceMatchData<DateValueType, NativeType>,
-                    Derived>(arguments,
-                            {})
-        , pattern(pattern_)
-    {
-        arg_count = arguments.size();
-        parsePattern();
-    }
-
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
-
-    void add(AggregateDataPtr __restrict place, const IColumn ** columns, const size_t row_num, Arena *) const override
-    {
-        const auto timestamp = assert_cast<const ColumnVector<DateValueType> *>(columns[0])->get_data()[row_num];
-
-        typename AggregateFunctionSequenceMatchData<DateValueType, NativeType>::Events events;
-
-        for (auto i =1;i< arg_count;i++)
-        {
-            const auto event = assert_cast<const ColumnUInt8 *>(columns[i])->get_data()[row_num];
-            events.set(i - 1, event);
-        }
-
-        this->data(place).add(timestamp, events);
-    }
-
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena *) const override
-    {
-        this->data(place).merge(this->data(rhs));
-    }
-
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override
-    {
-        this->data(place).write(buf);
-    }
-
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena *) const override
-    {
-        this->data(place).read(buf);
-    }
-
-
-private:
+    private:
     enum class PatternActionType
     {
         SpecificEvent,
@@ -215,7 +173,7 @@ private:
     Derived & derived() { return static_cast<Derived &>(*this); }
 
 
-    void parsePattern()
+    void parsePattern() 
     {
         actions.clear();
         actions.emplace_back(PatternActionType::KleeneStar);
@@ -318,7 +276,7 @@ private:
         }
     }
 
-protected:
+public:
     /// Uses a DFA based approach in order to better handle patterns without
     /// time assertions.
     ///
@@ -617,7 +575,7 @@ private:
 
     using DFAStates = std::vector<DFAState>;
 
-protected:
+public:
     /// `True` if the parsed pattern contains time assertions (?t...), `false` otherwise.
     bool pattern_has_time;
     /// sequenceMatch conditions met at least once in the pattern
@@ -629,6 +587,60 @@ private:
     PatternActions actions;
 
     DFAStates dfa_states;
+    bool init_flag = false;
+};
+
+
+
+template <typename DateValueType, typename NativeType, typename Derived>
+class AggregateFunctionSequenceBase : public IAggregateFunctionDataHelper<
+                                            AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,
+                                            Derived>{
+public:
+    AggregateFunctionSequenceBase(const DataTypes & arguments)
+        : IAggregateFunctionDataHelper<
+                    AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,
+                    Derived>(arguments,
+                            {})
+                            {arg_count = arguments.size();}
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
+    void add(AggregateDataPtr __restrict place, const IColumn ** columns, const size_t row_num, Arena *) const override
+    {
+        std::string pattern = assert_cast<const ColumnString *>(columns[0])->get_data_at(0).to_string() ;
+        this->data(place).init(pattern, arg_count);
+
+        const auto timestamp = assert_cast<const ColumnVector<DateValueType> *>(columns[1])->get_data()[row_num];
+
+        typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events events;
+
+        for (auto i =2;i< arg_count;i++)
+        {
+            const auto event = assert_cast<const ColumnUInt8 *>(columns[i])->get_data()[row_num];
+            events.set(i - 1, event);
+        }
+
+        this->data(place).add(timestamp, events);
+    }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena *) const override
+    {
+        this->data(place).merge(this->data(rhs));
+    }
+
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override
+    {
+        this->data(place).write(buf);
+    }
+
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena *) const override
+    {
+        this->data(place).read(buf);
+    }
+
+private:
+    size_t arg_count;
 };
 
 template <typename DateValueType, typename NativeType> 
@@ -651,7 +663,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
         auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
-        if ((this->conditions_in_pattern & this->data(place).conditions_met) != this->conditions_in_pattern)
+        if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
             output.push_back(false);
             return;
@@ -664,9 +676,9 @@ public:
         const auto events_end = std::end(data_ref.events_list);
         auto events_it = events_begin;
 
-        bool match = (this->pattern_has_time ?
-            (this->couldMatchDeterministicParts(events_begin, events_end) && this->backtrackingMatch(events_it, events_end)) :
-            this->dfaMatch(events_it, events_end));
+        bool match = (this->data(place).pattern_has_time ?
+            (this->data(place).couldMatchDeterministicParts(events_begin, events_end) && this->data(place).backtrackingMatch(events_it, events_end)) :
+            this->data(place).dfaMatch(events_it, events_end));
         output.push_back(match);
     }
 };
@@ -691,7 +703,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
         auto & output = assert_cast<ColumnUInt64 &>(to).get_data();
-        if ((this->conditions_in_pattern & this->data(place).conditions_met) != this->conditions_in_pattern)
+        if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
             output.push_back(0);
             return;
@@ -711,9 +723,9 @@ private:
 
         size_t count = 0;
         // check if there is a chance of matching the sequence at least once
-        if (this->couldMatchDeterministicParts(events_begin, events_end))
+        if (this->data(place).couldMatchDeterministicParts(events_begin, events_end))
         {
-            while (events_it != events_end && this->backtrackingMatch(events_it, events_end))
+            while (events_it != events_end && this->data(place).backtrackingMatch(events_it, events_end))
                 ++count;
         }
 
