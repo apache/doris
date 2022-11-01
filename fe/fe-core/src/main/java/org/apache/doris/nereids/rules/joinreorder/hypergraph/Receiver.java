@@ -58,10 +58,14 @@ public class Receiver {
         return true;
     }
 
-    public void addPlan(Node node) {
+    public void addNode(Node node) {
         BitSet bitSet = new BitSet();
         bitSet.set(node.getIndex());
         planMap.put(bitSet, node.getPlan());
+    }
+
+    public void addPlan(BitSet referenceNodes, Plan plan) {
+        planMap.put(referenceNodes, plan);
     }
 
     public Plan getBestPlan(BitSet bitSet) {

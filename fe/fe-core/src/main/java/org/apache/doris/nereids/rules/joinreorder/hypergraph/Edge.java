@@ -27,25 +27,20 @@ class Edge {
 
     // The endpoints (hypernodes) of this hyperedge.
     // left and right may not overlap, and both must have at least one bit set.
-    BitSet left = new BitSet(32);
-    BitSet right = new BitSet(32);
-    BitSet constraints = new BitSet(32);
-    double selectivity = 1;
+    private BitSet left = new BitSet(32);
+    private BitSet right = new BitSet(32);
+    private BitSet constraints = new BitSet(32);
 
     /**
      * Create simple edge.
      */
-    public Edge(int index, LogicalJoin join) {
+    public Edge(LogicalJoin join, int index) {
         this.index = index;
         this.join = join;
     }
 
     public LogicalJoin getJoin() {
         return join;
-    }
-
-    public double getSelectivity() {
-        return selectivity;
     }
 
     public boolean isSimple() {
@@ -56,8 +51,20 @@ class Edge {
         this.left.or(left);
     }
 
+    public void addLeftNodes(BitSet... bitSets) {
+        for (BitSet bitSet : bitSets) {
+            this.left.or(bitSet);
+        }
+    }
+
     public void addRightNode(BitSet right) {
         this.right.or(right);
+    }
+
+    public void addRightNodes(BitSet... bitSets) {
+        for (BitSet bitSet : bitSets) {
+            this.right.or(bitSet);
+        }
     }
 
     public void addConstraintNode(BitSet constraints) {
@@ -68,8 +75,24 @@ class Edge {
         return left;
     }
 
+    public void setLeft(BitSet left) {
+        this.left = left;
+    }
+
     public BitSet getRight() {
         return right;
+    }
+
+    public void setRight(BitSet right) {
+        this.right = right;
+    }
+
+    public boolean isBefore(Edge edge) {
+        // When this join reference nodes is a subset of other join, then this join must appear before that join
+        BitSet thisBitSet = getReferenceNodes();
+        BitSet otherBitSet = edge.getReferenceNodes();
+        thisBitSet.or(otherBitSet);
+        return thisBitSet.equals(otherBitSet);
     }
 
     public BitSet getReferenceNodes() {
@@ -80,12 +103,16 @@ class Edge {
         return bitSet;
     }
 
-    public Edge reverse() {
-        Edge newEdge = new Edge(index, join);
+    public Edge reverse(int index) {
+        Edge newEdge = new Edge(join, index);
         newEdge.addLeftNode(right);
         newEdge.addRightNode(left);
         newEdge.addConstraintNode(constraints);
         return newEdge;
+    }
+
+    public int getIndex() {
+        return index;
     }
 }
 

@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-public class HyperGraphTest {
+public class GraphSimplifierTest {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
@@ -44,7 +44,7 @@ public class HyperGraphTest {
     private final LogicalOlapScan scan5 = PlanConstructor.newLogicalOlapScan(4, "t5", 0);
 
     @Test
-    void testHyperGraph() {
+    void testGraphSimplifier() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
@@ -54,7 +54,11 @@ public class HyperGraphTest {
 
         Plan joinCluster = extractJoinCluster(plan);
         HyperGraph hyperGraph = HyperGraph.fromPlan(joinCluster);
-        String dottyGraph = hyperGraph.toDottyHyperGraph();
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.initFirstStep();
+        while (graphSimplifier.applySimplificationStep()) {
+        }
+
         String target = "digraph G {  # 2 edges\n"
                 + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0 \n"
                 + " rowCount=0.00\"];\n"
@@ -66,11 +70,19 @@ public class HyperGraphTest {
                 + " rowCount=0.00\"];\n"
                 + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4 \n"
                 + " rowCount=0.00\"];\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"\",arrowhead=none]\n"
+                + "e0 [shape=circle, width=.001, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> e0 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN4 -> e0 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN1 -> e0 [arrowhead=none, label=\"\"]\n"
+                + "e2 [shape=circle, width=.001, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> e2 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN1 -> e2 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN2 -> e2 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN4 -> e2 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN3 -> e2 [arrowhead=none, label=\"\"]\n"
                 + "}\n";
+        String dottyGraph = hyperGraph.toDottyHyperGraph();
         assert dottyGraph.equals(target) : dottyGraph;
-
     }
 
     Plan extractJoinCluster(Plan plan) {
