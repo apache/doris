@@ -23,6 +23,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -243,6 +244,13 @@ public class PlanChecker {
         for (Group childGroup : groupExpression.children()) {
             applyExploration(childGroup, rule);
         }
+    }
+
+    public PlanChecker deriveStats() {
+        cascadesContext.pushJob(
+            new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        return this;
     }
 
     public PlanChecker matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
