@@ -32,6 +32,7 @@ import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -79,6 +80,8 @@ public class InsertStreamTxnExecutor {
                 if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
                     scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
                             TFileFormatType.FORMAT_PROTO);
+                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
+                            TFileCompressType.PLAIN);
                 } else {
                     for (TBrokerRangeDesc desc : scanRangeParams.scan_range.broker_scan_range.ranges) {
                         desc.setFormatType(TFileFormatType.FORMAT_PROTO);

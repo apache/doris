@@ -514,32 +514,32 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     if (params.txn_conf.need_txn) {
-        StreamLoadContext* stream_load_cxt = new StreamLoadContext(_exec_env);
-        stream_load_cxt->db = params.txn_conf.db;
-        stream_load_cxt->db_id = params.txn_conf.db_id;
-        stream_load_cxt->table = params.txn_conf.tbl;
-        stream_load_cxt->txn_id = params.txn_conf.txn_id;
-        stream_load_cxt->id = UniqueId(params.params.query_id);
-        stream_load_cxt->put_result.params = params;
-        stream_load_cxt->use_streaming = true;
-        stream_load_cxt->load_type = TLoadType::MANUL_LOAD;
-        stream_load_cxt->load_src_type = TLoadSourceType::RAW;
-        stream_load_cxt->label = params.import_label;
-        stream_load_cxt->format = TFileFormatType::FORMAT_CSV_PLAIN;
-        stream_load_cxt->timeout_second = 3600;
-        stream_load_cxt->auth.auth_code_uuid = params.txn_conf.auth_code_uuid;
-        stream_load_cxt->need_commit_self = true;
-        stream_load_cxt->need_rollback = true;
+        StreamLoadContext* stream_load_ctx = new StreamLoadContext(_exec_env);
+        stream_load_ctx->db = params.txn_conf.db;
+        stream_load_ctx->db_id = params.txn_conf.db_id;
+        stream_load_ctx->table = params.txn_conf.tbl;
+        stream_load_ctx->txn_id = params.txn_conf.txn_id;
+        stream_load_ctx->id = UniqueId(params.params.query_id);
+        stream_load_ctx->put_result.params = params;
+        stream_load_ctx->use_streaming = true;
+        stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
+        stream_load_ctx->load_src_type = TLoadSourceType::RAW;
+        stream_load_ctx->label = params.import_label;
+        stream_load_ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
+        stream_load_ctx->timeout_second = 3600;
+        stream_load_ctx->auth.auth_code_uuid = params.txn_conf.auth_code_uuid;
+        stream_load_ctx->need_commit_self = true;
+        stream_load_ctx->need_rollback = true;
         // total_length == -1 means read one message from pipe in once time, don't care the length.
         auto pipe = std::make_shared<StreamLoadPipe>(kMaxPipeBufferedBytes /* max_buffered_bytes */,
                                                      64 * 1024 /* min_chunk_size */,
                                                      -1 /* total_length */, true /* use_proto */);
-        stream_load_cxt->body_sink = pipe;
-        stream_load_cxt->max_filter_ratio = params.txn_conf.max_filter_ratio;
+        stream_load_ctx->body_sink = pipe;
+        stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
 
-        RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(stream_load_cxt->id, pipe));
+        RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(stream_load_ctx->id, pipe));
 
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_cxt));
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         set_pipe(params.params.fragment_instance_id, pipe);
         return Status::OK();
     } else {
