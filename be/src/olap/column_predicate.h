@@ -101,6 +101,10 @@ public:
         return true;
     }
 
+    virtual bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+        return false;
+    }
+
     virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
 
     virtual bool can_do_bloom_filter() const { return false; }
