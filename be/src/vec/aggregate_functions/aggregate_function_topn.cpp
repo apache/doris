@@ -17,8 +17,8 @@
 
 #include <vec/aggregate_functions/aggregate_function_topn.h>
 
+#include "vec/aggregate_functions/helpers.h"
 #include "vec/core/types.h"
-
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
