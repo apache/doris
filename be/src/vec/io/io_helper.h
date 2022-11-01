@@ -360,11 +360,25 @@ bool try_read_int_text(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-static inline const char * try_read_int_text(T & x, const char * pos, const char * end)
+static inline const char * try_read_first_int_text(T & x, const char * pos, const char * end)
 {
-    ReadBuffer in((char*)pos, end - pos);
+    const int len = end-pos;
+    LOG(WARNING) << "len:" + std::to_string(len);
+    int i =0;
+    while(i<len){
+        if (pos[i]>='0' && pos[i]<='9'){
+            i++;
+        }else{
+            break;
+        }
+    }
+    LOG(WARNING) << "i:" + std::to_string(i);
+    const char* int_end = pos + i;
+    ReadBuffer in((char*)pos, int_end - pos);
+    const size_t count = in.count();
+    LOG(WARNING) << "in_count:" + std::to_string(in.count());
     try_read_int_text(x, in);
-    return pos + in.count();
+    return pos + count;
 }
 
 template <typename T>

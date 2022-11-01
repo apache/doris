@@ -79,7 +79,9 @@ struct AggregateFunctionSequenceMatchData final
 
     void reset() {
         sorted = true;
+        init_flag=false;
         conditions_met.reset();
+        conditions_in_pattern.reset();
     }
 
     void add(const Timestamp timestamp, const Events & events)
@@ -114,6 +116,7 @@ struct AggregateFunctionSequenceMatchData final
 
     void write(BufferWritable& buf) const
     {
+        LOG(WARNING) << "write";
         write_binary(sorted, buf);
         write_binary(events_list.size(), buf);
 
@@ -126,6 +129,7 @@ struct AggregateFunctionSequenceMatchData final
 
     void read(BufferReadable & buf)
     {
+        LOG(WARNING) << "read";
         read_binary(sorted, buf);
 
         size_t size;
@@ -226,7 +230,7 @@ struct AggregateFunctionSequenceMatchData final
 
                     UInt64 duration = 0;
                     const auto * prev_pos = pos;
-                    pos = try_read_int_text(duration, pos, end);
+                    pos = try_read_first_int_text(duration, pos, end);
                     if (pos == prev_pos)
                         throw_exception("Could not parse number");
 
@@ -242,7 +246,8 @@ struct AggregateFunctionSequenceMatchData final
                 {
                     UInt64 event_number = 0;
                     const auto * prev_pos = pos;
-                    pos = try_read_int_text(event_number, pos, end);
+                    pos = try_read_first_int_text(event_number, pos, end);
+                    LOG(WARNING) << "111111111"+std::to_string(event_number);
                     if (pos == prev_pos)
                         throw_exception("Could not parse number");
 
@@ -274,6 +279,9 @@ struct AggregateFunctionSequenceMatchData final
             else
                 throw_exception("Could not parse pattern, unexpected starting symbol");
         }
+        LOG(WARNING) << "bbbbb";
+        LOG(WARNING) <<std::to_string(dfa_states.size());
+        LOG(WARNING) <<std::to_string(actions.size());
     }
 
 public:
@@ -289,13 +297,16 @@ public:
     bool dfaMatch(EventEntry & events_it, const EventEntry events_end) const
     {
         using ActiveStates = std::vector<bool>;
-
+        LOG(WARNING) << "aaaa";
         /// Those two vectors keep track of which states should be considered for the current
         /// event as well as the states which should be considered for the next event.
+        LOG(WARNING) <<std::to_string(dfa_states.size());
         ActiveStates active_states(dfa_states.size(), false);
         ActiveStates next_active_states(dfa_states.size(), false);
         active_states[0] = true;
 
+        LOG(WARNING) <<std::to_string(dfa_states.size());
+        LOG(WARNING) <<std::to_string(actions.size());
         /// Keeps track of dead-ends in order not to iterate over all the events to realize that
         /// the match failed.
         size_t n_active = 1;
@@ -618,7 +629,7 @@ public:
         for (auto i =2;i< arg_count;i++)
         {
             const auto event = assert_cast<const ColumnUInt8 *>(columns[i])->get_data()[row_num];
-            events.set(i - 1, event);
+            events.set(i - 2, event);
         }
 
         this->data(place).add(timestamp, events);
@@ -662,10 +673,15 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
+        LOG(WARNING) << "insert";
         auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
+        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
+        LOG(WARNING) << this->data(place).conditions_met.to_string();
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
+            LOG(WARNING) << "false";
             output.push_back(false);
+            LOG(WARNING) << output.size();
             return;
         }
         this->data(const_cast<AggregateDataPtr>(place)).sort();
@@ -676,9 +692,12 @@ public:
         const auto events_end = std::end(data_ref.events_list);
         auto events_it = events_begin;
 
+        LOG(WARNING) << "match ?";
+        LOG(WARNING) << this->data(place).pattern_has_time;
         bool match = (this->data(place).pattern_has_time ?
             (this->data(place).couldMatchDeterministicParts(events_begin, events_end) && this->data(place).backtrackingMatch(events_it, events_end)) :
             this->data(place).dfaMatch(events_it, events_end));
+        LOG(WARNING) << "match !";
         output.push_back(match);
     }
 };
