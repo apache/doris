@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -59,15 +59,17 @@ public class CheckRowPolicy extends OneAnalysisRuleFactory {
                     return checkedRelation;
                 }
                 // 3. add filter for relation
-                Expression wherePredicate = matchPolicy.getWherePredicateForNereids();
-                Preconditions.checkNotNull(wherePredicate);
+                Expression wherePredicate = matchPolicy.getNereidsPredicate();
+                if (wherePredicate == null) {
+                    throw new AnalysisException("Invaild row policy [" + matchPolicy.getPolicyName() + "]");
+                }
                 return new LogicalFilter<UnboundRelation>(wherePredicate, checkedRelation);
-        }).toRule(RuleType.CHECK_ROW_POLICY);
+            }).toRule(RuleType.CHECK_ROW_POLICY);
     }
 
     private RowPolicy getRowPolicy(String dbName, String tableName, String user, Env env) {
         Database db = env.getInternalCatalog().getDb(dbName)
-            .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
+                .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
         Table table;
         db.readLock();
         try {

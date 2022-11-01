@@ -15,20 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.CheckRowPolicy;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.policy.PolicyTypeEnum;
 
 /**
- * Check policy.
+ * Create policy command.
  */
-public class CheckPolicyJob extends BatchRulesJob {
-    public CheckPolicyJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(new CheckRowPolicy()))));
+public class CreatePolicyCommand implements Command {
+
+    private PolicyTypeEnum type;
+
+    private final Expression wherePredicate;
+
+    public CreatePolicyCommand(PolicyTypeEnum type, Expression expr) {
+        this.type = type;
+        this.wherePredicate = expr;
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitCreatePolicyCommand(this, context);
+    }
+
+    public Expression getWherePredicate() {
+        return wherePredicate;
     }
 }

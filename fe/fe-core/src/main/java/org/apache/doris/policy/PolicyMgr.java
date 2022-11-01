@@ -370,8 +370,7 @@ public class PolicyMgr implements Writable {
                         if (frontPolicy == null) {
                             andMap.put(key, rowPolicy.clone());
                         } else {
-                            frontPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND,
-                                    frontPolicy.getWherePredicate(), rowPolicy.getWherePredicate()));
+                            frontPolicy.mergeByAnd(rowPolicy);
                             andMap.put(key, frontPolicy.clone());
                         }
                     } else {
@@ -379,8 +378,7 @@ public class PolicyMgr implements Writable {
                         if (frontPolicy == null) {
                             orMap.put(key, rowPolicy.clone());
                         } else {
-                            frontPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.OR,
-                                    frontPolicy.getWherePredicate(), rowPolicy.getWherePredicate()));
+                            frontPolicy.mergeByOr(rowPolicy);
                             orMap.put(key, frontPolicy.clone());
                         }
                     }
@@ -392,9 +390,7 @@ public class PolicyMgr implements Writable {
                 policyKeys.forEach(key -> {
                     if (andMap.containsKey(key) && orMap.containsKey(key)) {
                         RowPolicy mergePolicy = andMap.get(key).clone();
-                        mergePolicy.setWherePredicate(
-                                new CompoundPredicate(CompoundPredicate.Operator.AND, mergePolicy.getWherePredicate(),
-                                        orMap.get(key).getWherePredicate()));
+                        mergePolicy.mergeByAnd(orMap.get(key));
                         mergeMap.put(key, mergePolicy);
                     }
                     if (!andMap.containsKey(key)) {

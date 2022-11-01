@@ -17,6 +17,7 @@
 
 package org.apache.doris.policy;
 
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SqlParser;
@@ -30,7 +31,10 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -89,9 +93,9 @@ public class RowPolicy extends Policy {
     @SerializedName(value = "originStmt")
     private String originStmt;
 
-    private Expr wherePredicate = null;
+    private Expr originalPredicate = null;
 
-    private Expression wherePredicateForNereids = null;
+    private Expression nereidsPredicate = null;
 
     public RowPolicy() {
         super(PolicyTypeEnum.ROW);
@@ -107,17 +111,20 @@ public class RowPolicy extends Policy {
      * @param originStmt origin stmt
      * @param tableId table id
      * @param filterType filter type
-     * @param wherePredicate where predicate
+     * @param originalPredicate original where predicate
+     * @param nereidsPredicate nereids where predicate
      */
     public RowPolicy(long policyId, final String policyName, long dbId, UserIdentity user, String originStmt,
-            final long tableId, final FilterType filterType, final Expr wherePredicate) {
+            final long tableId, final FilterType filterType,
+            final Expr originalPredicate, final Expression nereidsPredicate) {
         super(policyId, PolicyTypeEnum.ROW, policyName);
         this.user = user;
         this.dbId = dbId;
         this.tableId = tableId;
         this.filterType = filterType;
         this.originStmt = originStmt;
-        setWherePredicate(wherePredicate);
+        this.originalPredicate = originalPredicate;
+        this.nereidsPredicate = nereidsPredicate;
     }
 
     /**
@@ -127,19 +134,26 @@ public class RowPolicy extends Policy {
         Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
         return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
-                this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
+                this.filterType.name(), this.originalPredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
     }
 
     @Override
     public void gsonPostProcess() throws IOException {
-        if (wherePredicate != null) {
+        if (originalPredicate != null) {
             return;
         }
         try {
             SqlScanner input = new SqlScanner(new StringReader(originStmt), 0L);
             SqlParser parser = new SqlParser(input);
             CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
-            setWherePredicate(stmt.getWherePredicate());
+            originalPredicate = stmt.getWherePredicate();
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                NereidsParser nereidsParser = new NereidsParser();
+                CreatePolicyCommand command =  (CreatePolicyCommand) nereidsParser.parseSingle(originStmt);
+                nereidsPredicate = command.getWherePredicate();
+            }
         } catch (Exception e) {
             throw new IOException("table policy parse originStmt error", e);
         }
@@ -148,7 +162,7 @@ public class RowPolicy extends Policy {
     @Override
     public RowPolicy clone() {
         return new RowPolicy(this.policyId, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
-                this.filterType, this.wherePredicate);
+                this.filterType, this.originalPredicate, this.nereidsPredicate);
     }
 
     private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type,
@@ -179,31 +193,26 @@ public class RowPolicy extends Policy {
 
     @Override
     public boolean isInvalid() {
-        return (wherePredicate == null);
+        return (originalPredicate == null);
     }
 
-    public void setWherePredicate(Expr expr) {
-        this.wherePredicate = expr;
-        this.wherePredicateForNereids = transformWherePredicate();
-    }
-
-    public Expression getWherePredicateForNereids() {
-        if (wherePredicateForNereids == null) {
-            wherePredicateForNereids = transformWherePredicate();
-        }
-        return wherePredicateForNereids;
-    }
-
-    private Expression transformWherePredicate() {
-        if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable() != null
-                && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()
-                && wherePredicate != null) {
-            NereidsParser nereidsParser = new NereidsParser();
-            String sql = wherePredicate.toSql();
-            return nereidsParser.parseExpression(sql);
+    public void mergeByAnd(RowPolicy that) {
+        this.originalPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                this.originalPredicate, that.getOriginalPredicate());
+        if (this.nereidsPredicate != null && that.getNereidsPredicate() != null) {
+            this.nereidsPredicate = new And(this.nereidsPredicate, that.getNereidsPredicate());
         } else {
-            return null;
+            this.nereidsPredicate = null;
+        }
+    }
+
+    public void mergeByOr(RowPolicy that) {
+        this.originalPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR,
+            this.originalPredicate, that.getOriginalPredicate());
+        if (this.nereidsPredicate != null && that.getNereidsPredicate() != null) {
+            this.nereidsPredicate = new Or(this.nereidsPredicate, that.getNereidsPredicate());
+        } else {
+            this.nereidsPredicate = null;
         }
     }
 }

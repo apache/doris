@@ -25,6 +25,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -91,8 +94,18 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                 UserIdentity userIdent = stmt.getUser();
                 userIdent.analyze(ConnectContext.get().getClusterName());
                 TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
+                Expression nereidsPredicate = null;
+                if (ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable() != null
+                        && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+                    NereidsParser nereidsParser = new NereidsParser();
+                    String sql = stmt.getOrigStmt().originStmt;
+                    CreatePolicyCommand command =  (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+                    nereidsPredicate = command.getWherePredicate();
+                }
                 return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent,
-                        stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(), stmt.getWherePredicate());
+                        stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(),
+                        stmt.getWherePredicate(), nereidsPredicate);
             default:
                 throw new AnalysisException("Unknown policy type: " + stmt.getType());
         }

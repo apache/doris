@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -82,6 +83,10 @@ public abstract class PlanVisitor<R, C> {
     }
 
     public R visitExplainCommand(ExplainCommand explain, C context) {
+        return visitCommand(explain, context);
+    }
+
+    public R visitCreatePolicyCommand(CreatePolicyCommand explain, C context) {
         return visitCommand(explain, context);
     }
 
