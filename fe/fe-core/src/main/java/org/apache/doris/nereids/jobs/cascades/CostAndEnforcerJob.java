@@ -125,7 +125,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                         lowestCostChildren.add(groupExpression.child(curChildIndex)
                                 .getLowestCostPlan(list.get(curChildIndex)).get().second);
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        System.out.printf("dbg4: %s\n", list.get(curChildIndex));
                     }
                 }
                 if (!calculateEnforce(list)) {
