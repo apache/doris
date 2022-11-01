@@ -694,8 +694,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
         auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
-        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
-        LOG(WARNING) << this->data(place).conditions_met.to_string();
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
             output.push_back(false);
