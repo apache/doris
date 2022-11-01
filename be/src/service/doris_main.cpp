@@ -325,15 +325,14 @@ int main(int argc, char** argv) {
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     // Change the total TCMalloc thread cache size if necessary.
     size_t total_thread_cache_bytes;
-    if (!MallocExtension::instance()->GetNumericProperty(
-                "tcmalloc.max_total_thread_cache_bytes", &total_thread_cache_bytes)) {
+    if (!MallocExtension::instance()->GetNumericProperty("tcmalloc.max_total_thread_cache_bytes",
+                                                         &total_thread_cache_bytes)) {
         fprintf(stderr, "Failed to get TCMalloc total thread cache size.\n");
     }
     const size_t kDefaultTotalThreadCacheBytes = 1024 * 1024 * 1024;
     if (total_thread_cache_bytes < kDefaultTotalThreadCacheBytes) {
         if (!MallocExtension::instance()->SetNumericProperty(
-                "tcmalloc.max_total_thread_cache_bytes",
-                kDefaultTotalThreadCacheBytes)) {
+                    "tcmalloc.max_total_thread_cache_bytes", kDefaultTotalThreadCacheBytes)) {
             fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
             return -1;
         }

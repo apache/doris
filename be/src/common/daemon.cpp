@@ -74,7 +74,8 @@ void Daemon::tcmalloc_gc_thread() {
 
     size_t tc_use_memory_min = MemInfo::mem_limit();
     if (config::memory_mode == std::string("performance")) {
-        tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9, tc_use_memory_min - (size_t)10 * 1024 * 1024 * 1024);
+        tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9,
+                                     tc_use_memory_min - (size_t)10 * 1024 * 1024 * 1024);
     } else {
         tc_use_memory_min >>= 1;
     }
@@ -88,8 +89,8 @@ void Daemon::tcmalloc_gc_thread() {
         MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes", &free_size);
         size_t alloc_size = used_size + free_size;
         LOG(INFO) << "tcmalloc.pageheap_free_bytes " << free_size
-                  << ", generic.current_allocated_bytes " << used_size
-                  << ", tc_use_memory_min " << tc_use_memory_min;
+                  << ", generic.current_allocated_bytes " << used_size << ", tc_use_memory_min "
+                  << tc_use_memory_min;
 
         if (alloc_size > tc_use_memory_min) {
             size_t max_free_size = alloc_size * 20 / 100;
