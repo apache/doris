@@ -372,11 +372,9 @@ static inline const char * try_read_first_int_text(T & x, const char * pos, cons
             break;
         }
     }
-    LOG(WARNING) << "i:" + std::to_string(i);
     const char* int_end = pos + i;
     ReadBuffer in((char*)pos, int_end - pos);
     const size_t count = in.count();
-    LOG(WARNING) << "in_count:" + std::to_string(in.count());
     try_read_int_text(x, in);
     return pos + count;
 }
