@@ -336,11 +336,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
         ObjectPool tmp_object_pool;
         // release the memory of the object which can't pass the conjuncts.
         ObjectPool unused_object_pool;
-        if (batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold) {
-            return Status::RuntimeError(
-                    "Scanner row bytes buffer is too small, please try to increase be config "
-                    "'doris_scanner_row_bytes'.");
-        }
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
             if (batch->is_full() ||
