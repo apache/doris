@@ -267,6 +267,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return limit > -1;
     }
 
+    public void setCardinality(long cardinality) {
+        this.cardinality = cardinality;
+    }
+
     public long getCardinality() {
         return cardinality;
     }
