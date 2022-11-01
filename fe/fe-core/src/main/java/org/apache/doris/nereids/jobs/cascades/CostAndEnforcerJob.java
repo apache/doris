@@ -113,7 +113,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         }
 
-        if (groupExpression.isHasCalculateCost()) {
+        if (false && groupExpression.isHasCalculateCost()) {
             for (List<PhysicalProperties> list : requestChildrenPropertiesList) {
                 boolean flag = false;
                 clear();
