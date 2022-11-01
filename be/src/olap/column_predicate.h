@@ -166,12 +166,12 @@ public:
     uint32_t column_id() const { return _column_id; }
 
     virtual std::string debug_string() {
-        return _inner_debug_string() + ", column_id=" + std::to_string(_column_id) +
+        return _debug_string() + ", column_id=" + std::to_string(_column_id) +
                ", opposite=" + (_opposite ? "true" : "false");
     }
 
 protected:
-    virtual std::string _inner_debug_string() = 0;
+    virtual std::string _debug_string() = 0;
 
     uint32_t _column_id;
     // TODO: the value is only in delete condition, better be template value

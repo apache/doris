@@ -67,6 +67,10 @@ public:
 
     bool update_profile(RuntimeProfile* profile) override {
         if (_short_cir_eval_predicate.empty() && _pre_eval_block_predicate.empty()) {
+            if (_col_predicates.empty()) {
+                return false;
+            }
+
             std::string info;
             for (auto pred : _col_predicates) {
                 info += "\n" + pred->debug_string();

@@ -120,7 +120,7 @@ private:
         return new_size;
     }
 
-    std::string _inner_debug_string() override {
+    std::string _debug_string() override {
         std::string info = "BloomFilterColumnPredicate(" + type_to_string(T) + ")";
         return info;
     }

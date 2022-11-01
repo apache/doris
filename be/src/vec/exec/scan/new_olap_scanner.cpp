@@ -123,7 +123,6 @@ Status NewOlapScanner::open(RuntimeState* state) {
         return Status::InternalError(ss.str());
     }
 
-    _tablet_reader->update_profile(_profile);
     return Status::OK();
 }
 
