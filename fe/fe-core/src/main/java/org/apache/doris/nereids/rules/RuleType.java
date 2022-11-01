@@ -55,6 +55,7 @@ public enum RuleType {
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
 
     // rewrite rules
+    REMOVE_PROJECT(RuleTypeClass.REWRITE),
     NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
     AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
