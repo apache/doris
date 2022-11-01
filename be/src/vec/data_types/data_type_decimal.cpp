@@ -37,8 +37,9 @@ std::string DataTypeDecimal<T>::do_get_name() const {
 
 template <typename T>
 bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
-    if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs))
+    if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs)) {
         return scale == ptype->get_scale();
+    }
     return false;
 }
 
@@ -128,10 +129,11 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value) {
         LOG(FATAL) << "Negative scales and scales larger than precision are not supported";
     }
 
-    if (precision_value <= max_decimal_precision<Decimal32>())
+    if (precision_value <= max_decimal_precision<Decimal32>()) {
         return std::make_shared<DataTypeDecimal<Decimal32>>(precision_value, scale_value);
-    else if (precision_value <= max_decimal_precision<Decimal64>())
+    } else if (precision_value <= max_decimal_precision<Decimal64>()) {
         return std::make_shared<DataTypeDecimal<Decimal64>>(precision_value, scale_value);
+    }
     return std::make_shared<DataTypeDecimal<Decimal128>>(precision_value, scale_value);
 }
 
