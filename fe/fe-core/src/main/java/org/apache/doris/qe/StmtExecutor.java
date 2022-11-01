@@ -418,9 +418,7 @@ public class StmtExecutor implements ProfileWriter {
         try {
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
-                if (!(parsedStmt instanceof QueryStmt)) {
-                    throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
-                }
+                throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
             }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
