@@ -177,7 +177,7 @@ struct RegexpExtractImpl {
 struct RegexpExtractAllImpl {
     static constexpr auto name = "regexp_extract_all";
 
-    size_t get_number_of_arguments() const  { return 2; }
+    size_t get_number_of_arguments() const { return 2; }
 
     static Status execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                                size_t input_rows_count, ColumnString::Chars& result_data,
@@ -208,19 +208,20 @@ struct RegexpExtractAllImpl {
             int max_matches = 1 + re->NumberOfCapturingGroups();
             std::vector<re2::StringPiece> res_matches;
             size_t pos = 0;
-            while(pos < str.size) {
+            while (pos < str.size) {
                 auto str_pos = str.data + pos;
                 auto str_size = str.size - pos;
                 re2::StringPiece str_sp = re2::StringPiece(str_pos, str_size);
                 std::vector<re2::StringPiece> matches(max_matches);
-                bool success =
-                        re->Match(str_sp, 0, str_size, re2::RE2::UNANCHORED, &matches[0], max_matches);
+                bool success = re->Match(str_sp, 0, str_size, re2::RE2::UNANCHORED, &matches[0],
+                                         max_matches);
                 if (!success) {
                     StringOP::push_empty_string(i, result_data, result_offset);
                     break;
                 }
                 res_matches.push_back(matches[1]);
-                auto offset = std::string(str_pos, str_size).find(std::string(matches[0].as_string()));
+                auto offset =
+                        std::string(str_pos, str_size).find(std::string(matches[0].as_string()));
                 pos += offset + matches[0].size();
             }
 
@@ -236,8 +237,7 @@ struct RegexpExtractAllImpl {
                 }
             }
             res += "]";
-            StringOP::push_value_string(std::string_view(res), i,
-                                        result_data, result_offset);
+            StringOP::push_value_string(std::string_view(res), i, result_data, result_offset);
         }
         return Status::OK();
     }
@@ -257,7 +257,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     size_t get_number_of_arguments() const override {
-        if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>){
+        if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
             return 2;
         }
         return 3;
