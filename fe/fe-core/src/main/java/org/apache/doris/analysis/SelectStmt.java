@@ -1095,7 +1095,7 @@ public class SelectStmt extends QueryStmt {
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
                 ArrayList<Expr> tempExprs = new ArrayList<>(groupingExprs);
                 groupingExprs.removeIf(Expr::isConstant);
-                if (groupingExprs.isEmpty()) {
+                if (groupingExprs.isEmpty() && aggExprs.isEmpty()) {
                     // should keep at least one expr to make the result correct
                     groupingExprs.add(tempExprs.get(0));
                 }
