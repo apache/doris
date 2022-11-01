@@ -201,7 +201,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
             clear();
         }
-        System.out.printf("dbg3: %s", requestChildrenPropertiesList);
+        System.out.printf("dbg3: %s\n", requestChildrenPropertiesList);
         groupExpression.setHasCalculateCost(true);
     }
 
