@@ -72,7 +72,8 @@ void Daemon::tcmalloc_gc_thread() {
 
     size_t tc_use_memory_min = MemInfo::mem_limit();
     if (config::memory_mode == std::string("performance")) {
-        tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9, tc_use_memory_min - size_t(10) * 1024 * 1024 * 1024);
+        tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9,
+                                     tc_use_memory_min - size_t(10) * 1024 * 1024 * 1024);
     } else {
         tc_use_memory_min = tc_use_memory_min >> 1;
     }

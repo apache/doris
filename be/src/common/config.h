@@ -43,7 +43,8 @@ CONF_Int32(brpc_num_threads, "-1");
 CONF_String(priority_networks, "");
 
 // memory mode
-CONF_String(memory_mode, "performance")
+// performance or compact
+CONF_String(memory_mode, "performance");
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
