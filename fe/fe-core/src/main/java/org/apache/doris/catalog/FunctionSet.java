@@ -1548,7 +1548,7 @@ public class FunctionSet<T> {
         // sequenceCount
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
                 Lists.newArrayList(Type.STRING, Type.DATE, Type.BOOLEAN),
-                Type.INT,
+                Type.BIGINT,
                 Type.VARCHAR,
                 true,
                 "",
@@ -1562,7 +1562,7 @@ public class FunctionSet<T> {
 
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
                 Lists.newArrayList(Type.STRING, Type.DATEV2, Type.BOOLEAN),
-                Type.INT,
+                Type.BIGINT,
                 Type.VARCHAR,
                 true,
                 "",
@@ -1576,7 +1576,7 @@ public class FunctionSet<T> {
 
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
                 Lists.newArrayList(Type.STRING, Type.DATETIME, Type.BOOLEAN),
-                Type.INT,
+                Type.BIGINT,
                 Type.VARCHAR,
                 true,
                 "",
@@ -1590,7 +1590,7 @@ public class FunctionSet<T> {
 
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
                 Lists.newArrayList(Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
-                Type.INT,
+                Type.BIGINT,
                 Type.VARCHAR,
                 true,
                 "",

@@ -717,7 +717,7 @@ public:
 
     String get_name() const override { return "sequence_count"; }
 
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeUInt64>(); }
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
