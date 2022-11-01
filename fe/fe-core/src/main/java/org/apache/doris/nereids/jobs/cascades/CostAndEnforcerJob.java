@@ -116,8 +116,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
         if (groupExpression.isHasCalculateCost()) {
             for (List<PhysicalProperties> list : requestChildrenPropertiesList) {
-                System.out.println(list);
-                System.out.println(groupExpression.children().stream().map(p -> p.getLowestCostPlans().keySet())
+                System.out.printf("dbg1: %s\n", list);
+                System.out.printf("dbg2: %s\n", groupExpression.children()
+                        .stream().map(p -> p.getLowestCostPlans().keySet())
                         .collect(Collectors.toList()));
                 for (curChildIndex = 0; curChildIndex < groupExpression.arity(); curChildIndex++) {
                     try {
@@ -200,6 +201,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
             clear();
         }
+        System.out.printf("dbg3: %s", requestChildrenPropertiesList);
         groupExpression.setHasCalculateCost(true);
     }
 

@@ -43,7 +43,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -79,14 +78,7 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
-            String tree = physicalPlan.treeString();
-            System.out.println(tree);
-            LOG.info(tree);
-            String memo = cascadesContext.getMemo().toString();
-            System.out.println(memo);
-            LOG.info(memo);
-        }
+
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
         RequestPropertyDeriver.cleanCache();
 
@@ -142,7 +134,6 @@ public class NereidsPlanner extends Planner {
         optimize();
 
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
-        LOG.warn(physicalPlan.treeString());
 
         // post-process physical plan out of memo, just for future use.
         return postProcess(physicalPlan);
