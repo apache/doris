@@ -323,7 +323,7 @@ int main(int argc, char** argv) {
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     // Change the total TCMalloc thread cache size if necessary.
     size_t total_thread_cache_bytes;
-    if (!MallocExtenstion::instance()->GetNumericProperty(
+    if (!MallocExtension::instance()->GetNumericProperty(
                 "tcmalloc.max_total_thread_cache_bytes", &total_thread_cache_bytes)) {
         fprintf(stderr, "Failed to get TCMalloc total thread cache size.\n");
     }

@@ -70,11 +70,11 @@ bool k_doris_exit = false;
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
 
-    size_t tc_use_memory_min = 0;
+    size_t tc_use_memory_min = MemInfo::mem_limit();
     if (config::memory_mode == std::string("performance")) {
-        tc_use_memory_min = MemInfo::mem_limit() * 0.9;
+        tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9, tc_use_memory_min - size_t(10) * 1024 * 1024 * 1024);
     } else {
-        tc_use_memory_min = MemInfo::mem_limit() >> 1;
+        tc_use_memory_min = tc_use_memory_min >> 1;
     }
 
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(10))) {
