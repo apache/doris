@@ -53,8 +53,8 @@ void SegmentLoader::_insert(const std::string& key, SegmentLoader::CacheValue& v
         delete cache_value;
     };
 
-    auto lru_handle = _cache->insert(key, &value, sizeof(SegmentLoader::CacheValue),
-                                     deleter, CachePriority::NORMAL);
+    auto lru_handle = _cache->insert(key, &value, sizeof(SegmentLoader::CacheValue), deleter,
+                                     CachePriority::NORMAL);
     *handle = SegmentCacheHandle(_cache.get(), lru_handle);
 }
 
