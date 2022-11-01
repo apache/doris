@@ -131,6 +131,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 if (!calculateEnforce(list)) {
                     return;
                 }
+                clear();
             }
             return;
         }
