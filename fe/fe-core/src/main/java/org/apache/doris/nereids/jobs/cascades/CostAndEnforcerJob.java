@@ -197,12 +197,12 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 if (curTotalCost < context.getCostUpperBound()) {
                     context.setCostUpperBound(curTotalCost);
                 }
+                groupExpression.setHasCalculateCost(true);
             }
 
             clear();
         }
         System.out.printf("dbg3: %s\n", requestChildrenPropertiesList);
-        groupExpression.setHasCalculateCost(true);
     }
 
     private boolean calculateEnforce(List<PhysicalProperties> requestChildrenProperties) {
