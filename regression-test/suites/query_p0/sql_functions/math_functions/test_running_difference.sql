@@ -34,7 +34,6 @@ FROM
 )as runningDifference ORDER BY id ASC;
 
 SELECT
-    id,
     day,
     running_difference(day) AS delta
 FROM
