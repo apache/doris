@@ -219,13 +219,15 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) {
-        if (cols.size() == 0) {
+        if (cols.isEmpty()) {
             return null;
         }
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
         for (Expr expr : cols) {
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
+            } else if (expr instanceof ArrayLiteral) {
+                row.addColBuilder().setValue(expr.getStringValueForArray());
             } else {
                 row.addColBuilder().setValue(expr.getStringValue());
             }

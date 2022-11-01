@@ -1879,10 +1879,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String getStringValue() {
-        if (this instanceof LiteralExpr) {
-            return ((LiteralExpr) this).getStringValue();
-        }
         return "";
+    }
+
+    // A special method only for array literal, all primitive type in array
+    // will be wrapped by double quote. eg:
+    // ["1", "2", "3"]
+    // ["a", "b", "c"]
+    // [["1", "2", "3"], ["1"], ["3"]]
+    public String getStringValueForArray() {
+        return null;
     }
 
     public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {

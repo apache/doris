@@ -102,6 +102,11 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueForArray() {
+        return "null";
+    }
+
+    @Override
     public long getLongValue() {
         return 0;
     }
