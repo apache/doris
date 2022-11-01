@@ -130,16 +130,14 @@ public class StatsCalculatorTest {
         childGroup.setStatistics(childStats);
 
         LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(logicalFilter);
-        groupExpression.addChild(childGroup);
+        GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
         Assertions.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
-        GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr);
-        groupExpressionOr.addChild(childGroup);
+        GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator.estimate(groupExpressionOr);
@@ -243,8 +241,7 @@ public class StatsCalculatorTest {
         childGroup.setStatistics(childStats);
 
         LogicalLimit<GroupPlan> logicalLimit = new LogicalLimit<>(1, 2, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(logicalLimit);
-        groupExpression.addChild(childGroup);
+        GroupExpression groupExpression = new GroupExpression(logicalLimit, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         ownerGroup.addGroupExpression(groupExpression);
         StatsCalculator.estimate(groupExpression);
@@ -274,8 +271,7 @@ public class StatsCalculatorTest {
         childGroup.setStatistics(childStats);
 
         LogicalTopN<GroupPlan> logicalTopN = new LogicalTopN<>(Collections.emptyList(), 1, 2, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(logicalTopN);
-        groupExpression.addChild(childGroup);
+        GroupExpression groupExpression = new GroupExpression(logicalTopN, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         ownerGroup.addGroupExpression(groupExpression);
         StatsCalculator.estimate(groupExpression);

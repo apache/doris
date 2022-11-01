@@ -2617,7 +2617,7 @@ public class Env {
     }
 
     public void replayCreateDb(Database db) {
-        getInternalCatalog().replayCreateDb(db);
+        getInternalCatalog().replayCreateDb(db, "");
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
@@ -2628,8 +2628,8 @@ public class Env {
         getInternalCatalog().replayDropLinkDb(info);
     }
 
-    public void replayDropDb(String dbName, boolean isForceDrop) throws DdlException {
-        getInternalCatalog().replayDropDb(dbName, isForceDrop);
+    public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
+        getInternalCatalog().replayDropDb(dbName, isForceDrop, recycleTime);
     }
 
     public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
@@ -2649,13 +2649,7 @@ public class Env {
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {
-        long dbId = info.getDbId();
-        Database db = Env.getCurrentRecycleBin().replayRecoverDatabase(dbId);
-
-        // add db to catalog
-        replayCreateDb(db);
-
-        LOG.info("replay recover db[{}]", dbId);
+        getInternalCatalog().replayRecoverDatabase(info);
     }
 
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
@@ -2725,7 +2719,7 @@ public class Env {
         getInternalCatalog().replayErasePartition(partitionId);
     }
 
-    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverPartition(info);
     }
 
@@ -3210,19 +3204,21 @@ public class Env {
         getInternalCatalog().dropTable(stmt);
     }
 
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay) {
-        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay);
+    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
+                                      Long recycleTime) {
+        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
-    public void replayDropTable(Database db, long tableId, boolean isForceDrop) throws MetaNotFoundException {
-        getInternalCatalog().replayDropTable(db, tableId, isForceDrop);
+    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
+                                Long recycleTime) throws MetaNotFoundException {
+        getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
         getInternalCatalog().replayEraseTable(tableId);
     }
 
-    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverTable(info);
     }
 

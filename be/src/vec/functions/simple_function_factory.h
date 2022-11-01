@@ -82,6 +82,8 @@ void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
 
+void register_function_url(SimpleFunctionFactory& factory);
+
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
@@ -215,6 +217,7 @@ public:
             register_function_hex_variadic(instance);
             register_function_array(instance);
             register_function_geo(instance);
+            register_function_url(instance);
         });
         return instance;
     }

@@ -203,7 +203,7 @@ public class Memo {
 
     /**
      * add or replace the plan into the target group.
-     *
+     * <p>
      * the result truth table:
      * <pre>
      * +---------------------------------------+-----------------------------------+--------------------------------+
@@ -296,8 +296,7 @@ public class Memo {
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
-        GroupExpression newGroupExpression = new GroupExpression(plan);
-        newGroupExpression.setChildren(childrenGroups);
+        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
         return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
@@ -388,13 +387,15 @@ public class Memo {
         }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
-            List<Group> children = groupExpression.children();
+            List<Group> children = new ArrayList<>(groupExpression.children());
             // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
                     children.set(i, destination);
                 }
             }
+            groupExpression.setChildren(ImmutableList.copyOf(children));
+
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
@@ -487,14 +488,14 @@ public class Memo {
 
     /**
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
-     *
+     * <p>
      * the scenario is:
      * ```
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
      * ```
-     *
+     * <p>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -43,7 +44,7 @@ public class GroupExpression {
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;
-    private List<Group> children;
+    private ImmutableList<Group> children;
     private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
@@ -67,7 +68,7 @@ public class GroupExpression {
     public GroupExpression(Plan plan, List<Group> children) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null")
                 .withGroupExpression(Optional.of(this));
-        this.children = Lists.newArrayList(Objects.requireNonNull(children, "children can not be null"));
+        this.children = ImmutableList.copyOf(Objects.requireNonNull(children, "children can not be null"));
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
         this.lowestCostTable = Maps.newHashMap();
@@ -83,10 +84,6 @@ public class GroupExpression {
 
     public int arity() {
         return children.size();
-    }
-
-    public void addChild(Group child) {
-        children.add(child);
     }
 
     public Group getOwnerGroup() {
@@ -109,7 +106,7 @@ public class GroupExpression {
         return children;
     }
 
-    public void setChildren(List<Group> children) {
+    public void setChildren(ImmutableList<Group> children) {
         this.children = children;
     }
 
@@ -123,6 +120,7 @@ public class GroupExpression {
 
     /**
      * replaceChild.
+     *
      * @param originChild origin child group
      * @param newChild new child group
      */
