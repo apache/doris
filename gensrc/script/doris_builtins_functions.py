@@ -2220,6 +2220,20 @@ visible_functions = [
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],'','', '', 'vec', 'ALWAYS_NULLABLE'],
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'],'','', '', 'vec', 'ALWAYS_NULLABLE'],
 
+    # runningdifference
+    [['running_difference'], 'SMALLINT', ['TINYINT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'INT', ['SMALLINT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'BIGINT', ['INT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'LARGEINT', ['BIGINT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'LARGEINT', ['LARGEINT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DOUBLE', ['FLOAT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DOUBLE', ['DOUBLE'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DECIMALV2', ['DECIMALV2'], '', '', '', 'vec', ''],
+    [['running_difference'], 'INT', ['DATE'], '', '', '', 'vec', ''],
+    [['running_difference'], 'INT', ['DATEV2'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DOUBLE', ['DATETIME'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DOUBLE', ['DATETIMEV2'], '', '', '', 'vec', ''],
+
     # Longtext function
     [['substr', 'substring'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
