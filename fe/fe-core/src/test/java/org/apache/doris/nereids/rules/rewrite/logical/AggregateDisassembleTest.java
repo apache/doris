@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -76,7 +75,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
 
         Expression localOutput0 = rStudent.getOutput().get(2).toSlot();
-        Expression localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
+        Sum localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
@@ -88,15 +87,16 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
                                         .when(agg -> agg.getAggPhase().equals(AggPhase.LOCAL))
                                         .when(agg -> agg.getOutputExpressions().size() == 2)
                                         .when(agg -> agg.getOutputExpressions().get(0).equals(localOutput0))
-                                        .when(agg -> agg.getOutputExpressions().get(1).child(0).equals(localOutput1))
+                                        .when(agg -> agg.getOutputExpressions().get(1).child(0)
+                                                .children().equals(localOutput1.children()))
                                         .when(agg -> agg.getGroupByExpressions().size() == 1)
                                         .when(agg -> agg.getGroupByExpressions().get(0).equals(localGroupBy))
                         ).when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL))
                                 .when(agg -> agg.getOutputExpressions().size() == 2)
                                 .when(agg -> agg.getOutputExpressions().get(0)
                                         .equals(agg.child().getOutputExpressions().get(0).toSlot()))
-                                .when(agg -> agg.getOutputExpressions().get(1).child(0)
-                                        .equals(new Sum(agg.child().getOutputExpressions().get(1).toSlot())))
+                                .when(agg -> agg.getOutputExpressions().get(1).child(0).child(0)
+                                        .equals(agg.child().getOutputExpressions().get(1).toSlot()))
                                 .when(agg -> agg.getGroupByExpressions().size() == 1)
                                 .when(agg -> agg.getGroupByExpressions().get(0)
                                         .equals(agg.child().getOutputExpressions().get(0).toSlot()))
@@ -136,13 +136,14 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
                                 logicalAggregate()
                                         .when(agg -> agg.getAggPhase().equals(AggPhase.LOCAL))
                                         .when(agg -> agg.getOutputExpressions().size() == 1)
-                                        .when(agg -> agg.getOutputExpressions().get(0).child(0).equals(localOutput0))
+                                        .when(agg -> agg.getOutputExpressions().get(0).child(0).child(0)
+                                                .equals(localOutput0.child()))
                                         .when(agg -> agg.getGroupByExpressions().size() == 0)
                         ).when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL))
                                 .when(agg -> agg.getOutputExpressions().size() == 1)
                                 .when(agg -> agg.getOutputExpressions().get(0) instanceof Alias)
-                                .when(agg -> agg.getOutputExpressions().get(0).child(0)
-                                        .equals(new Sum(agg.child().getOutputExpressions().get(0).toSlot())))
+                                .when(agg -> agg.getOutputExpressions().get(0).child(0).child(0)
+                                        .equals(agg.child().getOutputExpressions().get(0).toSlot()))
                                 .when(agg -> agg.getGroupByExpressions().size() == 0)
                                 // check id:
                                 .when(agg -> agg.getOutputExpressions().get(0).getExprId()
@@ -170,7 +171,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
 
         Expression localOutput0 = rStudent.getOutput().get(2).toSlot();
-        Expression localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
+        Sum localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
@@ -182,14 +183,15 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
                                         .when(agg -> agg.getAggPhase().equals(AggPhase.LOCAL))
                                         .when(agg -> agg.getOutputExpressions().size() == 2)
                                         .when(agg -> agg.getOutputExpressions().get(0).equals(localOutput0))
-                                        .when(agg -> agg.getOutputExpressions().get(1).child(0).equals(localOutput1))
+                                        .when(agg -> agg.getOutputExpressions().get(1).child(0).child(0)
+                                                .equals(localOutput1.child()))
                                         .when(agg -> agg.getGroupByExpressions().size() == 1)
                                         .when(agg -> agg.getGroupByExpressions().get(0).equals(localGroupBy))
                         ).when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL))
                                 .when(agg -> agg.getOutputExpressions().size() == 1)
                                 .when(agg -> agg.getOutputExpressions().get(0) instanceof Alias)
-                                .when(agg -> agg.getOutputExpressions().get(0).child(0)
-                                        .equals(new Sum(agg.child().getOutputExpressions().get(1).toSlot())))
+                                .when(agg -> agg.getOutputExpressions().get(0).child(0).child(0)
+                                        .equals(agg.child().getOutputExpressions().get(1).toSlot()))
                                 .when(agg -> agg.getGroupByExpressions().size() == 1)
                                 .when(agg -> agg.getGroupByExpressions().get(0)
                                         .equals(agg.child().getOutputExpressions().get(0).toSlot()))
