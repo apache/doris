@@ -61,7 +61,7 @@ public class ArrayLiteral extends LiteralExpr {
 
         children = new ArrayList<>();
         for (LiteralExpr expr : exprs) {
-            if (expr.getType() == itemType) {
+            if (expr.getType().equals(itemType)) {
                 children.add(expr);
             } else {
                 children.add(expr.castTo(itemType));
@@ -170,3 +170,4 @@ public class ArrayLiteral extends LiteralExpr {
         }
     }
 }
+

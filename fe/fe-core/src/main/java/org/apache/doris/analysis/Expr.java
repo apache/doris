@@ -1373,8 +1373,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
         if (!Type.canCastTo(this.type, targetType)) {
-            throw new AnalysisException("type not match, originType=" + this.type
-                    + ", targeType=" + targetType);
+            throw new AnalysisException("can not cast from origin type " + this.type
+                    + "to target type=" + targetType);
 
         }
         return uncheckedCastTo(targetType);
@@ -2022,4 +2022,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             child.materializeSrcExpr();
         }
     }
+
+    // This is only for transactional insert operation,
+    // to check it the given value in insert stmt is LiteralExpr.
+    // And if we write "1" to a boolean column, there will be a cast(1 as boolean) expr,
+    // which is also accepted.
+    public boolean isLiteralOrCastExpr() {
+        if (this instanceof CastExpr) {
+            return children.get(0) instanceof LiteralExpr;
+        } else {
+            return this instanceof LiteralExpr;
+        }
+    }
 }
+

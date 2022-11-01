@@ -573,4 +573,10 @@ public class CastExpr extends Expr {
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
     }
+
+    @Override
+    public String getStringValueForArray() {
+        return children.get(0).getStringValueForArray();
+    }
 }
+

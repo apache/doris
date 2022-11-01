@@ -218,12 +218,16 @@ public class StmtExecutor implements ProfileWriter {
         this.context.setStatementContext(statementContext);
     }
 
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) {
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
         for (Expr expr : cols) {
+            if (!expr.isLiteralOrCastExpr()) {
+                throw new UserException(
+                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
+            }
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
@@ -414,7 +418,9 @@ public class StmtExecutor implements ProfileWriter {
         try {
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
-                throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
+                if (!(parsedStmt instanceof QueryStmt)) {
+                    throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
+                }
             }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
@@ -1777,3 +1783,4 @@ public class StmtExecutor implements ProfileWriter {
         return parsedStmt;
     }
 }
+
