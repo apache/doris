@@ -57,9 +57,12 @@ suite("load") {
             set 'column_separator', '|'
             set 'compress_type', 'GZ'
             set 'columns', columns[i]
+
+            def sf1BucketName = getSf1BucketName()
+            def sf1Endpoint = getSf1Endpoint()
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${context.sf1DataPath}/ssb/sf1/${tableName}.tbl.gz"""
+            file """https://${sf1BucketName}.${sf1Endpoint}/ssb/sf1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 
