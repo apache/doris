@@ -47,4 +47,24 @@ suite("test_aggregate_collect") {
 
     sql """ CREATE TABLE ${tableCTAS} PROPERTIES("replication_num" = "1") AS SELECT 1,collect_list(c_int),collect_set(c_string),collect_list(c_date),collect_set(c_decimal),collect_list(c_string_not_null) FROM ${tableName} """
     qt_select "SELECT * from ${tableCTAS}"
+
+    // topn_array
+    def tableName_12 = "topn_array"
+
+    sql "DROP TABLE IF EXISTS ${tableName_12}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName_12} (
+            id int,
+	          level int
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        ) 
+        """
+    sql "INSERT INTO ${tableName_12} values(1,10), (2,8), (2,10) ,(3,10) ,(5,29) ,(6,8)"
+
+    qt_select43 "select topn_array(level,2) from ${tableName_12}"
+    qt_select43 "select topn_array(level,2,100) from ${tableName_12}"   
+    sql "DROP TABLE IF EXISTS ${tableName_12}"    
 }
