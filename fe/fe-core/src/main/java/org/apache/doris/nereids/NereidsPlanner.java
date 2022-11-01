@@ -132,7 +132,7 @@ public class NereidsPlanner extends Planner {
 
         // cost-based optimize and explore plan space
         optimize();
-        LOG.warn(getRoot().treeString());
+        LOG.warn(cascadesContext.getMemo().toString());
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
 
         // post-process physical plan out of memo, just for future use.
