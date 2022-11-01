@@ -59,6 +59,14 @@ public:
         }
     }
 
+    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (_is_null) {
+            return statistic.first->is_null() && statistic.second->is_null();
+        } else {
+            return !statistic.first->is_null() && !statistic.second->is_null();
+        }
+    }
+
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if (_is_null) {
             return bf->test_bytes(nullptr, 0);

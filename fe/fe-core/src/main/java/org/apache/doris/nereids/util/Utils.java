@@ -174,7 +174,7 @@ public class Utils {
     public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
-        correlatedPredicates.stream().forEach(predicate -> {
+        correlatedPredicates.forEach(predicate -> {
             if (!(predicate instanceof BinaryExpression)) {
                 throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
             }
