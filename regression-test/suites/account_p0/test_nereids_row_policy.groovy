@@ -18,9 +18,32 @@ suite("test_nereids_row_policy") {
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "nereids_row_policy"
     def user='row_policy_user'
+    def tokens = context.config.jdbcUrl.split('/')
+    def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
 
-    sql "set enable_nereids_planner = true"
+    def assertQueryResult = { size, enableNereids=true ->
+        def result = connect(user=user, password='123456', url=url) {
+            sql "set enable_nereids_planner = ${enableNereids}"
+            sql "SELECT * FROM ${tableName}"
+        }
+        assertEquals(result.size(), size)
+    }
 
+    def createPolicy = { name, predicate, enableNereids=true ->
+        sql "set enable_nereids_planner = ${enableNereids}"
+        sql """
+            CREATE ROW POLICY ${name} ON ${dbName}.${tableName}
+            AS RESTRICTIVE TO ${user} USING (${predicate})
+        """
+    }
+
+    def dropPolciy = { name ->
+        sql """
+            DROP ROW POLICY ${name} ON ${dbName}.${tableName} FOR ${user}
+        """
+    }
+
+    // create table
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
             CREATE TABLE ${tableName} (
@@ -30,58 +53,39 @@ suite("test_nereids_row_policy") {
             PROPERTIES ('replication_num' = '1')
     """
     sql """
-        insert into ${tableName} values (1,1), (2,1), (3,3), (4,4);
+        insert into ${tableName} values (1,1), (2,1), (1,3);
     """
-
+    // create user
     sql "DROP USER IF EXISTS ${user}"
     sql "CREATE USER ${user} IDENTIFIED BY '123456'"
     sql "GRANT SELECT_PRIV ON internal.${dbName}.${tableName} TO ${user}"
 
-    def tokens = context.config.jdbcUrl.split('/')
-    def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
 
-    // no row policy
-    def result1 = connect(user=user, password='123456', url=url) {
-        sql "SELECT * FROM ${tableName}"
-    }
-    assertEquals(result1.size(), 4)
+    // no policy
+    assertQueryResult 3
 
+    // create original policy
+    createPolicy"original", "k = 1", false
+    assertQueryResult 2
 
-    // policy1: v = 1
-    sql """
-        CREATE ROW POLICY test_row_policy_1 ON ${dbName}.${tableName}
-        AS RESTRICTIVE TO ${user} USING (v = 1)
-    """
-    def result2 = connect(user=user, password='123456', url=url) {
-        sql "SELECT * FROM ${tableName}"
-    }
-    assertEquals(result2.size(), 2)
+    // merge nereids policy1. result: original policy (k=1 && v=1)
+    createPolicy"policy1", "v = 1"
+    assertQueryResult 1
 
-    // policy2: k = 1
-    sql """
-	CREATE ROW POLICY test_row_policy_2 ON ${dbName}.${tableName}
-	AS RESTRICTIVE TO ${user} USING (k = 1)
-    """
-    def result3 = connect(user=user, password='123456', url=url) {
-        sql "SELECT * FROM ${tableName}"
-    }
-    assertEquals(result3.size(), 1)
+    // drop original policy. result: nereids policy (v=1)
+    dropPolciy "original"
+    assertQueryResult 2
 
-    // drop policy1
-    sql """
-	DROP ROW POLICY test_row_policy_1 ON ${dbName}.${tableName} FOR ${user}
-    """
-    def result4 = connect(user=user, password='123456', url=url) {
-        sql "SELECT * FROM ${tableName}"
-    }
-    assertEquals(result4.size(), 1)
+    // merger neredis policy2. result: nereids policy (v=1 && k=1)
+    createPolicy"policy2", "k = 1"
+    assertQueryResult 1
 
-   // drop policy2
-    sql """
-	DROP ROW POLICY test_row_policy_2 ON ${dbName}.${tableName} FOR ${user}
-    """
-    def result5 = connect(user=user, password='123456', url=url) {
-        sql "SELECT * FROM ${tableName}"
-    }
-    assertEquals(result5.size(), 4)
+    // drop neredis policy1. result: nereids policy (k=1)
+    dropPolciy "policy1"
+    assertQueryResult 2
+
+   // drop neredis policy2
+    dropPolciy"policy2"
+    assertQueryResult 3
+
 }

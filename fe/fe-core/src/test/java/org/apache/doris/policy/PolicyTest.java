@@ -254,7 +254,7 @@ public class PolicyTest extends TestWithFeService {
         dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
         connectContext.getSessionVariable().setEnableNereidsPlanner(false);
 
-        // mmerge1: original + origin -> origin
+        // mmerge1: original + original -> original
         RowPolicy policy1 = originalPolicy.clone();
         policy1.mergeByAnd(originalPolicy);
         Assertions.assertNull(policy1.getNereidsPredicate());
@@ -275,7 +275,7 @@ public class PolicyTest extends TestWithFeService {
         policy3.mergeByOr(nereidsPolicy);
         Assertions.assertNull(policy3.getNereidsPredicate());
 
-        // merge4: nereids + origin -> original
+        // merge4: nereids + original -> original
         RowPolicy policy4 = nereidsPolicy.clone();
         policy4.mergeByAnd(originalPolicy);
         Assertions.assertNull(policy4.getNereidsPredicate());
