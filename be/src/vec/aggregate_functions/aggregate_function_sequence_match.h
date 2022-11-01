@@ -134,30 +134,10 @@ public:
 
         UInt32 conditions_met_value = conditions_met.to_ulong();
         write_binary(conditions_met_value, buf);
-        UInt32 conditions_in_pattern_value= conditions_in_pattern.to_ulong();
-        write_binary(conditions_in_pattern_value, buf);
-
-        write_binary(pattern_has_time, buf);
 
         write_binary(pattern, buf);
         write_binary(arg_count, buf);
-        write_binary(init_flag, buf);
-
-        write_binary(actions.size(),buf);
         
-        for(const auto & action:actions){
-            write_binary(action.type,buf);
-            write_binary(action.extra,buf);
-        }
-
-        write_binary(dfa_states.size(),buf);
-        
-        for(const auto & dfa_state:dfa_states){
-            write_binary(dfa_state.has_kleene,buf);
-            write_binary(dfa_state.event,buf);
-            write_binary(dfa_state.transition,buf);
-        }
-
     }
 
     void read(BufferReadable & buf)
@@ -185,55 +165,9 @@ public:
         read_binary(conditions_met_value, buf);
         conditions_met = conditions_met_value;
 
-        UInt32 conditions_in_pattern_value;
-        read_binary(conditions_in_pattern_value, buf);
-        conditions_in_pattern= conditions_in_pattern_value;
-
-        read_binary(pattern_has_time, buf);
-
         read_binary(pattern, buf);
         read_binary(arg_count, buf);
-        read_binary(init_flag, buf);
-
-        size_t actions_size ;
-        read_binary(actions_size,buf);
-        actions.clear();
-        actions.reserve(actions_size);
-
-        for (size_t i = 0; i < actions_size; ++i){
-            PatternActionType type;
-            read_binary(type, buf);
-
-            std::uint64_t extra;
-            read_binary(extra, buf);
-
-            PatternAction action(type, extra);
-            actions.emplace_back(action);
-        }
-
-        size_t dfa_states_size ;
-        read_binary(dfa_states_size,buf);
-        dfa_states.clear() ;
-        dfa_states.reserve(dfa_states_size);
-
-        for (size_t i = 0; i < dfa_states_size; ++i){
-            bool has_kleene;
-            read_binary(has_kleene, buf);
-
-            uint32_t event;
-            read_binary(event, buf);
-
-            DFATransition transition;
-            read_binary(transition, buf);
-
-            DFAState dfa_state;
-            dfa_state.has_kleene = has_kleene;
-            dfa_state.event= event;
-            dfa_state.transition= transition;
-
-            dfa_states.emplace_back(dfa_state);
-        }
-
+        
     }
 
     private:
@@ -760,6 +694,8 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
         auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
+        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
+        LOG(WARNING) << this->data(place).conditions_met.to_string();
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
             output.push_back(false);
