@@ -902,7 +902,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
                                    _join_op == TJoinOp::FULL_OUTER_JOIN ||
                                    _join_op == TJoinOp::RIGHT_ANTI_JOIN;
     const bool probe_dispose_null =
-            _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+            _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+            _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN;
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
