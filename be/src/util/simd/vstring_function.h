@@ -144,7 +144,15 @@ public:
         } else {
             for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
                 char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-                std::copy(str.ptr + i, str.ptr + i + char_size, dst.ptr + str.len - i - char_size);
+                // there exists occasion where the last character is an illegal UTF-8 one which returns
+                // a char_size larger than the actual space, which would cause offset execeeding the buffer range
+                // for example, consider str.len=4, i = 3, then the last char returns char_size 2, then
+                // the str.ptr + offset would exceed the buffer range
+                size_t offset = i + char_size;
+                if (offset > str.len) {
+                    offset = str.len;
+                }
+                std::copy(str.ptr + i, str.ptr + offset, dst.ptr + str.len - offset);
             }
         }
     }
