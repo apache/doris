@@ -56,4 +56,9 @@ public class LargeIntLiteral extends Literal {
                     "Can not convert to legacy literal: " + value, e);
         }
     }
+
+    @Override
+    public double getDouble() {
+        return value.doubleValue();
+    }
 }

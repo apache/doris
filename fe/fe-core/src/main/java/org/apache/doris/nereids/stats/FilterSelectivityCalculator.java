@@ -99,8 +99,9 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
         if (columnStats == null) {
             throw new RuntimeException("FilterSelectivityCalculator - col stats not found: " + left);
         }
-        ColumnStat newStats = new ColumnStat(1, columnStats.getAvgSizeByte(), columnStats.getMaxSizeByte(), 0,
-                Double.parseDouble(literal.getValue().toString()), Double.parseDouble(literal.getValue().toString()));
+        ColumnStat newStats = new ColumnStat(1, columnStats.getAvgSizeByte(),
+                columnStats.getMaxSizeByte(), 0,
+                literal.getDouble(), literal.getDouble());
         newStats.setSelectivity(1.0 / columnStats.getNdv());
         slotRefToStats.put(left, newStats);
         double ndv = columnStats.getNdv();
