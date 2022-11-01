@@ -108,12 +108,12 @@ public class InsertArrayStmtTest {
         Assert.assertSame(PrimitiveType.INT, ((ArrayType) arrayLiteral.getType()).getItemType().getPrimitiveType());
 
         connectContext.setQueryId(new TUniqueId(3, 0));
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "type not match",
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "can not cast from origin type",
                 () -> parseAndAnalyze("insert into test.table1 values (1, [[1, 2], [3, 4]]);"));
     }
 
     @Test
-    public void testInsertArrayStmt2() throws Exception {
+    public void testTransactionalInsert() throws Exception {
         Config.enable_new_load_scan_node = true;
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("CREATE TABLE test.`txn_insert_tbl` (\n"
