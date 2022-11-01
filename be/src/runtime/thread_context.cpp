@@ -79,7 +79,9 @@ AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker
     thread_context()->_thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
 }
 
-AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(const std::shared_ptr<MemTracker>& mem_tracker) : _mem_tracker(mem_tracker) {
+AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(
+        const std::shared_ptr<MemTracker>& mem_tracker)
+        : _mem_tracker(mem_tracker) {
     thread_context()->_thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
 }
 
