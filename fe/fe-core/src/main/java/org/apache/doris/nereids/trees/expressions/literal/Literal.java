@@ -95,7 +95,11 @@ public abstract class Literal extends Expression implements LeafExpression {
      * @return double representation of literal.
      */
     public double getDouble() {
-        return Double.parseDouble(getValue().toString());
+        try {
+            return Double.parseDouble(getValue().toString());
+        } catch (Exception e) {
+            return 0.0;
+        }
     }
 
     public String getStringValue() {
