@@ -29,27 +29,14 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
-import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TExternalScanRange;
-import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.THdfsParams;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TScanRange;
-import org.apache.doris.thrift.TScanRangeLocation;
-import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
@@ -59,7 +46,6 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.mapred.FileInputFormat;
-import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
@@ -75,7 +61,7 @@ import java.util.stream.Collectors;
 /**
  * A HiveScanProvider to get information for scan node.
  */
-public class HiveScanProvider implements HMSTableScanProviderIf {
+public class HiveScanProvider extends HMSTableScanProvider {
     private static final Logger LOG = LogManager.getLogger(HiveScanProvider.class);
 
     private static final String PROP_FIELD_DELIMITER = "field.delim";
@@ -84,8 +70,6 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
 
     protected HMSExternalTable hmsTable;
 
-    protected int inputSplitNum = 0;
-    protected long inputFileSize = 0;
     protected final TupleDescriptor desc;
 
     public HiveScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc) {
@@ -260,128 +244,19 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
     }
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
-        try {
-            List<InputSplit> inputSplits = getSplits(context.conjuncts);
-            this.inputSplitNum = inputSplits.size();
-            if (inputSplits.isEmpty()) {
-                return;
-            }
-
-            String fullPath = ((FileSplit) inputSplits.get(0)).getPath().toUri().toString();
-            String filePath = ((FileSplit) inputSplits.get(0)).getPath().toUri().getPath();
-            String fsName = fullPath.replace(filePath, "");
-            TFileType locationType = getLocationType();
-            context.params.setFileType(locationType);
-            TFileFormatType fileFormatType = getFileFormatType();
-            context.params.setFormatType(getFileFormatType());
-            if (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
-                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-                String columnSeparator
-                        = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
-                        .getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER);
-                textParams.setColumnSeparator(columnSeparator);
-                textParams.setLineDelimiter(DEFAULT_LINE_DELIMITER);
-                TFileAttributes fileAttributes = new TFileAttributes();
-                fileAttributes.setTextParams(textParams);
-                context.params.setFileAttributes(fileAttributes);
-            }
-
-            // set hdfs params for hdfs file type.
-            Map<String, String> locationProperties = getLocationProperties();
-            if (locationType == TFileType.FILE_HDFS) {
-                THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(locationProperties);
-                tHdfsParams.setFsName(fsName);
-                context.params.setHdfsParams(tHdfsParams);
-            } else if (locationType == TFileType.FILE_S3) {
-                context.params.setProperties(locationProperties);
-            }
-
-            TScanRangeLocations curLocations = newLocations(context.params, backendPolicy);
-
-            FileSplitStrategy fileSplitStrategy = new FileSplitStrategy();
-
-            for (InputSplit split : inputSplits) {
-                FileSplit fileSplit = (FileSplit) split;
-                List<String> pathPartitionKeys = getPathPartitionKeys();
-                List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
-                        pathPartitionKeys, false);
-
-                TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
-
-                curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-                LOG.info(
-                        "Assign to backend " + curLocations.getLocations().get(0).getBackendId() + " with table split: "
-                                + fileSplit.getPath() + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")"
-                                + " loaction: " + Joiner.on("|").join(split.getLocations()));
-
-                fileSplitStrategy.update(fileSplit);
-                // Add a new location when it's can be split
-                if (fileSplitStrategy.hasNext()) {
-                    scanRangeLocations.add(curLocations);
-                    curLocations = newLocations(context.params, backendPolicy);
-                    fileSplitStrategy.next();
-                }
-                this.inputFileSize += fileSplit.getLength();
-            }
-            if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
-                scanRangeLocations.add(curLocations);
-            }
-        } catch (IOException e) {
-            throw new UserException(e);
-        }
+    public String getColumnSeparator() throws UserException {
+        return hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
+                .getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER);
     }
 
     @Override
-    public int getInputSplitNum() {
-        return this.inputSplitNum;
+    public String getLineSeparator() {
+        return DEFAULT_LINE_DELIMITER;
     }
 
     @Override
-    public long getInputFileSize() {
-        return this.inputFileSize;
-    }
-
-    private TScanRangeLocations newLocations(TFileScanRangeParams params, BackendPolicy backendPolicy) {
-        // Generate on file scan range
-        TFileScanRange fileScanRange = new TFileScanRange();
-        fileScanRange.setParams(params);
-
-        // Scan range
-        TExternalScanRange externalScanRange = new TExternalScanRange();
-        externalScanRange.setFileScanRange(fileScanRange);
-        TScanRange scanRange = new TScanRange();
-        scanRange.setExtScanRange(externalScanRange);
-
-        // Locations
-        TScanRangeLocations locations = new TScanRangeLocations();
-        locations.setScanRange(scanRange);
-
-        TScanRangeLocation location = new TScanRangeLocation();
-        Backend selectedBackend = backendPolicy.getNextBe();
-        location.setBackendId(selectedBackend.getId());
-        location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
-        locations.addToLocations(location);
-
-        return locations;
-    }
-
-    private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-                                               List<String> columnsFromPathKeys)
-            throws DdlException, MetaNotFoundException {
-        TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        rangeDesc.setStartOffset(fileSplit.getStart());
-        rangeDesc.setSize(fileSplit.getLength());
-        rangeDesc.setColumnsFromPath(columnsFromPath);
-        rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
-
-        if (getLocationType() == TFileType.FILE_HDFS) {
-            rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (getLocationType() == TFileType.FILE_S3) {
-            rangeDesc.setPath(fileSplit.getPath().toString());
-        }
-        return rangeDesc;
+    public String getHeaderType() {
+        return "";
     }
 
 }

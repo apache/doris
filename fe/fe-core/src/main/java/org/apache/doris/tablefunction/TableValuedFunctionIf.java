@@ -30,12 +30,15 @@ import org.apache.doris.thrift.TTVFunctionName;
 import java.util.List;
 
 public abstract class TableValuedFunctionIf {
+    private FunctionGenTable table = null;
 
     public abstract TTVFunctionName getFunctionName();
 
     public FunctionGenTable getTable() throws AnalysisException {
-        FunctionGenTable table = new FunctionGenTable(-1, getTableName(), TableIf.TableType.TABLE_VALUED_FUNCTION,
-                                getTableColumns());
+        if (table == null) {
+            table = new FunctionGenTable(-1, getTableName(), TableIf.TableType.TABLE_VALUED_FUNCTION,
+                    getTableColumns(), this);
+        }
         return table;
     }
 

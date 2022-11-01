@@ -15,19 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.planner.external;
 
-#include <gen_cpp/internal_service.pb.h>
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 
-#include "common/status.h"
-#include "io/file_reader.h"
-namespace doris {
+import org.apache.hadoop.hive.metastore.api.Table;
 
-class FormatSchemaParser {
-public:
-    FormatSchemaParser() = default;
-    virtual ~FormatSchemaParser() = default;
-    virtual Status open(const std::unique_ptr<FileReader>& file_reader) = 0;
-    virtual Status parse(PFetchTableSchemaResult* result) = 0;
-};
-} // namespace doris
+import java.util.Map;
+
+public abstract class HMSTableScanProvider extends QueryScanProvider {
+
+    public abstract String getMetaStoreUrl();
+
+    public abstract Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
+
+    public abstract Map<String, String> getTableProperties() throws MetaNotFoundException;
+}

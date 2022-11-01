@@ -446,6 +446,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     // file_slots is no use
     std::vector<SlotDescriptor*> file_slots;
     std::unique_ptr<vectorized::GenericReader> reader(nullptr);
+    std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
     switch (params.format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
     case TFileFormatType::FORMAT_CSV_GZ:
@@ -453,7 +454,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE: {
-        reader.reset(new vectorized::CsvReader(params, range, file_slots));
+        reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots));
         break;
     }
     default:
@@ -471,6 +472,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         st.to_protobuf(result->mutable_status());
         return;
     }
+    result->set_column_nums(col_names.size());
     for (size_t idx = 0; idx < col_names.size(); ++idx) {
         result->add_column_names(col_names[idx]);
     }
@@ -478,7 +480,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         PTypeDesc* type_desc = result->add_column_types();
         col_types[idx].to_protobuf(type_desc);
     }
-    LOG(INFO) << "--ftw: complete parse, status: " << st;
+    LOG(INFO) << "complete parse, status: " << st;
     st.to_protobuf(result->mutable_status());
 }
 

@@ -260,8 +260,6 @@ set(VEC_FILES
   exec/format/csv/csv_reader.cpp
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
-  exec/table_schema_parser/s3_file_schema_parser.cpp
-  exec/table_schema_parser/csv_format_schema_parser.cpp
   )
 
 add_library(Vec STATIC

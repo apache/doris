@@ -59,17 +59,21 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
 }
 
-CsvReader::CsvReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                     const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs)
-        : _params(params),
+        : _state(nullptr),
+          _profile(profile),
+          _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
           _line_reader(nullptr),
           _line_reader_eof(false),
           _text_converter(nullptr),
           _decompressor(nullptr) {
+    _file_format_type = _params.format_type;
     _file_compress_type = _params.compress_type;
-    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+    _size = _range.size;
 }
 
 CsvReader::~CsvReader() {}
@@ -401,7 +405,8 @@ void CsvReader::_split_line(const Slice& line) {
                     // Match a separator
                     non_space = curpos;
                     // Trim tailing spaces. Be consistent with hive and trino's behavior.
-                    if (_state->trim_tailing_spaces_for_external_table_query()) {
+                    if (_state != nullptr &&
+                        _state->trim_tailing_spaces_for_external_table_query()) {
                         while (non_space > start && *(value + non_space - 1) == ' ') {
                             non_space--;
                         }
@@ -417,7 +422,7 @@ void CsvReader::_split_line(const Slice& line) {
 
         CHECK(curpos == line.size) << curpos << " vs " << line.size;
         non_space = curpos;
-        if (_state->trim_tailing_spaces_for_external_table_query()) {
+        if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
             while (non_space > start && *(value + non_space - 1) == ' ') {
                 non_space--;
             }

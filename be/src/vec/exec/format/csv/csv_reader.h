@@ -35,8 +35,8 @@ public:
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::vector<SlotDescriptor*>& file_slot_descs);
 
-    CsvReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs);
+    CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+              const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs);
     ~CsvReader() override;
 
     Status init_reader(bool is_query);

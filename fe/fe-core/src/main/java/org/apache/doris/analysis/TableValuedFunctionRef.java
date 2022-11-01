@@ -30,9 +30,6 @@ public class TableValuedFunctionRef extends TableRef {
     private Table table;
     private TableValuedFunctionIf tableFunction;
 
-    private String funcName;
-    private List<String> params;
-
     public TableValuedFunctionRef(String funcName, String alias, List<String> params) throws UserException {
         super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
         this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
@@ -40,8 +37,6 @@ public class TableValuedFunctionRef extends TableRef {
             return;
         }
         aliases = new String[] { "_table_valued_function_" + funcName };
-        // this.funcName = funcName;
-        // this.params = params;
     }
 
     public TableValuedFunctionRef(TableValuedFunctionRef other) {
