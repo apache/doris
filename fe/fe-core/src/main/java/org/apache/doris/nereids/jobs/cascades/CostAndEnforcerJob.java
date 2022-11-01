@@ -126,8 +126,12 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 curTotalCost += curNodeCost;
             }
 
+            if (groupExpression.isHasCalculateCost()) {
+                curChildIndex = groupExpression.arity();
+            }
+
             // Handle all child plan node.
-            for (; !groupExpression.isHasCalculateCost() && curChildIndex < groupExpression.arity(); curChildIndex++) {
+            for (; curChildIndex < groupExpression.arity(); curChildIndex++) {
                 PhysicalProperties requestChildProperty = requestChildrenProperties.get(curChildIndex);
                 Group childGroup = groupExpression.child(curChildIndex);
 
