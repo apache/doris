@@ -148,9 +148,9 @@ public class UtFrameUtils {
     }
 
     public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+        FeStartException, NotInitException, DdlException, InterruptedException {
         IOException exception = null;
-        for (int i=0; i<=3; i++) {
+        for (int i = 0; i <= 3; i++) {
             try {
                 return startFEServerWithoutRetry(runningDir);
             } catch (IOException ignore) {
@@ -246,7 +246,7 @@ public class UtFrameUtils {
 
     public static Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
         IOException exception = null;
-        for (int i=0; i<=3; i++) {
+        for (int i = 0; i <= 3; i++) {
             try {
                 return createBackendWithoutRetry(beHost, feRpcPort);
             } catch (IOException ignore) {
