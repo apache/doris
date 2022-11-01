@@ -374,7 +374,7 @@ public class Group {
                     children.add(Pair.of("logicalExpressions", group.getLogicalExpressions()));
                 }
                 if (!group.getPhysicalExpressions().isEmpty()) {
-                    children.add(Pair.of("physicalExpressions", group.getLogicalExpressions()));
+                    children.add(Pair.of("physicalExpressions", group.getPhysicalExpressions()));
                 }
                 return children;
             } else if (obj instanceof GroupExpression) {
