@@ -30,10 +30,16 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
+import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -339,5 +345,23 @@ public class HMSExternalTable extends ExternalTable {
     public Map<String, String> getS3Properties() {
         return catalog.getCatalogProperty().getS3Properties();
     }
+
+
+    public List<Partition> getHivePartitions(ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
+        List<Partition> hivePartitions = new ArrayList<>();
+        IMetaStoreClient client = catalog.getClient();
+        try {
+            client.listPartitionsByExpr(remoteTable.getDbName(), remoteTable.getTableName(),
+                    SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate),
+                    null, (short) -1, hivePartitions);
+        } catch (TException e) {
+            LOG.warn("Hive metastore thrift exception: {}", e);
+            throw new DdlException("Connect hive metastore failed: " + e.getMessage());
+        } finally {
+            client.close();
+        }
+        return hivePartitions;
+    }
+
 }
 

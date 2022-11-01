@@ -141,10 +141,7 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
         if (partitionKeys.size() > 0) {
             ExprNodeGenericFuncDesc hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(exprs,
                     partitionKeys, hmsTable.getName());
-
-            String metaStoreUris = getMetaStoreUrl();
-            hivePartitions.addAll(HiveMetaStoreClientHelper.getHivePartitions(metaStoreUris, getRemoteHiveTable(),
-                    hivePartitionPredicate));
+            hivePartitions.addAll(hmsTable.getHivePartitions(hivePartitionPredicate));
         }
 
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();
