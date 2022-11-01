@@ -64,13 +64,19 @@ struct AggregateFunctionSequenceMatchData final
     using Comparator = ComparePairFirst<std::less>;
 
     AggregateFunctionSequenceMatchData(){
-        LOG(WARNING) << "Construct";
     }
 
 public:
+    const std::string get_pattern() const{
+        return pattern;
+    }
+
+    size_t get_arg_count() const{
+        return arg_count;
+    }
+    
     void init(const std::string pattern, size_t arg_count){
         if (!init_flag){
-            LOG(WARNING) << "init";
             this->pattern = pattern;
             this->arg_count = arg_count;
             parsePattern();
@@ -79,7 +85,6 @@ public:
     }
 
     void reset() {
-        LOG(WARNING) << "reset";
         sorted = true;
         init_flag=false;
         conditions_met.reset();
@@ -99,9 +104,6 @@ public:
 
     void merge(const AggregateFunctionSequenceMatchData & other)
     {
-        LOG(WARNING) << "merge";
-        LOG(WARNING) << conditions_met.to_string();
-        LOG(WARNING) << conditions_in_pattern.to_string();
         if (other.events_list.empty())
             return;
 
@@ -121,7 +123,6 @@ public:
 
     void write(BufferWritable& buf) const
     {
-        LOG(WARNING) << "write";
         write_binary(sorted, buf);
         write_binary(events_list.size(), buf);
 
@@ -131,10 +132,8 @@ public:
             write_binary(events.second.to_ulong(), buf);
         }
 
-        LOG(WARNING) << conditions_met.to_string();
         UInt32 conditions_met_value = conditions_met.to_ulong();
         write_binary(conditions_met_value, buf);
-        LOG(WARNING) << conditions_in_pattern.to_string();
         UInt32 conditions_in_pattern_value= conditions_in_pattern.to_ulong();
         write_binary(conditions_in_pattern_value, buf);
 
@@ -149,7 +148,6 @@ public:
         for(const auto & action:actions){
             write_binary(action.type,buf);
             write_binary(action.extra,buf);
-            LOG(WARNING) << std::to_string(action.extra);
         }
 
         write_binary(dfa_states.size(),buf);
@@ -164,7 +162,6 @@ public:
 
     void read(BufferReadable & buf)
     {
-        LOG(WARNING) << "read";
         read_binary(sorted, buf);
 
         size_t events_list_size;
@@ -187,12 +184,10 @@ public:
         UInt32 conditions_met_value;
         read_binary(conditions_met_value, buf);
         conditions_met = conditions_met_value;
-        LOG(WARNING) << conditions_met.to_string();
 
         UInt32 conditions_in_pattern_value;
         read_binary(conditions_in_pattern_value, buf);
         conditions_in_pattern= conditions_in_pattern_value;
-        LOG(WARNING) << conditions_in_pattern.to_string();
 
         read_binary(pattern_has_time, buf);
 
@@ -211,7 +206,6 @@ public:
 
             std::uint64_t extra;
             read_binary(extra, buf);
-            LOG(WARNING) << std::to_string(extra);
 
             PatternAction action(type, extra);
             actions.emplace_back(action);
@@ -339,7 +333,6 @@ public:
                     UInt64 event_number = 0;
                     const auto * prev_pos = pos;
                     pos = try_read_first_int_text(event_number, pos, end);
-                    LOG(WARNING) << "111111111"+std::to_string(event_number);
                     if (pos == prev_pos)
                         throw_exception("Could not parse number");
 
@@ -371,9 +364,6 @@ public:
             else
                 throw_exception("Could not parse pattern, unexpected starting symbol");
         }
-        LOG(WARNING) << "bbbbb";
-        LOG(WARNING) <<std::to_string(dfa_states.size());
-        LOG(WARNING) <<std::to_string(actions.size());
     }
 
 public:
@@ -389,16 +379,12 @@ public:
     bool dfaMatch(EventEntry & events_it, const EventEntry events_end) const
     {
         using ActiveStates = std::vector<bool>;
-        LOG(WARNING) << "aaaa";
         /// Those two vectors keep track of which states should be considered for the current
         /// event as well as the states which should be considered for the next event.
-        LOG(WARNING) <<std::to_string(dfa_states.size());
         ActiveStates active_states(dfa_states.size(), false);
         ActiveStates next_active_states(dfa_states.size(), false);
         active_states[0] = true;
 
-        LOG(WARNING) <<std::to_string(dfa_states.size());
-        LOG(WARNING) <<std::to_string(actions.size());
         /// Keeps track of dead-ends in order not to iterate over all the events to realize that
         /// the match failed.
         size_t n_active = 1;
@@ -716,9 +702,6 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn ** columns, const size_t row_num, Arena *) const override
     {
-        LOG(WARNING) << "add add ";
-        LOG(WARNING) << this->data(place).conditions_met.to_string();
-        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
         std::string pattern = assert_cast<const ColumnString *>(columns[0])->get_data_at(0).to_string() ;
         this->data(place).init(pattern, arg_count);
 
@@ -737,9 +720,9 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena *) const override
     {
-        LOG(WARNING) << "merge merge";
-        LOG(WARNING) << this->data(place).conditions_met.to_string();
-        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
+        const std::string pattern=this->data(rhs).get_pattern();
+        size_t arg_count=this->data(rhs).get_arg_count();
+        this->data(place).init(pattern,arg_count);
         this->data(place).merge(this->data(rhs));
     }
 
@@ -751,9 +734,6 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena *) const override
     {
         this->data(place).read(buf);
-        LOG(WARNING) << "deserialize";
-        LOG(WARNING) << this->data(place).conditions_met.to_string();
-        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
     }
 
 private:
@@ -779,15 +759,10 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
-        LOG(WARNING) << "insert";
         auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
-        LOG(WARNING) << this->data(place).conditions_met.to_string();
-        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
-            LOG(WARNING) << "false";
             output.push_back(false);
-            LOG(WARNING) << output.size();
             return;
         }
         this->data(const_cast<AggregateDataPtr>(place)).sort();
@@ -798,12 +773,9 @@ public:
         const auto events_end = std::end(data_ref.events_list);
         auto events_it = events_begin;
 
-        LOG(WARNING) << "match ?";
-        LOG(WARNING) << this->data(place).pattern_has_time;
         bool match = (this->data(place).pattern_has_time ?
             (this->data(place).couldMatchDeterministicParts(events_begin, events_end) && this->data(place).backtrackingMatch(events_it, events_end)) :
             this->data(place).dfaMatch(events_it, events_end));
-        LOG(WARNING) << "match !";
         output.push_back(match);
     }
 };
