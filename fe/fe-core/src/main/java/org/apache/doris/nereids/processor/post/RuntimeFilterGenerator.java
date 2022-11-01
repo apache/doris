@@ -22,10 +22,14 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+<<<<<<< HEAD
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+=======
+>>>>>>> 1. runtime filter prune
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -36,6 +40,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.ColumnStat;
+import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableSet;
@@ -106,6 +113,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                                 slots.second, slots.first, type,
                                 cnt.getAndIncrement(), join);
+                        ctx.addJoinToTargetMap(join, slots.first.getExprId());
                         ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
                         ctx.setTargetsOnScanNode(
                                 aliasTransferMap.get((Slot) normalizedChildren.first).first,
@@ -113,6 +121,45 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     }));
         }
         return join;
+    }
+
+    /**
+     * consider L join R on L.a=R.b
+     * runtime-filter: L.a<-R.b is effective,
+     * if R.b.selectivity<1 or b is partly covered by a
+     *
+     * TODO: min-max
+     * @param equalTo join condition
+     * @param join join node
+     * @return true if runtime-filter is effective
+     */
+    private boolean isEffectiveRuntimeFilter(EqualTo equalTo, PhysicalHashJoin join) {
+        if (!ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
+            return true;
+        }
+        StatsDeriveResult leftStats = ((AbstractPlan) join.child(0)).getStats();
+        StatsDeriveResult rightStats = ((AbstractPlan) join.child(1)).getStats();
+        Set<Slot> leftSlots = equalTo.child(0).getInputSlots();
+        if (leftSlots.size() > 1) {
+            return false;
+        }
+        Set<Slot> rightSlots = equalTo.child(1).getInputSlots();
+        if (rightSlots.size() > 1) {
+            return false;
+        }
+        Slot leftSlot = leftSlots.iterator().next();
+        Slot rightSlot = rightSlots.iterator().next();
+        ColumnStat probeColumnStat = leftStats.getColumnStatsBySlot(leftSlot);
+        ColumnStat buildColumnStat = rightStats.getColumnStatsBySlot(rightSlot);
+        //TODO remove these code when we ensure left child if from probe side
+        if (probeColumnStat == null || buildColumnStat == null) {
+            probeColumnStat = leftStats.getColumnStatsBySlot(rightSlot);
+            buildColumnStat = rightStats.getColumnStatsBySlot(leftSlot);
+            if (probeColumnStat == null || buildColumnStat == null) {
+                return false;
+            }
+        }
+        return buildColumnStat.getSelectivity() < 1 || probeColumnStat.coverage(buildColumnStat) < 1;
     }
 
     // TODO: support src key is agg slot.
