@@ -35,6 +35,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Job to compute cost and add enforcer.
@@ -115,13 +116,21 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
         if (groupExpression.isHasCalculateCost()) {
             for (List<PhysicalProperties> list : requestChildrenPropertiesList) {
+                System.out.println(list);
+                System.out.println(groupExpression.children().stream().map(p -> p.getLowestCostPlans().keySet())
+                        .collect(Collectors.toList()));
                 for (curChildIndex = 0; curChildIndex < groupExpression.arity(); curChildIndex++) {
-                    lowestCostChildren.add(groupExpression.child(curChildIndex)
-                            .getLowestCostPlan(list.get(curChildIndex)).get().second);
+                    try {
+                        lowestCostChildren.add(groupExpression.child(curChildIndex)
+                                .getLowestCostPlan(list.get(curChildIndex)).get().second);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 }
                 if (!calculateEnforce(list)) {
                     return;
                 }
+                clear();
             }
             return;
         }

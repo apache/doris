@@ -273,6 +273,10 @@ public class Group {
         return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
     }
 
+    public Map<PhysicalProperties, Pair<Double, GroupExpression>> getLowestCostPlans() {
+        return lowestCostPlans;
+    }
+
     /**
      * Get the first Plan from Memo.
      */
