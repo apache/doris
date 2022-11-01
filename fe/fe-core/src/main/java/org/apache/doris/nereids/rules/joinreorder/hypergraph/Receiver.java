@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join.hypergraph;
+package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -26,7 +26,7 @@ import java.util.BitSet;
 import java.util.HashMap;
 
 /**
- * The Receiver is used for cached the plan that has been emit and build the new plan
+ * The Receiver is used for cached the plan that has been emitted and build the new plan
  */
 public class Receiver {
     // limit define the max number of csg-cmp pair in this Receiver
@@ -60,7 +60,7 @@ public class Receiver {
 
     public void addPlan(Node node) {
         BitSet bitSet = new BitSet();
-        bitSet.set(node.index);
+        bitSet.set(node.getIndex());
         planMap.put(bitSet, node.getPlan());
     }
 

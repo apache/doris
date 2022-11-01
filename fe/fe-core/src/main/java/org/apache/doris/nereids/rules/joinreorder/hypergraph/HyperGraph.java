@@ -15,14 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join.hypergraph;
+package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -64,17 +66,31 @@ public class HyperGraph {
     }
 
     private void buildGraph(Plan plan) {
-        if (!(plan instanceof LogicalJoin)) {
+        if ((plan instanceof LogicalProject && plan.child(0) instanceof GroupPlan)
+                || plan instanceof GroupPlan) {
             nodes.add(new Node(nodes.size(), plan));
             return;
         }
-        LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin<? extends Plan, ? extends Plan>) plan;
-        // Now we only support inner join
+
+        LogicalJoin<? extends Plan, ? extends Plan> join;
+        if (plan instanceof LogicalProject) {
+            LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) plan;
+            join = (LogicalJoin<? extends Plan, ? extends Plan>) project.child();
+
+            // Handle project
+            // Ignore the projection expression just using for selection column.
+            // TODO: how to handle Alias and complex project expression
+        } else {
+            join = (LogicalJoin<? extends Plan, ? extends Plan>) plan;
+        }
+
+        // Now we only support inner join with Inside-Project
         // TODO: Other joins can be added according CD-C algorithm
         if (join.getJoinType() != JoinType.INNER_JOIN) {
             nodes.add(new Node(nodes.size(), plan));
             return;
         }
+
         buildGraph(join.left());
         buildGraph(join.right());
         addEdge(join);
@@ -83,9 +99,9 @@ public class HyperGraph {
     private BitSet findNode(Set<Slot> slots) {
         BitSet bitSet = new BitSet();
         for (Node node : nodes) {
-            for (Slot slot : node.plan.getOutput()) {
+            for (Slot slot : node.getPlan().getOutput()) {
                 if (slots.contains(slot)) {
-                    bitSet.set(node.index);
+                    bitSet.set(node.getIndex());
                     break;
                 }
             }
@@ -124,7 +140,7 @@ public class HyperGraph {
         builder.append(String.format("digraph G {  # %d edges\n", edges.size() / 2));
         List<String> graphvisNodes = new ArrayList<>();
         for (Node node : nodes) {
-            String nodeName = node.plan.getType().name() + node.index;
+            String nodeName = node.getPlan().getType().name() + node.getIndex();
             // nodeID is used to identify the node with the same name
             String nodeID = nodeName;
             while (graphvisNodes.contains(nodeID)) {
