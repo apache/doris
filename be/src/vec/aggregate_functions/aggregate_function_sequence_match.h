@@ -63,11 +63,26 @@ struct AggregateFunctionSequenceMatchData final
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
 
+public:
     bool sorted = true;
     PODArrayWithStackMemory<TimestampEvents, 64> events_list;
-    /// sequenceMatch conditions met at least once in events_list
+    // sequenceMatch conditions met at least once in events_list
     std::bitset<max_events> conditions_met;
+    // sequenceMatch conditions met at least once in the pattern
+    std::bitset<max_events> conditions_in_pattern;
+    // `True` if the parsed pattern contains time assertions (?t...), `false` otherwise.
+    bool pattern_has_time;
+  
 
+private:
+    std::string pattern;
+    size_t arg_count;
+    bool init_flag = false;
+
+    PatternActions actions;
+    DFAStates dfa_states;
+
+public:
     void init(const std::string pattern, size_t arg_count){
         if (!init_flag){
             this->pattern = pattern;
@@ -125,6 +140,19 @@ struct AggregateFunctionSequenceMatchData final
             write_binary(events.first, buf);
             write_binary(events.second.to_ulong(), buf);
         }
+
+        UInt32 condition_met_value = condition_met.to_ulong();
+        write_binary(condition_met_value, buf);
+        UInt32 condition_in_pattern_value= condition_int_pattern.to_ulong();
+        write_binary(condition_in_pattern_value, buf);
+
+        write_binary(pattern_has_time, buf)
+
+        write_binary(pattern, buf)
+        write_binary(arg_count, buf)
+        write_binary(init_flag, buf)
+
+
     }
 
     void read(BufferReadable & buf)
@@ -148,6 +176,20 @@ struct AggregateFunctionSequenceMatchData final
 
             events_list.emplace_back(timestamp, Events{events});
         }
+
+        UInt32 condition_met_value;
+        read_binary(condition_met_value, buf);
+        condition_met = condition_met_value;
+
+        UInt32 condition_in_pattern_value;
+        read_binary(condition_in_pattern_value, buf);
+        condition_in_pattern= condition_in_pattern_value;
+
+        read_binary(pattern_has_time, buf);
+
+        read_binary(pattern, buf);
+        read_binary(arg_count, buf);
+        read_binary(init_flag, buf);
     }
 
     private:
@@ -586,19 +628,6 @@ private:
 
     using DFAStates = std::vector<DFAState>;
 
-public:
-    /// `True` if the parsed pattern contains time assertions (?t...), `false` otherwise.
-    bool pattern_has_time;
-    /// sequenceMatch conditions met at least once in the pattern
-    std::bitset<max_events> conditions_in_pattern;
-
-private:
-    std::string pattern;
-    size_t arg_count;
-    PatternActions actions;
-
-    DFAStates dfa_states;
-    bool init_flag = false;
 };
 
 
