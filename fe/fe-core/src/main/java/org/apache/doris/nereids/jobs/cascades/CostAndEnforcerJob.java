@@ -116,6 +116,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         if (groupExpression.isHasCalculateCost()) {
             for (List<PhysicalProperties> list : requestChildrenPropertiesList) {
                 boolean flag = false;
+                clear();
                 for (curChildIndex = 0; curChildIndex < groupExpression.arity(); curChildIndex++) {
                     Optional<Pair<Double, GroupExpression>> optLowestPlan = groupExpression.child(curChildIndex)
                             .getLowestCostPlan(list.get(curChildIndex));
@@ -131,7 +132,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 if (!calculateEnforce(list)) {
                     return;
                 }
-                clear();
             }
             return;
         }
