@@ -94,11 +94,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return columns;
     }
 
-    @Override
-    public List<TableValuedFunctionTask> getTasks() throws AnalysisException {
-        return null;
-    }
-
     private void fillColumns(InternalService.PFetchTableSchemaResult result, List<Column> columns)
                             throws AnalysisException {
         if (result.getColumnNums() == 0) {

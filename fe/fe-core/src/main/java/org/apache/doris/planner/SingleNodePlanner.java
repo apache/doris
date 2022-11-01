@@ -1936,8 +1936,9 @@ public class SingleNodePlanner {
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), (JdbcTable) tblRef.getTable());
                 break;
             case TABLE_VALUED_FUNCTION:
-                scanNode = new TableValuedFunctionScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
-                        "TableValuedFunctionScanNode", ((TableValuedFunctionRef) tblRef).getTableFunction());
+                // scanNode = new TableValuedFunctionScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
+                //         "TableValuedFunctionScanNode", ((TableValuedFunctionRef) tblRef).getTableFunction());
+                scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
                 break;
             case HMS_EXTERNAL_TABLE:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());

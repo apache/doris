@@ -17,8 +17,10 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
@@ -88,7 +90,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     @Override
-    public ScanNode getScanNode() {
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
         return null;
     }
 
