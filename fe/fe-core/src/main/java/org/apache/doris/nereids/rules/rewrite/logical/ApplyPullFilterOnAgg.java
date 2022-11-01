@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
  * <p>
  * Use the correlated column as the group by column of agg,
  * the output column is the correlated column and the input column.
- * <p>
+ * <pre>
  * before:
  *              apply
  *          /              \
@@ -55,6 +55,7 @@ import java.util.stream.Collectors;
  * Input(output:b)    agg(output:fn,this.f; group by:this.f)
  *                              |
  *                    Filter(Uncorrelated predicate)
+ * </pre>
  */
 public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
     @Override

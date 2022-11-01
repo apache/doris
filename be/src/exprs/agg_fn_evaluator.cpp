@@ -18,15 +18,6 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/agg-fn-evaluator.cc
 // and modified by Doris
 
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warray-bounds"
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Warray-bounds"
-#pragma GCC diagnostic ignored "-Wstringop-overflow="
-#endif
-
 #include "exprs/agg_fn_evaluator.h"
 
 #include <thrift/protocol/TDebugProtocol.h>
@@ -957,9 +948,3 @@ std::string AggFnEvaluator::debug_string() const {
 }
 
 } // namespace doris
-
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic pop
-#endif

@@ -2772,6 +2772,17 @@ visible_functions = [
     [['grouping'], 'BIGINT', ['BIGINT'],
         '_ZN5doris21GroupingSetsFunctions8groupingEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',
         '' ,'', 'vec', 'ALWAYS_NOT_NULLABLE'],
+
+    # url functions
+    [['domain'], 'STRING', ['STRING'],
+        'fake_symble_for_no_vec', '', '',
+        'vec', ''],
+    [['domain_without_www'], 'STRING', ['STRING'],
+        'fake_symble_for_no_vec', '', '',
+        'vec', ''],
+    [['protocol'], 'STRING', ['STRING'],
+        'fake_symble_for_no_vec', '', '',
+        'vec', ''],
 ]
 
 # Except the following functions, other function will directly return
