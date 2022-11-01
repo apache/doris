@@ -17,6 +17,7 @@
 
 #include "runtime/fragment_mgr.h"
 
+#include <bvar/latency_recorder.h>
 #include <gperftools/profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -44,6 +45,7 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "service/brpc_conflict.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
@@ -58,6 +60,7 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
+bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -659,7 +662,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         exec_state->set_need_wait_execution_trigger();
     }
 
-    RETURN_IF_ERROR(exec_state->prepare(params));
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        RETURN_IF_ERROR(exec_state->prepare(params));
+    }
+    g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     _runtimefilter_controller.add_entity(params, &handler, exec_state->executor()->runtime_state());
