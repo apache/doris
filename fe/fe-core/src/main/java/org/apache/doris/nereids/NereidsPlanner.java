@@ -178,6 +178,7 @@ public class NereidsPlanner extends Planner {
      * try to find best plan under the guidance of statistic information and cost model.
      */
     private void optimize() {
+        System.out.print("=============>new task\n");
         new OptimizeRulesJob(cascadesContext).execute();
     }
 

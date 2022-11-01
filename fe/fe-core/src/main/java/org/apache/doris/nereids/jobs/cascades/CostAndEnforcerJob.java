@@ -118,7 +118,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // Get one from List<request property to children>
             // like: [ Properties {"", ANY}, Properties {"", BROADCAST} ],
             List<PhysicalProperties> requestChildrenProperties
-                    = Lists.newArrayList(requestChildrenPropertiesList.get(requestPropertiesIndex));
+                    = requestChildrenPropertiesList.get(requestPropertiesIndex);
 
             // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
