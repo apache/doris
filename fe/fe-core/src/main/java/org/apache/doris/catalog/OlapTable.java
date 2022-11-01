@@ -1934,6 +1934,8 @@ public class OlapTable extends Table {
 
     // for index meta
     public void initIndexUniqueId() {
-        indexes.initIndexUniqueId();
+        if (indexes != null) {
+            indexes.initIndexUniqueId();
+        }
     }
 }
