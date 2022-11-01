@@ -98,6 +98,8 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
 
     /**
      * Split onCondition into two part.
+     * True: contains B.
+     * False: just contains A C.
      */
     private static Map<Boolean, List<Expression>> splitConjuncts(List<Expression> topConjuncts,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin, List<Expression> bottomConjuncts) {
@@ -105,12 +107,9 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
         // Split topJoin hashCondition to two part according to include B.
         Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
                 .collect(Collectors.partitioningBy(topHashOn -> {
-                    Set<Slot> usedSlot = topHashOn.collect(Slot.class::isInstance);
-                    // TODO: tmp check.
-                    Preconditions.checkArgument(
-                            !(ExpressionUtils.isIntersecting(bottomJoin.left().getOutputSet(), usedSlot)
-                                    && ExpressionUtils.isIntersecting(bottomJoin.right().getOutputSet(), usedSlot)));
-                    return ExpressionUtils.isIntersecting(bottomJoin.right().getOutputSet(), usedSlot);
+                    Set<Slot> usedSlot = topHashOn.getInputSlots();
+                    Set<Slot> bOutputSet = bottomJoin.right().getOutputSet();
+                    return ExpressionUtils.isIntersecting(bOutputSet, usedSlot);
                 }));
         // * don't include B, just include (A C)
         // we add it into newBottomJoin HashJoinConjuncts.

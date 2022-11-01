@@ -18,12 +18,19 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
@@ -171,5 +178,57 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                                 && join.getHashJoinConjuncts().size() == 2)
                 )
                 .printlnExploration();
+    }
+
+    @Test
+    public void testComplexConjuncts() {
+        List<Expression> bottomHashJoinConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
+        List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)),
+                new EqualTo(scan2.getOutput().get(0), new Add(scan1.getOutput().get(0), scan3.getOutput().get(0))));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(scan1.getOutput().get(1), scan3.getOutput().get(1)),
+                new GreaterThan(scan2.getOutput().get(0), new Add(scan1.getOutput().get(0), scan3.getOutput().get(0))));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
+                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .build();
+
+        // test for no exception
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build());
+    }
+
+    @Test
+    public void testComplexConjunctsWithSubString() {
+        List<Expression> bottomHashJoinConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
+        List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)),
+                new EqualTo(scan2.getOutput().get(0), new Add(scan1.getOutput().get(0), scan3.getOutput().get(0))));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(scan1.getOutput().get(1), scan3.getOutput().get(1)),
+                new Not(new EqualTo(new Substring(scan1.getOutput().get(1),
+                        new Cast(new StringLiteral("1"), IntegerType.INSTANCE),
+                        new Cast(new StringLiteral("3"), IntegerType.INSTANCE)),
+                        Literal.of("abc"))));
+
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
+                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build());
     }
 }

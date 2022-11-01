@@ -94,6 +94,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     List<Expression> newTopHashJoinConjuncts = splitHashJoinConjuncts.get(true);
                     Preconditions.checkState(!newTopHashJoinConjuncts.isEmpty(),
                             "LAsscom newTopHashJoinConjuncts join can't empty");
+                    // When newTopHashJoinConjuncts.size() != bottomJoin.getHashJoinConjuncts().size()
+                    // It means that topHashJoinConjuncts contain A, B, C, we should LAsscom.
                     if (topJoin.getJoinType() != bottomJoin.getJoinType()
                             && newTopHashJoinConjuncts.size() != bottomJoin.getHashJoinConjuncts().size()) {
                         return null;
@@ -139,8 +141,10 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     newTopOtherJoinConjuncts = JoinUtils.replaceJoinConjuncts(
                             newTopOtherJoinConjuncts, inputToOutput);
 
-                    Preconditions.checkState(newBottomHashJoinConjuncts != null && newTopHashJoinConjuncts != null
-                            && newBottomOtherJoinConjuncts != null && newTopOtherJoinConjuncts != null);
+                    if (newBottomHashJoinConjuncts == null || newTopHashJoinConjuncts == null
+                            || newBottomOtherJoinConjuncts == null || newTopOtherJoinConjuncts == null) {
+                        return null;
+                    }
 
                     // Add all slots used by OnCondition when projects not empty.
                     Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
