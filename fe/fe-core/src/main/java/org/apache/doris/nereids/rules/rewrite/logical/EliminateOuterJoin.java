@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Eliminate out join.
+ * Eliminate outer join.
  */
 public class EliminateOuterJoin extends OneRewriteRuleFactory {
 
