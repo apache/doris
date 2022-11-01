@@ -63,28 +63,14 @@ struct AggregateFunctionSequenceMatchData final
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
 
-public:
-    bool sorted = true;
-    PODArrayWithStackMemory<TimestampEvents, 64> events_list;
-    // sequenceMatch conditions met at least once in events_list
-    std::bitset<max_events> conditions_met;
-    // sequenceMatch conditions met at least once in the pattern
-    std::bitset<max_events> conditions_in_pattern;
-    // `True` if the parsed pattern contains time assertions (?t...), `false` otherwise.
-    bool pattern_has_time;
-  
-
-private:
-    std::string pattern;
-    size_t arg_count;
-    bool init_flag = false;
-
-    PatternActions actions;
-    DFAStates dfa_states;
+    AggregateFunctionSequenceMatchData(){
+        LOG(WARNING) << "Construct";
+    }
 
 public:
     void init(const std::string pattern, size_t arg_count){
         if (!init_flag){
+            LOG(WARNING) << "init";
             this->pattern = pattern;
             this->arg_count = arg_count;
             parsePattern();
@@ -93,6 +79,7 @@ public:
     }
 
     void reset() {
+        LOG(WARNING) << "reset";
         sorted = true;
         init_flag=false;
         conditions_met.reset();
@@ -112,6 +99,9 @@ public:
 
     void merge(const AggregateFunctionSequenceMatchData & other)
     {
+        LOG(WARNING) << "merge";
+        LOG(WARNING) << conditions_met.to_string();
+        LOG(WARNING) << conditions_in_pattern.to_string();
         if (other.events_list.empty())
             return;
 
@@ -141,17 +131,34 @@ public:
             write_binary(events.second.to_ulong(), buf);
         }
 
-        UInt32 condition_met_value = condition_met.to_ulong();
-        write_binary(condition_met_value, buf);
-        UInt32 condition_in_pattern_value= condition_int_pattern.to_ulong();
-        write_binary(condition_in_pattern_value, buf);
+        LOG(WARNING) << conditions_met.to_string();
+        UInt32 conditions_met_value = conditions_met.to_ulong();
+        write_binary(conditions_met_value, buf);
+        LOG(WARNING) << conditions_in_pattern.to_string();
+        UInt32 conditions_in_pattern_value= conditions_in_pattern.to_ulong();
+        write_binary(conditions_in_pattern_value, buf);
 
-        write_binary(pattern_has_time, buf)
+        write_binary(pattern_has_time, buf);
 
-        write_binary(pattern, buf)
-        write_binary(arg_count, buf)
-        write_binary(init_flag, buf)
+        write_binary(pattern, buf);
+        write_binary(arg_count, buf);
+        write_binary(init_flag, buf);
 
+        write_binary(actions.size(),buf);
+        
+        for(const auto & action:actions){
+            write_binary(action.type,buf);
+            write_binary(action.extra,buf);
+            LOG(WARNING) << std::to_string(action.extra);
+        }
+
+        write_binary(dfa_states.size(),buf);
+        
+        for(const auto & dfa_state:dfa_states){
+            write_binary(dfa_state.has_kleene,buf);
+            write_binary(dfa_state.event,buf);
+            write_binary(dfa_state.transition,buf);
+        }
 
     }
 
@@ -160,13 +167,13 @@ public:
         LOG(WARNING) << "read";
         read_binary(sorted, buf);
 
-        size_t size;
-        read_binary(size, buf);
+        size_t events_list_size;
+        read_binary(events_list_size, buf);
 
         events_list.clear();
-        events_list.reserve(size);
+        events_list.reserve(events_list_size);
 
-        for (size_t i = 0; i < size; ++i)
+        for (size_t i = 0; i < events_list_size; ++i)
         {
             Timestamp timestamp;
             read_binary(timestamp, buf);
@@ -177,19 +184,62 @@ public:
             events_list.emplace_back(timestamp, Events{events});
         }
 
-        UInt32 condition_met_value;
-        read_binary(condition_met_value, buf);
-        condition_met = condition_met_value;
+        UInt32 conditions_met_value;
+        read_binary(conditions_met_value, buf);
+        conditions_met = conditions_met_value;
+        LOG(WARNING) << conditions_met.to_string();
 
-        UInt32 condition_in_pattern_value;
-        read_binary(condition_in_pattern_value, buf);
-        condition_in_pattern= condition_in_pattern_value;
+        UInt32 conditions_in_pattern_value;
+        read_binary(conditions_in_pattern_value, buf);
+        conditions_in_pattern= conditions_in_pattern_value;
+        LOG(WARNING) << conditions_in_pattern.to_string();
 
         read_binary(pattern_has_time, buf);
 
         read_binary(pattern, buf);
         read_binary(arg_count, buf);
         read_binary(init_flag, buf);
+
+        size_t actions_size ;
+        read_binary(actions_size,buf);
+        actions.clear();
+        actions.reserve(actions_size);
+
+        for (size_t i = 0; i < actions_size; ++i){
+            PatternActionType type;
+            read_binary(type, buf);
+
+            std::uint64_t extra;
+            read_binary(extra, buf);
+            LOG(WARNING) << std::to_string(extra);
+
+            PatternAction action(type, extra);
+            actions.emplace_back(action);
+        }
+
+        size_t dfa_states_size ;
+        read_binary(dfa_states_size,buf);
+        dfa_states.clear() ;
+        dfa_states.reserve(dfa_states_size);
+
+        for (size_t i = 0; i < dfa_states_size; ++i){
+            bool has_kleene;
+            read_binary(has_kleene, buf);
+
+            uint32_t event;
+            read_binary(event, buf);
+
+            DFATransition transition;
+            read_binary(transition, buf);
+
+            DFAState dfa_state;
+            dfa_state.has_kleene = has_kleene;
+            dfa_state.event= event;
+            dfa_state.transition= transition;
+
+            dfa_states.emplace_back(dfa_state);
+        }
+
     }
 
     private:
@@ -628,6 +678,24 @@ private:
 
     using DFAStates = std::vector<DFAState>;
 
+public:
+    bool sorted = true;
+    PODArrayWithStackMemory<TimestampEvents, 64> events_list;
+    // sequenceMatch conditions met at least once in events_list
+    std::bitset<max_events> conditions_met;
+    // sequenceMatch conditions met at least once in the pattern
+    std::bitset<max_events> conditions_in_pattern;
+    // `True` if the parsed pattern contains time assertions (?t...), `false` otherwise.
+    bool pattern_has_time;
+  
+
+private:
+    std::string pattern;
+    size_t arg_count;
+    bool init_flag = false;
+
+    PatternActions actions;
+    DFAStates dfa_states;
 };
 
 
@@ -648,6 +716,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn ** columns, const size_t row_num, Arena *) const override
     {
+        LOG(WARNING) << "add add ";
+        LOG(WARNING) << this->data(place).conditions_met.to_string();
+        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
         std::string pattern = assert_cast<const ColumnString *>(columns[0])->get_data_at(0).to_string() ;
         this->data(place).init(pattern, arg_count);
 
@@ -666,6 +737,9 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena *) const override
     {
+        LOG(WARNING) << "merge merge";
+        LOG(WARNING) << this->data(place).conditions_met.to_string();
+        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
         this->data(place).merge(this->data(rhs));
     }
 
@@ -677,6 +751,9 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena *) const override
     {
         this->data(place).read(buf);
+        LOG(WARNING) << "deserialize";
+        LOG(WARNING) << this->data(place).conditions_met.to_string();
+        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
     }
 
 private:
@@ -704,8 +781,8 @@ public:
     {
         LOG(WARNING) << "insert";
         auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
-        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
         LOG(WARNING) << this->data(place).conditions_met.to_string();
+        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
             LOG(WARNING) << "false";
