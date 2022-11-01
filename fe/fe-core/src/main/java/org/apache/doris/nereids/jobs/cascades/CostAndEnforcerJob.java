@@ -120,18 +120,19 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 System.out.printf("dbg2: %s\n", groupExpression.children()
                         .stream().map(p -> p.getLowestCostPlans().keySet())
                         .collect(Collectors.toList()));
+                boolean flag = true;
                 for (curChildIndex = 0; curChildIndex < groupExpression.arity(); curChildIndex++) {
-                    try {
-                        lowestCostChildren.add(groupExpression.child(curChildIndex)
-                                .getLowestCostPlan(list.get(curChildIndex)).get().second);
-                    } catch (Exception e) {
-                        System.out.printf("dbg4: %s\n", list.get(curChildIndex));
+                    Optional<Pair<Double, GroupExpression>> optLowestPlan = groupExpression.child(curChildIndex)
+                            .getLowestCostPlan(list.get(curChildIndex));
+                    if (!optLowestPlan.isPresent()) {
+                        flag = false;
+                        break;
                     }
+                    lowestCostChildren.add(optLowestPlan.get().second);
                 }
-                if (!calculateEnforce(list)) {
+                if (flag && !calculateEnforce(list)) {
                     return;
                 }
-                clear();
             }
             return;
         }
@@ -197,12 +198,11 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 if (curTotalCost < context.getCostUpperBound()) {
                     context.setCostUpperBound(curTotalCost);
                 }
-                groupExpression.setHasCalculateCost(true);
             }
-
             clear();
         }
         System.out.printf("dbg3: %s\n", requestChildrenPropertiesList);
+        groupExpression.setHasCalculateCost(true);
     }
 
     private boolean calculateEnforce(List<PhysicalProperties> requestChildrenProperties) {
