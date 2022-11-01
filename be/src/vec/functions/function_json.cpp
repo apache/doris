@@ -557,6 +557,7 @@ public:
 
         for (int i = 0; i < input_rows_count; i++) {
             buf.Clear();
+            writer.Reset(buf);
             objects[i].Accept(writer);
             result_column.insert_data(buf.GetString(), buf.GetSize());
         }
