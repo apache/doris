@@ -20,6 +20,7 @@
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -117,6 +118,11 @@ private:
             }
         }
         return new_size;
+    }
+
+    std::string _inner_debug_string() override {
+        std::string info = "BloomFilterColumnPredicate(" + type_to_string(T) + ")";
+        return info;
     }
 
     std::shared_ptr<BloomFilterFuncBase> _filter;

@@ -536,6 +536,12 @@ private:
         }
     }
 
+    std::string _inner_debug_string() override {
+        std::string info =
+                "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
+        return info;
+    }
+
     phmap::flat_hash_set<T> _values;
     mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
     T _min_value;

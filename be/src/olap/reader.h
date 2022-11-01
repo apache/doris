@@ -147,6 +147,8 @@ public:
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
+    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+
 protected:
     friend class CollectIterator;
     friend class vectorized::VCollectIterator;

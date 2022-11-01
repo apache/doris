@@ -25,11 +25,12 @@ namespace doris::vectorized {
 
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, bool need_agg_finalize,
-                               const TPaloScanRange& scan_range)
+                               const TPaloScanRange& scan_range, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1) {
+          _version(-1),
+          _profile(profile) {
     _tablet_schema = std::make_shared<TabletSchema>();
 }
 
@@ -121,6 +122,8 @@ Status NewOlapScanner::open(RuntimeState* state) {
            << ", backend=" << BackendOptions::get_localhost();
         return Status::InternalError(ss.str());
     }
+
+    _tablet_reader->update_profile(_profile);
     return Status::OK();
 }
 
@@ -299,6 +302,9 @@ Status NewOlapScanner::_init_return_columns(bool need_seq_col) {
 }
 
 Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    if (!_profile_updated) {
+        _profile_updated = _tablet_reader->update_profile(_profile);
+    }
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
@@ -342,9 +348,7 @@ void NewOlapScanner::_update_realtime_counters() {
 }
 
 void NewOlapScanner::_update_counters_before_close() {
-    if (!_state->enable_profile()) return;
-
-    if (_has_updated_counter) {
+    if (!_state->enable_profile() || _has_updated_counter) {
         return;
     }
     _has_updated_counter = true;
