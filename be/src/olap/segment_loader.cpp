@@ -24,6 +24,7 @@
 namespace doris {
 
 SegmentLoader* SegmentLoader::_s_instance = nullptr;
+static const std::string LOCAL_FILE_CACHE_KEY_PREFIX = "local_file_cache_";
 
 void SegmentLoader::create_global_instance(size_t capacity) {
     DCHECK(_s_instance == nullptr);
@@ -35,8 +36,8 @@ SegmentLoader::SegmentLoader(size_t capacity) {
     _cache = std::unique_ptr<Cache>(new_lru_cache("SegmentCache", capacity, LRUCacheType::NUMBER));
 }
 
-bool SegmentLoader::_lookup(const SegmentLoader::CacheKey& key, SegmentCacheHandle* handle) {
-    auto lru_handle = _cache->lookup(key.encode());
+bool SegmentLoader::_lookup(const std::string& key, SegmentCacheHandle* handle) {
+    auto lru_handle = _cache->lookup(key);
     if (lru_handle == nullptr) {
         return false;
     }
@@ -44,7 +45,7 @@ bool SegmentLoader::_lookup(const SegmentLoader::CacheKey& key, SegmentCacheHand
     return true;
 }
 
-void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::CacheValue& value,
+void SegmentLoader::_insert(const std::string& key, SegmentLoader::CacheValue& value,
                             SegmentCacheHandle* handle) {
     auto deleter = [](const doris::CacheKey& key, void* value) {
         SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*)value;
@@ -52,28 +53,35 @@ void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::C
         delete cache_value;
     };
 
-    auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentLoader::CacheValue),
+    auto lru_handle = _cache->insert(key, &value, sizeof(SegmentLoader::CacheValue),
                                      deleter, CachePriority::NORMAL);
     *handle = SegmentCacheHandle(_cache.get(), lru_handle);
 }
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
-                                    SegmentCacheHandle* cache_handle, bool use_cache) {
+                                    SegmentCacheHandle* cache_handle, bool use_cache,
+                                    bool use_local_file_cache) {
     SegmentLoader::CacheKey cache_key(rowset->rowset_id());
-    if (_lookup(cache_key, cache_handle)) {
+    std::string key = "";
+    if (use_local_file_cache) {
+        key = fmt::format("{}{}", LOCAL_FILE_CACHE_KEY_PREFIX, cache_key.encode());
+    } else {
+        key = cache_key.encode();
+    }
+    if (_lookup(key, cache_handle)) {
         cache_handle->owned = false;
         return Status::OK();
     }
     cache_handle->owned = !use_cache;
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_NOT_OK(rowset->load_segments(&segments));
+    RETURN_NOT_OK(rowset->load_segments(use_local_file_cache, &segments));
 
     if (use_cache) {
         // memory of SegmentLoader::CacheValue will be handled by SegmentLoader
         SegmentLoader::CacheValue* cache_value = new SegmentLoader::CacheValue();
         cache_value->segments = std::move(segments);
-        _insert(cache_key, *cache_value, cache_handle);
+        _insert(key, *cache_value, cache_handle);
     } else {
         cache_handle->segments = std::move(segments);
     }

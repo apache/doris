@@ -101,6 +101,8 @@ public:
         bool read_orderby_key_reverse = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
+        // use local cache when reading remote file.
+        bool use_local_file_cache = false;
 
         void check_validation() const;
 

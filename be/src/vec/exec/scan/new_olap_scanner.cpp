@@ -250,6 +250,8 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
+    // use local file cache from remote file when select operation is called.
+    _tablet_reader_params.use_local_file_cache = true;
     return Status::OK();
 }
 

@@ -96,7 +96,8 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
     return Status::OK();
 }
 
-Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
+Status BetaRowset::load_segments(bool use_local_file_cache,
+                                 std::vector<segment_v2::SegmentSharedPtr>* segments) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
@@ -105,7 +106,8 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
         auto seg_path = segment_file_path(seg_id);
         auto cache_path = segment_cache_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, &segment);
+        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema,
+                                           use_local_file_cache, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
                          << unique_id() << " : " << s.to_string();
@@ -124,7 +126,7 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
     }
     auto seg_path = segment_file_path(seg_id);
     auto cache_path = segment_cache_path(seg_id);
-    auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, segment);
+    auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, false, segment);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
                      << " : " << s.to_string();
@@ -291,7 +293,8 @@ bool BetaRowset::check_current_rowset_segment() {
         auto seg_path = segment_file_path(seg_id);
         auto cache_path = segment_cache_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, &segment);
+        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, false,
+                                           &segment);
         if (!s.ok()) {
             LOG(WARNING) << "segment can not be opened. file=" << seg_path;
             return false;

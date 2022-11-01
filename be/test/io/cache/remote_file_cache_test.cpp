@@ -142,7 +142,7 @@ protected:
         EXPECT_EQ("", writer.min_encoded_key().to_string());
         EXPECT_EQ("", writer.max_encoded_key().to_string());
 
-        st = segment_v2::Segment::open(fs, path, "", 0, query_schema, res);
+        st = segment_v2::Segment::open(fs, path, "", 0, query_schema, false, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }
@@ -172,7 +172,7 @@ protected:
         rowset.rowset_meta()->set_rowset_id(rowset_id);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(&segments);
+        Status st = rowset.load_segments(false, &segments);
         ASSERT_TRUE(st.ok());
     }
 };

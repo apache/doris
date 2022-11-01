@@ -1936,6 +1936,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_context.is_vec = config::enable_vectorized_alter_table;
             reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
+            reader_context.use_local_file_cache = false;
             for (auto& rs_reader : rs_readers) {
                 res = rs_reader->init(&reader_context);
                 if (!res) {
