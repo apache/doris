@@ -138,7 +138,6 @@ public class FEFunctions {
             dateLiteral.setType(ScalarType.getDefaultDateType(dateLiteral.getType()));
             return dateLiteral;
         } catch (InvalidFormatException e) {
-            e.printStackTrace();
             throw new AnalysisException(e.getMessage());
         }
     }
