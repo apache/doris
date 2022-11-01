@@ -82,7 +82,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
         if (groupExpression.getPlan() instanceof PhysicalHashJoin) {
-            cache.put(groupExpression, copy(requestPropertyToChildren));
+            cache.put(groupExpression, requestPropertyToChildren);
         }
         return requestPropertyToChildren;
     }
