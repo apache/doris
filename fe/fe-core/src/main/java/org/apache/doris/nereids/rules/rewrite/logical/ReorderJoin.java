@@ -74,6 +74,9 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             Preconditions.checkState(plan instanceof MultiJoin);
             MultiJoin multiJoin = (MultiJoin) plan;
             Plan after = multiJoinToJoin(multiJoin);
+            if (after.equals(filter)) {
+                return null;
+            }
             return after;
         }).toRule(RuleType.REORDER_JOIN);
     }
