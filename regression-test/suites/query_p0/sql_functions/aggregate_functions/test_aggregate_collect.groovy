@@ -55,16 +55,20 @@ suite("test_aggregate_collect") {
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName_12} (
             id int,
-	          level int
+	          level int,
+            dt datev2,
+            num decimal(27,9)
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
           "replication_num" = "1"
         ) 
         """
-    sql "INSERT INTO ${tableName_12} values(1,10), (2,8), (2,10) ,(3,10) ,(5,29) ,(6,8)"
+    sql "INSERT INTO ${tableName_12} values(1,10,'2022-11-1',6.8754576), (2,8,'2022-11-3',0.576), (2,10,'2022-11-2',1.234) ,(3,10,'2022-11-2',0.576) ,(5,29,'2022-11-2',6.8754576) ,(6,8,'2022-11-1',6.8754576)"
 
     qt_select43 "select topn_array(level,2) from ${tableName_12}"
-    qt_select43 "select topn_array(level,2,100) from ${tableName_12}"   
-    sql "DROP TABLE IF EXISTS ${tableName_12}"    
+    qt_select44 "select topn_array(level,2,100) from ${tableName_12}" 
+    qt_select45 "select topn_array(dt,2,100) from ${tableName_12}"  
+    qt_select46 "select topn_array(num,2,100) from ${tableName_12}"  
+    //sql "DROP TABLE IF EXISTS ${tableName_12}"    
 }
