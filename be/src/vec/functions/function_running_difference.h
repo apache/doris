@@ -1,4 +1,3 @@
-#pragma once
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,24 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/number_traits.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_time_v2.h"
-#include "vec/data_types/data_type_date_time.h"
+#pragma once
+
 #include "common/status.h"
-#include "vec/common/assert_cast.h"
-#include "vec/functions/function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
-#include "vec/functions/simple_function_factory.h"
-#include "vec/columns/column.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/number_traits.h"
+#include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
@@ -52,7 +53,8 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
 
     template <typename SrcFieldType>
-    using DstFieldType = typename NumberTraits::ResultOfSubtraction<SrcFieldType, SrcFieldType>::Type;
+    using DstFieldType =
+            typename NumberTraits::ResultOfSubtraction<SrcFieldType, SrcFieldType>::Type;
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         bool is_nullable = arguments[0]->is_nullable();
         auto nested_type = remove_nullable(arguments[0]);
@@ -72,29 +74,25 @@ public:
             return_type = std::make_shared<DataTypeFloat64>();
         } else if (which.is_decimal()) {
             return_type = nested_type;
-        }
-        else if(which.is_date_time()||which.is_date_time_v2()){
-            return_type=std::make_shared<DataTypeFloat64>();
-        }
-        else if(which.is_date()||which.is_date_v2()){
-            return_type=std::make_shared<DataTypeInt32>();
+        } else if (which.is_date_time() || which.is_date_time_v2()) {
+            return_type = std::make_shared<DataTypeFloat64>();
+        } else if (which.is_date() || which.is_date_v2()) {
+            return_type = std::make_shared<DataTypeInt32>();
         }
 
         return_type = is_nullable ? make_nullable(return_type) : return_type;
         const ColumnsWithTypeAndName subtract_cols {{nullptr, arguments[0], "first_arg"},
                                                     {nullptr, arguments[0], "second_arg"}};
-        if(which.is_date_time()||which.is_date_time_v2()){
-            func_subtract = SimpleFunctionFactory::instance().get_function("timediff", subtract_cols,
-                                                                       return_type);   
+        if (which.is_date_time() || which.is_date_time_v2()) {
+            func_subtract = SimpleFunctionFactory::instance().get_function(
+                    "timediff", subtract_cols, return_type);
+        } else if (which.is_date() || which.is_date_v2()) {
+            func_subtract = SimpleFunctionFactory::instance().get_function(
+                    "datediff", subtract_cols, return_type);
+        } else {
+            func_subtract = SimpleFunctionFactory::instance().get_function(
+                    "subtract", subtract_cols, return_type);
         }
-        else if(which.is_date()||which.is_date_v2()){
-            func_subtract = SimpleFunctionFactory::instance().get_function("datediff", subtract_cols,
-                                                                       return_type);   
-        }
-        else{
-            func_subtract = SimpleFunctionFactory::instance().get_function("subtract", subtract_cols,
-                                                                       return_type);
-        }                                     
         func_return_type = return_type;
         return return_type;
     }
@@ -137,4 +135,4 @@ private:
     std::string last_value;
 };
 
-}
+} // namespace doris::vectorized
