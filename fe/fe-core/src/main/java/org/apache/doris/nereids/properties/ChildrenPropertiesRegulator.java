@@ -58,6 +58,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         this.jobContext = jobContext;
     }
 
+    /**
+     * adjust children properties
+     * @return enforce cost.
+     */
     public double adjustChildrenProperties() {
         return parent.getPlan().accept(this, null);
     }

@@ -50,8 +50,12 @@ public class GroupExpression {
     private boolean statDerived;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
+    // key is the physical properties the group expression support for its parent
+    // and value is cost and request physical properties to its children.
     private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
     // Each physical group expression maintains mapping incoming requests to the corresponding child requests.
+    // key is the output physical properties satisfying the incoming request properties
+    // value is the request physical properties
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
     private boolean hasCalculateCost = false;
 
@@ -128,6 +132,7 @@ public class GroupExpression {
         originChild.removeParentExpression(this);
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) == originChild) {
+                // the set may copy a new list?
                 children.set(i, newChild);
                 newChild.addParentExpression(this);
             }
@@ -177,6 +182,8 @@ public class GroupExpression {
 
     /**
      * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
+     * if the outputProperties exists, will be covered.
+     * @return true if lowest cost table change.
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
             List<PhysicalProperties> childrenInputProperties, double cost) {
@@ -184,18 +191,15 @@ public class GroupExpression {
             if (lowestCostTable.get(outputProperties).first > cost) {
                 lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
                 return true;
-            } else {
-                return false;
             }
-        } else {
-            lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
-            return true;
+            return false;
         }
+        lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
+        return true;
     }
 
     /**
      * get the lowest cost when satisfy property
-     *
      * @param property property that needs to be satisfied
      * @return Lowest cost to satisfy that property
      */
