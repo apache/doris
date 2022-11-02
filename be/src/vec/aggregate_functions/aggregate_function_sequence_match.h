@@ -21,32 +21,30 @@
 
 #pragma once
 
+#include <bitset>
+
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/io/var_int.h"
 #include "vec/io/io_helper.h"
-#include <bitset>
+#include "vec/io/var_int.h"
 
 namespace doris::vectorized {
 
-namespace ErrorCodes
-{
-    extern const int TOO_SLOW;
-    extern const int SYNTAX_ERROR;
-    extern const int BAD_ARGUMENTS;
-    extern const int LOGICAL_ERROR;
-}  
+namespace ErrorCodes {
+extern const int TOO_SLOW;
+extern const int SYNTAX_ERROR;
+extern const int BAD_ARGUMENTS;
+extern const int LOGICAL_ERROR;
+} // namespace ErrorCodes
 
 template <template <typename> class Comparator>
-struct ComparePairFirst final
-{
+struct ComparePairFirst final {
     template <typename T1, typename T2>
-    bool operator()(const std::pair<T1, T2> & lhs, const std::pair<T1, T2> & rhs) const
-    {
-        return Comparator<T1>{}(lhs.first, rhs.first);
+    bool operator()(const std::pair<T1, T2>& lhs, const std::pair<T1, T2>& rhs) const {
+        return Comparator<T1> {}(lhs.first, rhs.first);
     }
 };
 
@@ -56,28 +54,21 @@ static constexpr size_t max_events = 32;
 constexpr auto sequence_match_max_iterations = 1000000;
 
 template <typename DateValueType, typename NativeType, typename Derived>
-struct AggregateFunctionSequenceMatchData final
-{
+struct AggregateFunctionSequenceMatchData final {
     using Timestamp = DateValueType;
     using Events = std::bitset<max_events>;
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
 
-    AggregateFunctionSequenceMatchData(){
-        reset();
-    }
+    AggregateFunctionSequenceMatchData() { reset(); }
 
 public:
-    const std::string get_pattern() const{
-        return pattern;
-    }
+    const std::string get_pattern() const { return pattern; }
 
-    size_t get_arg_count() const{
-        return arg_count;
-    }
-    
-    void init(const std::string pattern, size_t arg_count){
-        if (!init_flag){
+    size_t get_arg_count() const { return arg_count; }
+
+    void init(const std::string pattern, size_t arg_count) {
+        if (!init_flag) {
             this->pattern = pattern;
             this->arg_count = arg_count;
             parsePattern();
@@ -87,10 +78,10 @@ public:
 
     void reset() {
         sorted = true;
-        init_flag=false;
-        pattern_has_time=false;
-        pattern="";
-        arg_count=0;
+        init_flag = false;
+        pattern_has_time = false;
+        pattern = "";
+        arg_count = 0;
         conditions_met.reset();
         conditions_in_pattern.reset();
 
@@ -99,43 +90,35 @@ public:
         dfa_states.clear();
     }
 
-    void add(const Timestamp &timestamp, const Events & events)
-    {
+    void add(const Timestamp& timestamp, const Events& events) {
         /// store information exclusively for rows with at least one event
-        if (events.any())
-        {
+        if (events.any()) {
             events_list.emplace_back(timestamp, events);
             sorted = false;
             conditions_met |= events;
         }
     }
 
-    void merge(const AggregateFunctionSequenceMatchData & other)
-    {
-        if (other.events_list.empty())
-            return;
+    void merge(const AggregateFunctionSequenceMatchData& other) {
+        if (other.events_list.empty()) return;
 
         events_list.insert(std::begin(other.events_list), std::end(other.events_list));
         sorted = false;
         conditions_met |= other.conditions_met;
     }
 
-    void sort()
-    {
-        if (sorted)
-            return;
+    void sort() {
+        if (sorted) return;
 
-        std::sort(std::begin(events_list), std::end(events_list), Comparator{});
+        std::sort(std::begin(events_list), std::end(events_list), Comparator {});
         sorted = true;
     }
 
-    void write(BufferWritable& buf) const
-    {
+    void write(BufferWritable& buf) const {
         write_binary(sorted, buf);
         write_binary(events_list.size(), buf);
 
-        for (const auto & events : events_list)
-        {
+        for (const auto& events : events_list) {
             write_binary(events.first, buf);
             write_binary(events.second.to_ulong(), buf);
         }
@@ -145,11 +128,9 @@ public:
 
         write_binary(pattern, buf);
         write_binary(arg_count, buf);
-        
     }
 
-    void read(BufferReadable & buf)
-    {
+    void read(BufferReadable& buf) {
         read_binary(sorted, buf);
 
         size_t events_list_size;
@@ -158,15 +139,14 @@ public:
         events_list.clear();
         events_list.reserve(events_list_size);
 
-        for (size_t i = 0; i < events_list_size; ++i)
-        {
+        for (size_t i = 0; i < events_list_size; ++i) {
             Timestamp timestamp;
             read_binary(timestamp, buf);
 
             UInt64 events;
             read_binary(events, buf);
 
-            events_list.emplace_back(timestamp, Events{events});
+            events_list.emplace_back(timestamp, Events {events});
         }
 
         UInt32 conditions_met_value;
@@ -175,12 +155,10 @@ public:
 
         read_binary(pattern, buf);
         read_binary(arg_count, buf);
-        
     }
 
-    private:
-    enum class PatternActionType
-    {
+private:
+    enum class PatternActionType {
         SpecificEvent,
         AnyEvent,
         KleeneStar,
@@ -191,22 +169,20 @@ public:
         TimeEqual
     };
 
-    struct PatternAction final
-    {
+    struct PatternAction final {
         PatternActionType type;
         std::uint64_t extra;
 
         PatternAction() = default;
-        explicit PatternAction(const PatternActionType type_, const std::uint64_t extra_ = 0) : type{type_}, extra{extra_} {}
+        explicit PatternAction(const PatternActionType type_, const std::uint64_t extra_ = 0)
+                : type {type_}, extra {extra_} {}
     };
 
     using PatternActions = PODArrayWithStackMemory<PatternAction, 64>;
 
-    Derived & derived() { return static_cast<Derived &>(*this); }
+    Derived& derived() { return static_cast<Derived&>(*this); }
 
-
-    void parsePattern() 
-    {
+    void parsePattern() {
         actions.clear();
         actions.emplace_back(PatternActionType::KleeneStar);
 
@@ -215,32 +191,26 @@ public:
 
         pattern_has_time = false;
 
-        const char * pos = pattern.data();
-        const char * begin = pos;
-        const char * end = pos + pattern.size();
-        auto throw_exception = [&](const std::string & msg)
-        {
-            LOG(FATAL)<<msg + " '" + std::string(pos, end) + "' at position " + std::to_string(pos - begin);
+        const char* pos = pattern.data();
+        const char* begin = pos;
+        const char* end = pos + pattern.size();
+        auto throw_exception = [&](const std::string& msg) {
+            LOG(FATAL) << msg + " '" + std::string(pos, end) + "' at position " +
+                                  std::to_string(pos - begin);
         };
 
-
-        auto match = [&pos, end](const char * str) mutable
-        {
+        auto match = [&pos, end](const char* str) mutable {
             size_t length = strlen(str);
-            if (pos + length <= end && 0 == memcmp(pos, str, length))
-            {
+            if (pos + length <= end && 0 == memcmp(pos, str, length)) {
                 pos += length;
                 return true;
             }
             return false;
         };
 
-        while (pos < end)
-        {
-            if (match("(?"))
-            {
-                if (match("t"))
-                {
+        while (pos < end) {
+            if (match("(?")) {
+                if (match("t")) {
                     PatternActionType type;
 
                     if (match("<="))
@@ -257,30 +227,28 @@ public:
                         throw_exception("Unknown time condition");
 
                     NativeType duration = 0;
-                    const auto * prev_pos = pos;
+                    const auto* prev_pos = pos;
                     pos = try_read_first_int_text(duration, pos, end);
                     LOG(WARNING) << std::to_string(duration);
-                    if (pos == prev_pos)
-                        throw_exception("Could not parse number");
+                    if (pos == prev_pos) throw_exception("Could not parse number");
 
                     if (actions.back().type != PatternActionType::SpecificEvent &&
                         actions.back().type != PatternActionType::AnyEvent &&
                         actions.back().type != PatternActionType::KleeneStar)
-                        throw_exception("Temporal condition should be preceded by an event condition");
+                        throw_exception(
+                                "Temporal condition should be preceded by an event condition");
 
                     pattern_has_time = true;
                     actions.emplace_back(type, duration);
-                }
-                else
-                {
+                } else {
                     UInt64 event_number = 0;
-                    const auto * prev_pos = pos;
+                    const auto* prev_pos = pos;
                     pos = try_read_first_int_text(event_number, pos, end);
-                    if (pos == prev_pos)
-                        throw_exception("Could not parse number");
+                    if (pos == prev_pos) throw_exception("Could not parse number");
 
                     if (event_number > arg_count - 1)
-                        throw_exception("Event number " + std::to_string(event_number) + " is out of range");
+                        throw_exception("Event number " + std::to_string(event_number) +
+                                        " is out of range");
 
                     actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
                     dfa_states.back().transition = DFATransition::SpecificEvent;
@@ -289,22 +257,16 @@ public:
                     conditions_in_pattern.set(event_number - 1);
                 }
 
-                if (!match(")"))
-                    throw_exception("Expected closing parenthesis, found");
+                if (!match(")")) throw_exception("Expected closing parenthesis, found");
 
-            }
-            else if (match(".*"))
-            {
+            } else if (match(".*")) {
                 actions.emplace_back(PatternActionType::KleeneStar);
                 dfa_states.back().has_kleene = true;
-            }
-            else if (match("."))
-            {
+            } else if (match(".")) {
                 actions.emplace_back(PatternActionType::AnyEvent);
                 dfa_states.back().transition = DFATransition::AnyEvent;
                 dfa_states.emplace_back();
-            }
-            else
+            } else
                 throw_exception("Could not parse pattern, unexpected starting symbol");
         }
     }
@@ -319,8 +281,7 @@ public:
     /// of events) with a memory consumption and memory allocations in O(m). It means that
     /// if n >>> m (which is expected to be the case), this algorithm can be considered linear.
     template <typename EventEntry>
-    bool dfaMatch(EventEntry & events_it, const EventEntry events_end) const
-    {
+    bool dfaMatch(EventEntry& events_it, const EventEntry events_end) const {
         using ActiveStates = std::vector<bool>;
         /// Those two vectors keep track of which states should be considered for the current
         /// event as well as the states which should be considered for the next event.
@@ -332,37 +293,32 @@ public:
         /// the match failed.
         size_t n_active = 1;
 
-        for (/* empty */; events_it != events_end && n_active > 0 && !active_states.back(); ++events_it)
-        {
+        for (/* empty */; events_it != events_end && n_active > 0 && !active_states.back();
+             ++events_it) {
             n_active = 0;
             next_active_states.assign(dfa_states.size(), false);
 
-            for (size_t state = 0; state < dfa_states.size(); ++state)
-            {
-                if (!active_states[state])
-                {
+            for (size_t state = 0; state < dfa_states.size(); ++state) {
+                if (!active_states[state]) {
                     continue;
                 }
 
-                switch (dfa_states[state].transition)
-                {
-                    case DFATransition::None:
-                        break;
-                    case DFATransition::AnyEvent:
+                switch (dfa_states[state].transition) {
+                case DFATransition::None:
+                    break;
+                case DFATransition::AnyEvent:
+                    next_active_states[state + 1] = true;
+                    ++n_active;
+                    break;
+                case DFATransition::SpecificEvent:
+                    if (events_it->second.test(dfa_states[state].event)) {
                         next_active_states[state + 1] = true;
                         ++n_active;
-                        break;
-                    case DFATransition::SpecificEvent:
-                        if (events_it->second.test(dfa_states[state].event))
-                        {
-                            next_active_states[state + 1] = true;
-                            ++n_active;
-                        }
-                        break;
+                    }
+                    break;
                 }
 
-                if (dfa_states[state].has_kleene)
-                {
+                if (dfa_states[state].has_kleene) {
                     next_active_states[state] = true;
                     ++n_active;
                 }
@@ -374,8 +330,7 @@ public:
     }
 
     template <typename EventEntry>
-    bool backtrackingMatch(EventEntry & events_it, const EventEntry events_end) const
-    {
+    bool backtrackingMatch(EventEntry& events_it, const EventEntry events_end) const {
         const auto action_begin = std::begin(actions);
         const auto action_end = std::end(actions);
         auto action_it = action_begin;
@@ -388,11 +343,9 @@ public:
         std::stack<backtrack_info> back_stack;
 
         /// backtrack if possible
-        const auto do_backtrack = [&]
-        {
-            while (!back_stack.empty())
-            {
-                auto & top = back_stack.top();
+        const auto do_backtrack = [&] {
+            while (!back_stack.empty()) {
+                auto& top = back_stack.top();
 
                 action_it = std::get<0>(top);
                 events_it = std::next(std::get<1>(top));
@@ -400,115 +353,86 @@ public:
 
                 back_stack.pop();
 
-                if (events_it != events_end)
-                    return true;
+                if (events_it != events_end) return true;
             }
 
             return false;
         };
 
         size_t i = 0;
-        while (action_it != action_end && events_it != events_end)
-        {
-            if (action_it->type == PatternActionType::SpecificEvent)
-            {
-                if (events_it->second.test(action_it->extra))
-                {
+        while (action_it != action_end && events_it != events_end) {
+            if (action_it->type == PatternActionType::SpecificEvent) {
+                if (events_it->second.test(action_it->extra)) {
                     /// move to the next action and events
                     base_it = events_it;
                     ++action_it, ++events_it;
-                }
-                else if (!do_backtrack())
+                } else if (!do_backtrack())
                     /// backtracking failed, bail out
                     break;
-            }
-            else if (action_it->type == PatternActionType::AnyEvent)
-            {
+            } else if (action_it->type == PatternActionType::AnyEvent) {
                 base_it = events_it;
                 ++action_it, ++events_it;
-            }
-            else if (action_it->type == PatternActionType::KleeneStar)
-            {
+            } else if (action_it->type == PatternActionType::KleeneStar) {
                 back_stack.emplace(action_it, events_it, base_it);
                 base_it = events_it;
                 ++action_it;
-            }
-            else if (action_it->type == PatternActionType::TimeLessOrEqual)
-            {
-                if (events_it->first <= base_it->first + action_it->extra)
-                {
+            } else if (action_it->type == PatternActionType::TimeLessOrEqual) {
+                if (events_it->first <= base_it->first + action_it->extra) {
                     /// condition satisfied, move onto next action
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
-                }
-                else if (!do_backtrack())
+                } else if (!do_backtrack())
                     break;
-            }
-            else if (action_it->type == PatternActionType::TimeLess)
-            {
-                if (events_it->first < base_it->first + action_it->extra)
-                {
+            } else if (action_it->type == PatternActionType::TimeLess) {
+                if (events_it->first < base_it->first + action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
-                }
-                else if (!do_backtrack())
+                } else if (!do_backtrack())
                     break;
-            }
-            else if (action_it->type == PatternActionType::TimeGreaterOrEqual)
-            {
-                if (events_it->first >= base_it->first + action_it->extra)
-                {
+            } else if (action_it->type == PatternActionType::TimeGreaterOrEqual) {
+                if (events_it->first >= base_it->first + action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
-                }
-                else if (++events_it == events_end && !do_backtrack())
+                } else if (++events_it == events_end && !do_backtrack())
                     break;
-            }
-            else if (action_it->type == PatternActionType::TimeGreater)
-            {
-                if (events_it->first > base_it->first + action_it->extra)
-                {
+            } else if (action_it->type == PatternActionType::TimeGreater) {
+                if (events_it->first > base_it->first + action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
-                }
-                else if (++events_it == events_end && !do_backtrack())
+                } else if (++events_it == events_end && !do_backtrack())
                     break;
-            }
-            else if (action_it->type == PatternActionType::TimeEqual)
-            {
-                if (events_it->first == base_it->first + action_it->extra)
-                {
+            } else if (action_it->type == PatternActionType::TimeEqual) {
+                if (events_it->first == base_it->first + action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
-                }
-                else if (++events_it == events_end && !do_backtrack())
+                } else if (++events_it == events_end && !do_backtrack())
                     break;
-            }
-            else
-                LOG(FATAL)<<"Unknown PatternActionType";
+            } else
+                LOG(FATAL) << "Unknown PatternActionType";
 
             if (++i > sequence_match_max_iterations)
-                LOG(FATAL)<<"Pattern application proves too difficult, exceeding max iterations (" + std::to_string(sequence_match_max_iterations) + ")";
+                LOG(FATAL)
+                        << "Pattern application proves too difficult, exceeding max iterations (" +
+                                   std::to_string(sequence_match_max_iterations) + ")";
         }
 
         /// if there are some actions remaining
-        if (action_it != action_end)
-        {
+        if (action_it != action_end) {
             /// match multiple empty strings at end
             while (action_it->type == PatternActionType::KleeneStar ||
                    action_it->type == PatternActionType::TimeLessOrEqual ||
                    action_it->type == PatternActionType::TimeLess ||
-                   (action_it->type == PatternActionType::TimeGreaterOrEqual && action_it->extra == 0))
+                   (action_it->type == PatternActionType::TimeGreaterOrEqual &&
+                    action_it->extra == 0))
                 ++action_it;
         }
 
-        if (events_it == events_begin)
-            ++events_it;
+        if (events_it == events_begin) ++events_it;
 
         return action_it == action_end;
     }
@@ -518,8 +442,8 @@ public:
     /// ignoring the non-deterministic fragments.
     /// This function can quickly check that a full match is not possible if some deterministic fragment is missing.
     template <typename EventEntry>
-    bool couldMatchDeterministicParts(const EventEntry events_begin, const EventEntry events_end, bool limit_iterations = true) const
-    {
+    bool couldMatchDeterministicParts(const EventEntry events_begin, const EventEntry events_end,
+                                      bool limit_iterations = true) const {
         size_t events_processed = 0;
         auto events_it = events_begin;
 
@@ -527,43 +451,39 @@ public:
         auto actions_it = std::begin(actions);
         auto det_part_begin = actions_it;
 
-        auto match_deterministic_part = [&events_it, events_end, &events_processed, det_part_begin, actions_it, limit_iterations]()
-        {
+        auto match_deterministic_part = [&events_it, events_end, &events_processed, det_part_begin,
+                                         actions_it, limit_iterations]() {
             auto events_it_init = events_it;
             auto det_part_it = det_part_begin;
 
-            while (det_part_it != actions_it && events_it != events_end)
-            {
+            while (det_part_it != actions_it && events_it != events_end) {
                 /// matching any event
-                if (det_part_it->type == PatternActionType::AnyEvent)
-                    ++events_it, ++det_part_it;
+                if (det_part_it->type == PatternActionType::AnyEvent) ++events_it, ++det_part_it;
 
                 /// matching specific event
-                else
-                {
-                    if (events_it->second.test(det_part_it->extra))
-                        ++events_it, ++det_part_it;
+                else {
+                    if (events_it->second.test(det_part_it->extra)) ++events_it, ++det_part_it;
 
                     /// abandon current matching, try to match the deterministic fragment further in the list
-                    else
-                    {
+                    else {
                         events_it = ++events_it_init;
                         det_part_it = det_part_begin;
                     }
                 }
 
                 if (limit_iterations && ++events_processed > sequence_match_max_iterations)
-                    LOG(FATAL)<<"Pattern application proves too difficult, exceeding max iterations are " + std::to_string(sequence_match_max_iterations);
+                    LOG(FATAL) << "Pattern application proves too difficult, exceeding max "
+                                  "iterations are " +
+                                          std::to_string(sequence_match_max_iterations);
             }
 
             return det_part_it == actions_it;
         };
 
         for (; actions_it != actions_end; ++actions_it)
-            if (actions_it->type != PatternActionType::SpecificEvent && actions_it->type != PatternActionType::AnyEvent)
-            {
-                if (!match_deterministic_part())
-                    return false;
+            if (actions_it->type != PatternActionType::SpecificEvent &&
+                actions_it->type != PatternActionType::AnyEvent) {
+                if (!match_deterministic_part()) return false;
                 det_part_begin = std::next(actions_it);
             }
 
@@ -571,8 +491,7 @@ public:
     }
 
 private:
-    enum class DFATransition : char
-    {
+    enum class DFATransition : char {
         ///   .-------.
         ///   |       |
         ///   `-------'
@@ -587,11 +506,9 @@ private:
         AnyEvent,
     };
 
-    struct DFAState
-    {
+    struct DFAState {
         explicit DFAState(bool has_kleene_ = false)
-            : has_kleene{has_kleene_}, event{0}, transition{DFATransition::None}
-        {}
+                : has_kleene {has_kleene_}, event {0}, transition {DFATransition::None} {}
 
         ///   .-------.
         ///   |       | - - -
@@ -616,7 +533,6 @@ public:
     std::bitset<max_events> conditions_in_pattern;
     // `True` if the parsed pattern contains time assertions (?t...), `false` otherwise.
     bool pattern_has_time;
-  
 
 private:
     std::string pattern;
@@ -627,88 +543,86 @@ private:
     DFAStates dfa_states;
 };
 
-
-
 template <typename DateValueType, typename NativeType, typename Derived>
-class AggregateFunctionSequenceBase : public IAggregateFunctionDataHelper<
-                                            AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,
-                                            Derived>{
+class AggregateFunctionSequenceBase
+        : public IAggregateFunctionDataHelper<
+                  AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>, Derived> {
 public:
-    AggregateFunctionSequenceBase(const DataTypes & arguments)
-        : IAggregateFunctionDataHelper<
-                    AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,
-                    Derived>(arguments,
-                            {})
-                            {arg_count = arguments.size();}
+    AggregateFunctionSequenceBase(const DataTypes& arguments)
+            : IAggregateFunctionDataHelper<
+                      AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,
+                      Derived>(arguments, {}) {
+        arg_count = arguments.size();
+    }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn ** columns, const size_t row_num, Arena *) const override
-    {
-        std::string pattern = assert_cast<const ColumnString *>(columns[0])->get_data_at(0).to_string() ;
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, const size_t row_num,
+             Arena*) const override {
+        std::string pattern =
+                assert_cast<const ColumnString*>(columns[0])->get_data_at(0).to_string();
         this->data(place).init(pattern, arg_count);
 
-        const auto &timestamp = 
+        const auto& timestamp =
                 static_cast<const ColumnVector<NativeType>&>(*columns[1]).get_data()[row_num];
-        typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events events;
+        typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events
+                events;
 
-        for (auto i =2;i< arg_count;i++)
-        {
-            const auto event = assert_cast<const ColumnUInt8 *>(columns[i])->get_data()[row_num];
+        for (auto i = 2; i < arg_count; i++) {
+            const auto event = assert_cast<const ColumnUInt8*>(columns[i])->get_data()[row_num];
             events.set(i - 2, event);
         }
 
-        this->data(place).add(
-            binary_cast<NativeType, DateValueType>(timestamp) ,
-            events);
+        this->data(place).add(binary_cast<NativeType, DateValueType>(timestamp), events);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena *) const override
-    {
-        const std::string pattern=this->data(rhs).get_pattern();
-        size_t arg_count=this->data(rhs).get_arg_count();
-        this->data(place).init(pattern,arg_count);
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
+        const std::string pattern = this->data(rhs).get_pattern();
+        size_t arg_count = this->data(rhs).get_arg_count();
+        this->data(place).init(pattern, arg_count);
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override
-    {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena *) const override
-    {
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
         this->data(place).read(buf);
-        const std::string pattern=this->data(place).get_pattern();
-        size_t arg_count=this->data(place).get_arg_count();
-        this->data(place).init(pattern,arg_count);
+        const std::string pattern = this->data(place).get_pattern();
+        size_t arg_count = this->data(place).get_arg_count();
+        this->data(place).init(pattern, arg_count);
     }
 
 private:
     size_t arg_count;
 };
 
-template <typename DateValueType, typename NativeType> 
-class AggregateFunctionSequenceMatch final : public AggregateFunctionSequenceBase<
-                                                    DateValueType,
-                                                    NativeType,
-                                                    AggregateFunctionSequenceMatch<DateValueType,NativeType>>{
+template <typename DateValueType, typename NativeType>
+class AggregateFunctionSequenceMatch final
+        : public AggregateFunctionSequenceBase<
+                  DateValueType, NativeType,
+                  AggregateFunctionSequenceMatch<DateValueType, NativeType>> {
 public:
-    AggregateFunctionSequenceMatch(const DataTypes & arguments, const String & pattern_)
-        : AggregateFunctionSequenceBase<DateValueType,
-                                        NativeType,
-                                        AggregateFunctionSequenceMatch<DateValueType,NativeType>>(arguments, pattern_) {}
+    AggregateFunctionSequenceMatch(const DataTypes& arguments, const String& pattern_)
+            : AggregateFunctionSequenceBase<
+                      DateValueType, NativeType,
+                      AggregateFunctionSequenceMatch<DateValueType, NativeType>>(arguments,
+                                                                                 pattern_) {}
 
-    using AggregateFunctionSequenceBase<DateValueType, NativeType,AggregateFunctionSequenceMatch<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<DateValueType, NativeType,
+                                        AggregateFunctionSequenceMatch<DateValueType, NativeType>>::
+            AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_match"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeUInt8>(); }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
-    {
-        auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
-        if (!this->data(place).conditions_in_pattern.any()){
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& output = assert_cast<ColumnUInt8&>(to).get_data();
+        if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(false);
             return;
         }
@@ -716,54 +630,58 @@ public:
         LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
         LOG(WARNING) << this->data(place).conditions_met.to_string();
 
-        if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
-        {
+        if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) !=
+            this->data(place).conditions_in_pattern) {
             LOG(WARNING) << "FALSE";
             output.push_back(false);
             return;
         }
         this->data(const_cast<AggregateDataPtr>(place)).sort();
 
-        const auto & data_ref = this->data(place);
+        const auto& data_ref = this->data(place);
 
         const auto events_begin = std::begin(data_ref.events_list);
         const auto events_end = std::end(data_ref.events_list);
         auto events_it = events_begin;
 
-        bool match = (this->data(place).pattern_has_time ?
-            (this->data(place).couldMatchDeterministicParts(events_begin, events_end) && this->data(place).backtrackingMatch(events_it, events_end)) :
-            this->data(place).dfaMatch(events_it, events_end));
+        bool match = (this->data(place).pattern_has_time
+                              ? (this->data(place).couldMatchDeterministicParts(events_begin,
+                                                                                events_end) &&
+                                 this->data(place).backtrackingMatch(events_it, events_end))
+                              : this->data(place).dfaMatch(events_it, events_end));
         output.push_back(match);
     }
 };
 
-template <typename DateValueType, typename NativeType> 
-class AggregateFunctionSequenceCount final : public AggregateFunctionSequenceBase<
-                                                    DateValueType,
-                                                    NativeType,
-                                                    AggregateFunctionSequenceCount<DateValueType,NativeType>>{
+template <typename DateValueType, typename NativeType>
+class AggregateFunctionSequenceCount final
+        : public AggregateFunctionSequenceBase<
+                  DateValueType, NativeType,
+                  AggregateFunctionSequenceCount<DateValueType, NativeType>> {
 public:
-    AggregateFunctionSequenceCount(const DataTypes & arguments, const String & pattern_)
-        : AggregateFunctionSequenceBase<DateValueType,
-                                        NativeType,
-                                        AggregateFunctionSequenceCount<DateValueType,NativeType>>(arguments, pattern_) {}
+    AggregateFunctionSequenceCount(const DataTypes& arguments, const String& pattern_)
+            : AggregateFunctionSequenceBase<
+                      DateValueType, NativeType,
+                      AggregateFunctionSequenceCount<DateValueType, NativeType>>(arguments,
+                                                                                 pattern_) {}
 
-    using AggregateFunctionSequenceBase<DateValueType, NativeType,AggregateFunctionSequenceCount<DateValueType,NativeType>>::AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<DateValueType, NativeType,
+                                        AggregateFunctionSequenceCount<DateValueType, NativeType>>::
+            AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_count"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
-    {
-        auto & output = assert_cast<ColumnInt64 &>(to).get_data();
-        if (!this->data(place).conditions_in_pattern.any()){
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& output = assert_cast<ColumnInt64&>(to).get_data();
+        if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(0);
             return;
         }
 
-        if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
-        {
+        if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) !=
+            this->data(place).conditions_in_pattern) {
             output.push_back(0);
             return;
         }
@@ -772,9 +690,8 @@ public:
     }
 
 private:
-    UInt64 count(ConstAggregateDataPtr __restrict place) const
-    {
-        const auto & data_ref = this->data(place);
+    UInt64 count(ConstAggregateDataPtr __restrict place) const {
+        const auto& data_ref = this->data(place);
 
         const auto events_begin = std::begin(data_ref.events_list);
         const auto events_end = std::end(data_ref.events_list);
@@ -782,9 +699,9 @@ private:
 
         size_t count = 0;
         // check if there is a chance of matching the sequence at least once
-        if (this->data(place).couldMatchDeterministicParts(events_begin, events_end))
-        {
-            while (events_it != events_end && this->data(place).backtrackingMatch(events_it, events_end))
+        if (this->data(place).couldMatchDeterministicParts(events_begin, events_end)) {
+            while (events_it != events_end &&
+                   this->data(place).backtrackingMatch(events_it, events_end))
                 ++count;
         }
 

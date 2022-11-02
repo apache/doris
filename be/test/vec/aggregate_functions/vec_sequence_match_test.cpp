@@ -42,12 +42,10 @@ public:
     void SetUp() {
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         DataTypes data_types = {
-                std::make_shared<DataTypeString>(),
-                std::make_shared<DataTypeDateTime>(),
+                std::make_shared<DataTypeString>(), std::make_shared<DataTypeDateTime>(),
+                std::make_shared<DataTypeUInt8>(),  std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),
-                };
+        };
         Array array;
         agg_function_sequence_match = factory.get("sequence_match", data_types, array, false);
         EXPECT_NE(agg_function_sequence_match, nullptr);
@@ -127,10 +125,10 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.set_time(2022, 11, 2, 0, 0, i);
-        column_timestamp->insert_data((char *)&time_value, 0);
+        column_timestamp->insert_data((char*)&time_value, 0);
     }
 
-     auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnVector<UInt8>::create();
     column_event1->insert(1);
     column_event1->insert(0);
     column_event1->insert(0);
@@ -151,7 +149,8 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_match->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function_sequence_match->create(place);
-    const IColumn* column[5] = {column_pattern.get(),column_timestamp.get(),column_event1.get(), column_event2.get(), column_event3.get()};
+    const IColumn* column[5] = {column_pattern.get(), column_timestamp.get(), column_event1.get(),
+                                column_event2.get(), column_event3.get()};
     for (int i = 0; i < NUM_CONDS; i++) {
         agg_function_sequence_match->add(place, column, i, nullptr);
     }
@@ -182,11 +181,11 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
 TEST_F(VSequenceMatchTest, testCountSerialize) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {
-                std::make_shared<DataTypeString>(),
-                std::make_shared<DataTypeDateTime>(),
-                std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),
-                };
+            std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTime>(),
+            std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),
+    };
     Array array;
     agg_function_sequence_count = factory.get("sequence_count", data_types, array, false);
     EXPECT_NE(agg_function_sequence_count, nullptr);
@@ -201,7 +200,7 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.set_time(2022, 11, 2, 0, 0, i);
-        column_timestamp->insert_data((char *)&time_value, 0);
+        column_timestamp->insert_data((char*)&time_value, 0);
     }
 
     auto column_event1 = ColumnVector<UInt8>::create();
@@ -219,7 +218,8 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_count->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function_sequence_count->create(place);
-    const IColumn* column[4] = {column_pattern.get(),column_timestamp.get(),column_event1.get(), column_event2.get()};
+    const IColumn* column[4] = {column_pattern.get(), column_timestamp.get(), column_event1.get(),
+                                column_event2.get()};
     for (int i = 0; i < NUM_CONDS; i++) {
         agg_function_sequence_count->add(place, column, i, nullptr);
     }
@@ -250,11 +250,11 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
 TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {
-                std::make_shared<DataTypeString>(),
-                std::make_shared<DataTypeDateTime>(),
-                std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),
-                };
+            std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTime>(),
+            std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),
+    };
     Array array;
     agg_function_sequence_match = factory.get("sequence_match", data_types, array, false);
     EXPECT_NE(agg_function_sequence_match, nullptr);
@@ -268,8 +268,8 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, NUM_CONDS-i);
-        column_timestamp->insert_data((char *)&time_value, 0);
+        time_value.set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
+        column_timestamp->insert_data((char*)&time_value, 0);
     }
 
     auto column_event1 = ColumnVector<UInt8>::create();
@@ -283,7 +283,8 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_match->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function_sequence_match->create(place);
-    const IColumn* column[4] = {column_pattern.get(),column_timestamp.get(),column_event1.get(), column_event2.get()};
+    const IColumn* column[4] = {column_pattern.get(), column_timestamp.get(), column_event1.get(),
+                                column_event2.get()};
     for (int i = 0; i < NUM_CONDS; i++) {
         agg_function_sequence_match->add(place, column, i, nullptr);
     }
@@ -308,8 +309,8 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     auto column_timestamp2 = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS-i);
-        column_timestamp2->insert_data((char *)&time_value, 0);
+        time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
+        column_timestamp2->insert_data((char*)&time_value, 0);
     }
 
     auto column_event3 = ColumnVector<UInt8>::create();
@@ -323,12 +324,13 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     std::unique_ptr<char[]> memory3(new char[agg_function_sequence_match->size_of_data()]);
     AggregateDataPtr place3 = memory3.get();
     agg_function_sequence_match->create(place3);
-    const IColumn* column2[4] = {column_pattern.get(),column_timestamp2.get(),column_event3.get(), column_event4.get()};
+    const IColumn* column2[4] = {column_pattern.get(), column_timestamp2.get(), column_event3.get(),
+                                 column_event4.get()};
     for (int i = 0; i < NUM_CONDS; i++) {
         agg_function_sequence_match->add(place3, column2, i, nullptr);
     }
 
-    agg_function_sequence_match->merge(place2,place3,nullptr);
+    agg_function_sequence_match->merge(place2, place3, nullptr);
 
     ColumnVector<UInt8> column_result2;
     agg_function_sequence_match->insert_result_into(place2, column_result2);
@@ -341,11 +343,11 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
 TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {
-                std::make_shared<DataTypeString>(),
-                std::make_shared<DataTypeDateTime>(),
-                std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),
-                };
+            std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTime>(),
+            std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),
+    };
     Array array;
     agg_function_sequence_count = factory.get("sequence_count", data_types, array, false);
     EXPECT_NE(agg_function_sequence_count, nullptr);
@@ -359,8 +361,8 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 0, NUM_CONDS-i);
-        column_timestamp->insert_data((char *)&time_value, 0);
+        time_value.set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
+        column_timestamp->insert_data((char*)&time_value, 0);
     }
 
     auto column_event1 = ColumnVector<UInt8>::create();
@@ -374,7 +376,8 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_count->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function_sequence_count->create(place);
-    const IColumn* column[4] = {column_pattern.get(),column_timestamp.get(),column_event1.get(), column_event2.get()};
+    const IColumn* column[4] = {column_pattern.get(), column_timestamp.get(), column_event1.get(),
+                                column_event2.get()};
     for (int i = 0; i < NUM_CONDS; i++) {
         agg_function_sequence_count->add(place, column, i, nullptr);
     }
@@ -399,8 +402,8 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     auto column_timestamp2 = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
-        time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS-i);
-        column_timestamp2->insert_data((char *)&time_value, 0);
+        time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
+        column_timestamp2->insert_data((char*)&time_value, 0);
     }
 
     auto column_event3 = ColumnVector<UInt8>::create();
@@ -414,12 +417,13 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     std::unique_ptr<char[]> memory3(new char[agg_function_sequence_count->size_of_data()]);
     AggregateDataPtr place3 = memory3.get();
     agg_function_sequence_count->create(place3);
-    const IColumn* column2[4] = {column_pattern.get(),column_timestamp2.get(),column_event3.get(), column_event4.get()};
+    const IColumn* column2[4] = {column_pattern.get(), column_timestamp2.get(), column_event3.get(),
+                                 column_event4.get()};
     for (int i = 0; i < NUM_CONDS; i++) {
         agg_function_sequence_count->add(place3, column2, i, nullptr);
     }
 
-    agg_function_sequence_count->merge(place2,place3,nullptr);
+    agg_function_sequence_count->merge(place2, place3, nullptr);
 
     ColumnVector<Int64> column_result2;
     agg_function_sequence_count->insert_result_into(place2, column_result2);
@@ -428,6 +432,5 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     agg_function_sequence_count->destroy(place2);
     agg_function_sequence_count->destroy(place3);
 }
-
 
 } // namespace doris::vectorized

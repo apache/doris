@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #include "vec/aggregate_functions/aggregate_function_sequence_match.h"
 
 #include "common/logging.h"
@@ -23,36 +22,32 @@
 #include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
-namespace doris::vectorized{
+namespace doris::vectorized {
 
 template <template <typename, typename> typename AggregateFunction>
-AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string & name,
-                                                            const DataTypes & argument_types,
-                                                            const Array & parameters,
-                                                            const bool result_is_nullable){
+AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& name,
+                                                             const DataTypes& argument_types,
+                                                             const Array& parameters,
+                                                             const bool result_is_nullable) {
     const auto arg_count = argument_types.size();
 
-    if (arg_count < 4){
+    if (arg_count < 4) {
         LOG(WARNING) << "Aggregate function " + name + " requires at least 4 arguments.";
         return nullptr;
     }
-    if (arg_count - 2 > max_events){
-        LOG(WARNING) << "Aggregate function " + name + " supports up to "
-            + std::to_string(max_events) + " event arguments.";
+    if (arg_count - 2 > max_events) {
+        LOG(WARNING) << "Aggregate function " + name + " supports up to " +
+                                std::to_string(max_events) + " event arguments.";
         return nullptr;
     }
 
     if (WhichDataType(remove_nullable(argument_types[1])).is_date_time_v2()) {
-        return std::make_shared<
-                AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(
+        return std::make_shared<AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(
                 argument_types);
     } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_time()) {
-        return std::make_shared<
-                AggregateFunction<VecDateTimeValue, Int64>>(
-                argument_types);
+        return std::make_shared<AggregateFunction<VecDateTimeValue, Int64>>(argument_types);
     } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_v2()) {
-        return std::make_shared<
-                AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(
+        return std::make_shared<AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(
                 argument_types);
     } else {
         LOG(FATAL) << "Only support Date and DateTime type as timestamp argument!";
@@ -60,10 +55,12 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string &
     }
 }
 
-
-void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory & factory)
-{
-    factory.register_function("sequence_match", create_aggregate_function_sequence_base<AggregateFunctionSequenceMatch>);
-    factory.register_function("sequence_count", create_aggregate_function_sequence_base<AggregateFunctionSequenceCount>);
+void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function(
+            "sequence_match",
+            create_aggregate_function_sequence_base<AggregateFunctionSequenceMatch>);
+    factory.register_function(
+            "sequence_count",
+            create_aggregate_function_sequence_base<AggregateFunctionSequenceCount>);
 }
-} // namespce doris::vectorized
+} // namespace doris::vectorized
