@@ -264,8 +264,7 @@ public abstract class TestWithFeService {
     }
 
     private int startFEServerWithoutRetry(String runningDir)
-        throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
-        InterruptedException {
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException, InterruptedException {
         // get DORIS_HOME
         dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
@@ -297,6 +296,12 @@ public abstract class TestWithFeService {
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
         return feRpcPort;
+    }
+
+    protected void createDorisCluster()
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+            InterruptedException {
+        createDorisCluster(runningDir, 1);
     }
 
     protected void createDorisCluster(String runningDir, int backendNum)
@@ -366,8 +371,8 @@ public abstract class TestWithFeService {
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
-            beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-            new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
