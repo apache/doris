@@ -60,8 +60,8 @@ class ExpressionEstimationTest {
         Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
         slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, 0, 500));
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
-        Min max = new Min(a);
-        ColumnStat estimated = ExpressionEstimation.estimate(max, stat);
+        Min min = new Min(a);
+        ColumnStat estimated = ExpressionEstimation.estimate(min, stat);
         Assertions.assertEquals(0, estimated.getMaxValue());
         Assertions.assertEquals(1, estimated.getNdv());
     }

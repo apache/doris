@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.types.coercion;
 
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
@@ -63,8 +65,13 @@ public class TypeCollection implements AbstractDataType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return types.stream().anyMatch(t -> t.acceptsType(other));
+    }
+
+    @Override
+    public Type toCatalogDataType() {
+        throw new AnalysisException("TypeCollection can not cast to catalog data type");
     }
 
     @Override

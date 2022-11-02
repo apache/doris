@@ -27,7 +27,7 @@ import org.apache.doris.nereids.types.BigIntType;
 /**
  * Represents Bigint literal
  */
-public class BigIntLiteral extends Literal {
+public class BigIntLiteral extends IntegerLikeLiteral {
 
     private final long value;
 
@@ -54,5 +54,10 @@ public class BigIntLiteral extends Literal {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "Can not convert to legacy literal: " + value, e);
         }
+    }
+
+    @Override
+    public Number getNumber() {
+        return value;
     }
 }
