@@ -37,17 +37,14 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * Used for parent property drive.
  */
 public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
-    private static final Map<GroupExpression, List<List<PhysicalProperties>>> cache = Maps.newHashMap();
     /*
      * requestPropertyFromParent
      *             │
@@ -64,31 +61,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         this.requestPropertyFromParent = context.getRequiredProperties();
     }
 
-    public static void cleanCache() {
-        cache.clear();
-    }
-
-    public static Map<GroupExpression, List<List<PhysicalProperties>>> getCache() {
-        return cache;
-    }
-
     /**
-     * tmp
+     * get request children property list
      */
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
-        if (false && cache.containsKey(groupExpression)) {
-            return cache.get(groupExpression);
-        }
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
-        if (false && groupExpression.getPlan() instanceof PhysicalHashJoin) {
-            cache.put(groupExpression, requestPropertyToChildren);
-        }
         return requestPropertyToChildren;
-    }
-
-    private List<List<PhysicalProperties>> copy(List<List<PhysicalProperties>> list) {
-        return list.stream().map(Lists::newArrayList).collect(Collectors.toList());
     }
 
     @Override
