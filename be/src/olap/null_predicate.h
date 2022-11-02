@@ -81,6 +81,11 @@ public:
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 
 private:
+    std::string _debug_string() override {
+        std::string info = "NullPredicate(" + std::string(_is_null ? "is_null" : "not_null") + ")";
+        return info;
+    }
+
     bool _is_null; //true for null, false for not null
 };
 
