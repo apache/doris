@@ -60,10 +60,6 @@ public class RewriteBottomUpJob extends Job {
         this.childrenOptimized = childrenOptimized;
     }
 
-    public List<Rule> getRules() {
-        return rules;
-    }
-
     @Override
     public void execute() throws AnalysisException {
         GroupExpression logicalExpression = group.getLogicalExpression();
