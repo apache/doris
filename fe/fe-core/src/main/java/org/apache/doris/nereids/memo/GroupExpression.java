@@ -17,10 +17,6 @@
 
 package org.apache.doris.nereids.memo;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.cost.CostEstimate;
