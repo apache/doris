@@ -186,6 +186,10 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         }
     }
 
+    /**
+     * calculate enforce
+     * @return false if error occurs, the caller will return.
+     */
     private boolean calculateEnforce(List<PhysicalProperties> requestChildrenProperties) {
         // to ensure distributionSpec has been added sufficiently.
         // it's certain that lowestCostChildren is equals to arity().

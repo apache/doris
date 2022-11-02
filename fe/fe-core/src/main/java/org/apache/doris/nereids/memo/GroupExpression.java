@@ -114,14 +114,6 @@ public class GroupExpression {
         this.children = children;
     }
 
-    public boolean isHasCalculateCost() {
-        return hasCalculateCost;
-    }
-
-    public void setHasCalculateCost(boolean hasCalculateCost) {
-        this.hasCalculateCost = hasCalculateCost;
-    }
-
     /**
      * replaceChild.
      *
@@ -191,11 +183,13 @@ public class GroupExpression {
             if (lowestCostTable.get(outputProperties).first > cost) {
                 lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
                 return true;
+            } else {
+                return false;
             }
-            return false;
+        } else {
+            lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
+            return true;
         }
-        lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
-        return true;
     }
 
     /**
