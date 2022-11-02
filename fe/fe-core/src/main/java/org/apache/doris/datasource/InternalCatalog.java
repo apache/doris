@@ -143,6 +143,7 @@ import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mtmv.MTMVJobFactory;
+import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -2172,9 +2173,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // TODO: impl the real logic of create multi-table MaterializedView here.
-        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
-            Env.getCurrentEnv().getMTMVJobManager().createJob(MTMVJobFactory.buildJob((MaterializedView) olapTable),
-                    false);
+        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework
+                && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
+            for (MTMVJob job : MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName())) {
+                Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
+            }
         }
     }
 

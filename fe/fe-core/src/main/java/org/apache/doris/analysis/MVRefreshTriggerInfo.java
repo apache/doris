@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
@@ -73,5 +72,9 @@ public class MVRefreshTriggerInfo {
             sb.append(intervalTrigger.toString());
         }
         return sb.toString();
+    }
+
+    public enum RefreshTrigger {
+        DEMAND, COMMIT, INTERVAL
     }
 }

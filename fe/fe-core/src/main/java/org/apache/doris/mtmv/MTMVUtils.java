@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.concurrent.TimeUnit;
 
 public class MTMVUtils {
 
@@ -110,5 +111,14 @@ public class MTMVUtils {
         taskExecutor.setProcessor(new MTMVTaskProcessor());
 
         return taskExecutor;
+    }
+
+    public static TimeUnit getTimeUint(String strTimeUnit) {
+        switch (strTimeUnit) {
+            case "Seconds": return TimeUnit.SECONDS;
+            case "Hours": return TimeUnit.HOURS;
+            case "Days": return TimeUnit.DAYS;
+            default: return TimeUnit.DAYS;
+        }
     }
 }
