@@ -32,6 +32,7 @@ import java.util.Objects;
  * Spec of sort order.
  */
 public class OrderSpec {
+    // TODO: use a OrderKey with ExprId list to instead of current orderKeys for easy to use.
     private final List<OrderKey> orderKeys;
 
     public OrderSpec() {
