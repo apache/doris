@@ -300,4 +300,18 @@ public class ExpressionUtils {
     public static boolean isAllNullLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof NullLiteral);
     }
+
+    /**
+     * extract the predicate that is covered by `slots`
+     */
+    public static List<Expression> extractCoveredConjunction(List<Expression> predicates, Set<Slot> slots) {
+        List<Expression> coveredPredicates = Lists.newArrayList();
+        for (Expression predicate : predicates) {
+            if (slots.containsAll(predicate.getInputSlots())) {
+                coveredPredicates.add(predicate);
+            }
+        }
+        return coveredPredicates;
+    }
 }
+

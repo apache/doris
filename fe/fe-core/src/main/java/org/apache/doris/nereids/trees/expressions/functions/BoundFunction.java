@@ -26,7 +26,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /** BoundFunction. */
-public abstract class BoundFunction extends Expression {
+public abstract class BoundFunction extends Expression implements FunctionTrait {
     private final String name;
 
     public BoundFunction(String name, Expression... arguments) {
@@ -34,12 +34,13 @@ public abstract class BoundFunction extends Expression {
         this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
-    public String getName() {
-        return name;
+    public BoundFunction(String name, List<Expression> children) {
+        super(children);
+        this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
-    public List<Expression> getArguments() {
-        return children;
+    public String getName() {
+        return name;
     }
 
     @Override

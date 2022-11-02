@@ -19,12 +19,13 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
 
 /**
- * Varchar type in Nereids.
+ * Text type in Nereids.
  */
 public class TextType extends CharacterType {
 
@@ -44,13 +45,13 @@ public class TextType extends CharacterType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof TextType;
     }
 
     @Override
     public String simpleString() {
-        return "varchar";
+        return "text";
     }
 
     @Override
@@ -60,7 +61,7 @@ public class TextType extends CharacterType {
 
     @Override
     public String toSql() {
-        return "VARCHAR(" + len + ")";
+        return "TEXT(" + len + ")";
     }
 
     @Override

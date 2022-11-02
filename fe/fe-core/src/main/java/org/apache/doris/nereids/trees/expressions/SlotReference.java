@@ -166,11 +166,15 @@ public class SlotReference extends Slot {
         return this;
     }
 
+    public SlotReference withDataType(DataType dataType) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
+    }
+
     public Slot withNullable(boolean newNullable) {
         if (this.nullable == newNullable) {
             return this;
         }
-        return new SlotReference(exprId, name, dataType, newNullable, qualifier);
+        return new SlotReference(exprId, name, dataType, newNullable, qualifier, column);
     }
 
     @Override

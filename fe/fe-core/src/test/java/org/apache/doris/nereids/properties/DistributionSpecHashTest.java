@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.Set;
 
 public class DistributionSpecHashTest {
 
@@ -77,6 +78,49 @@ public class DistributionSpecHashTest {
         );
 
         Assertions.assertEquals(expected, DistributionSpecHash.merge(natural, join));
+    }
+
+    @Test
+    public void testProject() {
+        Map<ExprId, Integer> naturalMap = Maps.newHashMap();
+        naturalMap.put(new ExprId(0), 0);
+        naturalMap.put(new ExprId(1), 0);
+        naturalMap.put(new ExprId(2), 1);
+        naturalMap.put(new ExprId(3), 1);
+
+        DistributionSpecHash original = new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(0), new ExprId(2)),
+                ShuffleType.NATURAL,
+                0,
+                Sets.newHashSet(0L),
+                Lists.newArrayList(Sets.newHashSet(new ExprId(0), new ExprId(1)), Sets.newHashSet(new ExprId(2), new ExprId(3))),
+                naturalMap
+        );
+
+        Map<ExprId, ExprId> projects = Maps.newHashMap();
+        projects.put(new ExprId(2), new ExprId(5));
+        Set<ExprId> obstructions = Sets.newHashSet();
+
+        DistributionSpec after = original.project(projects, obstructions);
+        Assertions.assertTrue(after instanceof DistributionSpecHash);
+        DistributionSpecHash afterHash = (DistributionSpecHash) after;
+        Assertions.assertEquals(Lists.newArrayList(new ExprId(0), new ExprId(5)), afterHash.getOrderedShuffledColumns());
+        Assertions.assertEquals(
+                Lists.newArrayList(
+                        Sets.newHashSet(new ExprId(0), new ExprId(1)),
+                        Sets.newHashSet(new ExprId(5), new ExprId(3))),
+                afterHash.getEquivalenceExprIds());
+        Map<ExprId, Integer> actualMap = Maps.newHashMap();
+        actualMap.put(new ExprId(0), 0);
+        actualMap.put(new ExprId(1), 0);
+        actualMap.put(new ExprId(5), 1);
+        actualMap.put(new ExprId(3), 1);
+        Assertions.assertEquals(actualMap, afterHash.getExprIdToEquivalenceSet());
+
+        // have obstructions
+        obstructions.add(new ExprId(3));
+        after = original.project(projects, obstructions);
+        Assertions.assertTrue(after instanceof DistributionSpecAny);
     }
 
     @Test

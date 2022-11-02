@@ -48,8 +48,12 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
         super("avg", child);
     }
 
+    public Avg(AggregateParam aggregateParam, Expression child) {
+        super("avg", aggregateParam, child);
+    }
+
     @Override
-    public DataType getDataType() {
+    public DataType getFinalType() {
         if (child().getDataType() instanceof DecimalType) {
             return child().getDataType();
         } else if (child().getDataType().isDate()) {
@@ -61,25 +65,36 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
         }
     }
 
-    @Override
-    public boolean nullable() {
-        return child().nullable();
-    }
-
-    @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Avg(children.get(0));
-    }
-
+    // TODO: We should return a complex type: PartialAggType(bufferTypes=[Double, Int], inputType=Int)
+    //       to denote sum(double) and count(int)
     @Override
     public DataType getIntermediateType() {
         return VarcharType.createVarcharType(-1);
     }
 
     @Override
+    public boolean nullable() {
+        return child().nullable();
+    }
+
+    @Override
+    public Avg withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Avg(getAggregateParam(), children.get(0));
+    }
+
+    @Override
+    public Avg withAggregateParam(AggregateParam aggregateParam) {
+        return new Avg(aggregateParam, child());
+    }
+
+    @Override
     public List<AbstractDataType> expectedInputTypes() {
-        return EXPECTED_INPUT_TYPES;
+        if (isGlobal() && inputTypesBeforeDissemble().isPresent()) {
+            return ImmutableList.of();
+        } else {
+            return EXPECTED_INPUT_TYPES;
+        }
     }
 
     @Override
