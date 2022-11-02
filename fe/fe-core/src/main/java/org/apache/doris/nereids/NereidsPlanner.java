@@ -184,7 +184,6 @@ public class NereidsPlanner extends Planner {
      * try to find best plan under the guidance of statistic information and cost model.
      */
     private void optimize() {
-        System.out.print("=============>new task\n");
         new OptimizeRulesJob(cascadesContext).execute();
     }
 
@@ -203,7 +202,6 @@ public class NereidsPlanner extends Planner {
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)
             throws AnalysisException {
-        LOG.warn(String.format("choose best plan in: %s\n", rootGroup));
         try {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties doesn't exist")).second;
