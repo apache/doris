@@ -34,6 +34,13 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     /// ColumnNullable cannot have constant nested column. But constant argument could be passed. Materialize it.
     nested_column = get_nested_column().convert_to_full_column_if_const();
 
+    // after convert const column to full column, it may be a nullable column
+    if (nested_column->is_nullable()) {
+        assert_cast<ColumnNullable&>(*nested_column).apply_null_map((const ColumnUInt8&)*null_map);
+        null_map = assert_cast<ColumnNullable&>(*nested_column).get_null_map_column_ptr();
+        nested_column = assert_cast<ColumnNullable&>(*nested_column).get_nested_column_ptr();
+    }
+
     if (!get_nested_column().can_be_inside_nullable()) {
         LOG(FATAL) << get_nested_column().get_name() << " cannot be inside Nullable column";
     }
