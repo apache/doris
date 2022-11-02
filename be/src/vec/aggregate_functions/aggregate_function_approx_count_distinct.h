@@ -22,6 +22,7 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
@@ -31,9 +32,7 @@ namespace doris::vectorized {
 struct AggregateFunctionApproxCountDistinctData {
     HyperLogLog hll_data;
 
-    void add(StringRef value) {
-        StringVal sv = value.to_string_val();
-        uint64_t hash_value = AnyValUtil::hash64_murmur(sv, HashUtil::MURMUR_SEED);
+    void add(uint64_t hash_value) {
         if (hash_value != 0) {
             hll_data.update(hash_value);
         }
@@ -80,7 +79,17 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        this->data(place).add(static_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num));
+        if constexpr (IsFixLenColumnType<ColumnDataType>::value) {
+            auto column = static_cast<const ColumnDataType*>(columns[0]);
+            auto value = column->get_element(row_num);
+            this->data(place).add(
+                    HashUtil::murmur_hash64A((char*)&value, sizeof(value), HashUtil::MURMUR_SEED));
+        } else {
+            auto value = static_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num);
+            StringVal sv = value.to_string_val();
+            uint64_t hash_value = AnyValUtil::hash64_murmur(sv, HashUtil::MURMUR_SEED);
+            this->data(place).add(hash_value);
+        }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }

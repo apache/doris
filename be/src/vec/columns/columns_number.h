@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 
@@ -47,5 +48,22 @@ using ColumnDateTimeV2 = ColumnVector<UInt64>;
 
 using ColumnFloat32 = ColumnVector<Float32>;
 using ColumnFloat64 = ColumnVector<Float64>;
+
+using ColumnDecimal32 = ColumnDecimal<Decimal32>;
+using ColumnDecimal64 = ColumnDecimal<Decimal64>;
+using ColumnDecimal128 = ColumnDecimal<Decimal128>;
+
+template <typename T>
+struct IsFixLenColumnType {
+    static constexpr bool value = false;
+};
+template <typename... Arg>
+struct IsFixLenColumnType<ColumnVector<Arg...>> {
+    static constexpr bool value = true;
+};
+template <typename... Arg>
+struct IsFixLenColumnType<ColumnDecimal<Arg...>> {
+    static constexpr bool value = true;
+};
 
 } // namespace doris::vectorized
