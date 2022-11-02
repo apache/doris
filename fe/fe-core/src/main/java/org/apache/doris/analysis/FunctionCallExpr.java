@@ -1056,11 +1056,6 @@ public class FunctionCallExpr extends Expr {
             if (!children.get(1).type.isDateType()) {
                 throw new AnalysisException("The timestamp params of " + fnName + " function must be DATE or DATETIME");
             }
-            if (!children.get(1).type.isDate()) {
-                throw new AnalysisException("The timestamp params of " + fnName + " can not be DATE, " +
-                    "instead we use DATEV2 to replace DATE. It is faster and more efficient. Hence, " +
-                    "please use DATEV2. ");
-            }
 
             Type[] childTypes = new Type[children.size()];
             for (int i = 0; i < 2; i++) {
@@ -1075,6 +1070,18 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn != null && fn.getArgs()[1].isDatetime() && childTypes[1].isDatetimeV2()) {
+                fn.setArgType(childTypes[1], 1);
+            } else if (fn != null && fn.getArgs()[1].isDatetime() && childTypes[1].isDateV2()) {
+                fn.setArgType(ScalarType.DATETIMEV2, 1);
+            }
+            if (fn != null && childTypes[1].isDate()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIME, 1);
+            } else if (fn != null && childTypes[1].isDateV2()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIMEV2, 1);
+            }
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);

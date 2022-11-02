@@ -252,7 +252,7 @@ public class AggregateTest extends TestWithFeService {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
                 Assert.assertTrue(
-                        e.getMessage().contains("The mode params of window_funnel function must be integer"));
+                        e.getMessage().contains("The mode params of window_funnel function must be string"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -267,7 +267,7 @@ public class AggregateTest extends TestWithFeService {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
                 Assert.assertTrue(
-                        e.getMessage().contains("The mode params of window_funnel function must be integer"));
+                        e.getMessage().contains("The mode params of window_funnel function must be string"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -327,8 +327,8 @@ public class AggregateTest extends TestWithFeService {
 
         // normal.
         do {
-            String query = "select sequence_match('(?1)(?2)', time, number = 1, number = 2) from "
-                + DB_NAME + "." + TABLE_NAME;
+            String query = "select sequence_match('(?1)(?2)', time_col, empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (Exception e) {
@@ -337,8 +337,8 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
 
         do {
-            String query = "select sequence_match('.*', time, number = 1, number = 2) from "
-                + DB_NAME + "." + TABLE_NAME;
+            String query = "select sequence_match('(?1)(?2)', timev2_col, empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (Exception e) {
@@ -347,8 +347,18 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
 
         do {
-            String query = "select sequence_match('(?1)(?t>1800)(?2)', time, number = 1, number = 2) from "
-                + DB_NAME + "." + TABLE_NAME;
+            String query = "select sequence_match('.*', time_col, empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1)(?t>1800)(?2)', time_col, empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (Exception e) {
@@ -358,8 +368,8 @@ public class AggregateTest extends TestWithFeService {
 
         // less argument.
         do {
-            String query = "select sequence_match(time, number = 1, number = 2) from "
-                + DB_NAME + "." + TABLE_NAME;
+            String query = "select sequence_match(time_col, empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
@@ -372,8 +382,8 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
 
         do {
-            String query = "select sequence_match('(?1)(?2)', number = 1, number = 2) from "
-                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select sequence_match('(?1)(?2)', empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
@@ -387,13 +397,13 @@ public class AggregateTest extends TestWithFeService {
 
         // argument with wrong type.
         do {
-            String query = "select sequence_match(1, time, number = 1, number = 2) from "
-                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select sequence_match(1, time_col, empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
                 Assert.assertTrue(
-                    e.getMessage().contains("The pattern params of sequence_match function must be string"));
+                        e.getMessage().contains("The pattern params of sequence_match function must be string"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -402,13 +412,13 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
 
         do {
-            String query = "select sequence_match('(?1)(?2)', '1', number = 1, number = 2) from "
-                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select sequence_match('(?1)(?2)', '1', empid = 1, empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
                 Assert.assertTrue(
-                    e.getMessage().contains("The timestamp params of sequence_match function must be DATE or DATETIME"));
+                        e.getMessage().contains("The timestamp params of sequence_match function must be DATE or DATETIME"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -417,13 +427,13 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
 
         do {
-            String query = "select sequence_match('(?1)(?2)', '1', '1', number = 2) from "
-                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select sequence_match('(?1)(?2)', time_col, '1', empid = 2) from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
                 Assert.assertTrue(e.getMessage().contains(
-                    "The 3th and subsequent params of sequence_match function must be boolean"));
+                        "The 3th and subsequent params of sequence_match function must be boolean"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -432,13 +442,13 @@ public class AggregateTest extends TestWithFeService {
         } while (false);
 
         do {
-            String query = "select sequence_match('(?1)(?2)', '1', number = 2, '1') from "
-                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            String query = "select sequence_match('(?1)(?2)', time_col, empid = 2, '1') from "
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
                 Assert.assertTrue(e.getMessage().contains(
-                    "The 3th and subsequent params of sequence_match function must be boolean"));
+                        "The 3th and subsequent params of sequence_match function must be boolean"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
