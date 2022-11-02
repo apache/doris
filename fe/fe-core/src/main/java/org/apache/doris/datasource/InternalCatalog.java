@@ -1206,7 +1206,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Expr resultExpr = resultExprs.get(i);
                 Type resultType = resultExpr.getType();
                 if (resultType.isStringType() && resultType.getLength() < 0) {
-                    typeDef = new TypeDef(Type.STRING);
+                    // alway set text length MAX_STRING_LENGTH
+                    typeDef = new TypeDef(ScalarType.createStringType());
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
                 } else if (resultType.isDecimalV3()) {
