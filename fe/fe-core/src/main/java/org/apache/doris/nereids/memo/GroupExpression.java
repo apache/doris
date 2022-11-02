@@ -121,14 +121,16 @@ public class GroupExpression {
      */
     public void replaceChild(Group originChild, Group newChild) {
         originChild.removeParentExpression(this);
-        List<Group> newChildren = new ArrayList<>(children);
+        ImmutableList.Builder<Group> groupBuilder = ImmutableList.<Group>builderWithExpectedSize(arity());
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) == originChild) {
-                newChildren.set(i, newChild);
+                groupBuilder.add(newChild);
                 newChild.addParentExpression(this);
+            } else {
+                groupBuilder.add(child(i));
             }
         }
-        this.children = ImmutableList.<Group>builderWithExpectedSize(arity()).addAll(newChildren.iterator()).build();
+        this.children = groupBuilder.build();
     }
 
     public void setChild(int index, Group group) {
