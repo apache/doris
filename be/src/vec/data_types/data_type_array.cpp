@@ -253,11 +253,16 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
                                        *(rb.end() - 1));
     }
+    // empty array []
+    if (rb.count() == 2) {
+        offsets.push_back(offsets.back());
+        return Status::OK();
+    }
     ++rb.position();
 
     size_t element_num = 0;
     // parse array element until end of array
-    while (!rb.eof() && !(rb.count() == 1 && *rb.position() == ']')) {
+    while (!rb.eof()) {
         StringRef element(rb.position(), rb.count());
         bool has_quota = false;
         if (!next_element_from_string(rb, element, has_quota)) {
