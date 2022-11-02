@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
@@ -75,6 +76,9 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
                 .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithAggregate())))
                 .add(topDownBatch(ImmutableList.of(new SelectMaterializedIndexWithoutAggregate())))
+                // we need to execute this rule at the end of rewrite
+                // to avoid two consecutive same project appear when we do optimization.
+                .add(topDownBatch(ImmutableList.of(new EliminateUnnecessaryProject())))
                 .build();
 
         rulesJob.addAll(jobs);
