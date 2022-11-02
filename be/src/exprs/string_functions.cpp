@@ -922,32 +922,39 @@ static int index_of(const uint8_t* source, int source_offset, int source_count,
 
 StringVal StringFunctions::split_part(FunctionContext* context, const StringVal& content,
                                       const StringVal& delimiter, const IntVal& field) {
-    if (content.is_null || delimiter.is_null || field.is_null || field.val <= 0) {
+    if (content.is_null || delimiter.is_null || field.is_null) {
         return StringVal::null();
     }
-    std::vector<int> find(field.val, -1); //store substring position
+    std::vector<int> find(content.len, -1); //store substring position
     int from = 0;
-    for (int i = 1; i <= field.val; i++) { // find
+    int split_cnt = 0;     //substring count of content splitted by delimiter
+    for (int i = 1; i <= content.len; i++) { // find
         int last_index = i - 1;
         find[last_index] =
                 index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
         from = find[last_index] + delimiter.len;
         if (find[last_index] == -1) {
             break;
+        } else {
+            split_cnt++;
         }
     }
-    if ((field.val > 1 && find[field.val - 2] == -1) ||
-        (field.val == 1 && find[field.val - 1] == -1)) {
-        // field not find return null
+    split_cnt = (split_cnt > 0) ? split_cnt + 1 : 0;
+    // if field is negative, convert it to forward direction index
+    int new_field = (field.val < 0) ? field.val + split_cnt + 1 : field.val;
+
+    // if field not find or field is over-long, then return null
+    if (split_cnt == 0 || new_field <= 0 || new_field > split_cnt) {
         return StringVal::null();
     }
+
     int start_pos;
-    if (field.val == 1) { // find need split first part
+    if (new_field == 1) { // find need split first part
         start_pos = 0;
     } else {
-        start_pos = find[field.val - 2] + delimiter.len;
+        start_pos = find[new_field - 2] + delimiter.len;
     }
-    int len = (find[field.val - 1] == -1 ? content.len : find[field.val - 1]) - start_pos;
+    int len = (find[new_field - 1] == -1 ? content.len : find[new_field - 1]) - start_pos;
     return StringVal(content.ptr + start_pos, len);
 }
 

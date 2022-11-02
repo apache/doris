@@ -583,7 +583,15 @@ TEST(function_string_test, function_string_splitpart_test) {
             {{Null(), std::string("__"), 1}, Null()},
             {{std::string("prefix_string"), Null(), 1}, Null()},
             {{std::string("prefix_string"), std::string("__"), Null()}, Null()},
-            {{std::string("prefix_string"), std::string("__"), -1}, Null()}};
+            {{std::string("prefix_string"), std::string("_"), Null()}, Null()},
+            {{std::string("prefix_string"), std::string("__"), -1}, Null()}
+            {{std::string("prefix_string1"), std::string("_"), -1}, std::string("string1")},
+            {{std::string("prefix_string1"), std::string("_"), -2}, std::string("prefix")},
+            {{std::string("prefix_string1"), std::string("_"), -3}, Null()},
+            {{std::string("abc###123###234"), std::string("##"), -1}, std::string("#234")},
+            {{std::string("abc###123###234"), std::string("##"), -2}, std::string("#123")},
+            {{std::string("abc###123###234"), std::string("##"), -3}, std::string("abc")},
+            {{std::string("abc###123###234"), std::string("##"), -4}, Null()}};
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }

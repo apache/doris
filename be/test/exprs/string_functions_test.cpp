@@ -187,6 +187,49 @@ TEST_F(StringFunctionsTest, split_part) {
             AnyValUtil::from_string(ctx, std::string("#123")),
             StringFunctions::split_part(context, StringVal("abc###123###234"), StringVal("##"), 2));
 
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, std::string("#234")),
+            StringFunctions::split_part(context, StringVal("abc###123###234"), StringVal("##"), -1));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, std::string("#123")),
+            StringFunctions::split_part(context, StringVal("abc###123###234"), StringVal("##"), -2));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, std::string("abc")),
+            StringFunctions::split_part(context, StringVal("abc###123###234"), StringVal("##"), -3));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, StringVal::null()),
+            StringFunctions::split_part(context, StringVal("abc###123###234"), StringVal("##"), -4));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, std::string("234")),
+            StringFunctions::split_part(context, StringVal("abc#123##234"), StringVal("#"), -1));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, std::string("")),
+            StringFunctions::split_part(context, StringVal("abc#123##234"), StringVal("#"), -2));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, std::string("123")),
+            StringFunctions::split_part(context, StringVal("abc#123##234"), StringVal("#"), -3));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, std::string("abc")),
+            StringFunctions::split_part(context, StringVal("abc#123##234"), StringVal("#"), -4));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, StringVal::null()),
+            StringFunctions::split_part(context, StringVal("abc#123##234"), StringVal("#"), -5));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, StringVal::null()),
+            StringFunctions::split_part(context, StringVal("abc#123##234"), StringVal("#"), null));
+
+    EXPECT_EQ(
+            AnyValUtil::from_string(ctx, StringVal::null()),
+            StringFunctions::split_part(context, StringVal("abc#123##234"), null, -1));
     delete context;
 }
 
