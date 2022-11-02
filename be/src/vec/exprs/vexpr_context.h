@@ -76,6 +76,10 @@ public:
         _stale = true;
     }
 
+    void set_filtered_by_lazy_read(const bool filtered) { _filtered_by_lazy_read = filtered; }
+
+    bool filtered_by_lazy_read() const { return _filtered_by_lazy_read; }
+
 private:
     friend class VExpr;
 
@@ -100,5 +104,8 @@ private:
     int _last_result_column_id;
 
     bool _stale;
+
+    /// lazy read has already filtered the output block
+    std::atomic<bool> _filtered_by_lazy_read = false;
 };
 } // namespace doris::vectorized

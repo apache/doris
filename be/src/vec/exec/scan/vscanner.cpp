@@ -71,10 +71,10 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
 Status VScanner::_filter_output_block(Block* block) {
     auto old_rows = block->rows();
-    Status st =
-            VExprContext::filter_block(_vconjunct_ctx, block, _output_tuple_desc->slots().size());
+    RETURN_IF_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx, block, _output_tuple_desc->slots().size()));
     _counter.num_rows_unselected += old_rows - block->rows();
-    return st;
+    return Status::OK();
 }
 
 Status VScanner::try_append_late_arrival_runtime_filter() {

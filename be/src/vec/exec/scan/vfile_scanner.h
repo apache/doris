@@ -117,6 +117,8 @@ protected:
     Block* _src_block_ptr;
     Block _src_block;
 
+    VExprContext* _push_down_expr = nullptr;
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
