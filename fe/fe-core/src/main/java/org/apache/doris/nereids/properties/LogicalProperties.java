@@ -71,7 +71,7 @@ public class LogicalProperties {
 
     public List<Id> getOutputExprIds() {
         if (outputExprIds == null) {
-            outputExprIds = outputExprIdSet.stream().map(Id.class::cast).collect(Collectors.toList());
+            outputExprIds = getOutputExprIdSet().stream().map(Id.class::cast).collect(Collectors.toList());
         }
         return outputExprIds;
     }
