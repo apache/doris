@@ -28,7 +28,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Test;
 
-class HyperGraphJoinReorderGroupPlanTest {
+class HyperGraphJoinReorderGroupLeftTest {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
@@ -38,15 +38,19 @@ class HyperGraphJoinReorderGroupPlanTest {
     @Test
     void test() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 1))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 1))
-                .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 1))
-                .hashJoinUsing(scan5, JoinType.INNER_JOIN, Pair.of(0, 1))
+                .hashJoinUsing(
+                        new LogicalPlanBuilder(scan2)
+                                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 1))
+                                .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 1))
+                                .hashJoinUsing(scan5, JoinType.INNER_JOIN, Pair.of(0, 1))
+                                .build(),
+                        JoinType.INNER_JOIN, Pair.of(0, 1)
+                )
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .deriveStats()
-                .applyTopDown(new HyperGraphJoinReorderGroupPlan())
+                .applyTopDown(new HyperGraphJoinReorderGroupLeft())
                 .printlnTree();
     }
 }
