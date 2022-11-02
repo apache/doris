@@ -601,6 +601,12 @@ private:
         }
     }
 
+    std::string _debug_string() override {
+        std::string info =
+                "ComparisonPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
+        return info;
+    }
+
     T _value;
     static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 };
