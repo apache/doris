@@ -39,6 +39,11 @@ public interface Command extends LogicalPlan {
     }
 
     @Override
+    default void setGroupExpression(GroupExpression groupExpression) {
+        throw new RuntimeException("Command do not implement setGroupExpression");
+    }
+
+    @Override
     default List<Plan> children() {
         throw new RuntimeException("Command do not implement children");
     }

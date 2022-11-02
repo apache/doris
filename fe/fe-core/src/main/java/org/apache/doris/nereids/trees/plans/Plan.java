@@ -44,6 +44,9 @@ public interface Plan extends TreeNode<Plan> {
     // cache GroupExpression for fast exit from Memo.copyIn.
     Optional<GroupExpression> getGroupExpression();
 
+    // just use for GroupExpression replace children.
+    void setGroupExpression(GroupExpression groupExpression);
+
     <R, C> R accept(PlanVisitor<R, C> visitor, C context);
 
     List<? extends Expression> getExpressions();

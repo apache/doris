@@ -63,6 +63,10 @@ public class FakePlan implements Plan {
     }
 
     @Override
+    public void setGroupExpression(GroupExpression groupExpression) {
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return null;
     }

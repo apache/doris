@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.Instant;
@@ -55,8 +56,8 @@ public class Utils {
      * Helper function to eliminate unnecessary checked exception caught requirement from the main logic of translator.
      *
      * @param f function which would invoke the logic of
-     *        stale code from old optimizer that could throw
-     *        a checked exception.
+     *         stale code from old optimizer that could throw
+     *         a checked exception.
      */
     public static void execWithUncheckedException(FuncWrapper f) {
         try {
@@ -200,5 +201,31 @@ public class Utils {
 
     public static LocalDateTime getLocalDatetimeFromLong(long dateTime) {
         return LocalDateTime.ofInstant(Instant.ofEpochSecond(dateTime), ZoneId.systemDefault());
+    }
+
+    /**
+     * In mutable List, use a newItem to replace oldItem.
+     */
+    public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == oldItem) {
+                list.set(i, newItem);
+            }
+        }
+    }
+
+    /**
+     * In List, use a newItem to replace oldItem, and generate a ImmutableList.
+     */
+    public static <T> ImmutableList<T> replaceListWithNew(List<T> list, T oldItem, T newItem) {
+        Builder<T> builder = ImmutableList.builder();
+        for (T item : list) {
+            if (item == oldItem) {
+                builder.add(newItem);
+            } else {
+                builder.add(item);
+            }
+        }
+        return builder.build();
     }
 }

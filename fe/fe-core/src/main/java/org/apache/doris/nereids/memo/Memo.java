@@ -78,8 +78,8 @@ public class Memo {
      * @param target target group to add node. null to generate new Group
      * @param rewrite whether to rewrite the node to the target group
      * @return CopyInResult, in which the generateNewExpression is true if a newly generated
-     *                       groupExpression added into memo, and the correspondingExpression
-     *                       is the corresponding group expression of the plan
+     *         groupExpression added into memo, and the correspondingExpression
+     *         is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
         if (rewrite) {
@@ -139,6 +139,7 @@ public class Memo {
 
     /**
      * copyOut the group.
+     *
      * @param group the group what want to copyOut
      * @param includeGroupExpression whether include group expression in the plan
      * @return plan
@@ -150,6 +151,7 @@ public class Memo {
 
     /**
      * copyOut the logicalExpression.
+     *
      * @param logicalExpression the logicalExpression what want to copyOut
      * @param includeGroupExpression whether include group expression in the plan
      * @return plan
@@ -177,6 +179,7 @@ public class Memo {
 
     /**
      * init memo by a first plan.
+     *
      * @param plan first plan
      * @return plan's corresponding group
      */
@@ -235,8 +238,8 @@ public class Memo {
      *
      * @param plan the plan which want to rewrite or added
      * @param targetGroup target group to replace plan. null to generate new Group. It should be the ancestors
-     *                    of the plan's group, or equals to the plan's group, we do not check this constraint
-     *                    completely because of performance.
+     *         of the plan's group, or equals to the plan's group, we do not check this constraint
+     *         completely because of performance.
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
@@ -268,10 +271,11 @@ public class Memo {
 
     /**
      * add the plan into the target group
+     *
      * @param plan the plan which want added
      * @param targetGroup target group to add plan. null to generate new Group. It should be the ancestors
-     *                    of the plan's group, or equals to the plan's group, we do not check this constraint
-     *                    completely because of performance.
+     *         of the plan's group, or equals to the plan's group, we do not check this constraint
+     *         completely because of performance.
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
@@ -375,43 +379,33 @@ public class Memo {
         if (source.equals(destination)) {
             return source;
         }
-        List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        for (GroupExpression groupExpression : groupExpressions.values()) {
-            if (groupExpression.children().contains(source)) {
-                if (groupExpression.getOwnerGroup().equals(destination)) {
-                    // cycle, we should not merge
-                    return null;
-                }
-                needReplaceChild.add(groupExpression);
-            }
+        if (source.getParentGroupExpressions().stream()
+                .anyMatch(e -> e.getOwnerGroup().equals(destination))) {
+            return null;
         }
-        for (GroupExpression groupExpression : needReplaceChild) {
-            groupExpressions.remove(groupExpression);
-            List<Group> children = new ArrayList<>(groupExpression.children());
-            // TODO: use a better way to replace child, avoid traversing all groupExpression
-            for (int i = 0; i < children.size(); i++) {
-                if (children.get(i).equals(source)) {
-                    children.set(i, destination);
-                }
-            }
-            groupExpression.setChildren(ImmutableList.copyOf(children));
+        for (GroupExpression groupExpression : source.getParentGroupExpressions()) {
+            // copy and replace source with distination as child.
+            GroupExpression newGroupExpression = groupExpression.replaceChild(groupExpressions, source, destination);
 
-            GroupExpression that = groupExpressions.get(groupExpression);
-            if (that != null && that.getOwnerGroup() != null
-                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
-                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
-                // that.getOwnerGroup() already has this groupExpression.
-                Group ownerGroup = groupExpression.getOwnerGroup();
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
-                mergeGroup(ownerGroup, that.getOwnerGroup());
+            groupExpressions.remove(groupExpression);
+
+            GroupExpression that = groupExpressions.get(newGroupExpression);
+            if (that != null) {
+                Preconditions.checkState(that.getOwnerGroup() != null, "Exist orphan GroupExpression");
+                if (!that.getOwnerGroup().equals(newGroupExpression.getOwnerGroup())) {
+                    // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
+                    // that.getOwnerGroup() already has this groupExpression.
+                    Group ownerGroup = newGroupExpression.getOwnerGroup();
+                    newGroupExpression.getOwnerGroup().removeGroupExpression(newGroupExpression);
+                    mergeGroup(ownerGroup, that.getOwnerGroup());
+                }
             } else {
-                groupExpressions.put(groupExpression, groupExpression);
+                groupExpressions.put(newGroupExpression, newGroupExpression);
             }
         }
         if (!source.equals(destination)) {
             // TODO: stats and other
-            source.moveLogicalExpressionOwnership(destination);
-            source.movePhysicalExpressionOwnership(destination);
+            source.moveLogicalPhysicalExpressionOwnership(destination);
             source.moveLowestCostPlansOwnership(destination);
             groups.remove(source.getGroupId());
         }
@@ -488,14 +482,14 @@ public class Memo {
 
     /**
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
-     * <p>
+     * <pre>
      * the scenario is:
      * ```
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
      * ```
-     * <p>
+     * </pre>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */
@@ -558,7 +552,7 @@ public class Memo {
     private void moveParentExpressionsReference(Group fromGroup, Group toGroup) {
         for (GroupExpression parentGroupExpression : fromGroup.getParentGroupExpressions()) {
             if (parentGroupExpression.getOwnerGroup() != toGroup) {
-                parentGroupExpression.replaceChild(fromGroup, toGroup);
+                parentGroupExpression.replaceChild(groupExpressions, fromGroup, toGroup);
             }
         }
     }
@@ -590,14 +584,24 @@ public class Memo {
     }
 
     private void recycleExpression(GroupExpression groupExpression) {
-        if (groupExpressions.get(groupExpression) == groupExpression) {
-            groupExpressions.remove(groupExpression);
-        }
+        groupExpressions.remove(groupExpression);
+
+        // handle children
         for (Group childGroup : groupExpression.children()) {
             // if not any groupExpression reference child group, then recycle the child group
             if (childGroup.removeParentExpression(groupExpression) == 0) {
                 recycleGroup(childGroup);
             }
+        }
+
+        // handle parent
+        // TODO: maybe physical don't need to consider.
+        groupExpression.getOwnerGroup().getLogicalExpressions().remove(groupExpression);
+        groupExpression.getOwnerGroup().getPhysicalExpressions().remove(groupExpression);
+
+        // handle Plan
+        if (groupExpression.getPlan().getGroupExpression().isPresent()) {
+            // TODO: need to consider
         }
     }
 

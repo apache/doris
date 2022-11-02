@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -385,28 +386,12 @@ public class Group {
     }
 
     /**
-     * move the ownerGroup of all logical expressions to target group
+     * move the ownerGroup of all logical & physical expressions to target group
      * if this.equals(target), do nothing.
      *
      * @param target the new owner group of expressions
      */
-    public void moveLogicalExpressionOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        for (GroupExpression expression : logicalExpressions) {
-            target.addGroupExpression(expression);
-        }
-        logicalExpressions.clear();
-    }
-
-    /**
-     * move the ownerGroup of all physical expressions to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void movePhysicalExpressionOwnership(Group target) {
+    public void moveLogicalPhysicalExpressionOwnership(Group target) {
         if (equals(target)) {
             return;
         }
@@ -414,6 +399,10 @@ public class Group {
             target.addGroupExpression(expression);
         }
         physicalExpressions.clear();
+        for (GroupExpression expression : logicalExpressions) {
+            target.addGroupExpression(expression);
+        }
+        logicalExpressions.clear();
     }
 
     /**
@@ -441,5 +430,19 @@ public class Group {
             }
         });
         lowestCostPlans.clear();
+    }
+
+    /**
+     * Use {@param newGroupExpr} to replace {@param oldGroupExpr}.
+     */
+    public void replaceGroupExpression(GroupExpression oldGroupExpr, GroupExpression newGroupExpr) {
+        Utils.replaceList(logicalExpressions, oldGroupExpr, newGroupExpr);
+        Utils.replaceList(physicalExpressions, oldGroupExpr, newGroupExpr);
+        lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
+            GroupExpression bestGroupExpression = costAndGroupExpr.second;
+            if (bestGroupExpression == oldGroupExpr) {
+                costAndGroupExpr.second = newGroupExpr;
+            }
+        });
     }
 }
