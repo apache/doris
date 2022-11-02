@@ -89,27 +89,11 @@ public abstract class BatchRulesJob {
      */
     public void execute() {
         for (Job job : rulesJob) {
-//            if (job instanceof RewriteTopDownJob) {
-//                for (Rule rule : ((RewriteTopDownJob) job).getRules()) {
-//                    System.out.println(rule);
-//                }
-//            }
-//            if (job instanceof RewriteBottomUpJob) {
-//                for (Rule rule : ((RewriteBottomUpJob) job).getRules()) {
-//                    System.out.println(rule);
-//                }
-//            }
-//            if (job instanceof VisitorRewriteJob) {
-//                System.out.println(job.getClass().getName());
-//            }
             do {
                 cascadesContext.getCurrentJobContext().setRewritten(false);
                 cascadesContext.pushJob(job);
                 cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
             } while (!job.isOnce() && cascadesContext.getCurrentJobContext().isRewritten());
-//            System.out.println("---------------------------start-------------------------------");
-//            System.out.println(cascadesContext.getMemo().copyOut().treeString());
-//            System.out.println("----------------------------end------------------------------");
         }
     }
 }
