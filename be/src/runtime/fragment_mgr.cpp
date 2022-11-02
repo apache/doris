@@ -388,6 +388,10 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
 
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
+    if (!exec_status.ok()) {
+        LOG(INFO) << "report error status: " << exec_status.to_string()
+                  << " to coordinator: " << _coord_addr;
+    }
     try {
         try {
             coord->reportExecStatus(res, params);
@@ -499,7 +503,13 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     bool all_done = false;
     if (fragments_ctx != nullptr) {
         // decrease the number of unfinished fragments
-        all_done = fragments_ctx->countdown();
+        int unfinished_fragments = fragments_ctx->countdown();
+        LOG(INFO) << "fragment exec finished, query id: " << exec_state->query_id()
+                  << ", fragment id: " << exec_state->fragment_instance_id()
+                  << ", unfinished fragments: " << unfinished_fragments;
+        if (unfinished_fragments == 0) {
+            all_done = true;
+        }
     }
 
     // remove exec state after this fragment finished
@@ -627,7 +637,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         fragments_ctx->coord_addr = params.coord;
         LOG(INFO) << "query_id: "
                   << UniqueId(fragments_ctx->query_id.hi, fragments_ctx->query_id.lo)
-                  << " coord_addr " << fragments_ctx->coord_addr;
+                  << " coord_addr " << fragments_ctx->coord_addr
+                  << " total fragment num on current host: " << params.fragment_num_on_host;
         fragments_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
