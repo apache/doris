@@ -430,6 +430,7 @@
                                 "sql-manual/sql-functions/aggregate-functions/percentile",
                                 "sql-manual/sql-functions/aggregate-functions/hll_union_agg",
                                 "sql-manual/sql-functions/aggregate-functions/topn",
+                                "sql-manual/sql-functions/aggregate-functions/topn_array",
                                 "sql-manual/sql-functions/aggregate-functions/count",
                                 "sql-manual/sql-functions/aggregate-functions/sum",
                                 "sql-manual/sql-functions/aggregate-functions/max_by",

@@ -39,8 +39,18 @@ public class Count extends AggregateFunction implements AlwaysNotNullable {
         this.isStar = true;
     }
 
-    public Count(Expression child, boolean isDistinct) {
-        super("count", isDistinct, child);
+    public Count(AggregateParam aggregateParam) {
+        super("count", aggregateParam);
+        this.isStar = true;
+    }
+
+    public Count(Expression child) {
+        super("count", child);
+        this.isStar = false;
+    }
+
+    public Count(AggregateParam aggregateParam, Expression child) {
+        super("count", aggregateParam, child);
         this.isStar = false;
     }
 
@@ -49,22 +59,31 @@ public class Count extends AggregateFunction implements AlwaysNotNullable {
     }
 
     @Override
-    public DataType getDataType() {
+    public DataType getFinalType() {
         return BigIntType.INSTANCE;
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0 || children.size() == 1);
-        if (children.size() == 0) {
-            return new Count();
-        }
-        return new Count(children.get(0), isDistinct());
+    public DataType getIntermediateType() {
+        return getFinalType();
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return getDataType();
+    public Count withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 0 || children.size() == 1);
+        if (children.size() == 0) {
+            return this;
+        }
+        return new Count(getAggregateParam(), children.get(0));
+    }
+
+    @Override
+    public Count withAggregateParam(AggregateParam aggregateParam) {
+        if (arity() == 0) {
+            return new Count(aggregateParam);
+        } else {
+            return new Count(aggregateParam, child(0));
+        }
     }
 
     @Override

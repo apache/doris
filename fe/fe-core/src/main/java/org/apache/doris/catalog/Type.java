@@ -158,6 +158,8 @@ public abstract class Type {
         arraySubTypes.add(DECIMALV2);
         arraySubTypes.add(DATE);
         arraySubTypes.add(DATETIME);
+        arraySubTypes.add(DATEV2);
+        arraySubTypes.add(DATETIMEV2);
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);

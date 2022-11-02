@@ -24,32 +24,23 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 
-import com.google.common.base.Preconditions;
-
-import java.util.Objects;
-
 /**
  * Varchar type literal, in theory,
  * the difference from StringLiteral is that VarcharLiteral keeps the length information.
  */
-public class VarcharLiteral extends Literal {
-
-    private final String value;
+public class VarcharLiteral extends StringLikeLiteral {
 
     public VarcharLiteral(String value) {
-        super(VarcharType.SYSTEM_DEFAULT);
-        this.value = Objects.requireNonNull(value);
+        super(value, VarcharType.SYSTEM_DEFAULT);
     }
 
     public VarcharLiteral(String value, int len) {
-        super(VarcharType.createVarcharType(len));
-        this.value = Objects.requireNonNull(value);
-        Preconditions.checkArgument(value.length() <= len);
+        super(len >= 0 ? value.substring(0, Math.min(value.length(), len)) : value, VarcharType.createVarcharType(len));
     }
 
     @Override
     public String getValue() {
-        return value;
+        return getStringValue();
     }
 
     @Override
