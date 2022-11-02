@@ -64,6 +64,7 @@ struct AggregateFunctionSequenceMatchData final
     using Comparator = ComparePairFirst<std::less>;
 
     AggregateFunctionSequenceMatchData(){
+        reset();
     }
 
 public:
@@ -87,8 +88,15 @@ public:
     void reset() {
         sorted = true;
         init_flag=false;
+        pattern_has_time=false;
+        pattern="";
+        arg_count=0;
         conditions_met.reset();
         conditions_in_pattern.reset();
+
+        events_list.clear();
+        actions.clear();
+        dfa_states.clear();
     }
 
     void add(const Timestamp timestamp, const Events & events)
@@ -694,6 +702,11 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
         auto & output = assert_cast<ColumnUInt8 &>(to).get_data();
+        if (!this->data(place).conditions_in_pattern.any()){
+            output.push_back(false);
+            return;
+        }
+
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
             output.push_back(false);
@@ -734,6 +747,11 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
         auto & output = assert_cast<ColumnUInt64 &>(to).get_data();
+        if (!this->data(place).conditions_in_pattern.any()){
+            output.push_back(0);
+            return;
+        }
+
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
             output.push_back(0);
