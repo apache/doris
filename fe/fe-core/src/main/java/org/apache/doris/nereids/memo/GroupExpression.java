@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
@@ -120,16 +121,14 @@ public class GroupExpression {
      */
     public void replaceChild(Group originChild, Group newChild) {
         originChild.removeParentExpression(this);
-        List<Group> groups = Lists.newArrayListWithCapacity(this.children.size());
+        List<Group> newChildren = new ArrayList<>(children);
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) == originChild) {
-                groups.add(newChild);
-            } else {
-                groups.add(child(i));
+                newChildren.set(i, newChild);
+                newChild.addParentExpression(this);
             }
         }
-        children = ImmutableList.copyOf(groups);
-        newChild.addParentExpression(this);
+        this.children = ImmutableList.<Group>builderWithExpectedSize(arity()).addAll(newChildren.iterator()).build();
     }
 
     public void setChild(int index, Group group) {

@@ -83,8 +83,11 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
             + "V2 AS (SELECT s_suppkey FROM V1)"
             + "SELECT * FROM V2";
 
+    private final String sql6 = "WITH cte1 AS (SELECT s_suppkey FROM supplier)"
+            + "SELECT * FROM cte1 AS t1, cte1 AS t2";
+
     private final List<String> testSql = ImmutableList.of(
-            sql1, sql2, sql3, sql4, sql5
+            sql1, sql2, sql3, sql4, sql5, sql6
     );
 
     @Override
