@@ -486,8 +486,9 @@ public abstract class Type {
             return ScalarType.canCastTo((ScalarType) sourceType, (ScalarType) targetType);
         } else if (sourceType.isArrayType() && targetType.isArrayType()) {
             return ArrayType.canCastTo((ArrayType) sourceType, (ArrayType) targetType);
-        } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()) {
-            // TODO: current not support cast any non-array type to nested array type.
+        } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
+                && !sourceType.isNull()) {
+            // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();

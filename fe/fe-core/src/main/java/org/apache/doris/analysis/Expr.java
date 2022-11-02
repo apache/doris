@@ -1374,7 +1374,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         // TODO(zc): use implicit cast
         if (!Type.canCastTo(this.type, targetType)) {
             throw new AnalysisException("can not cast from origin type " + this.type
-                    + "to target type=" + targetType);
+                    + " to target type=" + targetType);
 
         }
         return uncheckedCastTo(targetType);
