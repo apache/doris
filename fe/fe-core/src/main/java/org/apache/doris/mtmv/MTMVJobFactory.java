@@ -19,9 +19,9 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
+import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.analysis.MVRefreshIntervalTriggerInfo;
 import org.apache.doris.analysis.MVRefreshTriggerInfo;
-import org.apache.doris.analysis.MVRefreshTriggerInfo.RefreshTrigger;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;

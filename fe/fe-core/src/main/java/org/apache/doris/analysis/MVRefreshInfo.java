@@ -84,4 +84,8 @@ public class MVRefreshInfo {
     public enum BuildMode {
         IMMEDIATE, DEFERRED
     }
+
+    public enum RefreshTrigger {
+        DEMAND, COMMIT, INTERVAL
+    }
 }
