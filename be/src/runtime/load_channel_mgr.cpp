@@ -70,8 +70,6 @@ LoadChannelMgr::~LoadChannelMgr() {
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
-    _process_soft_mem_limit =
-            ExecEnv::GetInstance()->process_mem_tracker()->limit() * config::soft_mem_limit_frac;
     _mem_tracker = std::make_unique<MemTracker>("LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });

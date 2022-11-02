@@ -92,7 +92,6 @@ protected:
     std::unique_ptr<MemTracker> _mem_tracker;
     int64_t _load_hard_mem_limit = -1;
     int64_t _load_soft_mem_limit = -1;
-    int64_t _process_soft_mem_limit = -1;
 
     // If hard limit reached, one thread will trigger load channel flush,
     // other threads should wait on the condition variable.
@@ -163,9 +162,9 @@ template <typename TabletWriterAddResult>
 Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
-    DCHECK(_process_soft_mem_limit > 0);
+    int64_t process_mem_limit = MemInfo::mem_limit() * config::soft_mem_limit_frac;
     if (_mem_tracker->consumption() < _load_soft_mem_limit &&
-        MemInfo::proc_mem_no_allocator_cache() < _process_soft_mem_limit) {
+        MemInfo::proc_mem_no_allocator_cache() < process_mem_limit) {
         return Status::OK();
     }
     // Pick load channel to reduce memory.
@@ -181,7 +180,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         // we don't need to handle mem limit in current thread.
         if (_reduce_memory_channel != nullptr &&
             _mem_tracker->consumption() < _load_hard_mem_limit &&
-            MemInfo::proc_mem_no_allocator_cache() < _process_soft_mem_limit) {
+            MemInfo::proc_mem_no_allocator_cache() < process_mem_limit) {
             return Status::OK();
         }
 
@@ -210,7 +209,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         _reduce_memory_channel = channel;
 
         std::ostringstream oss;
-        if (MemInfo::proc_mem_no_allocator_cache() < _process_soft_mem_limit) {
+        if (MemInfo::proc_mem_no_allocator_cache() < process_mem_limit) {
             oss << "reducing memory of " << *channel << " because total load mem consumption "
                 << PrettyPrinter::print(_mem_tracker->consumption(), TUnit::BYTES)
                 << " has exceeded";
@@ -224,7 +223,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
             _should_wait_flush = true;
             oss << "reducing memory of " << *channel << " because process memory used "
                 << PerfCounters::get_vm_rss_str() << " has exceeded limit "
-                << PrettyPrinter::print(_process_soft_mem_limit, TUnit::BYTES)
+                << PrettyPrinter::print(process_mem_limit, TUnit::BYTES)
                 << " , tc/jemalloc allocator cache " << MemInfo::allocator_cache_mem_str();
         }
         LOG(INFO) << oss.str();

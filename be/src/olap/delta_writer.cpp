@@ -392,6 +392,7 @@ Status DeltaWriter::cancel() {
 }
 
 void DeltaWriter::save_mem_consumption_snapshot() {
+    std::lock_guard<std::mutex> l(_lock);
     _mem_consumption_snapshot = mem_consumption();
     _memtable_consumption_snapshot = _mem_table->memory_usage();
 }
