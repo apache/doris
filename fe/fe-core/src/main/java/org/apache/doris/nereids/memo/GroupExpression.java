@@ -28,7 +28,6 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -107,9 +106,7 @@ public class GroupExpression {
     }
 
     public void setChildren(ImmutableList<Group> children) {
-        this.children.forEach(g -> g.removeParentExpression(this));
         this.children = children;
-        this.children.forEach(g -> g.addParentExpression(this));
     }
 
     /**
@@ -120,34 +117,20 @@ public class GroupExpression {
      */
     public void replaceChild(Group originChild, Group newChild) {
         originChild.removeParentExpression(this);
-        List<Group> groups = Lists.newArrayListWithCapacity(this.children.size());
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) == originChild) {
-                groups.add(newChild);
-            } else {
-                groups.add(child(i));
+                children.set(i, newChild);
+                newChild.addParentExpression(this);
             }
         }
-        children = ImmutableList.copyOf(groups);
-        newChild.addParentExpression(this);
     }
 
     public void setChild(int index, Group group) {
-        this.children.get(index).removeParentExpression(this);
-        setChildByIndex(index, group);
+        this.children.set(index, group);
     }
 
     public boolean hasApplied(Rule rule) {
         return ruleMasks.get(rule.getRuleType().ordinal());
-    }
-
-    private void setChildByIndex(int index, Group group) {
-        ImmutableList.Builder<Group> builder = new Builder<>();
-        builder.addAll(children.subList(0, index));
-        builder.add(group);
-        builder.addAll(children.subList(index + 1, children.size()));
-        children = builder.build();
-        group.addParentExpression(this);
     }
 
     public boolean notApplied(Rule rule) {

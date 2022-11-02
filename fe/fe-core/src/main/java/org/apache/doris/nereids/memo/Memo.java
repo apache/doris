@@ -375,13 +375,26 @@ public class Memo {
         if (source.equals(destination)) {
             return source;
         }
-        if (source.getParentGroupExpressions().stream()
-                .anyMatch(e -> e.getOwnerGroup().equals(destination))) {
-            return null;
+        List<GroupExpression> needReplaceChild = Lists.newArrayList();
+        for (GroupExpression groupExpression : groupExpressions.values()) {
+            if (groupExpression.children().contains(source)) {
+                if (groupExpression.getOwnerGroup().equals(destination)) {
+                    // cycle, we should not merge
+                    return null;
+                }
+                needReplaceChild.add(groupExpression);
+            }
         }
-        for (GroupExpression groupExpression : source.getParentGroupExpressions()) {
+        for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
-            groupExpression.replaceChild(source, destination);
+            List<Group> children = new ArrayList<>(groupExpression.children());
+            // TODO: use a better way to replace child, avoid traversing all groupExpression
+            for (int i = 0; i < children.size(); i++) {
+                if (children.get(i).equals(source)) {
+                    children.set(i, destination);
+                }
+            }
+            groupExpression.setChildren(ImmutableList.copyOf(children));
 
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
