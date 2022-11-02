@@ -31,7 +31,7 @@ under the License.
 `VARCHAR split party (VARCHAR content, VARCHAR delimiter, INT field)`
 
 
-Returns the specified partition (counting from the beginning) by splitting the string according to the partitioner.
+Returns the specified partition by splitting the string according to the delimiter. If field is positive, counting from the beginning of content,  otherwise from the ending.
 
 ### example
 
@@ -64,6 +64,21 @@ mysql> select split_part("abca", "a", 1);
 +----------------------------+
 |                            |
 +----------------------------+
+
+mysql> select split_part("prefix_string", "_", -1);
++--------------------------------------+
+| split_part('prefix_string', '_', -1) |
++--------------------------------------+
+| string                               |
++--------------------------------------+
+
+
+mysql> select split_part("prefix_string", "_", -2);
++--------------------------------------+
+| split_part('prefix_string', '_', -2) |
++--------------------------------------+
+| prefix                               |
++--------------------------------------+
 ```
 ### keywords
     SPLIT_PART,SPLIT,PART

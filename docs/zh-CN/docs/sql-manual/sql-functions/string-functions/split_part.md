@@ -31,7 +31,7 @@ under the License.
 `VARCHAR split_part(VARCHAR content, VARCHAR delimiter, INT field)`
 
 
-根据分割符拆分字符串, 返回指定的分割部分(从一开始计数)。
+根据分割符拆分字符串, 返回指定的分割部分(从一或负一开始计数)。field字段支持负数，代表从右往左倒着取数。
 
 ### example
 
@@ -64,6 +64,20 @@ mysql> select split_part("abca", "a", 1);
 +----------------------------+
 |                            |
 +----------------------------+
+
+mysql> select split_part("prefix_string", "_", -1);
++--------------------------------------+
+| split_part('prefix_string', '_', -1) |
++--------------------------------------+
+| string                               |
++--------------------------------------+
+
+mysql> select split_part("prefix_string", "_", -2);
++--------------------------------------+
+| split_part('prefix_string', '_', -2) |
++--------------------------------------+
+| prefix                               |
++--------------------------------------+
 ```
 ### keywords
     SPLIT_PART,SPLIT,PART
