@@ -6349,6 +6349,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BEGIN:id
     {: RESULT = id; :}
+    | KW_BIN:id
+    {: RESULT = id; :}
     | KW_BITMAP:id
     {: RESULT = id; :}
     | KW_QUANTILE_STATE:id
