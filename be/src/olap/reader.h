@@ -101,8 +101,6 @@ public:
         bool read_orderby_key_reverse = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
-        // whether the reader needs to output sequence column
-        bool output_sequence_col = true;
 
         void check_validation() const;
 
