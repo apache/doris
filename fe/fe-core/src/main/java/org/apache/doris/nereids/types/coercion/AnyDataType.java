@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.types.coercion;
 
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 
 /**
@@ -32,8 +34,13 @@ public class AnyDataType implements AbstractDataType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return true;
+    }
+
+    @Override
+    public Type toCatalogDataType() {
+        throw new AnalysisException("AnyDataType can not cast to catalog data type");
     }
 
     @Override

@@ -34,7 +34,7 @@ public class TimeV2Type extends PrimitiveType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.TIME;
+        return Type.TIMEV2;
     }
 
     @Override
