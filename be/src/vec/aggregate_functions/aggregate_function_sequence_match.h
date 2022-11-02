@@ -256,9 +256,10 @@ public:
                     else
                         throw_exception("Unknown time condition");
 
-                    UInt64 duration = 0;
+                    NativeType duration = 0;
                     const auto * prev_pos = pos;
                     pos = try_read_first_int_text(duration, pos, end);
+                    LOG(WARNING) << std::to_string(duration);
                     if (pos == prev_pos)
                         throw_exception("Could not parse number");
 
@@ -712,8 +713,12 @@ public:
             return;
         }
 
+        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
+        LOG(WARNING) << this->data(place).conditions_met.to_string();
+
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) != this->data(place).conditions_in_pattern)
         {
+            LOG(WARNING) << "FALSE";
             output.push_back(false);
             return;
         }
