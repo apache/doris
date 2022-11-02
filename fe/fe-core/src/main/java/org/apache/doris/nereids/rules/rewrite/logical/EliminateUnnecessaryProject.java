@@ -24,7 +24,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 /**
- * remove the project that output same with its child.
+ * remove the project that output same with its child to avoid we get two consecutive projects in best plan.
+ * for more information, please see <a href="https://github.com/apache/doris/pull/13886">this PR</a>
  */
 public class EliminateUnnecessaryProject extends OneRewriteRuleFactory {
 
@@ -45,6 +46,6 @@ public class EliminateUnnecessaryProject extends OneRewriteRuleFactory {
                     } else {
                         return project.child();
                     }
-                }).toRule(RuleType.REMOVE_PROJECT);
+                }).toRule(RuleType.ELIMINATE_UNNECESSARY_PROJECT);
     }
 }
