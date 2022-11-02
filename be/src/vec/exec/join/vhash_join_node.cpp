@@ -978,7 +978,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         if (probe_rows != 0) {
             COUNTER_UPDATE(_probe_rows_counter, probe_rows);
             if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-                _probe_column_convert_to_null = _convert_block_to_null(_probe_block);
+                _probe_column_convert_to_null = _get_null_index_in_block(_probe_block);
             }
 
             int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
@@ -1229,6 +1229,11 @@ Status HashJoinNode::_extract_build_join_column(Block& block, NullMap& null_map,
             RETURN_IF_ERROR(_build_expr_ctxs[i]->execute(&block, &result_col_id));
         }
 
+
+        if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+            _convert_block_to_null(block);
+        }
+
         // TODO: opt the column is const
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
@@ -1265,6 +1270,11 @@ Status HashJoinNode::_extract_probe_join_column(Block& block, NullMap& null_map,
         {
             SCOPED_TIMER(&expr_call_timer);
             RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(&block, &result_col_id));
+        }
+
+
+        if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+            _convert_block_to_null(block);
         }
 
         // TODO: opt the column is const
@@ -1304,9 +1314,6 @@ Status HashJoinNode::_extract_probe_join_column(Block& block, NullMap& null_map,
 
 Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uint8_t offset) {
     SCOPED_TIMER(_build_table_timer);
-    if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _convert_block_to_null(block);
-    }
     size_t rows = block.rows();
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
@@ -1465,6 +1472,17 @@ std::vector<uint16_t> HashJoinNode::_convert_block_to_null(Block& block) {
             DCHECK(!column_type.column->is_nullable());
             column_type.column = make_nullable(column_type.column);
             column_type.type = make_nullable(column_type.type);
+            results.emplace_back(i);
+        }
+    }
+    return results;
+}
+
+std::vector<uint16_t> HashJoinNode::_get_null_index_in_block(Block& block) {
+    std::vector<uint16_t> results;
+    for (int i = 0; i < block.columns(); ++i) {
+        if (auto& column_type = block.safe_get_by_position(i); !column_type.type->is_nullable()) {
+            DCHECK(!column_type.column->is_nullable());
             results.emplace_back(i);
         }
     }

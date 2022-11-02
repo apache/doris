@@ -291,6 +291,8 @@ private:
 
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
 
+    static std::vector<uint16_t> _get_null_index_in_block(Block& block);
+
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 
