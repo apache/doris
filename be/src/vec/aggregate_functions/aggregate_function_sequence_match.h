@@ -99,7 +99,7 @@ public:
         dfa_states.clear();
     }
 
-    void add(const Timestamp timestamp, const Events & events)
+    void add(const Timestamp &timestamp, const Events & events)
     {
         /// store information exclusively for rows with at least one event
         if (events.any())
@@ -647,8 +647,8 @@ public:
         std::string pattern = assert_cast<const ColumnString *>(columns[0])->get_data_at(0).to_string() ;
         this->data(place).init(pattern, arg_count);
 
-        const auto timestamp = assert_cast<const ColumnVector<DateValueType> *>(columns[1])->get_data()[row_num];
-
+        const auto &timestamp = 
+                static_cast<const ColumnVector<NativeType>&>(*columns[1]).get_data()[row_num];
         typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events events;
 
         for (auto i =2;i< arg_count;i++)
@@ -657,7 +657,9 @@ public:
             events.set(i - 2, event);
         }
 
-        this->data(place).add(timestamp, events);
+        this->data(place).add(
+            binary_cast<NativeType, DateValueType>(timestamp) ,
+            events);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs, Arena *) const override
@@ -676,6 +678,9 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf, Arena *) const override
     {
         this->data(place).read(buf);
+        const std::string pattern=this->data(place).get_pattern();
+        size_t arg_count=this->data(place).get_arg_count();
+        this->data(place).init(pattern,arg_count);
     }
 
 private:
@@ -746,7 +751,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn & to) const override
     {
-        auto & output = assert_cast<ColumnUInt64 &>(to).get_data();
+        auto & output = assert_cast<ColumnInt64 &>(to).get_data();
         if (!this->data(place).conditions_in_pattern.any()){
             output.push_back(0);
             return;

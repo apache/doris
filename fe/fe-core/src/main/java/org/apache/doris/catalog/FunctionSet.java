@@ -1490,20 +1490,6 @@ public class FunctionSet<T> {
 
         // sequenceMatch
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
-                Lists.newArrayList(Type.STRING, Type.DATE, Type.BOOLEAN),
-                Type.BOOLEAN,
-                Type.VARCHAR,
-                true,
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                true, false, true, true));
-
-        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
                 Lists.newArrayList(Type.STRING, Type.DATEV2, Type.BOOLEAN),
                 Type.BOOLEAN,
                 Type.VARCHAR,
@@ -1546,20 +1532,6 @@ public class FunctionSet<T> {
                 true, false, true, true));
 
         // sequenceCount
-        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
-                Lists.newArrayList(Type.STRING, Type.DATE, Type.BOOLEAN),
-                Type.BIGINT,
-                Type.VARCHAR,
-                true,
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                true, false, true, true));
-
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
                 Lists.newArrayList(Type.STRING, Type.DATEV2, Type.BOOLEAN),
                 Type.BIGINT,

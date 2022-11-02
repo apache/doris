@@ -104,11 +104,11 @@ TEST_F(VSequenceMatchTest, testCountEmpty) {
     agg_function_sequence_count->create(place2);
 
     agg_function_sequence_count->merge(place, place2, nullptr);
-    ColumnVector<UInt64> column_result;
+    ColumnVector<Int64> column_result;
     agg_function_sequence_count->insert_result_into(place, column_result);
     EXPECT_EQ(column_result.get_data()[0], 0);
 
-    ColumnVector<UInt64> column_result2;
+    ColumnVector<Int64> column_result2;
     agg_function_sequence_count->insert_result_into(place2, column_result2);
     EXPECT_EQ(column_result2.get_data()[0], 0);
 
@@ -180,6 +180,17 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
 }
 
 TEST_F(VSequenceMatchTest, testCountSerialize) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {
+                std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeDateTime>(),
+                std::make_shared<DataTypeUInt8>(),
+                std::make_shared<DataTypeUInt8>(),
+                };
+    Array array;
+    agg_function_sequence_count = factory.get("sequence_count", data_types, array, false);
+    EXPECT_NE(agg_function_sequence_count, nullptr);
+
     const int NUM_CONDS = 4;
     auto column_pattern = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
@@ -193,7 +204,7 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
         column_timestamp->insert_data((char *)&time_value, 0);
     }
 
-     auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnVector<UInt8>::create();
     column_event1->insert(1);
     column_event1->insert(0);
     column_event1->insert(1);
@@ -237,6 +248,17 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
 }
 
 TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {
+                std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeDateTime>(),
+                std::make_shared<DataTypeUInt8>(),
+                std::make_shared<DataTypeUInt8>(),
+                };
+    Array array;
+    agg_function_sequence_match = factory.get("sequence_match", data_types, array, false);
+    EXPECT_NE(agg_function_sequence_match, nullptr);
+
     const int NUM_CONDS = 2;
     auto column_pattern = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
@@ -287,7 +309,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS-i);
-        column_timestamp->insert_data((char *)&time_value, 0);
+        column_timestamp2->insert_data((char *)&time_value, 0);
     }
 
     auto column_event3 = ColumnVector<UInt8>::create();
@@ -317,6 +339,17 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
 }
 
 TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {
+                std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeDateTime>(),
+                std::make_shared<DataTypeUInt8>(),
+                std::make_shared<DataTypeUInt8>(),
+                };
+    Array array;
+    agg_function_sequence_count = factory.get("sequence_count", data_types, array, false);
+    EXPECT_NE(agg_function_sequence_count, nullptr);
+
     const int NUM_CONDS = 2;
     auto column_pattern = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
@@ -367,7 +400,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.set_time(2022, 11, 2, 0, 1, NUM_CONDS-i);
-        column_timestamp->insert_data((char *)&time_value, 0);
+        column_timestamp2->insert_data((char *)&time_value, 0);
     }
 
     auto column_event3 = ColumnVector<UInt8>::create();

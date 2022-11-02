@@ -52,11 +52,7 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string &
                 argument_types);
     } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_v2()) {
         return std::make_shared<
-                AggregateFunction<DateV2Value<DateV2ValueType>, UInt64>>(
-                argument_types);
-    } else if(WhichDataType(remove_nullable(argument_types[1])).is_date()){
-        return std::make_shared<
-                AggregateFunction<Date, Int64>>(
+                AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(
                 argument_types);
     } else {
         LOG(FATAL) << "Only support Date and DateTime type as timestamp argument!";
