@@ -66,10 +66,13 @@ public:
     template <typename TabletWriterAddResult>
     Status handle_mem_exceed_limit(TabletWriterAddResult* response);
 
-    int64_t mem_consumption() const {
+    int64_t mem_consumption() {
         int64_t mem_usage = 0;
-        for (auto& it : _tablets_channels) {
-            mem_usage += it.second->mem_consumption();
+        {
+            std::lock_guard<SpinLock> l(_tablets_channels_lock);
+            for (auto& it : _tablets_channels) {
+                mem_usage += it.second->mem_consumption();
+            }
         }
         _mem_tracker->set_consumption(mem_usage);
         return mem_usage;
@@ -95,7 +98,10 @@ protected:
                 request.write_single_replica()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
-            _tablets_channels.erase(index_id);
+            {
+                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                _tablets_channels.erase(index_id);
+            }
             _finished_channel_ids.emplace(index_id);
         }
         return Status::OK();
@@ -114,6 +120,7 @@ private:
     std::mutex _lock;
     // index id -> tablets channel
     std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> _tablets_channels;
+    SpinLock _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
@@ -169,7 +176,7 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
     return st;
 }
 
-inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
+inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {
     os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
        << ", is high priority: " << load_channel.is_high_priority() << ")";
@@ -182,7 +189,7 @@ Status LoadChannel::handle_mem_exceed_limit(TabletWriterAddResult* response) {
     std::shared_ptr<TabletsChannel> channel;
     {
         // lock so that only one thread can check mem limit
-        std::lock_guard<std::mutex> l(_lock);
+        std::lock_guard<SpinLock> l(_tablets_channels_lock);
         found = _find_largest_consumption_channel(&channel);
     }
     // Release lock so that other threads can still call add_batch concurrently.

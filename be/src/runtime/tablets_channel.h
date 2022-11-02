@@ -95,7 +95,7 @@ public:
     template <typename TabletWriterAddResult>
     Status reduce_mem_usage(TabletWriterAddResult* response);
 
-    int64_t mem_consumption() const;
+    int64_t mem_consumption();
 
 private:
     template <typename Request>
@@ -117,6 +117,8 @@ private:
 
     // make execute sequence
     std::mutex _lock;
+
+    SpinLock _tablet_writers_lock;
 
     enum State {
         kInitialized,

@@ -283,8 +283,11 @@ void DeltaWriter::_reset_mem_table() {
     auto mem_table_flush_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()));
-    _mem_table_tracker.push_back(mem_table_insert_tracker);
-    _mem_table_tracker.push_back(mem_table_flush_tracker);
+    {
+        std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
+        _mem_table_tracker.push_back(mem_table_insert_tracker);
+        _mem_table_tracker.push_back(mem_table_flush_tracker);
+    }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
                                   _rowset_ids, _cur_max_version, mem_table_insert_tracker,
@@ -402,15 +405,18 @@ int64_t DeltaWriter::get_memtable_consumption_snapshot() const {
     return _memtable_consumption_snapshot;
 }
 
-int64_t DeltaWriter::mem_consumption() const {
+int64_t DeltaWriter::mem_consumption() {
     if (_flush_token == nullptr) {
         // This method may be called before this writer is initialized.
         // So _flush_token may be null.
         return 0;
     }
     int64_t mem_usage = 0;
-    for (auto mem_table_tracker : _mem_table_tracker) {
-        mem_usage += mem_table_tracker->consumption();
+    {
+        std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
+        for (auto mem_table_tracker : _mem_table_tracker) {
+            mem_usage += mem_table_tracker->consumption();
+        }
     }
     return mem_usage;
 }

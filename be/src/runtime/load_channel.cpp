@@ -59,7 +59,10 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
             channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _is_vec));
-            _tablets_channels.insert({index_id, channel});
+            {
+                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                _tablets_channels.insert({index_id, channel});
+            }
         }
     }
 

@@ -20,6 +20,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -91,7 +92,7 @@ public:
 
     int64_t partition_id() const;
 
-    int64_t mem_consumption() const;
+    int64_t mem_consumption();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
@@ -145,6 +146,7 @@ private:
     UniqueId _load_id;
     std::unique_ptr<FlushToken> _flush_token;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_tracker;
+    SpinLock _mem_table_tracker_lock;
     std::atomic<uint32_t> _mem_table_num = 1;
 
     // The counter of number of segment flushed already.

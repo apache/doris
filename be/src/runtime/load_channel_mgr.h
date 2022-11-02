@@ -144,11 +144,6 @@ Status LoadChannelMgr::add_batch(const TabletWriterAddRequest& request,
         // 2. check if mem consumption exceed limit
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
-        //
-        // The refresh mem tracker will call all mem table memory usage of all current loads.
-        // In theory, it will not affect performance, but it is not necessary to refresh each add batch,
-        // so reduce the frequency.
-        if (GetCurrentTimeMicros() % 10 == 0) refresh_mem_tracker();
         RETURN_IF_ERROR(_handle_mem_exceed_limit(response));
     }
 

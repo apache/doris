@@ -192,10 +192,13 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     }
 }
 
-int64_t TabletsChannel::mem_consumption() const {
+int64_t TabletsChannel::mem_consumption() {
     int64_t mem_usage = 0;
-    for (auto& it : _tablet_writers) {
-        mem_usage += it.second->mem_consumption();
+    {
+        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        for (auto& it : _tablet_writers) {
+            mem_usage += it.second->mem_consumption();
+        }
     }
     return mem_usage;
 }
@@ -364,7 +367,10 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_writers.emplace(tablet.tablet_id(), writer);
+        {
+            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            _tablet_writers.emplace(tablet.tablet_id(), writer);
+        }
     }
     _s_tablet_writer_count += _tablet_writers.size();
     DCHECK_EQ(_tablet_writers.size(), request.tablets_size());
