@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
@@ -73,8 +74,8 @@ public abstract class BatchRulesJob {
                 cascadesContext.getCurrentJobContext(), once);
     }
 
-    protected Job visitorJob(DefaultPlanRewriter planRewriter) {
-        return new VisitorRewriteJob(cascadesContext, planRewriter, true);
+    protected Job visitorJob(DefaultPlanRewriter<JobContext> planRewriter, boolean once) {
+        return new VisitorRewriteJob(cascadesContext, planRewriter, once);
     }
 
     protected Job optimize() {
