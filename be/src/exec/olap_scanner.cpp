@@ -317,7 +317,7 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    // 2. Allocate Row's Tuple buf
+    // 2. Allocate Row's Tuple buf, it will improve performance if there are many var length columns
     uint8_t* tuple_buf = batch->tuple_data_pool()->allocate(_batch_size * _tuple_desc->byte_size());
     if (tuple_buf == nullptr) {
         LOG(WARNING) << "Allocate mem for row batch failed.";
@@ -336,16 +336,12 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
         ObjectPool tmp_object_pool;
         // release the memory of the object which can't pass the conjuncts.
         ObjectPool unused_object_pool;
-        if (batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold) {
-            return Status::RuntimeError(
-                    "Scanner row bytes buffer is too small, please try to increase be config "
-                    "'doris_scanner_row_bytes'.");
-        }
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
-            if (batch->is_full() ||
-                (batch->tuple_data_pool()->total_allocated_bytes() >= raw_bytes_threshold &&
-                 batch->num_rows() > 0) ||
+            // Use total_byte_size here, not tuple_pool's allocated bytes, because we preallocated tuple pool at beginning
+            // its size maybe larger than threshold, so that scanner will break here and may dead loop.
+            // Not need check num_rows > 0, because total_byte_size() == 0  if num_rows == 0.
+            if (batch->is_full() || batch->total_byte_size() >= raw_bytes_threshold ||
                 raw_rows_read() >= raw_rows_threshold) {
                 _update_realtime_counter();
                 break;
