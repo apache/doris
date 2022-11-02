@@ -37,7 +37,6 @@ public class Validator extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         Plan child = project.child();
-        Preconditions.checkArgument(child != null);
         // Forbidden project-project, we must merge project.
         Preconditions.checkArgument(!(child instanceof PhysicalProject));
 

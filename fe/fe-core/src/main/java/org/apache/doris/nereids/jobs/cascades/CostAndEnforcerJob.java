@@ -111,10 +111,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             //         [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}] ]
             RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(context);
             requestChildrenPropertiesList = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
-            System.out.printf("init: %s %s\n", groupExpression, requestChildrenPropertiesList);
         }
 
-        System.out.printf("request children properties list.size(): %d\n", requestChildrenPropertiesList.size());
         for (; requestPropertiesIndex < requestChildrenPropertiesList.size(); requestPropertiesIndex++) {
             // Get one from List<request property to children>
             // like: [ Properties {"", ANY}, Properties {"", BROADCAST} ],
@@ -137,8 +135,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 // the result of returning.
                 Optional<Pair<Double, GroupExpression>> lowestCostPlanOpt
                         = childGroup.getLowestCostPlan(requestChildProperty);
-                System.out.printf("get lowest plan: %d %d %d %s %s\n",
-                        requestPropertiesIndex, prevChildIndex, curChildIndex, groupExpression, requestChildProperty);
 
                 if (!lowestCostPlanOpt.isPresent()) {
                     // prevChildIndex >= curChildIndex mean that it is the second time we come here.
@@ -179,7 +175,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // This mean that we successfully optimize all child groups.
             // if break when running the loop above, the condition must be false.
             if (curChildIndex == groupExpression.arity()) {
-                System.out.printf("run enforcer: %s\n", groupExpression);
                 if (!calculateEnforce(requestChildrenProperties)) {
                     return;
                 }
@@ -189,7 +184,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             }
             clear();
         }
-        System.out.printf("finish job: %s\n", groupExpression);
     }
 
     private boolean calculateEnforce(List<PhysicalProperties> requestChildrenProperties) {
