@@ -79,7 +79,6 @@ public class RuleSet {
             new PushdownFilterThroughProject(),
             new PushdownJoinOtherCondition(),
             new PushdownFilterThroughJoin(),
-            new InferPredicates(),
             new PushdownExpressionsInHashCondition(),
             new PushdownFilterThroughAggregation(),
             new PushdownProjectThroughLimit(),

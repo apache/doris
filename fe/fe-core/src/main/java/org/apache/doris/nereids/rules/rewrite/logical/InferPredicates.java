@@ -17,17 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.pattern.MatchingContext;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -38,36 +35,9 @@ import java.util.stream.Collectors;
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
  */
-public class InferPredicates implements RewriteRuleFactory {
+public class InferPredicates extends DefaultPlanRewriter<JobContext> {
     PredicatePropagation propagation = new PredicatePropagation();
     PullUpPredicates pollUpPredicates = new PullUpPredicates();
-
-    @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                inferWhere(),
-                inferOn()
-        );
-    }
-
-    /**
-     * reference `inferOn`
-     */
-    private Rule inferWhere() {
-        return logicalFilter(any()).thenApply(ctx -> {
-            LogicalFilter<Plan> root = ctx.root;
-            Plan filter = getOriginalPlan(ctx, root);
-            Set<Expression> filterPredicates = filter.accept(pollUpPredicates, null);
-            Set<Expression> filterChildPredicates = filter.child(0).accept(pollUpPredicates, null);
-            filterPredicates.removeAll(filterChildPredicates);
-            root.getConjuncts().forEach(filterPredicates::remove);
-            if (!filterPredicates.isEmpty()) {
-                filterPredicates.addAll(root.getConjuncts());
-                return new LogicalFilter<>(ExpressionUtils.and(Lists.newArrayList(filterPredicates)), root.child());
-            }
-            return root;
-        }).toRule(RuleType.INFER_PREDICATES_FOR_WHERE);
-    }
 
     /**
      * The logic is as follows:
@@ -83,39 +53,48 @@ public class InferPredicates implements RewriteRuleFactory {
      * 2. put these predicates into `otherJoinConjuncts` , these predicates are processed in the next
      *   round of predicate push-down
      */
-    private Rule inferOn() {
-        return logicalJoin(any(), any()).thenApply(ctx -> {
-            LogicalJoin<Plan, Plan> root = ctx.root;
-            Plan left = getOriginalPlan(ctx, root.left());
-            Plan right = getOriginalPlan(ctx, root.right());
-            Set<Expression> expressions = getAllExpressions(left, right, root.getOnClauseCondition());
-            List<Expression> otherJoinConjuncts = Lists.newArrayList(root.getOtherJoinConjuncts());
-            switch (root.getJoinType()) {
-                case INNER_JOIN:
-                case CROSS_JOIN:
-                case LEFT_SEMI_JOIN:
-                case RIGHT_SEMI_JOIN:
-                    otherJoinConjuncts.addAll(inferNewPredicate(left, expressions));
-                    otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
-                    break;
-                case LEFT_OUTER_JOIN:
-                case LEFT_ANTI_JOIN:
-                    otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
-                    break;
-                case RIGHT_OUTER_JOIN:
-                case RIGHT_ANTI_JOIN:
-                    otherJoinConjuncts.addAll(inferNewPredicate(left, expressions));
-                    break;
-                default:
-                    return root;
-            }
-            return root.withOtherJoinConjuncts(otherJoinConjuncts);
-        }).toRule(RuleType.INFER_PREDICATES_FOR_ON);
+    @Override
+    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
+        Plan left = join.left();
+        Plan right = join.right();
+        Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
+        List<Expression> otherJoinConjuncts = Lists.newArrayList(join.getOtherJoinConjuncts());
+        switch (join.getJoinType()) {
+            case INNER_JOIN:
+            case CROSS_JOIN:
+            case LEFT_SEMI_JOIN:
+            case RIGHT_SEMI_JOIN:
+                otherJoinConjuncts.addAll(inferNewPredicate(left, expressions));
+                otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
+                break;
+            case LEFT_OUTER_JOIN:
+            case LEFT_ANTI_JOIN:
+                otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
+                break;
+            case RIGHT_OUTER_JOIN:
+            case RIGHT_ANTI_JOIN:
+                otherJoinConjuncts.addAll(inferNewPredicate(left, expressions));
+                break;
+            default:
+                return join;
+        }
+        return join.withOtherJoinConjuncts(otherJoinConjuncts);
     }
 
-    private Plan getOriginalPlan(MatchingContext context, Plan patternPlan) {
-        patternPlan.getGroupExpression().orElseThrow(() -> new IllegalArgumentException("GroupExpression not exists."));
-        return context.cascadesContext.getMemo().copyOut(patternPlan.getGroupExpression().get(), false);
+    /**
+     * reference `inferOn`
+     */
+    @Override
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
+        Set<Expression> filterPredicates = filter.accept(pollUpPredicates, null);
+        Set<Expression> filterChildPredicates = filter.child(0).accept(pollUpPredicates, null);
+        filterPredicates.removeAll(filterChildPredicates);
+        filter.getConjuncts().forEach(filterPredicates::remove);
+        if (!filterPredicates.isEmpty()) {
+            filterPredicates.addAll(filter.getConjuncts());
+            return new LogicalFilter<>(ExpressionUtils.and(Lists.newArrayList(filterPredicates)), filter.child());
+        }
+        return filter;
     }
 
     private Set<Expression> getAllExpressions(Plan left, Plan right, Optional<Expression> condition) {

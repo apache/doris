@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -55,21 +56,34 @@ public class PredicatePropagation {
 
     /**
      * Use the left or right child of `leftSlotEqualToRightSlot` to replace the left or right child of `expression`
+     * Now only support infer `ComparisonPredicate`.
+     * TODO: We should determine whether `expression` satisfies the condition for replacement
+     *       eg: Satisfy `expression` is non-deterministic
      */
     private Expression doInfer(Expression leftSlotEqualToRightSlot, Expression expression) {
-        //TODO: We should determine whether expression satisfies the condition for replacement
         return expression.accept(new DefaultExpressionRewriter<Void>() {
+
             @Override
             public Expression visit(Expression expr, Void context) {
-                expr = super.visit(expr, context);
+                return expr;
+            }
 
-                // flip leftSlot and rightSlot
-                if (expr.equals(leftSlotEqualToRightSlot.child(0))) {
+            @Override
+            public Expression visitComparisonPredicate(ComparisonPredicate cp, Void context) {
+                if (!cp.left().isConstant() && !cp.right().isConstant()) {
+                    return cp;
+                }
+                return super.visit(cp, context);
+            }
+
+            @Override
+            public Expression visitSlotReference(SlotReference slotReference, Void context) {
+                if (slotReference.equals(leftSlotEqualToRightSlot.child(0))) {
                     return leftSlotEqualToRightSlot.child(1);
-                } else if (expr.equals(leftSlotEqualToRightSlot.child(1))) {
+                } else if (slotReference.equals(leftSlotEqualToRightSlot.child(1))) {
                     return leftSlotEqualToRightSlot.child(0);
                 } else {
-                    return expr;
+                    return slotReference;
                 }
             }
         }, null);
