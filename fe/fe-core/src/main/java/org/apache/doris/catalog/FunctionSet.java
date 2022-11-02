@@ -2466,6 +2466,13 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_SET, Lists.newArrayList(t), new ArrayType(t), t,
                     "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction.createBuiltin("topn_array", Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
+                            "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction
+                            .createBuiltin("topn_array", Lists.newArrayList(t, Type.INT, Type.INT), new ArrayType(t), t,
+                                    "", "", "", "", "", true, false, true, true));
         }
 
         // Avg
