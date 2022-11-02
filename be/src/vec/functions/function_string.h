@@ -1271,7 +1271,6 @@ public:
             if (delimiter.size == 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
             } else {
-                // If delimiter is a string, use memmem to split
                 int32_t offset = -delimiter.size;
                 int32_t num = 0;
                 std::vector<int> find(str.size, -1); //store delimiter position
@@ -1280,8 +1279,7 @@ public:
                     if (delimiter.size == 1) {
                         // If delimiter is a char, use memchr to split
                         const char* pos = reinterpret_cast<const char*>(
-                            memchr(str.data + offset + 1, delimiter_str[0], n));
-
+                                memchr(str.data + offset + 1, delimiter_str[0], n));
                         if (pos != nullptr) {
                             offset = pos - str.data;
                             find[num] = offset;
@@ -1292,8 +1290,10 @@ public:
                             break;
                         }
                     } else {
-                        char* pos = reinterpret_cast<char*>(memmem(str.data + offset + 
-                                            delimiter.size, n, delimiter.data, delimiter.size));
+                        // If delimiter is a string, use memmem to split
+                        char* pos =
+                                reinterpret_cast<char*>(memmem(str.data + offset + delimiter.size,
+                                                               n, delimiter.data, delimiter.size));
                         if (pos != nullptr) {
                             offset = pos - str.data;
                             find[num] = offset;
@@ -1313,12 +1313,14 @@ public:
                 if (num == 0 || new_part_num <= 0 || new_part_num > num) {
                     StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                 } else {
-                    int32_t start_pos = (new_part_num == 1) ? 0 : find[new_part_num - 2] + delimiter.size;
-                    int32_t len = (find[new_part_num - 1] == -1 ? str.size :
-                                find[new_part_num - 1]) - start_pos;
+                    int32_t start_pos =
+                            (new_part_num == 1) ? 0 : find[new_part_num - 2] + delimiter.size;
+                    int32_t len =
+                            (find[new_part_num - 1] == -1 ? str.size : find[new_part_num - 1]) -
+                            start_pos;
                     StringOP::push_value_string(
-                            std::string_view {
-                                reinterpret_cast<const char*>(str.data + start_pos), (size_t)len},
+                            std::string_view {reinterpret_cast<const char*>(str.data + start_pos),
+                                              (size_t)len},
                             i, res_chars, res_offsets);
                 }
             }

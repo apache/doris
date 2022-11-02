@@ -584,7 +584,7 @@ TEST(function_string_test, function_string_splitpart_test) {
             {{std::string("prefix_string"), Null(), 1}, Null()},
             {{std::string("prefix_string"), std::string("__"), Null()}, Null()},
             {{std::string("prefix_string"), std::string("_"), Null()}, Null()},
-            {{std::string("prefix_string"), std::string("__"), -1}, Null()}
+            {{std::string("prefix_string"), std::string("__"), -1}, Null()},
             {{std::string("prefix_string1"), std::string("_"), -1}, std::string("string1")},
             {{std::string("prefix_string1"), std::string("_"), -2}, std::string("prefix")},
             {{std::string("prefix_string1"), std::string("_"), -3}, Null()},

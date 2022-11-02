@@ -927,7 +927,7 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     }
     std::vector<int> find(content.len, -1); //store substring position
     int from = 0;
-    int split_cnt = 0;     //substring count of content splitted by delimiter
+    int split_cnt = 0;                       //substring count of content splitted by delimiter
     for (int i = 1; i <= content.len; i++) { // find
         int last_index = i - 1;
         find[last_index] =
