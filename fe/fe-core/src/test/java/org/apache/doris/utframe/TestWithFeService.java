@@ -119,7 +119,7 @@ public abstract class TestWithFeService {
     public final void beforeAll() throws Exception {
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
-        createDorisCluster();
+        createDorisCluster(runningDir, backendNum());
         runBeforeAll();
     }
 
@@ -134,6 +134,10 @@ public abstract class TestWithFeService {
     @BeforeEach
     public final void beforeEach() throws Exception {
         runBeforeEach();
+    }
+
+    protected int backendNum() {
+        return 1;
     }
 
     protected void beforeCreatingConnectContext() throws Exception {
@@ -248,6 +252,20 @@ public abstract class TestWithFeService {
     protected int startFEServer(String runningDir)
             throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
             InterruptedException {
+        IOException exception = null;
+        for (int i = 0; i <= 3; i++) {
+            try {
+                return startFEServerWithoutRetry(runningDir);
+            } catch (IOException ignore) {
+                exception = ignore;
+            }
+        }
+        throw exception;
+    }
+
+    private int startFEServerWithoutRetry(String runningDir)
+        throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+        InterruptedException {
         // get DORIS_HOME
         dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
@@ -279,12 +297,6 @@ public abstract class TestWithFeService {
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
         return feRpcPort;
-    }
-
-    protected void createDorisCluster()
-            throws InterruptedException, NotInitException, IOException, DdlException, EnvVarNotSetException,
-            FeStartException {
-        createDorisCluster(runningDir, 1);
     }
 
     protected void createDorisCluster(String runningDir, int backendNum)
@@ -335,6 +347,18 @@ public abstract class TestWithFeService {
     }
 
     protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
+        IOException exception = null;
+        for (int i = 0; i <= 3; i++) {
+            try {
+                return createBackendWithoutRetry(beHost, feRpcPort);
+            } catch (IOException ignore) {
+                exception = ignore;
+            }
+        }
+        throw exception;
+    }
+
+    private Backend createBackendWithoutRetry(String beHost, int feRpcPort) throws IOException, InterruptedException {
         int beHeartbeatPort = findValidPort();
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
@@ -342,8 +366,8 @@ public abstract class TestWithFeService {
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
-                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+            beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+            new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
