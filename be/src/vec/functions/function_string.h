@@ -718,8 +718,7 @@ public:
                 auto& current_chars = *chars_list[j];
 
                 int size = current_offsets[i] - current_offsets[i - 1];
-                memcpy(&res_data[res_offset[i - 1]] + current_length,
-                       &current_chars[current_offsets[i - 1]], size);
+                memcpy(&res_data[res_offset[i - 1]] + current_length, &current_chars[current_offsets[i - 1]], size);
                 current_length += size;
             }
             res_offset[i] = res_offset[i - 1] + current_length;
@@ -1412,7 +1411,8 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        //return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
     }
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
@@ -1421,20 +1421,16 @@ public:
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 2);
 
-        auto col_res = ColumnArray::create(ColumnString::create());
-
+        auto col_res = ColumnArray::create(ColumnString::create());       
         ColumnString & res_data = typeid_cast<ColumnString &>(col_res->get_data());
         auto& res_offsets = col_res->get_offsets();
-
+        res_offsets.resize(input_rows_count);
         auto& res_data_chars = res_data.get_chars();
         auto& res_data_offsets = res_data.get_offsets();
 
-        res_offsets.resize(input_rows_count);
 
-
-        size_t argument_size = arguments.size();
-        ColumnPtr argument_columns[argument_size];
-        for (size_t i = 0; i < argument_size; ++i) {
+        ColumnPtr argument_columns[2];
+        for (size_t i = 0; i < 2; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
         }
 
@@ -1442,33 +1438,43 @@ public:
         auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
 
         int32 current_dst_offset = 0;
-        int32 current_dst_strings_offset = 0;
 
-        for (size_t i = 0; i < input_rows_count; ++i) {    
-            int32 j = 0;
+        for (size_t i = 0; i < input_rows_count; i++) {    
+            int32 k = 0;
             auto delimiter = delimiter_col->get_data_at(i);
             auto delimiter_str = delimiter_col->get_data_at(i).to_string();
             //auto str = str_col->get_data_at(i);
             auto str_str = str_col->get_data_at(i).to_string();
             if (delimiter.size == 0) {
-                res_data_offsets[i] = res_data_chars.size();
+                res_data_chars.resize(str_str.size());
+                res_data_offsets.resize(1);
+                memcpy(&res_data_chars[res_data_offsets[i-1]], &(*&str_str[0]), str_str.size());
+                res_data_offsets[i] = res_data_offsets[i-1] + str_str.size();
+                res_offsets[i] = res_offsets[i-1] + res_data_chars.size();
             } else if (delimiter.size == 1) {
                 std::vector<int> v_offset;
                 std::vector<int> v_charlen;
                 getOffsetsAndLen(str_col->get_data_at(i).to_string(), delimiter_str, v_offset, v_charlen);
- 
-                for (size_t i = 0; i < v_offset.size(); i++) {
-                    res_data_chars.resize(res_data_chars.size() + v_charlen[i] + 1);
-
-                    LOG(WARNING) << "offsets:  " << *(&(*&str_str[0]) + v_offset[i]);
-                    memcpy(&res_data_chars[current_dst_strings_offset], &(*&str_str[0]) + v_offset[i], v_charlen[i]);                     
-                    current_dst_strings_offset += v_charlen[i];
-                    res_data_offsets.push_back(current_dst_strings_offset);
-                    ++j;
+                int len = 0;
+                for(int count : v_charlen) {
+                    len += count;
                 }
-                current_dst_offset += j;
-                res_offsets.push_back(current_dst_offset);
-            }           
+                res_data_chars.resize(len);
+                res_data_offsets.resize(v_offset.size());
+
+                for (size_t j = 0; j < v_offset.size(); j++) {
+                    //res_data_chars.resize(res_data_chars.size() + v_charlen[j] + 1);
+                    LOG(WARNING) << "offsets:  " << *(&(*&str_str[0]) + v_offset[j]);
+                    memcpy(&res_data_chars[res_data_offsets[j-1]], &(*&str_str[0]) + v_offset[j], v_charlen[j]);
+                    res_data_offsets[j] = res_data_offsets[j-1] + v_charlen[j];
+                    // res_data_chars[res_data_offsets[j-1] + v_charlen[j]] = 0;                     
+                    // res_data_offsets[j] = res_data_offsets[j-1] + v_charlen[j] + 1;
+                    ++k;
+                }
+                current_dst_offset += k;
+                res_offsets[i]=  res_offsets[i-1] + current_dst_offset;
+            } 
+                     
         }
         for(int i=0; i<res_data_chars.size(); i++) {
             LOG(WARNING) << "res_data_chars:" << res_data_chars[i];
@@ -1476,8 +1482,12 @@ public:
         for(int i=0; i<res_data_offsets.size(); i++) {
             LOG(WARNING) << "res_data_offsets:" << res_data_offsets[i];
         }
-       
+        for(int i=0; i<res_offsets.size(); i++) {
+            LOG(WARNING) << "res_offsets:" << res_offsets[i];
+        }
+     
         block.get_by_position(result).column = std::move(col_res);
+        //block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 };
