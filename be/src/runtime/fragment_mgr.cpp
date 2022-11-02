@@ -389,7 +389,7 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
     if (!exec_status.ok()) {
-        LOG(INFO) << "report error status: " << exec_status.to_string()
+        LOG(WARNING) << "report error status: " << exec_status.to_string()
                   << " to coordinator: " << _coord_addr;
     }
     try {
