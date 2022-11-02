@@ -1,6 +1,6 @@
 ---
 {
-    "title": "jsonb example",
+    "title": "jsonb tutorial",
     "language": "en"
 }
 ---
@@ -25,7 +25,12 @@ under the License.
 -->
 
 
-## create database and table
+## jsonb tutorial
+
+### description
+
+A tutorial for JSONB datatype including create table, load data and query.
+### create database and table
 
 ```
 CREATE DATABASE testdb;
@@ -41,7 +46,7 @@ DISTRIBUTED BY HASH(id) BUCKETS 10
 PROPERTIES("replication_num" = "1");
 ```
 
-## Load data
+### Load data
 
 #### stream load test_jsonb.csv test data
 
@@ -156,7 +161,7 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 
 ```
 
-### write data using insert into
+#### write data using insert into
 
 - total rows increae from 18 to 19 after insert 1 row
 ```
@@ -192,9 +197,9 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 
 ```
 
-## Query
+### Query
 
-### extract some filed from json by jsonb_extract functions
+#### extract some filed from json by jsonb_extract functions
 
 1. extract the whole json, '$' stands for root in json path
 ```
@@ -650,7 +655,7 @@ mysql> SELECT id, j, jsonb_extract_isnull(j, '$') FROM test_jsonb ORDER BY id;
 
 ```
 
-### check if a field is existed in json by jsonb_exists_path
+#### check if a field is existed in json by jsonb_exists_path
 
 ```
 mysql> SELECT id, j, jsonb_exists_path(j, '$') FROM test_jsonb ORDER BY id;
@@ -734,7 +739,7 @@ mysql> SELECT id, j, jsonb_exists_path(j, '$[2]') FROM test_jsonb ORDER BY id;
 
 ```
 
-### get the datatype of a field in json by jsonb_type
+#### get the datatype of a field in json by jsonb_type
 
 - return the data type of the field specified by json path, NULL if not existed.
 ```
@@ -791,3 +796,6 @@ mysql> select id, j, jsonb_type(j, '$.k1') from test_jsonb order by id;
 19 rows in set (0.03 sec)
 
 ```
+
+### keywords
+JSONB, JSON, jsonb_parse, jsonb_parse_error_to_null, jsonb_parse_error_to_value, jsonb_extract, jsonb_extract_isnull, jsonb_extract_bool, jsonb_extract_int, jsonb_extract_bigint, jsonb_extract_double, jsonb_extract_string, jsonb_exists_path, jsonb_type

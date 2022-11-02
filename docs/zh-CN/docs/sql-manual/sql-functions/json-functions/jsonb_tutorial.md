@@ -1,6 +1,6 @@
 ---
 {
-    "title": "jsonb example",
+    "title": "jsonb tutorial",
     "language": "zh-CN"
 }
 ---
@@ -24,8 +24,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+## jsonb tutorial
 
-## 创建库表
+### description
+    用一个从建表、导数据、查询全周期的例子说明JSONB数据类型的功能和用法。
+
+### 创建库表
 
 ```
 CREATE DATABASE testdb;
@@ -41,7 +45,7 @@ DISTRIBUTED BY HASH(id) BUCKETS 10
 PROPERTIES("replication_num" = "1");
 ```
 
-## 导入数据
+### 导入数据
 
 #### stream load 导入test_jsonb.csv测试数据
 
@@ -154,7 +158,7 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 
 ```
 
-### insert into 插入数据
+#### insert into 插入数据
 
 - insert 1条数据，总数据从18条增加到19条
 ```
@@ -190,9 +194,9 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 
 ```
 
-## 查询
+### 查询
 
-### 用jsonb_extract取json内的某个字段
+#### 用jsonb_extract取json内的某个字段
 
 1. 获取整个json，$ 在json path中代表root，即整个json
 ```
@@ -648,7 +652,7 @@ mysql> SELECT id, j, jsonb_extract_isnull(j, '$') FROM test_jsonb ORDER BY id;
 
 ```
 
-### 用jsonb_exists_path检查json内的某个字段是否存在
+#### 用jsonb_exists_path检查json内的某个字段是否存在
 
 ```
 mysql> SELECT id, j, jsonb_exists_path(j, '$') FROM test_jsonb ORDER BY id;
@@ -732,7 +736,7 @@ mysql> SELECT id, j, jsonb_exists_path(j, '$[2]') FROM test_jsonb ORDER BY id;
 
 ```
 
-### 用jsonb_type获取json内的某个字段的类型
+#### 用jsonb_type获取json内的某个字段的类型
 
 - 返回json path对应的json字段类型，如果不存在返回NULL
 ```
@@ -790,3 +794,5 @@ mysql> select id, j, jsonb_type(j, '$.k1') from test_jsonb order by id;
 
 ```
 
+### keywords
+JSONB, JSON, jsonb_parse, jsonb_parse_error_to_null, jsonb_parse_error_to_value, jsonb_extract, jsonb_extract_isnull, jsonb_extract_bool, jsonb_extract_int, jsonb_extract_bigint, jsonb_extract_double, jsonb_extract_string, jsonb_exists_path, jsonb_type

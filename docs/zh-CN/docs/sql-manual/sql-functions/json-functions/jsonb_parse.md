@@ -78,4 +78,4 @@ mysql> SELECT jsonb_parse_error_to_value('invalid json', '{}');
 
 
 ### keywords
-JSONB, JSON, jsonb_parse, parse
+JSONB, JSON, jsonb_parse, jsonb_parse_error_to_null, jsonb_parse_error_to_value
