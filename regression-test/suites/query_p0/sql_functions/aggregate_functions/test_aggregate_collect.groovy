@@ -70,5 +70,5 @@ suite("test_aggregate_collect") {
     qt_select44 "select topn_array(level,2,100) from ${tableName_12}" 
     qt_select45 "select topn_array(dt,2,100) from ${tableName_12}"  
     qt_select46 "select topn_array(num,2,100) from ${tableName_12}"  
-    //sql "DROP TABLE IF EXISTS ${tableName_12}"    
+    sql "DROP TABLE IF EXISTS ${tableName_12}"    
 }
