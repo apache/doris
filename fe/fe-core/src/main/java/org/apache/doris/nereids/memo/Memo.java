@@ -375,43 +375,43 @@ public class Memo {
         if (source.equals(destination)) {
             return source;
         }
-        List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        for (GroupExpression groupExpression : groupExpressions.values()) {
-            if (groupExpression.children().contains(source)) {
-                if (groupExpression.getOwnerGroup().equals(destination)) {
-                    // cycle, we should not merge
-                    return null;
-                }
-                needReplaceChild.add(groupExpression);
-            }
+        if (source.getParentGroupExpressions().stream()
+                .anyMatch(e -> e.getOwnerGroup().equals(destination))) {
+            return null;
         }
-        for (GroupExpression groupExpression : needReplaceChild) {
-            groupExpressions.remove(groupExpression);
-            List<Group> children = new ArrayList<>(groupExpression.children());
-            // TODO: use a better way to replace child, avoid traversing all groupExpression
-            for (int i = 0; i < children.size(); i++) {
-                if (children.get(i).equals(source)) {
-                    children.set(i, destination);
-                }
-            }
-            groupExpression.setChildren(ImmutableList.copyOf(children));
+        for (GroupExpression groupExpression : source.getParentGroupExpressions()) {
+            // replace GroupExpression:
+            // handle outside
+            // - Memo: groupExpressions
+            // - Group:
+            // - - children: logical|physical
+            // - - parent
+            // - - lowestCostPlans
+            // - Plan
+            // handle GroupExpression inside
+            // -
 
-            GroupExpression that = groupExpressions.get(groupExpression);
+            // remove from Memo: groupExpressions
+            groupExpressions.remove(groupExpression);
+
+            // copy and replace source with distination as child.
+            GroupExpression newGroupExpression = groupExpression.replaceChild(groupExpressions, source, destination);
+
+            GroupExpression that = groupExpressions.get(newGroupExpression);
             if (that != null && that.getOwnerGroup() != null
-                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
+                    && !that.getOwnerGroup().equals(newGroupExpression.getOwnerGroup())) {
                 // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
                 // that.getOwnerGroup() already has this groupExpression.
-                Group ownerGroup = groupExpression.getOwnerGroup();
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
+                Group ownerGroup = newGroupExpression.getOwnerGroup();
+                newGroupExpression.getOwnerGroup().removeGroupExpression(newGroupExpression);
                 mergeGroup(ownerGroup, that.getOwnerGroup());
             } else {
-                groupExpressions.put(groupExpression, groupExpression);
+                groupExpressions.put(newGroupExpression, newGroupExpression);
             }
         }
         if (!source.equals(destination)) {
             // TODO: stats and other
-            source.moveLogicalExpressionOwnership(destination);
-            source.movePhysicalExpressionOwnership(destination);
+            source.moveGroupExpressionOwnership(destination);
             source.moveLowestCostPlansOwnership(destination);
             groups.remove(source.getGroupId());
         }
@@ -488,14 +488,14 @@ public class Memo {
 
     /**
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
-     * <p>
+     * <pre>
      * the scenario is:
      * ```
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
      * ```
-     * <p>
+     * </pre>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */
@@ -558,7 +558,7 @@ public class Memo {
     private void moveParentExpressionsReference(Group fromGroup, Group toGroup) {
         for (GroupExpression parentGroupExpression : fromGroup.getParentGroupExpressions()) {
             if (parentGroupExpression.getOwnerGroup() != toGroup) {
-                parentGroupExpression.replaceChild(fromGroup, toGroup);
+                parentGroupExpression.replaceChild(groupExpressions, fromGroup, toGroup);
             }
         }
     }
@@ -590,14 +590,24 @@ public class Memo {
     }
 
     private void recycleExpression(GroupExpression groupExpression) {
-        if (groupExpressions.get(groupExpression) == groupExpression) {
-            groupExpressions.remove(groupExpression);
-        }
+        groupExpressions.remove(groupExpression);
+
+        // handle children
         for (Group childGroup : groupExpression.children()) {
             // if not any groupExpression reference child group, then recycle the child group
             if (childGroup.removeParentExpression(groupExpression) == 0) {
                 recycleGroup(childGroup);
             }
+        }
+
+        // handle parent
+        // TODO: maybe physical don't need to consider.
+        groupExpression.getOwnerGroup().getLogicalExpressions().remove(groupExpression);
+        groupExpression.getOwnerGroup().getPhysicalExpressions().remove(groupExpression);
+
+        // handle Plan
+        if (groupExpression.getPlan().getGroupExpression().isPresent()) {
+            // TODO: need to consider
         }
     }
 

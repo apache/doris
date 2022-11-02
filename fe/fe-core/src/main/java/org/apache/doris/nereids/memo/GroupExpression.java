@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -44,7 +45,7 @@ public class GroupExpression {
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;
-    private ImmutableList<Group> children;
+    private final ImmutableList<Group> children;
     private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
@@ -73,6 +74,30 @@ public class GroupExpression {
         this.lowestCostTable = Maps.newHashMap();
         this.requestPropertiesMap = Maps.newHashMap();
         this.children.forEach(childGroup -> childGroup.addParentExpression(this));
+    }
+
+    private GroupExpression(double cost, CostEstimate costEstimate, Group ownerGroup, ImmutableList<Group> children,
+            Plan plan, BitSet ruleMasks, boolean statDerived,
+            Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable,
+            Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap) {
+        this.cost = cost;
+        this.costEstimate = costEstimate;
+        this.ownerGroup = ownerGroup;
+        this.children = children;
+        this.plan = plan;
+        this.ruleMasks = ruleMasks;
+        this.statDerived = statDerived;
+        this.lowestCostTable = lowestCostTable;
+        this.requestPropertiesMap = requestPropertiesMap;
+        this.children.forEach(childGroup -> childGroup.addParentExpression(this));
+    }
+
+    private GroupExpression withChildren(List<Group> children) {
+        GroupExpression newGroupExpression = new GroupExpression(
+                cost, costEstimate, ownerGroup, ImmutableList.copyOf(children), plan, ruleMasks, statDerived,
+                lowestCostTable, requestPropertiesMap
+        );
+        return newGroupExpression;
     }
 
     public PhysicalProperties getOutputProperties(PhysicalProperties requestProperties) {
@@ -105,28 +130,41 @@ public class GroupExpression {
         return children;
     }
 
-    public void setChildren(ImmutableList<Group> children) {
-        this.children = children;
-    }
-
     /**
-     * replaceChild.
+     * use newChild to replace oldChild in Children of this GroupExpr.
+     * We replace something:
+     * - Memo: groupExpressions
+     * - Child Group: parentGroupExpr
+     * - Parent Group:
+     * - - children: logical|physical
+     * - - lowestCostPlans
+     * - Plan: groupExpression
      *
-     * @param originChild origin child group
+     * @param oldChild origin child group
      * @param newChild new child group
      */
-    public void replaceChild(Group originChild, Group newChild) {
-        originChild.removeParentExpression(this);
-        for (int i = 0; i < children.size(); i++) {
-            if (children.get(i) == originChild) {
-                children.set(i, newChild);
-                newChild.addParentExpression(this);
-            }
-        }
-    }
+    public GroupExpression replaceChild(Map<GroupExpression, GroupExpression> groupExpressions,
+            Group oldChild, Group newChild) {
+        GroupExpression newGroupExpression = withChildren(Utils.replaceListWithNew(children, oldChild, newChild));
 
-    public void setChild(int index, Group group) {
-        this.children.set(index, group);
+        // replace childrenGroup {parent}
+        newGroupExpression.children().forEach(childGroup ->
+                Utils.replaceList(childGroup.getParentGroupExpressions(), this, newGroupExpression));
+
+        // replace ownerGroup {children} (logical|physical, lowestCostPlans)
+        // TODO: maybe no need replace physical.
+        newGroupExpression.getOwnerGroup().replaceGroupExpression(this, newGroupExpression);
+
+        // replace Memo {groupExpressions}
+        groupExpressions.remove(this);
+        groupExpressions.put(newGroupExpression, newGroupExpression);
+
+        // replace Plan {GroupExpr}
+        if (plan.getGroupExpression().isPresent()) {
+            this.plan.setGroupExpression(newGroupExpression);
+        }
+
+        return newGroupExpression;
     }
 
     public boolean hasApplied(Rule rule) {

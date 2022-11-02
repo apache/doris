@@ -42,7 +42,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     protected final StatsDeriveResult statsDeriveResult;
     protected final PlanType type;
-    protected final Optional<GroupExpression> groupExpression;
+    protected Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
 
     public AbstractPlan(PlanType type, Plan... children) {
@@ -75,6 +75,10 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     public Optional<GroupExpression> getGroupExpression() {
         return groupExpression;
+    }
+
+    public void setGroupExpression(GroupExpression groupExpression) {
+        this.groupExpression = Optional.of(groupExpression);
     }
 
     public StatsDeriveResult getStats() {
