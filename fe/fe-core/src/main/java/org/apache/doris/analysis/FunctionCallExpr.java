@@ -1365,6 +1365,95 @@ public class FunctionCallExpr extends Expr {
         }
     }
 
+    /*
+    boolean match (String pattern, int pos, String value) {
+        int length = value.length();
+        int end=pattern.length();
+        if (pos + length <= end && pattern.substring(pos,pos+length).equals(value)){
+            pos += length;
+            return true;
+        }
+        return false;
+    };
+
+    private boolean parsePattern(String pattern){
+        int pos = 0;
+        int len = pattern.length();
+        while (pos < len)
+        {
+            if (match("(?"))
+            {
+                if (match("t"))
+                {
+                    PatternActionType type;
+
+                    if (match("<="))
+                        type = PatternActionType::TimeLessOrEqual;
+                    else if (match("<"))
+                        type = PatternActionType::TimeLess;
+                    else if (match(">="))
+                        type = PatternActionType::TimeGreaterOrEqual;
+                    else if (match(">"))
+                        type = PatternActionType::TimeGreater;
+                    else if (match("=="))
+                        type = PatternActionType::TimeEqual;
+                    else
+                        throw_exception("Unknown time condition");
+
+                    UInt64 duration = 0;
+                    const auto * prev_pos = pos;
+                    pos = try_read_first_int_text(duration, pos, end);
+                    if (pos == prev_pos)
+                        throw_exception("Could not parse number");
+
+                    if (actions.back().type != PatternActionType::SpecificEvent &&
+                        actions.back().type != PatternActionType::AnyEvent &&
+                        actions.back().type != PatternActionType::KleeneStar)
+                        throw_exception("Temporal condition should be preceded by an event condition");
+
+                    pattern_has_time = true;
+                    actions.emplace_back(type, duration);
+                }
+                else
+                {
+                    UInt64 event_number = 0;
+                    const auto * prev_pos = pos;
+                    pos = try_read_first_int_text(event_number, pos, end);
+                    if (pos == prev_pos)
+                        throw_exception("Could not parse number");
+
+                    if (event_number > arg_count - 1)
+                        throw_exception("Event number " + std::to_string(event_number) + " is out of range");
+
+                    actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
+                    dfa_states.back().transition = DFATransition::SpecificEvent;
+                    dfa_states.back().event = static_cast<uint32_t>(event_number - 1);
+                    dfa_states.emplace_back();
+                    conditions_in_pattern.set(event_number - 1);
+                }
+
+                if (!match(")"))
+                    throw_exception("Expected closing parenthesis, found");
+
+            }
+            else if (match(".*"))
+            {
+                actions.emplace_back(PatternActionType::KleeneStar);
+                dfa_states.back().has_kleene = true;
+            }
+            else if (match("."))
+            {
+                actions.emplace_back(PatternActionType::AnyEvent);
+                dfa_states.back().transition = DFATransition::AnyEvent;
+                dfa_states.emplace_back();
+            }
+            else
+                throw_exception("Could not parse pattern, unexpected starting symbol");
+        }
+    }
+    */
+
+
     /**
      * rewrite alias function to real function
      * reset function name, function params and it's children to real function's
