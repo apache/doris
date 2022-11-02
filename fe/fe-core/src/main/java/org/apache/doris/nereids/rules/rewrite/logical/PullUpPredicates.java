@@ -128,7 +128,7 @@ public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
         return getAvailableExpressions(predicates, aggregate);
     }
 
-    public Set<Expression> getAvailableExpressions(Set<Expression> predicates, Plan plan) {
+    private Set<Expression> getAvailableExpressions(Set<Expression> predicates, Plan plan) {
         predicates.addAll(propagation.infer(predicates));
         return predicates.stream()
                 .filter(p -> plan.getOutputSet().containsAll(p.getInputSlots()))

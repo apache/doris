@@ -57,6 +57,7 @@ public class PredicatePropagation {
      * Use the left or right child of `leftSlotEqualToRightSlot` to replace the left or right child of `expression`
      */
     private Expression doInfer(Expression leftSlotEqualToRightSlot, Expression expression) {
+        //TODO: We should determine whether expression satisfies the condition for replacement
         return expression.accept(new DefaultExpressionRewriter<Void>() {
             @Override
             public Expression visit(Expression expr, Void context) {
@@ -79,7 +80,9 @@ public class PredicatePropagation {
      * and requires that the left and right sides of an expression must be slot
      */
     private boolean canEquivalentInfer(Expression predicate) {
-        return predicate instanceof EqualTo && predicate.children().stream().allMatch(e -> e instanceof SlotReference);
+        return predicate instanceof EqualTo
+                && predicate.children().stream().allMatch(e -> e instanceof SlotReference)
+                && predicate.child(0).getDataType().equals(predicate.child(1).getDataType());
     }
 
 }
