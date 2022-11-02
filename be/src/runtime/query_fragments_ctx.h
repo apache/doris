@@ -41,7 +41,7 @@ public:
         _start_time = DateTimeValue::local_time();
     }
 
-    int countdown() { return fragment_num.fetch_sub(1) - 1; }
+    bool countdown() { return fragment_num.fetch_sub(1) == 1; }
 
     bool is_timeout(const DateTimeValue& now) const {
         if (timeout_second <= 0) {

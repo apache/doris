@@ -503,13 +503,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     bool all_done = false;
     if (fragments_ctx != nullptr) {
         // decrease the number of unfinished fragments
-        int unfinished_fragments = fragments_ctx->countdown();
-        LOG(INFO) << "fragment exec finished, query id: " << exec_state->query_id()
-                  << ", fragment id: " << exec_state->fragment_instance_id()
-                  << ", unfinished fragments: " << unfinished_fragments;
-        if (unfinished_fragments == 0) {
-            all_done = true;
-        }
+        all_done = fragments_ctx->countdown();
     }
 
     // remove exec state after this fragment finished
