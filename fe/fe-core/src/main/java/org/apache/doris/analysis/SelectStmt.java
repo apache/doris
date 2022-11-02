@@ -414,33 +414,57 @@ public class SelectStmt extends QueryStmt {
             registerIsNotEmptyPredicates(analyzer);
         }
         // populate selectListExprs, aliasSMap, groupingSmap and colNames
-        for (SelectListItem item : selectList.getItems()) {
-            if (item.isStar()) {
-                TableName tblName = item.getTblName();
-                if (tblName == null) {
-                    expandStar(analyzer);
-                } else {
-                    expandStar(analyzer, tblName);
-                }
+        if (selectList.isExcept()) {
+            List<SelectListItem> items = selectList.getItems();
+            TableName tblName = items.get(0).getTblName();
+            if (tblName == null) {
+                expandStar(analyzer);
             } else {
-                // Analyze the resultExpr before generating a label to ensure enforcement
-                // of expr child and depth limits (toColumn() label may call toSql()).
-                item.getExpr().analyze(analyzer);
-                if (!(item.getExpr() instanceof CaseExpr)
-                        && item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
-                    throw new AnalysisException("Subquery is not supported in the select list.");
+                expandStar(analyzer, tblName);
+            }
+
+            // get excepted cols
+            ArrayList<String> exceptCols = new ArrayList<>();
+            for (SelectListItem item : items) {
+                Expr expr = item.getExpr();
+                if (!(item.getExpr() instanceof SlotRef)) {
+                    throw new AnalysisException("`SELECT * EXCEPT` only supports column name.");
                 }
-                Expr expr = rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer);
-                resultExprs.add(expr);
-                SlotRef aliasRef = new SlotRef(null, item.toColumnLabel());
-                Expr existingAliasExpr = aliasSMap.get(aliasRef);
-                if (existingAliasExpr != null && !existingAliasExpr.equals(item.getExpr())) {
-                    // If we have already seen this alias, it refers to more than one column and
-                    // therefore is ambiguous.
-                    ambiguousAliasList.add(aliasRef);
+                exceptCols.add(expr.toColumnLabel());
+            }
+            // remove excepted columns
+            resultExprs.removeIf(expr -> exceptCols.contains(expr.toColumnLabel()));
+            colLabels.removeIf(exceptCols::contains);
+
+        } else {
+            for (SelectListItem item : selectList.getItems()) {
+                if (item.isStar()) {
+                    TableName tblName = item.getTblName();
+                    if (tblName == null) {
+                        expandStar(analyzer);
+                    } else {
+                        expandStar(analyzer, tblName);
+                    }
+                } else {
+                    // Analyze the resultExpr before generating a label to ensure enforcement
+                    // of expr child and depth limits (toColumn() label may call toSql()).
+                    item.getExpr().analyze(analyzer);
+                    if (!(item.getExpr() instanceof CaseExpr)
+                            && item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                        throw new AnalysisException("Subquery is not supported in the select list.");
+                    }
+                    Expr expr = rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer);
+                    resultExprs.add(expr);
+                    SlotRef aliasRef = new SlotRef(null, item.toColumnLabel());
+                    Expr existingAliasExpr = aliasSMap.get(aliasRef);
+                    if (existingAliasExpr != null && !existingAliasExpr.equals(item.getExpr())) {
+                        // If we have already seen this alias, it refers to more than one column and
+                        // therefore is ambiguous.
+                        ambiguousAliasList.add(aliasRef);
+                    }
+                    aliasSMap.put(aliasRef, item.getExpr().clone());
+                    colLabels.add(item.toColumnLabel());
                 }
-                aliasSMap.put(aliasRef, item.getExpr().clone());
-                colLabels.add(item.toColumnLabel());
             }
         }
         if (groupByClause != null && groupByClause.isGroupByExtension()) {

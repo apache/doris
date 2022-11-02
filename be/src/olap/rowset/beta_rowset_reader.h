@@ -65,6 +65,13 @@ public:
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) override;
 
+    bool update_profile(RuntimeProfile* profile) override {
+        if (_iterator != nullptr) {
+            return _iterator->update_profile(profile);
+        }
+        return false;
+    }
+
 private:
     bool _should_push_down_value_predicates() const;
 

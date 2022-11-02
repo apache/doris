@@ -122,17 +122,17 @@ public class CrossJoinNode extends PlanNode {
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        StringBuilder output = new StringBuilder().append(detailPrefix).append("cross join:").append("\n");
         if (detailLevel == TExplainLevel.BRIEF) {
-            return "";
+            output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+            return output.toString();
         }
-        StringBuilder output = new StringBuilder().append(detailPrefix + "cross join:" + "\n");
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix + "predicates: ").append(getExplainString(conjuncts) + "\n");
+            output.append(detailPrefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         } else {
-            output.append(detailPrefix + "predicates is NULL.");
+            output.append(detailPrefix).append("predicates is NULL.");
         }
-        output.append(detailPrefix).append(String.format(
-                "cardinality=%s", cardinality)).append("\n");
+        output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
         return output.toString();
     }
 

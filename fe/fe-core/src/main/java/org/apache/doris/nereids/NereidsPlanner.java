@@ -33,8 +33,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.properties.RequestPropertyDeriver;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderRule;
+import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorder;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -43,6 +42,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -78,9 +78,15 @@ public class NereidsPlanner extends Planner {
         PhysicalPlan physicalPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
+            String tree = physicalPlan.treeString();
+            System.out.println(tree);
+            LOG.info(tree);
+            String memo = cascadesContext.getMemo().toString();
+            System.out.println(memo);
+            LOG.info(memo);
+        }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
-        RequestPropertyDeriver.cleanCache();
 
         scanNodeList = planTranslatorContext.getScanNodes();
         descTable = planTranslatorContext.getDescTable();
@@ -132,7 +138,7 @@ public class NereidsPlanner extends Planner {
 
         // cost-based optimize and explore plan space
         optimize();
-        LOG.warn(cascadesContext.getMemo().toString());
+
         PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
 
         // post-process physical plan out of memo, just for future use.
@@ -167,7 +173,7 @@ public class NereidsPlanner extends Planner {
     private void joinReorder() {
         new RewriteTopDownJob(
             getRoot(),
-            (new JoinReorderRule()).buildRules(),
+            (new HyperGraphJoinReorder()).buildRules(),
             cascadesContext.getCurrentJobContext()
         ).execute();
     }

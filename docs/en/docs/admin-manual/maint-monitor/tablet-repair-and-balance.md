@@ -99,7 +99,7 @@ Multiple copies of a Tablet may cause state inconsistencies due to certain circu
 
 6. FORCE\_REDUNDANT
 
-	This is a special state. It only occurs when the number of expected replicas is greater than or equal to the number of available nodes, and when the Tablet is in the state of replica missing. In this case, you need to delete a copy first to ensure that there are available nodes for creating a new copy.
+	This is a special state. It only occurs when the number of existed replicas is greater than or equal to the number of available nodes, and the number of available nodes is greater than or equal to the number of expected replicas, and when the number of alive replicas is less than the number of expected replicas. In this case, you need to delete a copy first to ensure that there are available nodes for creating a new copy.
 
 7. COLOCATE\_MISMATCH
 

@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.udf;
 
-import org.junit.jupiter.api.Test;
+import org.apache.commons.lang.StringUtils;
+import org.apache.hadoop.hive.ql.exec.UDF;
 
-class JoinReorderTest {
-    @Test
-    void testHyperGraph() {
+public class StringTest extends UDF {
+    public String evaluate(String field, Integer a, Integer b) {
+        return field.substring(0, a) + StringUtils.repeat("*", field.length() - a -b) + field.substring(field.length()-b);
     }
 }

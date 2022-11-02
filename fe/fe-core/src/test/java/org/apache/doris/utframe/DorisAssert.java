@@ -127,7 +127,7 @@ public class DorisAssert {
         Env.getCurrentEnv().createMaterializedView(createMaterializedViewStmt);
         checkAlterJob();
         // waiting table state to normal
-        Thread.sleep(100);
+        Thread.sleep(1000);
         return this;
     }
 
@@ -137,7 +137,7 @@ public class DorisAssert {
         Env.getCurrentEnv().alterTable(alterTableStmt);
         checkAlterJob();
         // waiting table state to normal
-        Thread.sleep(100);
+        Thread.sleep(1000);
         return this;
     }
 

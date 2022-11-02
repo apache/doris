@@ -44,7 +44,6 @@ public class UdfUtils {
     public static final Unsafe UNSAFE;
     private static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
     public static final long BYTE_ARRAY_OFFSET;
-    public static final char END_OF_STRING = '\0';
 
     static {
         UNSAFE = (Unsafe) AccessController.doPrivileged(

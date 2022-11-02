@@ -46,25 +46,9 @@ CONF_Int32(single_replica_load_brpc_num_threads, "64");
 // If no ip match this rule, will choose one randomly.
 CONF_String(priority_networks, "");
 
-////
-//// tcmalloc gc parameter
-////
-// min memory for TCmalloc, when used memory is smaller than this, do not returned to OS
-CONF_mInt64(tc_use_memory_min, "10737418240");
-// free memory rate.[0-100]
-CONF_mInt64(tc_free_memory_rate, "20");
-// tcmallc aggressive_memory_decommit
-CONF_Bool(tc_enable_aggressive_memory_decommit, "false");
-
-// Bound on the total amount of bytes allocated to thread caches.
-// This bound is not strict, so it is possible for the cache to go over this bound
-// in certain circumstances. This value defaults to 1GB
-// If you suspect your application is not scaling to many threads due to lock contention in TCMalloc,
-// you can try increasing this value. This may improve performance, at a cost of extra memory
-// use by TCMalloc.
-// reference: https://gperftools.github.io/gperftools/tcmalloc.html: TCMALLOC_MAX_TOTAL_THREAD_CACHE_BYTES
-//            https://github.com/gperftools/gperftools/issues/1111
-CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
+// memory mode
+// performance or compact
+CONF_String(memory_mode, "performance");
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
@@ -253,41 +237,59 @@ CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
 
+// check the configuration of auto compaction in seconds when auto compaction disabled
+CONF_mInt32(check_auto_compaction_interval_seconds, "5");
+
+CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
+CONF_mDouble(base_cumulative_delta_ratio, "0.3");
+CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
+CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
+CONF_Bool(enable_base_compaction_idle_sched, "true");
+
+// dup key not compaction big files
+CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
+CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
+
+// In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
+// this rowset will be given to base compaction, unit is m byte.
+CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
+
+// In size_based policy, output rowset of cumulative compaction total disk size exceed this config ratio of
+// base rowset's total disk size, this rowset will be given to base compaction. The value must be between
+// 0 and 1.
+CONF_mDouble(cumulative_size_based_promotion_ratio, "0.05");
+
+// In size_based policy, the smallest size of rowset promotion. When the rowset is less than this config, this
+// rowset will be not given to base compaction. The unit is m byte.
+CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
+
+// The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
+// this size, size_based policy may not do to cumulative compaction. The unit is m byte.
+CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
+
+// cumulative compaction policy: min and max delta file's number
+CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
+CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
+
+// if compaction of a tablet failed, this tablet should not be chosen to
+// compaction until this interval passes.
+CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
+
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(max_base_compaction_threads, "4");
 CONF_mInt32(max_cumu_compaction_threads, "10");
 
-CONF_Bool(enable_base_compaction_idle_sched, "true");
-CONF_mInt64(base_compaction_min_rowset_num, "5");
-CONF_mDouble(base_compaction_min_data_ratio, "0.3");
-CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
+// This config can be set to limit thread number in  smallcompaction thread pool.
+CONF_mInt32(quick_compaction_max_threads, "10");
 
-// output rowset of cumulative compaction total disk size exceed this config size,
-// this rowset will be given to base compaction, unit is m byte.
-CONF_mInt64(compaction_promotion_size_mbytes, "1024");
-
-// output rowset of cumulative compaction total disk size exceed this config ratio of
-// base rowset's total disk size, this rowset will be given to base compaction. The value must be between
-// 0 and 1.
-CONF_mDouble(compaction_promotion_ratio, "0.05");
-
-// the smallest size of rowset promotion. When the rowset is less than this config, this
-// rowset will be not given to base compaction. The unit is m byte.
-CONF_mInt64(compaction_promotion_min_size_mbytes, "64");
-
-// The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
-// this size, size_based policy may not do to cumulative compaction. The unit is m byte.
-CONF_mInt64(compaction_min_size_mbytes, "64");
-
-// cumulative compaction policy: min and max delta file's number
-CONF_mInt64(cumulative_compaction_min_deltas, "5");
-CONF_mInt64(cumulative_compaction_max_deltas, "1000");
+// Thread count to do tablet meta checkpoint, -1 means use the data directories count.
+CONF_Int32(max_meta_checkpoint_threads, "-1");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
 // sleep interval in ms after generated compaction tasks
-CONF_mInt32(generate_compaction_tasks_interval_ms, "10");
+CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -301,16 +303,22 @@ CONF_Validator(compaction_task_num_per_fast_disk,
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 
+// Merge log will be printed for each "row_step_for_compaction_merge_log" rows merged during compaction
+CONF_mInt64(row_step_for_compaction_merge_log, "0");
+
 // Threshold to logging compaction trace, in seconds.
 CONF_mInt32(base_compaction_trace_threshold, "60");
 CONF_mInt32(cumulative_compaction_trace_threshold, "10");
 CONF_mBool(disable_compaction_trace_log, "true");
 
-// Thread count to do tablet meta checkpoint, -1 means use the data directories count.
-CONF_Int32(max_meta_checkpoint_threads, "-1");
-
 // Threshold to logging agent task trace, in seconds.
 CONF_mInt32(agent_task_trace_threshold_sec, "2");
+
+// time interval to record tablet scan count in second for the purpose of calculating tablet scan frequency
+CONF_mInt64(tablet_scan_frequency_time_node_interval_second, "300");
+// coefficient for tablet scan frequency and compaction score when finding a tablet for compaction
+CONF_mInt32(compaction_tablet_scan_frequency_factor, "0");
+CONF_mInt32(compaction_tablet_compaction_score_factor, "1");
 
 // This config can be set to limit thread number in tablet migration thread pool.
 CONF_Int32(min_tablet_migration_threads, "1");
@@ -782,6 +790,15 @@ CONF_mInt32(orc_natural_read_size_mb, "8");
 CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
 CONF_Bool(enable_decimalv3, "false");
+
+//whether turn on quick compaction feature
+CONF_Bool(enable_quick_compaction, "false");
+// For continuous versions that rows less than quick_compaction_max_rows will  trigger compaction quickly
+CONF_Int32(quick_compaction_max_rows, "1000");
+// min compaction versions
+CONF_Int32(quick_compaction_batch_size, "10");
+// do compaction min rowsets
+CONF_Int32(quick_compaction_min_rowsets, "10");
 
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");

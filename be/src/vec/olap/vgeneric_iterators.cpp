@@ -453,6 +453,13 @@ public:
         return Status::OK();
     }
 
+    bool update_profile(RuntimeProfile* profile) override {
+        if (!_origin_iters.empty()) {
+            return (*_origin_iters.begin())->update_profile(profile);
+        }
+        return false;
+    }
+
 private:
     int _get_size(Block* block) { return block->rows(); }
     int _get_size(BlockView* block_view) { return block_view->size(); }
@@ -589,6 +596,13 @@ public:
     const Schema& schema() const override { return *_schema; }
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override;
+
+    bool update_profile(RuntimeProfile* profile) override {
+        if (_cur_iter != nullptr) {
+            return _cur_iter->update_profile(profile);
+        }
+        return false;
+    }
 
 private:
     const Schema* _schema = nullptr;

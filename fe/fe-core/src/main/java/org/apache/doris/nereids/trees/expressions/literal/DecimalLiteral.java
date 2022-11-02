@@ -50,4 +50,9 @@ public class DecimalLiteral extends Literal {
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.DecimalLiteral(value);
     }
+
+    @Override
+    public double getDouble() {
+        return value.doubleValue();
+    }
 }

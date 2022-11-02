@@ -21,6 +21,7 @@
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "olap/reader.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris {
@@ -34,7 +35,8 @@ class NewOlapScanNode;
 class NewOlapScanner : public VScanner {
 public:
     NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   bool need_agg_finalize, const TPaloScanRange& scan_range);
+                   bool need_agg_finalize, const TPaloScanRange& scan_range,
+                   RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
 
@@ -81,6 +83,8 @@ private:
     // ========= profiles ==========
     int64_t _compressed_bytes_read = 0;
     int64_t _raw_rows_read = 0;
+    RuntimeProfile* _profile;
+    bool _profile_updated = false;
 };
 } // namespace vectorized
 } // namespace doris

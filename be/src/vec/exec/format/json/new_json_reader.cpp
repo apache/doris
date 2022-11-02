@@ -601,15 +601,15 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
         break;
     case rapidjson::Type::kNumberType:
         if (value->IsUint()) {
-            wbytes = sprintf(tmp_buf, "%u", value->GetUint());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%u", value->GetUint());
         } else if (value->IsInt()) {
-            wbytes = sprintf(tmp_buf, "%d", value->GetInt());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", value->GetInt());
         } else if (value->IsUint64()) {
-            wbytes = sprintf(tmp_buf, "%" PRIu64, value->GetUint64());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRIu64, value->GetUint64());
         } else if (value->IsInt64()) {
-            wbytes = sprintf(tmp_buf, "%" PRId64, value->GetInt64());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, value->GetInt64());
         } else {
-            wbytes = sprintf(tmp_buf, "%f", value->GetDouble());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", value->GetDouble());
         }
         str_value = tmp_buf;
         break;

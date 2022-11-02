@@ -15,26 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.join;
+package org.apache.doris.nereids.rules.joinreorder;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.join.hypergraph.HyperGraph;
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 /**
- * Join Reorder Rule.
+ * This rule is for Join Reorder (non Cascades Transfrom Join Reorder).
  */
-public class JoinReorderRule extends OneRewriteRuleFactory {
+public class HyperGraphJoinReorderGroupPlan extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         // TODO: we need a pattern to match a subtree of join and mark the node in this tree ordered
-        return logicalJoin(group(), group()).thenApply(ctx -> {
-            HyperGraph graph = HyperGraph.fromPlan(ctx.root);
-            if (graph.optimize()) {
-                return graph.toPlan();
-            }
-            return ctx.root;
-        }).toRule(RuleType.JOIN_REORDER);
+        return logicalJoin(
+                subTree(LogicalJoin.class, LogicalProject.class),
+                group())
+                .thenApply(ctx -> {
+                    LogicalJoin<? extends Plan, ? extends Plan> rootJoin = ctx.root;
+                    HyperGraph graph = HyperGraph.fromPlan(rootJoin);
+                    System.out.println(graph.toDottyHyperGraph());
+                    if (graph.optimize()) {
+                        return graph.toPlan();
+                    }
+                    return null;
+                }).toRule(RuleType.JOIN_REORDER);
     }
 }

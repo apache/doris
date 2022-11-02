@@ -154,7 +154,7 @@ public class SortNode extends PlanNode {
         }
 
         StringBuilder output = new StringBuilder();
-        output.append(detailPrefix + "order by: ");
+        output.append(detailPrefix).append("order by: ");
         Iterator<Expr> expr = info.getOrderingExprs().iterator();
         Iterator<Boolean> isAsc = info.getIsAscOrder().iterator();
         boolean start = true;
@@ -164,11 +164,11 @@ public class SortNode extends PlanNode {
             } else {
                 output.append(", ");
             }
-            output.append(expr.next().toSql() + " ");
+            output.append(expr.next().toSql()).append(" ");
             output.append(isAsc.next() ? "ASC" : "DESC");
         }
         output.append("\n");
-        output.append(detailPrefix + "offset: " + offset + "\n");
+        output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
     }
 
