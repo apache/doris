@@ -84,16 +84,14 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                )
-                        )
+                    logicalJoin(
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                    )
                 );
     }
 
@@ -106,12 +104,10 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalOlapScan(),
-                                        logicalOlapScan()
-                                )
-                        )
+                    logicalJoin(
+                            logicalOlapScan(),
+                            logicalOlapScan()
+                    )
                 );
     }
 
@@ -124,13 +120,13 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id IN (1, 2, 3)")),
-                                        logicalOlapScan()
-                                        )));
+                    logicalJoin(
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filter -> filter.getPredicates().toSql().contains("id IN (1, 2, 3)")),
+                        logicalOlapScan()
+                    )
+                );
     }
 
     @Test
@@ -142,13 +138,13 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id IN (1, 2, 3)")),
-                                        logicalOlapScan()
-                                        )));
+                    logicalJoin(
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filter -> filter.getPredicates().toSql().contains("id IN (1, 2, 3)")),
+                        logicalOlapScan()
+                    )
+                );
     }
 
     @Test
@@ -160,21 +156,19 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalJoin(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
-                                        ),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
-                                )
-                        )
+                    logicalJoin(
+                        logicalJoin(
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                        ),
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
+                    )
                 );
     }
 
@@ -187,21 +181,19 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalJoin(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
-                                        ),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
-                                )
-                        )
+                    logicalJoin(
+                        logicalJoin(
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                        ),
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
+                    )
                 );
     }
 
@@ -214,16 +206,14 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                )
-                        )
+                    logicalJoin(
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                    )
                 );
     }
 
@@ -236,14 +226,12 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalOlapScan(),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                )
-                        )
+                    logicalJoin(
+                        logicalOlapScan(),
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                    )
                 );
     }
 
@@ -257,16 +245,14 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("id > 1")),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                )
-                        )
+                    logicalJoin(
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filer -> filer.getPredicates().toSql().contains("id > 1")),
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                    )
                 );
     }
 
@@ -279,18 +265,16 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
+                    logicalJoin(
                         logicalProject(
-                                logicalJoin(
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filer -> filer.getPredicates().toSql().contains("id > 1"))
-                                        ),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                )
-                        )
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filer -> filer.getPredicates().toSql().contains("id > 1"))
+                        ),
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                    )
                 );
     }
 
@@ -303,16 +287,14 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalProject(
-                                                logicalOlapScan()
-                                        ),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                )
-                        )
+                    logicalJoin(
+                            logicalProject(
+                                    logicalOlapScan()
+                            ),
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                    )
                 );
     }
 
@@ -325,22 +307,20 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("id > 1")),
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalAggregate(
-                                                                logicalProject(
-                                                                        logicalOlapScan()
-                                                                )
-                                                        )
-                                                ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                        )
-                                )
-                        )
+                    logicalJoin(
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filer -> filer.getPredicates().toSql().contains("id > 1")),
+                            logicalProject(
+                                    logicalFilter(
+                                            logicalAggregate(
+                                                    logicalProject(
+                                                            logicalOlapScan()
+                                                    )
+                                            )
+                                    ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                            )
+                    )
                 );
     }
 
@@ -353,18 +333,16 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filer -> filer.getPredicates().toSql().contains("id = 1"))
-                                        ),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filer -> filer.getPredicates().toSql().contains("sid = 1"))
-                                )
-                        )
+                    logicalJoin(
+                            logicalProject(
+                                    logicalFilter(
+                                            logicalOlapScan()
+                                    ).when(filer -> filer.getPredicates().toSql().contains("id = 1"))
+                            ),
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filer -> filer.getPredicates().toSql().contains("sid = 1"))
+                    )
                 );
     }
 
@@ -377,18 +355,16 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                        )
-                                )
-                        )
+                    logicalJoin(
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                            logicalProject(
+                                    logicalFilter(
+                                            logicalOlapScan()
+                                    ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                            )
+                    )
                 );
     }
 
@@ -401,18 +377,16 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
+                    logicalJoin(
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
                         logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
-                                        )
-                                )
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
                         )
+                    )
                 );
     }
 
@@ -425,16 +399,14 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
+                    logicalJoin(
+                        logicalOlapScan(),
                         logicalProject(
-                                logicalJoin(
-                                        logicalOlapScan(),
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
-                                        )
-                                )
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
                         )
+                    )
                 );
     }
 
@@ -447,16 +419,14 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
+                    logicalJoin(
+                        logicalOlapScan(),
                         logicalProject(
-                                logicalJoin(
-                                        logicalOlapScan(),
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
-                                        )
-                                )
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
                         )
+                    )
                 );
     }
 
@@ -469,18 +439,16 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
+                    logicalJoin(
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
                         logicalProject(
-                                logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
-                                        )
-                                )
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
                         )
+                    )
                 );
     }
 
@@ -493,32 +461,28 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
+                    logicalJoin(
+                        logicalFilter(
+                                logicalOlapScan()
+                        ).when(filter -> filter.getPredicates().toSql().contains("k1 = 3")),
                         logicalProject(
                                 logicalJoin(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("k1 = 3")),
-                                        logicalProject(
-                                                logicalJoin(
-                                                       logicalProject(
-                                                               logicalJoin(
-                                                                       logicalProject(
-                                                                               logicalFilter(
-                                                                                       logicalOlapScan()
-                                                                               ).when(filter -> filter.getPredicates().toSql().contains("k3 = 3"))
-                                                                       ),
-                                                                       logicalProject(
-                                                                               logicalFilter(
-                                                                                       logicalOlapScan()
-                                                                               ).when(filter -> filter.getPredicates().toSql().contains("k1 = 3"))
-                                                                       )
-                                                               )
-                                                       ),
-                                                        logicalProject()
-                                                )
-                                        )
+                                       logicalJoin(
+                                               logicalProject(
+                                                       logicalFilter(
+                                                               logicalOlapScan()
+                                                       ).when(filter -> filter.getPredicates().toSql().contains("k3 = 3"))
+                                               ),
+                                               logicalProject(
+                                                       logicalFilter(
+                                                               logicalOlapScan()
+                                                       ).when(filter -> filter.getPredicates().toSql().contains("k1 = 3"))
+                                               )
+                                       ),
+                                        logicalProject()
                                 )
                         )
+                    )
                 );
     }
 
@@ -530,17 +494,15 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalJoin(
-                                                logicalOlapScan(),
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
-                                        ),
+                    logicalJoin(
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalFilter(
                                         logicalOlapScan()
-                                )
-                        )
+                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                        ),
+                        logicalOlapScan()
+                    )
                 );
     }
 
@@ -552,21 +514,19 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalJoin(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
-                                        ),
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
-                                )
-                        )
+                    logicalJoin(
+                            logicalJoin(
+                                    logicalFilter(
+                                            logicalOlapScan()
+                                    ).when(filter -> filter.getPredicates().toSql().contains("id > 1")),
+                                    logicalFilter(
+                                            logicalOlapScan()
+                                    ).when(filter -> filter.getPredicates().toSql().contains("sid > 1"))
+                            ),
+                            logicalFilter(
+                                    logicalOlapScan()
+                            ).when(filter -> filter.getPredicates().toSql().contains("id > 1"))
+                    )
                 );
     }
 }

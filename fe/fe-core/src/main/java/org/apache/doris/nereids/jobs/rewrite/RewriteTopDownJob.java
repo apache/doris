@@ -65,6 +65,10 @@ public class RewriteTopDownJob extends Job {
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
     }
 
+    public List<Rule> getRules() {
+        return rules;
+    }
+
     @Override
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
-import org.apache.doris.nereids.jobs.rewrite.VisitorRewriteJob;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;

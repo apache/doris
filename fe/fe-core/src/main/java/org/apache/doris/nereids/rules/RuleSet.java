@@ -40,7 +40,6 @@ import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickS
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
