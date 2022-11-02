@@ -17,6 +17,9 @@
 
 #include "vec/exec/join/vhash_join_node.h"
 
+#include "common/status.h"
+#include "exprs/runtime_filter.h"
+#include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/memory/mem_tracker.h"
@@ -58,9 +61,9 @@ struct ProcessHashTableBuild {
               _offset(offset),
               _build_side_compute_hash_timer(join_node->_build_side_compute_hash_timer) {}
 
-    template <bool need_null_map_for_build, bool ignore_null, bool build_unique,
-              bool has_runtime_filter, bool short_circuit_for_null>
-    void run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
+    void run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key,
+             bool need_null_map_for_build, bool ignore_null, bool build_unique,
+             bool has_runtime_filter, bool short_circuit_for_null) {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
         int64_t old_bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
@@ -76,14 +79,14 @@ struct ProcessHashTableBuild {
 
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
         // only not build_unique, we need expanse hash table before insert data
-        if constexpr (!build_unique) {
+        if (!build_unique) {
             // _rows contains null row, which will cause hash table resize to be large.
             hash_table_ctx.hash_table.expanse_for_add_elem(_rows);
         }
         hash_table_ctx.hash_table.reset_resize_timer();
 
         vector<int>& inserted_rows = _join_node->_inserted_rows[&_acquired_block];
-        if constexpr (has_runtime_filter) {
+        if (has_runtime_filter) {
             inserted_rows.reserve(_batch_size);
         }
 
@@ -92,14 +95,14 @@ struct ProcessHashTableBuild {
         {
             SCOPED_TIMER(_build_side_compute_hash_timer);
             for (size_t k = 0; k < _rows; ++k) {
-                if constexpr (ignore_null && need_null_map_for_build) {
+                if (ignore_null && need_null_map_for_build) {
                     if ((*null_map)[k]) {
                         continue;
                     }
                 }
                 // If apply short circuit strategy for null value (e.g. join operator is
                 // NULL_AWARE_LEFT_ANTI_JOIN), we build hash table until we meet a null value.
-                if constexpr (short_circuit_for_null && need_null_map_for_build) {
+                if (short_circuit_for_null && need_null_map_for_build) {
                     if ((*null_map)[k]) {
                         DCHECK(has_null_key);
                         *has_null_key = true;
@@ -117,7 +120,7 @@ struct ProcessHashTableBuild {
         }
 
         for (size_t k = 0; k < _rows; ++k) {
-            if constexpr (ignore_null && need_null_map_for_build) {
+            if (ignore_null && need_null_map_for_build) {
                 if ((*null_map)[k]) {
                     continue;
                 }
@@ -132,14 +135,14 @@ struct ProcessHashTableBuild {
 
             if (emplace_result.is_inserted()) {
                 new (&emplace_result.get_mapped()) Mapped({k, _offset});
-                if constexpr (has_runtime_filter) {
+                if (has_runtime_filter) {
                     inserted_rows.push_back(k);
                 }
             } else {
-                if constexpr (!build_unique) {
+                if (!build_unique) {
                     /// The first element of the list is stored in the value of the hash table, the rest in the pool.
                     emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena);
-                    if constexpr (has_runtime_filter) {
+                    if (has_runtime_filter) {
                         inserted_rows.push_back(k);
                     }
                 } else {
@@ -320,12 +323,10 @@ void ProcessHashTableProbe<JoinOpType, ignore_null>::probe_side_output_column(
 }
 
 template <class JoinOpType, bool ignore_null>
-template <bool need_null_map_for_probe, typename HashTableType>
-Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType& hash_table_ctx,
-                                                                  ConstNullMapPtr null_map,
-                                                                  MutableBlock& mutable_block,
-                                                                  Block* output_block,
-                                                                  size_t probe_rows) {
+template <typename HashTableType>
+Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(
+        HashTableType& hash_table_ctx, ConstNullMapPtr null_map, MutableBlock& mutable_block,
+        Block* output_block, size_t probe_rows, bool need_null_map_for_probe) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
@@ -358,7 +359,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
     {
         SCOPED_TIMER(_search_hashtable_timer);
         while (probe_index < probe_rows) {
-            if constexpr (ignore_null && need_null_map_for_probe) {
+            if (ignore_null && need_null_map_for_probe) {
                 if ((*null_map)[probe_index]) {
                     if constexpr (probe_all) {
                         _items_counts[probe_index++] = (uint32_t)1;
@@ -479,10 +480,10 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process(HashTableType&
 }
 
 template <class JoinOpType, bool ignore_null>
-template <bool need_null_map_for_probe, typename HashTableType>
+template <typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_join_conjuncts(
         HashTableType& hash_table_ctx, ConstNullMapPtr null_map, MutableBlock& mutable_block,
-        Block* output_block, size_t probe_rows) {
+        Block* output_block, size_t probe_rows, bool need_null_map_for_probe) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
@@ -518,7 +519,7 @@ Status ProcessHashTableProbe<JoinOpType, ignore_null>::do_process_with_other_joi
         int last_probe_index = probe_index;
         while (probe_index < probe_rows) {
             // ignore null rows
-            if constexpr (ignore_null && need_null_map_for_probe) {
+            if (ignore_null && need_null_map_for_probe) {
                 if ((*null_map)[probe_index]) {
                     if constexpr (probe_all) {
                         _items_counts[probe_index++] = (uint32_t)1;
@@ -878,8 +879,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     _build_blocks.reserve(_MAX_BUILD_BLOCK_COUNT);
 }
 
-HashJoinNode::~HashJoinNode() = default;
-
 void HashJoinNode::init_join_op() {
     switch (_join_op) {
 #define M(NAME)                                                                            \
@@ -1151,33 +1150,29 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     if (_probe_index < _probe_block.rows()) {
         DCHECK(_has_set_need_null_map_for_probe);
         std::visit(
-                [&](auto&& arg, auto&& process_hashtable_ctx, auto have_other_join_conjunct,
-                    auto need_null_map_for_probe) {
+                [&](auto&& arg, auto&& process_hashtable_ctx) {
                     using HashTableProbeType = std::decay_t<decltype(process_hashtable_ctx)>;
                     if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        if constexpr (have_other_join_conjunct) {
+                        if (_have_other_join_conjunct) {
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                st = process_hashtable_ctx
-                                             .template do_process_with_other_join_conjuncts<
-                                                     need_null_map_for_probe>(
-                                                     arg,
-                                                     need_null_map_for_probe
-                                                             ? &_null_map_column->get_data()
-                                                             : nullptr,
-                                                     mutable_join_block, &temp_block, probe_rows);
+                                st = process_hashtable_ctx.do_process_with_other_join_conjuncts(
+                                        arg,
+                                        _need_null_map_for_probe ? &_null_map_column->get_data()
+                                                                 : nullptr,
+                                        mutable_join_block, &temp_block, probe_rows,
+                                        _need_null_map_for_probe);
                             } else {
                                 LOG(FATAL) << "FATAL: uninited hash table";
                             }
                         } else {
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                st = process_hashtable_ctx
-                                             .template do_process<need_null_map_for_probe>(
-                                                     arg,
-                                                     need_null_map_for_probe
-                                                             ? &_null_map_column->get_data()
-                                                             : nullptr,
-                                                     mutable_join_block, &temp_block, probe_rows);
+                                st = process_hashtable_ctx.do_process(
+                                        arg,
+                                        _need_null_map_for_probe ? &_null_map_column->get_data()
+                                                                 : nullptr,
+                                        mutable_join_block, &temp_block, probe_rows,
+                                        _need_null_map_for_probe);
                             } else {
                                 LOG(FATAL) << "FATAL: uninited hash table";
                             }
@@ -1186,9 +1181,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                         LOG(FATAL) << "FATAL: uninited hash probe";
                     }
                 },
-                _hash_table_variants, _process_hashtable_ctx_variants,
-                make_bool_variant(_have_other_join_conjunct),
-                make_bool_variant(_need_null_map_for_probe));
+                _hash_table_variants, _process_hashtable_ctx_variants);
     } else if (_probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
             std::visit(
@@ -1492,25 +1485,21 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     bool has_runtime_filter = !_runtime_filter_descs.empty();
 
     std::visit(
-            [&](auto&& arg, auto has_null_value, auto build_unique, auto has_runtime_filter_value,
-                auto need_null_map_for_build, auto short_circuit_for_null_in_build_side) {
+            [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
                             rows, block, raw_ptrs, this, state->batch_size(), offset);
-                    hash_table_build_process.template run<need_null_map_for_build, has_null_value,
-                                                          build_unique, has_runtime_filter_value,
-                                                          short_circuit_for_null_in_build_side>(
-                            arg, need_null_map_for_build ? &null_map_val->get_data() : nullptr,
-                            &_short_circuit_for_null_in_probe_side);
+                    hash_table_build_process.run(
+                            arg, _need_null_map_for_build ? &null_map_val->get_data() : nullptr,
+                            &_short_circuit_for_null_in_probe_side, _need_null_map_for_build,
+                            _build_side_ignore_null, _build_unique, has_runtime_filter,
+                            _short_circuit_for_null_in_build_side);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
             },
-            _hash_table_variants, make_bool_variant(_build_side_ignore_null),
-            make_bool_variant(_build_unique), make_bool_variant(has_runtime_filter),
-            make_bool_variant(_need_null_map_for_build),
-            make_bool_variant(_short_circuit_for_null_in_build_side));
+            _hash_table_variants);
 
     return st;
 }

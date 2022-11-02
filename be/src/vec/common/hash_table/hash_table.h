@@ -26,10 +26,9 @@
 #include <boost/noncopyable.hpp>
 #include <utility>
 
-#include "common/status.h"
+#include "gen_cpp/Status_types.h"
 #include "util/runtime_profile.h"
 #include "vec/common/exception.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"

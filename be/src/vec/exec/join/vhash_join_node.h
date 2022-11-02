@@ -16,20 +16,20 @@
 // under the License.
 
 #pragma once
+
 #include <future>
 #include <variant>
 
-#include "common/object_pool.h"
 #include "exec/exec_node.h"
-#include "exprs/runtime_filter_slots.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash_map.h"
-#include "vec/common/hash_table/hash_table.h"
 #include "vec/exec/join/join_op.h"
-#include "vec/exec/join/vacquire_list.hpp"
-#include "vec/functions/function.h"
 
 namespace doris {
+
+class ObjectPool;
+class IRuntimeFilter;
+
 namespace vectorized {
 
 template <typename RowRefListType>
@@ -200,18 +200,19 @@ struct ProcessHashTableProbe {
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_null_map_for_probe, typename HashTableType>
+    template <typename HashTableType>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
-                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows);
+                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows,
+                      bool need_null_map_for_probe);
     // In the presence of other join conjunt, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunt. so the sturct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunt result and same_to_prev struct
-    template <bool need_null_map_for_probe, typename HashTableType>
+    template <typename HashTableType>
     Status do_process_with_other_join_conjuncts(HashTableType& hash_table_ctx,
                                                 ConstNullMapPtr null_map,
                                                 MutableBlock& mutable_block, Block* output_block,
-                                                size_t probe_rows);
+                                                size_t probe_rows, bool need_null_map_for_probe);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
@@ -280,7 +281,6 @@ using HashTableCtxVariants = std::variant<
 class HashJoinNode : public ::doris::ExecNode {
 public:
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~HashJoinNode() override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
