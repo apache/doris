@@ -320,4 +320,130 @@ public class AggregateTest extends TestWithFeService {
             Assert.fail("must be AnalysisException.");
         } while (false);
     }
+
+    @Test
+    public void testSequenceMatchAnalysisException() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+
+        // normal.
+        do {
+            String query = "select sequence_match('(?1)(?2)', time, number = 1, number = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select sequence_match('.*', time, number = 1, number = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1)(?t>1800)(?2)', time, number = 1, number = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        // less argument.
+        do {
+            String query = "select sequence_match(time, number = 1, number = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("function must have at least four params"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1)(?2)', number = 1, number = 2) from "
+                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("function must have at least four params"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        // argument with wrong type.
+        do {
+            String query = "select sequence_match(1, time, number = 1, number = 2) from "
+                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(
+                    e.getMessage().contains("The pattern params of sequence_match function must be string"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1)(?2)', '1', number = 1, number = 2) from "
+                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(
+                    e.getMessage().contains("The timestamp params of sequence_match function must be DATE or DATETIME"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1)(?2)', '1', '1', number = 2) from "
+                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains(
+                    "The 3th and subsequent params of sequence_match function must be boolean"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1)(?2)', '1', number = 2, '1') from "
+                + DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains(
+                    "The 3th and subsequent params of sequence_match function must be boolean"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+    }
 }

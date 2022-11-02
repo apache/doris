@@ -1056,6 +1056,11 @@ public class FunctionCallExpr extends Expr {
             if (!children.get(1).type.isDateType()) {
                 throw new AnalysisException("The timestamp params of " + fnName + " function must be DATE or DATETIME");
             }
+            if (!children.get(1).type.isDate()) {
+                throw new AnalysisException("The timestamp params of " + fnName + " can not be DATE, " +
+                    "instead we use DATEV2 to replace DATE. It is faster and more efficient. Hence, " +
+                    "please use DATEV2. ");
+            }
 
             Type[] childTypes = new Type[children.size()];
             for (int i = 0; i < 2; i++) {
