@@ -50,6 +50,7 @@ public enum RuleType {
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
+    REGISTER_CTE(RuleTypeClass.REWRITE),
 
     // check analysis rule
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
