@@ -120,7 +120,7 @@ public class GroupExpression {
      */
     public void replaceChild(Group originChild, Group newChild) {
         originChild.removeParentExpression(this);
-        ImmutableList.Builder<Group> groupBuilder = ImmutableList.<Group>builderWithExpectedSize(arity());
+        ImmutableList.Builder<Group> groupBuilder = ImmutableList.builderWithExpectedSize(arity());
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) == originChild) {
                 groupBuilder.add(newChild);
