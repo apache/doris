@@ -170,8 +170,12 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
         if (columnStat == ColumnStat.UNKNOWN) {
             return ColumnStat.UNKNOWN;
         }
+        /*
+        we keep columnStat.min and columnStat.max, but set ndv=1.
+        if there is group-by keys, we will update ndv when visiting group clause
+        */
         return new ColumnStat(1, min.child().getDataType().width(),
-                min.child().getDataType().width(), 1, columnStat.getMinValue(), columnStat.getMinValue());
+                min.child().getDataType().width(), 1, columnStat.getMinValue(), columnStat.getMaxValue());
     }
 
     @Override
@@ -181,15 +185,19 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStat, StatsDer
         if (columnStat == ColumnStat.UNKNOWN) {
             return ColumnStat.UNKNOWN;
         }
+        /*
+        we keep columnStat.min and columnStat.max, but set ndv=1.
+        if there is group-by keys, we will update ndv when visiting group clause
+        */
         return new ColumnStat(1, max.child().getDataType().width(),
-                max.child().getDataType().width(), 0, columnStat.getMaxValue(), columnStat.getMaxValue());
+                max.child().getDataType().width(), 0, columnStat.getMinValue(), columnStat.getMaxValue());
     }
 
     @Override
     public ColumnStat visitCount(Count count, StatsDeriveResult context) {
         //count() returns long type
         return new ColumnStat(1.0, 8.0, 8.0, 0.0,
-                Double.MIN_VALUE, Double.MAX_VALUE);
+                0, Double.MAX_VALUE);
     }
 
     // TODO: return a proper estimated stat after supports histogram
