@@ -34,7 +34,8 @@
 #include "common/logging.h"
 #include "udf/udf.h"
 #include "util/coding.h"
-
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 namespace doris {
 
 // serialized bitmap := TypeCode(1), Payload
@@ -1743,6 +1744,24 @@ public:
             ret_bitmap->add(*it);
         }
         return count;
+    }
+
+    //for function bitmap_to_array
+    void to_array(vectorized::PaddedPODArray<int64_t>& data) const {
+        switch (_type) {
+        case EMPTY:
+            break;
+        case SINGLE: {
+            data.emplace_back(_sv);
+            break;
+        }
+        case BITMAP: {
+            for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+                data.emplace_back(*it);
+            }
+            break;
+        }
+        }
     }
 
     void clear() {
