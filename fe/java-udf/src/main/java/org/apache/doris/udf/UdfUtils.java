@@ -320,7 +320,6 @@ public class UdfUtils {
 
     public static Object convertDateV2ToJavaDate(int date, Class clz) {
         int year = date >> 9;
-
         int month = (date >> 5) & 0XF;
         int day = date & 0X1F;
         if (LocalDate.class.equals(clz)) {
@@ -404,7 +403,7 @@ public class UdfUtils {
 
     public static java.util.Date convertToJavaDate(int year, int month, int day) {
         try {
-            return new java.util.Date(year, month, day);
+            return new java.util.Date(year - 1900, month - 1, day);
         } catch (Exception e) {
             return null;
         }
@@ -439,7 +438,7 @@ public class UdfUtils {
                     0, 0, true);
         } else if (java.util.Date.class.equals(clz)) {
             java.util.Date date = (java.util.Date) obj;
-            return convertToDateTime(date.getYear(), date.getMonth(), date.getDay(), 0,
+            return convertToDateTime(date.getYear() + 1900, date.getMonth(), date.getDay(), 0,
                     0, 0, true);
         } else if (org.joda.time.LocalDate.class.equals(clz)) {
             org.joda.time.LocalDate date = (org.joda.time.LocalDate) obj;
