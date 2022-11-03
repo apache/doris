@@ -102,10 +102,10 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
-                new ExprId(2), "a1", TinyIntType.INSTANCE, true,
+                new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_having", "t1")
         );
-        Alias value = new Alias(new ExprId(0), a1, "value");
+        Alias value = new Alias(new ExprId(3), a1, "value");
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(TypeCoercion.INSTANCE))
                 .matchesFromRoot(
@@ -189,14 +189,14 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
         a1 = new SlotReference(
-                new ExprId(2), "a1", TinyIntType.INSTANCE, true,
+                new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_having", "t1")
         );
         a2 = new SlotReference(
-                new ExprId(3), "a2", TinyIntType.INSTANCE, true,
+                new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_having", "t1")
         );
-        Alias value = new Alias(new ExprId(0), new Sum(a2), "value");
+        Alias value = new Alias(new ExprId(3), new Sum(a2), "value");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
                     logicalProject(
@@ -349,24 +349,24 @@ public class HavingClauseTest extends AnalyzeCheckTestBase implements PatternMat
                 + "FROM t1, t2 WHERE t1.pk = t2.pk GROUP BY t1.pk, t1.pk + 1\n"
                 + "HAVING t1.pk > 0 AND COUNT(a1) + 1 > 0 AND SUM(a1 + a2) + 1 > 0 AND v1 + 1 > 0 AND v1 > 0";
         SlotReference pk = new SlotReference(
-                new ExprId(1), "pk", TinyIntType.INSTANCE, true,
+                new ExprId(0), "pk", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_having", "t1")
         );
         SlotReference a1 = new SlotReference(
-                new ExprId(2), "a1", TinyIntType.INSTANCE, true,
+                new ExprId(1), "a1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_having", "t1")
         );
         SlotReference a2 = new SlotReference(
-                new ExprId(3), "a2", TinyIntType.INSTANCE, true,
+                new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_having", "t1")
         );
-        Alias pk1 = new Alias(new ExprId(7), new Add(pk, Literal.of((byte) 1)), "(pk + 1)");
-        Alias pk11 = new Alias(new ExprId(8), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((short) 1)), "((pk + 1) + 1)");
-        Alias pk2 = new Alias(new ExprId(9), new Add(pk, Literal.of((byte) 2)), "(pk + 2)");
-        Alias sumA1 = new Alias(new ExprId(10), new Sum(a1), "SUM(a1)");
-        Alias countA11 = new Alias(new ExprId(11), new Add(new Count(a1), Literal.of(1L)), "(COUNT(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(12), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
-        Alias v1 = new Alias(new ExprId(0), new Count(a2), "v1");
+        Alias pk1 = new Alias(new ExprId(6), new Add(pk, Literal.of((byte) 1)), "(pk + 1)");
+        Alias pk11 = new Alias(new ExprId(7), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((short) 1)), "((pk + 1) + 1)");
+        Alias pk2 = new Alias(new ExprId(8), new Add(pk, Literal.of((byte) 2)), "(pk + 2)");
+        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "SUM(a1)");
+        Alias countA11 = new Alias(new ExprId(10), new Add(new Count(a1), Literal.of(1L)), "(COUNT(a1) + 1)");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
+        Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
                     logicalProject(

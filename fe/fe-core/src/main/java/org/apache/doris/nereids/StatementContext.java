@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.qe.ConnectContext;
@@ -39,12 +40,19 @@ public class StatementContext {
 
     private StatementBase parsedStatement;
 
+    private CTEContext cteContext;
+
     public StatementContext() {
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
+        this(connectContext, originStatement, new CTEContext());
+    }
+
+    public StatementContext(ConnectContext connectContext, OriginStatement originStatement, CTEContext cteContext) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        this.cteContext = cteContext;
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -73,6 +81,14 @@ public class StatementContext {
 
     public RelationId getNextRelationId() {
         return relationIdGenerator.getNextId();
+    }
+
+    public CTEContext getCteContext() {
+        return cteContext;
+    }
+
+    public void setCteContext(CTEContext cteContext) {
+        this.cteContext = cteContext;
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {

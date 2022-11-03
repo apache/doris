@@ -631,16 +631,8 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 CONF_Bool(enable_tcmalloc_hook, "true");
 
-// If true, switch TLS MemTracker to count more detailed memory,
-// including caches such as ExecNode operators and TabletManager.
-//
-// At present, there is a performance problem in the frequent switch thread mem tracker.
-// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
-// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
-// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
-// TODO: 1. Reduce unnecessary thread mem tracker switches,
-//       2. Consider using raw pointers for mem tracker in thread local
-CONF_Bool(memory_verbose_track, "false");
+// Print more detailed logs, more detailed records, etc.
+CONF_Bool(memory_debug, "false");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.

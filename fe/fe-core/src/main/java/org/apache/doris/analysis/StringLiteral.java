@@ -152,6 +152,11 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
     public long getLongValue() {
         return Long.valueOf(value);
     }
