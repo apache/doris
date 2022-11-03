@@ -1056,6 +1056,10 @@ public class FunctionCallExpr extends Expr {
             if (!children.get(1).type.isDateType()) {
                 throw new AnalysisException("The timestamp params of " + fnName + " function must be DATE or DATETIME");
             }
+            if (!parsePattern(String.valueOf(children.get(0)))) {
+                throw new AnalysisException("The format of pattern params is wrong");
+            }
+
 
             Type[] childTypes = new Type[children.size()];
             for (int i = 0; i < 2; i++) {
@@ -1372,94 +1376,68 @@ public class FunctionCallExpr extends Expr {
         }
     }
 
-    /*
-    boolean match (String pattern, int pos, String value) {
+    private boolean match(String pattern, int pos, String value) {
         int length = value.length();
-        int end=pattern.length();
-        if (pos + length <= end && pattern.substring(pos,pos+length).equals(value)){
-            pos += length;
-            return true;
-        }
-        return false;
-    };
+        int end = pattern.length();
+        return pos + length <= end && pattern.substring(pos, pos + length).equals(value);
+    }
 
-    private boolean parsePattern(String pattern){
+    private int parseNumber(String s) {
+
+        String[] n = s.split(""); //array of strings
+        int i = 0;
+        while (i < n.length) {
+            if ((n[i].matches("[0-9]+"))) {// validating numbers
+                i++;
+            } else {
+                return 0;
+            }
+        }
+        return i;
+    }
+
+    private boolean parsePattern(String pattern) {
         int pos = 0;
         int len = pattern.length();
-        while (pos < len)
-        {
-            if (match("(?"))
-            {
-                if (match("t"))
-                {
-                    PatternActionType type;
+        while (pos < len) {
+            if (match(pattern, pos, "(?")) {
+                pos += 2;
+                if (match(pattern, pos, "t")) {
+                    pos += 1;
+                    if (match(pattern, pos, "<=") || match(pattern, pos, "==")
+                        || match(pattern, pos, ">=")) {
+                        pos += 2;
+                    } else if (match(pattern, pos, ">") || match(pattern, pos, "<")) {
+                        pos += 1;
+                    } else
+                        return false;
 
-                    if (match("<="))
-                        type = PatternActionType::TimeLessOrEqual;
-                    else if (match("<"))
-                        type = PatternActionType::TimeLess;
-                    else if (match(">="))
-                        type = PatternActionType::TimeGreaterOrEqual;
-                    else if (match(">"))
-                        type = PatternActionType::TimeGreater;
-                    else if (match("=="))
-                        type = PatternActionType::TimeEqual;
-                    else
-                        throw_exception("Unknown time condition");
-
-                    UInt64 duration = 0;
-                    const auto * prev_pos = pos;
-                    pos = try_read_first_int_text(duration, pos, end);
-                    if (pos == prev_pos)
-                        throw_exception("Could not parse number");
-
-                    if (actions.back().type != PatternActionType::SpecificEvent &&
-                        actions.back().type != PatternActionType::AnyEvent &&
-                        actions.back().type != PatternActionType::KleeneStar)
-                        throw_exception("Temporal condition should be preceded by an event condition");
-
-                    pattern_has_time = true;
-                    actions.emplace_back(type, duration);
+                    int numLen = parseNumber(pattern.substring(pos));
+                    if (numLen == 0) {
+                        return false;
+                    } else {
+                        pos += numLen;
+                    }
+                } else {
+                    int numLen = parseNumber(pattern.substring(pos));
+                    if (numLen == 0) {
+                        return false;
+                    } else {
+                        pos += numLen;
+                    }
                 }
-                else
-                {
-                    UInt64 event_number = 0;
-                    const auto * prev_pos = pos;
-                    pos = try_read_first_int_text(event_number, pos, end);
-                    if (pos == prev_pos)
-                        throw_exception("Could not parse number");
-
-                    if (event_number > arg_count - 1)
-                        throw_exception("Event number " + std::to_string(event_number) + " is out of range");
-
-                    actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
-                    dfa_states.back().transition = DFATransition::SpecificEvent;
-                    dfa_states.back().event = static_cast<uint32_t>(event_number - 1);
-                    dfa_states.emplace_back();
-                    conditions_in_pattern.set(event_number - 1);
-                }
-
-                if (!match(")"))
-                    throw_exception("Expected closing parenthesis, found");
-
-            }
-            else if (match(".*"))
-            {
-                actions.emplace_back(PatternActionType::KleeneStar);
-                dfa_states.back().has_kleene = true;
-            }
-            else if (match("."))
-            {
-                actions.emplace_back(PatternActionType::AnyEvent);
-                dfa_states.back().transition = DFATransition::AnyEvent;
-                dfa_states.emplace_back();
-            }
-            else
-                throw_exception("Could not parse pattern, unexpected starting symbol");
+                if (!match(pattern, pos, ")"))
+                    return false;
+                pos += 1;
+            } else if (match(pattern, pos, ".*")) {
+                pos += 2;
+            } else if (match(pattern, pos, ".")) {
+                pos += 1;
+            } else
+                return false;
         }
+        return true;
     }
-    */
-
 
     /**
      * rewrite alias function to real function
