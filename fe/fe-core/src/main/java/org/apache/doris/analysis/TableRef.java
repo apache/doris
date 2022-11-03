@@ -640,6 +640,8 @@ public class TableRef implements ParseNode, Writable {
                 return "FULL OUTER JOIN";
             case CROSS_JOIN:
                 return "CROSS JOIN";
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                return "NULL AWARE LEFT ANTI JOIN";
             default:
                 return "bad join op: " + joinOp.toString();
         }
