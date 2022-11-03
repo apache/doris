@@ -63,7 +63,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         // 5. execute decommission
         Backend srcBackend = null;
-        for(Backend backend : idToBackendRef.values()) {
+        for (Backend backend : idToBackendRef.values()) {
             if (Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).size() > 0) {
                 srcBackend = backend;
                 break;

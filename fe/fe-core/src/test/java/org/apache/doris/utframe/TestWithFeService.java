@@ -41,8 +41,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -265,8 +265,8 @@ public abstract class TestWithFeService {
     }
 
     protected int startFEServerWithoutRetry(String runningDir)
-        throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
-        InterruptedException {
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+            InterruptedException {
         // get DORIS_HOME
         dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
