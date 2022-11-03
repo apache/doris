@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.proto.InternalService;
@@ -31,6 +32,7 @@ import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -75,8 +77,15 @@ public class InsertStreamTxnExecutor {
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
         for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                for (TBrokerRangeDesc desc : scanRangeParams.scan_range.broker_scan_range.ranges) {
-                    desc.setFormatType(TFileFormatType.FORMAT_PROTO);
+                if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
+                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
+                            TFileFormatType.FORMAT_PROTO);
+                    scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
+                            TFileCompressType.PLAIN);
+                } else {
+                    for (TBrokerRangeDesc desc : scanRangeParams.scan_range.broker_scan_range.ranges) {
+                        desc.setFormatType(TFileFormatType.FORMAT_PROTO);
+                    }
                 }
             }
         }

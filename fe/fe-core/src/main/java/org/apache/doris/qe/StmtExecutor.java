@@ -220,14 +220,20 @@ public class StmtExecutor implements ProfileWriter {
         this.context.setStatementContext(statementContext);
     }
 
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) {
-        if (cols.size() == 0) {
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+        if (cols.isEmpty()) {
             return null;
         }
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
         for (Expr expr : cols) {
+            if (!expr.isLiteralOrCastExpr()) {
+                throw new UserException(
+                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
+            }
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
+            } else if (expr instanceof ArrayLiteral) {
+                row.addColBuilder().setValue(expr.getStringValueForArray());
             } else {
                 row.addColBuilder().setValue(expr.getStringValue());
             }
@@ -540,8 +546,8 @@ public class StmtExecutor implements ProfileWriter {
                         queryType = "Insert";
                     }
                 } catch (Throwable t) {
-                    LOG.warn("handle insert stmt fail", t);
-                    // the transaction of this insert may already begun, we will abort it at outer finally block.
+                    LOG.warn("handle insert stmt fail: {}", t.getMessage());
+                    // the transaction of this insert may already begin, we will abort it at outer finally block.
                     throw t;
                 }
             } else if (parsedStmt instanceof DdlStmt) {
@@ -1777,3 +1783,4 @@ public class StmtExecutor implements ProfileWriter {
         return parsedStmt;
     }
 }
+
