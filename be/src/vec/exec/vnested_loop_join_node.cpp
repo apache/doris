@@ -51,8 +51,6 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
 
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-
     _num_existing_columns = child(0)->row_desc().num_materialized_slots();
     _num_columns_to_add = child(1)->row_desc().num_materialized_slots();
     return Status::OK();
