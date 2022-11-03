@@ -245,7 +245,7 @@ SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5, number = 4) FROM
 +------------------------------------------------------------------------------+
 ```
 
-The result is kind of confusing. In this case, the function couldn’t find the event chain matching the pattern, because the event for number 5 occurred between 1 and 2. If in the same case we checked the condition for number 6, the sequence would match the pattern.
+The result is kind of confusing. In this case, the function couldn’t find the event chain matching the pattern, because the event for number 4 occurred between 1 and 5. If in the same case we checked the condition for number 6, the sequence would match the pattern.
 
 ```sql
 SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5, number = 6) FROM sequence_match_test3;

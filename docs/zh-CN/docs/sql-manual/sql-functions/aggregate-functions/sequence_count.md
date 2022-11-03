@@ -1,7 +1,7 @@
 ---
 {
     "title": "SEQUENCE-COUNT",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
@@ -27,103 +27,44 @@ under the License.
 
 `sequence_count(pattern, timestamp, cond1, cond2, ...);`
 
-Counts the number of event chains that matched the pattern. The function searches event chains that do not overlap. It starts to search for the next chain after the current chain is matched.
+计算与模式匹配的事件链的数量。该函数搜索不重叠的事件链。当前链匹配后，它开始搜索下一个链。
 
-**WARNING!** 
+**警告!** 
 
-Events that occur at the same second may lay in the sequence in an undefined order affecting the result.
+在同一秒钟发生的事件可能以未定义的顺序排列在序列中，影响最终结果。
 
 ### Arguments
 
-`pattern` — Pattern string.
+`pattern` — 模式字符串.
 
-**Pattern syntax**
+**模式语法**
 
-`(?N)` — Matches the condition argument at position N. Conditions are numbered in the `[1, 32]` range. For example, `(?1)` matches the argument passed to the `cond1` parameter.
+`(?N)` — 在位置N匹配条件参数。 条件在编号 `[1, 32]` 范围。 例如, `(?1)` 匹配传递给 `cond1` 参数。
 
-`.*` — Matches any number of events. You do not need conditional arguments to count this element of the pattern.
+`.*` — 匹配任何事件的数字。 不需要条件参数来匹配这个模式。
 
-`(?t operator value)` — Sets the time that should separate two events. We convert time directly to its exact same number.
+`(?t operator value)` — 分开两个事件的时间。 我们将时间直接转化为对应的数字来描述时间。
 
-eg.
+例如
 
 ```
 2022-11-02 10:41:00 -> 20221102104100
 2022-11-02 11:41:00 -> 20221102114100
 ```
 
-We describe `t` by a direct interpolation of the two times,  For example, pattern `(?1)(?t>1800)(?2)` matches events that occur more than 18 minutes from each other. pattern `(?1)(?t>10000)(?2)` matches events that occur more than 1 hour from each other. An arbitrary number of any events can lay between these events. You can use the `>=`, `>`, `<`, `<=`, `==` operators.
+`t`表示为两个时间的直接插值。 例如： `(?1)(?t>1800)(?2)` 匹配彼此发生超过18分钟的事件， `(?1)(?t>10000)(?2)`匹配彼此发生超过1小时的事件。 这些事件之间可以存在任意数量的任何事件。 您可以使用 `>=`, `>`, `<`, `<=`, `==` 运算符。
 
-`timestamp` — Column considered to contain time data. Typical data types are `Date` and `DateTime`. You can also use any of the supported UInt data types.
+`timestamp` —  包含时间的列。典型的时间类型是： `Date` 和 `DateTime`。您还可以使用任何支持的 `UInt` 数据类型。
 
-`cond1`, `cond2` — Conditions that describe the chain of events. Data type: `UInt8`. You can pass up to 32 condition arguments. The function takes only the events described in these conditions into account. If the sequence contains data that isn’t described in a condition, the function skips them.
+`cond1`, `cond2` — 事件链的约束条件。 数据类型是： `UInt8`。 最多可以传递32个条件参数。 该函数只考虑这些条件中描述的事件。 如果序列包含未在条件中描述的数据，则函数将跳过这些数据。
 
 ### Returned value
 
-Number of non-overlapping event chains that are matched.
+匹配的非重叠事件链数。
 
 ### example
 
-**count examples**
-
-```sql
-DROP TABLE IF EXISTS sequence_count_test2;
-
-CREATE TABLE sequence_count_test2(
-                `uid` int COMMENT 'user id',
-                `date` datetime COMMENT 'date time', 
-                `number` int NULL COMMENT 'number' 
-                )
-DUPLICATE KEY(uid) 
-DISTRIBUTED BY HASH(uid) BUCKETS 3 
-PROPERTIES ( 
-    "replication_num" = "1"
-); 
-
-INSERT INTO sequence_count_test2(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
-                                                   (2, '2022-11-02 13:28:02', 2),
-                                                   (3, '2022-11-02 16:15:01', 1),
-                                                   (4, '2022-11-02 19:05:04', 2),
-                                                   (5, '2022-11-02 20:08:44', 3); 
-
-SELECT * FROM sequence_count_test2 ORDER BY date;
-
-+------+---------------------+--------+
-| uid  | date                | number |
-+------+---------------------+--------+
-|    1 | 2022-11-02 10:41:00 |      1 |
-|    2 | 2022-11-02 13:28:02 |      2 |
-|    3 | 2022-11-02 16:15:01 |      1 |
-|    4 | 2022-11-02 19:05:04 |      2 |
-|    5 | 2022-11-02 20:08:44 |      3 |
-+------+---------------------+--------+
-
-SELECT sequence_count('(?1)(?2)', date, number = 1, number = 3) FROM sequence_count_test2;
-
-+----------------------------------------------------------------+
-| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 3) |
-+----------------------------------------------------------------+
-|                                                              1 |
-+----------------------------------------------------------------+
-
-SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_count_test2;
-
-+----------------------------------------------------------------+
-| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 2) |
-+----------------------------------------------------------------+
-|                                                              2 |
-+----------------------------------------------------------------+
-
-SELECT sequence_count('(?1)(?t>=10000)(?2)', date, number = 1, number = 7) FROM sequence_count_test1;
-
-+---------------------------------------------------------------------------+
-| sequence_count('(?1)(?t>=10000)(?2)', `date`, `number` = 1, `number` = 7) |
-+---------------------------------------------------------------------------+
-|                                                                         1 |
-+---------------------------------------------------------------------------+
-```
-
-**not count examples**
+**匹配例子**
 
 ```sql
 DROP TABLE IF EXISTS sequence_count_test1;
@@ -140,12 +81,71 @@ PROPERTIES (
 ); 
 
 INSERT INTO sequence_count_test1(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
+                                                   (2, '2022-11-02 13:28:02', 2),
+                                                   (3, '2022-11-02 16:15:01', 1),
+                                                   (4, '2022-11-02 19:05:04', 2),
+                                                   (5, '2022-11-02 20:08:44', 3); 
+
+SELECT * FROM sequence_count_test1 ORDER BY date;
+
++------+---------------------+--------+
+| uid  | date                | number |
++------+---------------------+--------+
+|    1 | 2022-11-02 10:41:00 |      1 |
+|    2 | 2022-11-02 13:28:02 |      2 |
+|    3 | 2022-11-02 16:15:01 |      1 |
+|    4 | 2022-11-02 19:05:04 |      2 |
+|    5 | 2022-11-02 20:08:44 |      3 |
++------+---------------------+--------+
+
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 3) FROM sequence_count_test1;
+
++----------------------------------------------------------------+
+| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 3) |
++----------------------------------------------------------------+
+|                                                              1 |
++----------------------------------------------------------------+
+
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_count_test1;
+
++----------------------------------------------------------------+
+| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 2) |
++----------------------------------------------------------------+
+|                                                              2 |
++----------------------------------------------------------------+
+
+SELECT sequence_count('(?1)(?t>=10000)(?2)', date, number = 1, number = 7) FROM sequence_count_test1;
+
++---------------------------------------------------------------------------+
+| sequence_count('(?1)(?t>=10000)(?2)', `date`, `number` = 1, `number` = 7) |
++---------------------------------------------------------------------------+
+|                                                                         1 |
++---------------------------------------------------------------------------+
+```
+
+**不匹配例子**
+
+```sql
+DROP TABLE IF EXISTS sequence_count_test2;
+
+CREATE TABLE sequence_count_test2(
+                `uid` int COMMENT 'user id',
+                `date` datetime COMMENT 'date time', 
+                `number` int NULL COMMENT 'number' 
+                )
+DUPLICATE KEY(uid) 
+DISTRIBUTED BY HASH(uid) BUCKETS 3 
+PROPERTIES ( 
+    "replication_num" = "1"
+); 
+
+INSERT INTO sequence_count_test2(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
                                                    (2, '2022-11-02 11:41:00', 7),
                                                    (3, '2022-11-02 16:15:01', 3),
                                                    (4, '2022-11-02 19:05:04', 4),
                                                    (5, '2022-11-02 21:24:12', 5);
 
-SELECT * FROM sequence_count_test1 ORDER BY date;
+SELECT * FROM sequence_count_test2 ORDER BY date;
 
 +------+---------------------+--------+
 | uid  | date                | number |
@@ -157,7 +157,7 @@ SELECT * FROM sequence_count_test1 ORDER BY date;
 |    5 | 2022-11-02 21:24:12 |      5 |
 +------+---------------------+--------+
 
-SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_count_test1;
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_count_test2;
 
 +----------------------------------------------------------------+
 | sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 2) |
@@ -165,7 +165,7 @@ SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_co
 |                                                              0 |
 +----------------------------------------------------------------+
 
-SELECT sequence_count('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_count_test1;
+SELECT sequence_count('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_count_test2;
 
 +------------------------------------------------------------------+
 | sequence_count('(?1)(?2).*', `date`, `number` = 1, `number` = 2) |
@@ -173,7 +173,7 @@ SELECT sequence_count('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_
 |                                                                0 |
 +------------------------------------------------------------------+
 
-SELECT sequence_count('(?1)(?t>10000)(?2)', date, number = 1, number = 7) FROM sequence_count_test1;
+SELECT sequence_count('(?1)(?t>10000)(?2)', date, number = 1, number = 7) FROM sequence_count_test2;
 
 +--------------------------------------------------------------------------+
 | sequence_count('(?1)(?t>10000)(?2)', `date`, `number` = 1, `number` = 7) |
@@ -182,7 +182,7 @@ SELECT sequence_count('(?1)(?t>10000)(?2)', date, number = 1, number = 7) FROM s
 +--------------------------------------------------------------------------+
 ```
 
-**special examples**
+**特殊例子**
 
 ```sql
 DROP TABLE IF EXISTS sequence_count_test3;
@@ -229,9 +229,9 @@ SELECT sequence_count('(?1)(?2)', date, number = 1, number = 5) FROM sequence_co
 +----------------------------------------------------------------+
 ```
 
-This is a very simple example. The function found the event chain where number 5 follows number 1. It skipped number 7,3,4 between them, because the number is not described as an event. If we want to take this number into account when searching for the event chain given in the example, we should make a condition for it.
+上面为一个非常简单的匹配例子， 该函数找到了数字5跟随数字1的事件链。 它跳过了它们之间的数字7，3，4，因为该数字没有被描述为事件。 如果我们想在搜索示例中给出的事件链时考虑这个数字，我们应该为它创建一个条件。
 
-Now, perform this query:
+现在，考虑如下执行语句：
 
 ```sql
 SELECT sequence_count('(?1)(?2)', date, number = 1, number = 5, number = 4) FROM sequence_count_test3;
@@ -243,7 +243,7 @@ SELECT sequence_count('(?1)(?2)', date, number = 1, number = 5, number = 4) FROM
 +------------------------------------------------------------------------------+
 ```
 
-The result is kind of confusing. In this case, the function couldn’t find the event chain matching the pattern, because the event for number 4 occurred between 1 and 5. If in the same case we checked the condition for number 6, the sequence would count the pattern.
+您可能对这个结果有些许疑惑，在这种情况下，函数找不到与模式匹配的事件链，因为数字4的事件发生在1和5之间。 如果在相同的情况下，我们检查了数字6的条件，则序列将与模式匹配。
 
 ```sql
 SELECT sequence_count('(?1)(?2)', date, number = 1, number = 5, number = 6) FROM sequence_count_test3;
