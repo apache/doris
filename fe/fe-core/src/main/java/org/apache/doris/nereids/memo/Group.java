@@ -273,6 +273,10 @@ public class Group {
         return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
     }
 
+    public Map<PhysicalProperties, Pair<Double, GroupExpression>> getLowestCostPlans() {
+        return lowestCostPlans;
+    }
+
     /**
      * Get the first Plan from Memo.
      */
@@ -370,7 +374,7 @@ public class Group {
                     children.add(Pair.of("logicalExpressions", group.getLogicalExpressions()));
                 }
                 if (!group.getPhysicalExpressions().isEmpty()) {
-                    children.add(Pair.of("physicalExpressions", group.getLogicalExpressions()));
+                    children.add(Pair.of("physicalExpressions", group.getPhysicalExpressions()));
                 }
                 return children;
             } else if (obj instanceof GroupExpression) {
