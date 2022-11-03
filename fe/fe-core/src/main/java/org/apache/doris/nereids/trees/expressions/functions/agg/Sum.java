@@ -46,8 +46,12 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
         super("sum", child);
     }
 
+    public Sum(AggregateParam aggregateParam, Expression child) {
+        super("sum", aggregateParam, child);
+    }
+
     @Override
-    public DataType getDataType() {
+    public DataType getFinalType() {
         DataType dataType = child().getDataType();
         if (dataType instanceof LargeIntType) {
             return dataType;
@@ -65,6 +69,11 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
     }
 
     @Override
+    public DataType getIntermediateType() {
+        return getFinalType();
+    }
+
+    @Override
     public boolean nullable() {
         return child().nullable();
     }
@@ -75,14 +84,14 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Sum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum(children.get(0));
+        return new Sum(getAggregateParam(), children.get(0));
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return getDataType();
+    public Sum withAggregateParam(AggregateParam aggregateParam) {
+        return new Sum(aggregateParam, child());
     }
 
     @Override

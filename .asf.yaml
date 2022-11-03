@@ -82,6 +82,8 @@ github:
     - zuochunwei
     - thomascai126
     - dataalive
+    - LemonLiTree
+    - zy-kkk
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

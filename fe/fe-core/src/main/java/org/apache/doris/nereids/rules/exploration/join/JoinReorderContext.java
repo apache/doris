@@ -36,6 +36,9 @@ public class JoinReorderContext {
     private boolean hasRightAssociate = false;
     private boolean hasLeftAssociate = false;
 
+    // mark for whether it has applied HyperGraph.
+    private boolean hasHyperReorder = false;
+
     public JoinReorderContext() {
     }
 
@@ -109,5 +112,13 @@ public class JoinReorderContext {
 
     public void setHasCommuteZigZag(boolean hasCommuteZigZag) {
         this.hasCommuteZigZag = hasCommuteZigZag;
+    }
+
+    public boolean hasHyperReorder() {
+        return hasHyperReorder;
+    }
+
+    public void setHasHyperReorder(boolean hasHyperReorder) {
+        this.hasHyperReorder = hasHyperReorder;
     }
 }

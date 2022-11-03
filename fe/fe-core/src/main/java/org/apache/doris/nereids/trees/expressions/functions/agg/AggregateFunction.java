@@ -22,30 +22,49 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * The function which consume arguments in lots of rows and product one value.
  */
 public abstract class AggregateFunction extends BoundFunction {
 
-    private DataType intermediate;
-    private final boolean isDistinct;
+    private final AggregateParam aggregateParam;
 
     public AggregateFunction(String name, Expression... arguments) {
-        super(name, arguments);
-        isDistinct = false;
+        this(name, AggregateParam.global(), arguments);
     }
 
-    public AggregateFunction(String name, boolean isDistinct, Expression... arguments) {
+    public AggregateFunction(String name, AggregateParam aggregateParam, Expression... arguments) {
         super(name, arguments);
-        this.isDistinct = isDistinct;
+        this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregateParam can not be null");
     }
+
+    @Override
+    public abstract AggregateFunction withChildren(List<Expression> children);
+
+    public abstract DataType getFinalType();
 
     public abstract DataType getIntermediateType();
 
+    public abstract AggregateFunction withAggregateParam(AggregateParam aggregateParam);
+
     public boolean isDistinct() {
-        return isDistinct;
+        return aggregateParam.isDistinct;
+    }
+
+    public boolean isGlobal() {
+        return aggregateParam.isGlobal;
+    }
+
+    public Optional<List<DataType>> inputTypesBeforeDissemble() {
+        return aggregateParam.inputTypesBeforeDissemble;
+    }
+
+    public AggregateParam getAggregateParam() {
+        return aggregateParam;
     }
 
     @Override
@@ -57,13 +76,14 @@ public abstract class AggregateFunction extends BoundFunction {
             return false;
         }
         AggregateFunction that = (AggregateFunction) o;
-        return Objects.equals(isDistinct, that.isDistinct) && Objects.equals(intermediate, that.intermediate)
-                && Objects.equals(getName(), that.getName()) && Objects.equals(children, that.children);
+        return Objects.equals(aggregateParam, that.aggregateParam)
+                && Objects.equals(getName(), that.getName())
+                && Objects.equals(children, that.children);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(isDistinct, intermediate, getName(), children);
+        return Objects.hash(aggregateParam, getName(), children);
     }
 
     @Override
@@ -71,11 +91,17 @@ public abstract class AggregateFunction extends BoundFunction {
         return visitor.visitAggregateFunction(this, context);
     }
 
-    public DataType getIntermediate() {
-        return intermediate;
+    @Override
+    public boolean hasVarArguments() {
+        return false;
     }
 
-    public void setIntermediate(DataType intermediate) {
-        this.intermediate = intermediate;
+    @Override
+    public final DataType getDataType() {
+        if (aggregateParam.isGlobal) {
+            return getFinalType();
+        } else {
+            return getIntermediateType();
+        }
     }
 }

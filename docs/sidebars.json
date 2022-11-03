@@ -413,7 +413,9 @@
                                     "items": [
                                         "sql-manual/sql-functions/string-functions/regexp/regexp",
                                         "sql-manual/sql-functions/string-functions/regexp/regexp_extract",
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp_extract_all",
                                         "sql-manual/sql-functions/string-functions/regexp/regexp_replace",
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp_replace_one",
                                         "sql-manual/sql-functions/string-functions/regexp/not_regexp"
                                     ]
                                 }
@@ -430,6 +432,7 @@
                                 "sql-manual/sql-functions/aggregate-functions/percentile",
                                 "sql-manual/sql-functions/aggregate-functions/hll_union_agg",
                                 "sql-manual/sql-functions/aggregate-functions/topn",
+                                "sql-manual/sql-functions/aggregate-functions/topn_array",
                                 "sql-manual/sql-functions/aggregate-functions/count",
                                 "sql-manual/sql-functions/aggregate-functions/sum",
                                 "sql-manual/sql-functions/aggregate-functions/max_by",

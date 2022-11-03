@@ -52,6 +52,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/memory/mem_tracker_task_pool.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
@@ -323,17 +324,19 @@ int main(int argc, char** argv) {
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-    // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
-    // not backed by physical pages and do not contribute towards memory consumption.
-    if (doris::config::tc_enable_aggressive_memory_decommit) {
-        MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
-    }
     // Change the total TCMalloc thread cache size if necessary.
-    if (!MallocExtension::instance()->SetNumericProperty(
-                "tcmalloc.max_total_thread_cache_bytes",
-                doris::config::tc_max_total_thread_cache_bytes)) {
-        fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
-        return -1;
+    size_t total_thread_cache_bytes;
+    if (!MallocExtension::instance()->GetNumericProperty("tcmalloc.max_total_thread_cache_bytes",
+                                                         &total_thread_cache_bytes)) {
+        fprintf(stderr, "Failed to get TCMalloc total thread cache size.\n");
+    }
+    const size_t kDefaultTotalThreadCacheBytes = 1024 * 1024 * 1024;
+    if (total_thread_cache_bytes < kDefaultTotalThreadCacheBytes) {
+        if (!MallocExtension::instance()->SetNumericProperty(
+                    "tcmalloc.max_total_thread_cache_bytes", kDefaultTotalThreadCacheBytes)) {
+            fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
+            return -1;
+        }
     }
 #endif
 
@@ -508,6 +511,7 @@ int main(int argc, char** argv) {
         doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consume(
                 allocator_cache_mem_diff);
         CONSUME_THREAD_MEM_TRACKER(allocator_cache_mem_diff);
+        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
 
         // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
         // this will cause coredump for ASAN build when running regression test,
@@ -516,7 +520,7 @@ int main(int argc, char** argv) {
         // The process tracker print log usage interval is 1s to avoid a large number of tasks being
         // canceled when the process exceeds the mem limit, resulting in too many duplicate logs.
         doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
-        if (doris::config::memory_verbose_track) {
+        if (doris::config::memory_debug) {
             doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage("main routine");
             doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
         }

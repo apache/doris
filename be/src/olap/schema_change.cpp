@@ -1729,6 +1729,12 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 }
 
 Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
+    if (!request.__isset.desc_tbl) {
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+                .append("desc_tbl is not set. Maybe the FE version is not equal to the BE "
+                        "version.");
+    }
+
     LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;

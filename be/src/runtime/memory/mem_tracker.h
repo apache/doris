@@ -72,6 +72,7 @@ public:
     void release(int64_t bytes) { consume(-bytes); }
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
     void transfer_to(MemTracker* dst, int64_t bytes);
+    void set_consumption(int64_t bytes) { _consumption->set(bytes); }
 
 public:
     bool limit_exceeded(int64_t limit) const { return limit >= 0 && limit < consumption(); }

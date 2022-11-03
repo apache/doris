@@ -169,13 +169,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public String toString() {
         return Utils.toSqlString("LogicalJoin",
                 "type", joinType,
-                "hashJoinCondition", hashJoinConjuncts,
-                "otherJoinCondition", otherJoinConjuncts
+                "hashJoinConjuncts", hashJoinConjuncts,
+                "otherJoinConjuncts", otherJoinConjuncts
         );
     }
 
     // TODO:
-    // 1. consider the order of conjucts in otherJoinConjuncts and hashJoinConditions
+    // 1. consider the order of conjuncts in otherJoinConjuncts and hashJoinConjuncts
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -253,5 +253,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, children.get(0), children.get(1),
                 joinReorderContext);
+    }
+
+    public LogicalJoin withJoinType(JoinType joinType) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, left(), right(), joinReorderContext);
     }
 }
