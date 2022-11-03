@@ -34,7 +34,7 @@ public class DateV2Type extends PrimitiveType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.DATE;
+        return Type.DATEV2;
     }
 
     @Override

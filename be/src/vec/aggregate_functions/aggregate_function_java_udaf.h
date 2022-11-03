@@ -107,6 +107,10 @@ public:
             RETURN_IF_ERROR(jni_frame.push(env));
             RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
             executor_obj = env->NewObject(executor_cl, executor_ctor_id, ctor_params_bytes);
+
+            jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
+            env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
+            env->DeleteLocalRef(ctor_params_bytes);
         }
         RETURN_ERROR_IF_EXC(env);
         RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));

@@ -34,16 +34,14 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
-                               const std::shared_ptr<MemTrackerLimiter>& parent_tracker,
+TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
                                bool is_high_priority, bool is_vec)
         : _key(key),
           _state(kInitialized),
+          _load_id(load_id),
           _closed_senders(64),
           _is_high_priority(is_high_priority),
           _is_vec(is_vec) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1, fmt::format("TabletsChannel#indexID={}", key.index_id), parent_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -194,6 +192,17 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     }
 }
 
+int64_t TabletsChannel::mem_consumption() {
+    int64_t mem_usage = 0;
+    {
+        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        for (auto& it : _tablet_writers) {
+            mem_usage += it.second->mem_consumption();
+        }
+    }
+    return mem_usage;
+}
+
 template <typename TabletWriterAddResult>
 Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
     if (_try_to_wait_flushing()) {
@@ -243,7 +252,7 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         // So here we only flush part of the tablet, and the next time the reduce memory operation is triggered,
         // the tablet that has not been flushed before will accumulate more data, thereby reducing the number of flushes.
 
-        int64_t mem_to_flushed = _mem_tracker->consumption() / 3;
+        int64_t mem_to_flushed = mem_consumption() / 3;
         if (total_memtable_consumption_in_flush < mem_to_flushed) {
             mem_to_flushed -= total_memtable_consumption_in_flush;
             int counter = 0;
@@ -349,7 +358,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.ptable_schema_param = request.schema();
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _mem_tracker, _is_vec);
+        auto st = DeltaWriter::open(&wrequest, &writer, _load_id, _is_vec);
         if (!st.ok()) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()
@@ -358,7 +367,10 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_writers.emplace(tablet.tablet_id(), writer);
+        {
+            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            _tablet_writers.emplace(tablet.tablet_id(), writer);
+        }
     }
     _s_tablet_writer_count += _tablet_writers.size();
     DCHECK_EQ(_tablet_writers.size(), request.tablets_size());

@@ -578,7 +578,7 @@ distribution_desc
         "dynamic_partition.end" = "3",
         "dynamic_partition.prefix" = "p",
         "dynamic_partition.buckets" = "32",
-        "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
+        "dynamic_partition.replication_allocation" = "tag.location.group_a:3"
      );
     ```
 

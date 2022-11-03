@@ -76,6 +76,7 @@ private:
     std::unique_ptr<Decompressor> _decompressor;
 
     TFileFormatType::type _file_format_type;
+    bool _is_proto_format;
     TFileCompressType::type _file_compress_type;
     int64_t _size;
     // When we fetch range start from 0, header_type="csv_with_names" skip first line

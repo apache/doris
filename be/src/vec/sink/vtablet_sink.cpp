@@ -606,6 +606,10 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
 
     auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
     auto& real_column_ptr = column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
+    auto null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+    auto need_to_validate = [&null_map, &filter_bitmap](size_t j, size_t row) {
+        return !filter_bitmap->Get(row) && (null_map == nullptr || null_map[j] == 0);
+    };
 
     ssize_t last_invalid_row = -1;
     switch (type.type) {
@@ -625,7 +629,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
             if (row == last_invalid_row) {
                 continue;
             }
-            if (!filter_bitmap->Get(row)) {
+            if (need_to_validate(j, row)) {
                 auto str_val = column_string->get_data_at(j);
                 bool invalid = str_val.size > limit;
                 if (invalid) {
@@ -633,13 +637,15 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                     if (str_val.size > type.len) {
                         fmt::format_to(error_msg, "{}",
                                        "the length of input is too long than schema. ");
-                        fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                        fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
+                                       str_val.to_prefix(32));
                         fmt::format_to(error_msg, "schema length: {}; ", type.len);
                         fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                     } else if (str_val.size > limit) {
                         fmt::format_to(error_msg, "{}",
                                        "the length of input string is too long than vec schema. ");
-                        fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                        fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
+                                       str_val.to_prefix(32));
                         fmt::format_to(error_msg, "schema length: {}; ", type.len);
                         fmt::format_to(error_msg, "limit length: {}; ", limit);
                         fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
@@ -676,7 +682,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
             if (row == last_invalid_row) {
                 continue;
             }
-            if (!filter_bitmap->Get(row)) {
+            if (need_to_validate(j, row)) {
                 auto dec_val = binary_cast<vectorized::Int128, DecimalV2Value>(
                         column_decimal->get_data()[j]);
                 bool invalid = false;
@@ -738,8 +744,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
     // 1. column is nullable but the desc is not nullable
     // 2. desc->type is BITMAP
     if ((!is_nullable || type == TYPE_OBJECT) && column_ptr) {
-        const auto& null_map = column_ptr->get_null_map_data();
-        for (int j = 0; j < null_map.size(); ++j) {
+        for (int j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {
                 continue;

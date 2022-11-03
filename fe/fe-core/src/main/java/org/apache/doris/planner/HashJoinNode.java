@@ -1121,6 +1121,7 @@ public class HashJoinNode extends PlanNode {
                         .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
             return output.toString();
         }
 

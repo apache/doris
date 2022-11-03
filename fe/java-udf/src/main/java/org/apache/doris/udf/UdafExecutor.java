@@ -231,14 +231,7 @@ public class UdafExecutor {
 
     private boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
         if (obj == null) {
-            //if result is null, because we have insert default before, so return true directly when row == 0
-            //others because we hava resize the buffer, so maybe be insert value is not correct
-            if (row != 0) {
-                long offset = Integer.toUnsignedLong(
-                        UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row));
-                UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - 1,
-                        UdfUtils.END_OF_STRING);
-            }
+            // If result is null, return true directly when row == 0 as we have already inserted default value.
             return true;
         }
         if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) != -1) {
@@ -343,12 +336,10 @@ public class UdafExecutor {
                     return false;
                 }
                 offset += bytes.length;
-                UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - 1,
-                        UdfUtils.END_OF_STRING);
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row,
                         Integer.parseUnsignedInt(String.valueOf(offset)));
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - bytes.length - 1, bytes.length);
+                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - bytes.length, bytes.length);
                 return true;
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType);

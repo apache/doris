@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
@@ -38,7 +39,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalPro
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
-import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuter;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
@@ -66,6 +67,7 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(new AggregateDisassemble())
             .add(new PushdownFilterThroughProject())
             .add(new MergeProjects())
@@ -77,7 +79,7 @@ public class RuleSet {
             new PushdownExpressionsInHashCondition(),
             new PushdownProjectThroughLimit(),
             new PushdownFilterThroughProject(),
-            EliminateOuter.INSTANCE,
+            new EliminateOuterJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeLimits());

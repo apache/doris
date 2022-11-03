@@ -477,7 +477,7 @@ public class Util {
     public static void checkCatalogEnabled() throws AnalysisException {
         if (!Config.enable_multi_catalog) {
             throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
+                    + "manually by set fe configuration named `enable_multi_catalog` to be true.");
         }
     }
 

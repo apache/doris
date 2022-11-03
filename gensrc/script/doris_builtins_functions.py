@@ -2146,6 +2146,10 @@ visible_functions = [
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
+    [['regexp_replace_one'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'],
+     '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['regexp_extract_all'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+     '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['concat'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -2282,6 +2286,10 @@ visible_functions = [
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE', 'vec', 'ALWAYS_NULLABLE'],
+    [['regexp_replace_one'], 'STRING', ['STRING', 'STRING', 'STRING'],
+     '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['regexp_extract_all'], 'STRING', ['STRING', 'STRING'],
+     '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['concat'], 'STRING', ['STRING', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -2589,6 +2597,7 @@ visible_functions = [
     [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'],
         '_ZN5doris15BitmapFunctions10sub_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValES9_',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['bitmap_to_array'], 'ARRAY_BIGINT', ['BITMAP'], '', '', '', 'vec', ''],
     # quantile_function
     [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'],
         '_ZN5doris22QuantileStateFunctions17to_quantile_stateEPN9doris_udf15FunctionContextERKNS1_9StringValE',

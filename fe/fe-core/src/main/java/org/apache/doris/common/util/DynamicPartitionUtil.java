@@ -211,7 +211,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkReplicationNum(String val) throws DdlException {
+    private static void checkReplicationNum(String val, Database db) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.REPLICATION_NUM);
         }
@@ -222,6 +222,8 @@ public class DynamicPartitionUtil {
         } catch (NumberFormatException e) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT, val);
         }
+        ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
     }
 
     private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, Database db) throws DdlException {
@@ -585,19 +587,18 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
         }
 
-        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
-            String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
-            checkReplicationNum(val);
-            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
-            analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                    new ReplicaAllocation(Short.valueOf(val)).toCreateStmt());
-        }
-
+        // check replication_allocation first, then replciation_num
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
             checkReplicaAllocation(replicaAlloc, db);
             properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+        } else if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
+            checkReplicationNum(val, db);
+            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
+                    new ReplicaAllocation(Short.valueOf(val)).toCreateStmt());
         } else {
             checkReplicaAllocation(olapTable.getDefaultReplicaAllocation(), db);
         }

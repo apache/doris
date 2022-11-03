@@ -304,13 +304,6 @@ public class UdfExecutor {
             assert (UdfUtils.UNSAFE.getLong(null, outputNullPtr) != -1);
             UdfUtils.UNSAFE.putByte(null, UdfUtils.UNSAFE.getLong(null, outputNullPtr) + row, (byte) 1);
             if (retType.equals(JavaUdfDataType.STRING)) {
-                long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr);
-                if (outputOffset + 1 > bufferSize) {
-                    return false;
-                }
-                outputOffset += 1;
-                UdfUtils.UNSAFE.putChar(null, UdfUtils.UNSAFE.getLong(null, outputBufferPtr)
-                        + outputOffset - 1, UdfUtils.END_OF_STRING);
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr)
                         + 4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset)));
             }
@@ -412,16 +405,14 @@ public class UdfExecutor {
             case STRING: {
                 long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr);
                 byte[] bytes = ((String) obj).getBytes(StandardCharsets.UTF_8);
-                if (outputOffset + bytes.length + 1 > bufferSize) {
+                if (outputOffset + bytes.length > bufferSize) {
                     return false;
                 }
-                outputOffset += (bytes.length + 1);
-                UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr)
-                        + outputOffset - 1, UdfUtils.END_OF_STRING);
+                outputOffset += bytes.length;
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row,
                         Integer.parseUnsignedInt(String.valueOf(outputOffset)));
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + outputOffset - bytes.length - 1, bytes.length);
+                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + outputOffset - bytes.length, bytes.length);
                 return true;
             }
             default:
@@ -501,13 +492,13 @@ public class UdfExecutor {
                 case STRING: {
                     long offset = Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * row));
-                    long numBytes = row == 0 ? offset - 1 : offset - Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
+                    long numBytes = row == 0 ? offset : offset - Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
                             UdfUtils.UNSAFE.getLong(null,
-                                    UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * (row - 1))) - 1;
+                                    UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * (row - 1)));
                     long base =
                             row == 0 ? UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) :
                                     UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                            + offset - numBytes - 1;
+                                            + offset - numBytes;
                     byte[] bytes = new byte[(int) numBytes];
                     UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
                     inputObjects[i] = new String(bytes, StandardCharsets.UTF_8);
