@@ -381,7 +381,13 @@ public class Memo {
         }
         for (GroupExpression groupExpression : source.getParentGroupExpressions()) {
             groupExpressions.remove(groupExpression);
-            groupExpression.replaceChild(source, destination);
+            List<Group> children = groupExpression.children();
+            // TODO: use a better way to replace child, avoid traversing all groupExpression
+            for (int i = 0; i < children.size(); i++) {
+                if (children.get(i).equals(source)) {
+                    children.set(i, destination);
+                }
+            }
 
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
