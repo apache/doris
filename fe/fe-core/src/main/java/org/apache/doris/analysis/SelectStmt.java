@@ -1092,8 +1092,13 @@ public class SelectStmt extends QueryStmt {
 
             substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer);
 
-            if (!groupByClause.isGroupByExtension()) {
+            if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
+                ArrayList<Expr> tempExprs = new ArrayList<>(groupingExprs);
                 groupingExprs.removeIf(Expr::isConstant);
+                if (groupingExprs.isEmpty() && aggExprs.isEmpty()) {
+                    // should keep at least one expr to make the result correct
+                    groupingExprs.add(tempExprs.get(0));
+                }
             }
 
             if (groupingInfo != null) {
