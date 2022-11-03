@@ -190,7 +190,7 @@ StringVal BitmapFunctions::to_bitmap_with_check(doris_udf::FunctionContext* ctx,
                   "18446744073709551615 currently, cannot load negative values to column with"
                   " to_bitmap MV on it.";
             ctx->set_error(ss.str().c_str());
-            return serialize(ctx, nullptr);
+            return StringVal::null();
         }
     }
 

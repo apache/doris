@@ -142,6 +142,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalAggregate(
             PhysicalAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
+
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
 
         // TODO: stale planner generate aggregate tuple in a special way. tuple include 2 parts:
@@ -176,7 +177,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .flatMap(Set::stream)
                 .collect(Collectors.toList());
         ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateFunctionList.stream()
-                .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
+                .map(aggregateFunction -> (FunctionCallExpr) ExpressionTranslator.translate(aggregateFunction, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
         // process partition list
@@ -294,7 +295,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
             Expr expr = legacyExprs.get(i);
             slotDescriptor.setSourceExpr(expr);
-            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
+            slotDescriptor.setIsNullable(legacyExprs.get(i).isNullable());
         }
 
         UnionNode unionNode = new UnionNode(context.nextPlanNodeId(), oneRowTuple.getId());

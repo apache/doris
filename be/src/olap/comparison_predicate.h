@@ -138,7 +138,7 @@ public:
             }
         } else {
             for (uint16_t i = 0; i < size; ++i) {
-                if (flags[i]) {
+                if (!flags[i]) {
                     continue;
                 }
                 uint16_t idx = sel[i];

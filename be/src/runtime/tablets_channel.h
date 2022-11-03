@@ -61,8 +61,7 @@ class LoadChannel;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key,
-                   const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_high_priority,
+    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority,
                    bool is_vec);
 
     ~TabletsChannel();
@@ -96,7 +95,7 @@ public:
     template <typename TabletWriterAddResult>
     Status reduce_mem_usage(TabletWriterAddResult* response);
 
-    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
+    int64_t mem_consumption();
 
 private:
     template <typename Request>
@@ -119,12 +118,16 @@ private:
     // make execute sequence
     std::mutex _lock;
 
+    SpinLock _tablet_writers_lock;
+
     enum State {
         kInitialized,
         kOpened,
         kFinished // closed or cancelled
     };
     State _state;
+
+    UniqueId _load_id;
 
     // initialized in open function
     int64_t _txn_id = -1;
@@ -159,8 +162,6 @@ private:
     std::unordered_set<int64_t> _partition_ids;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     bool _is_high_priority = false;
 

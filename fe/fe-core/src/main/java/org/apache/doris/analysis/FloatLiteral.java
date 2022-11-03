@@ -136,6 +136,11 @@ public class FloatLiteral extends LiteralExpr {
         return Double.toString(value);
     }
 
+    @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
+    }
+
     public static Type getDefaultTimeType(Type type) throws AnalysisException {
         switch (type.getPrimitiveType()) {
             case TIME:

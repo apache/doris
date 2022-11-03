@@ -64,7 +64,7 @@ private:
                     bloom_filters,
             const std::vector<FunctionFilter>& function_filters);
 
-    Status _init_return_columns(bool need_seq_col);
+    Status _init_return_columns();
 
 private:
     bool _aggregation;

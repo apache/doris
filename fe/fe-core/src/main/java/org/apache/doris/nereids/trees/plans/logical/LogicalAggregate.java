@@ -76,7 +76,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, Optional.empty(), false, false, true, AggPhase.LOCAL, child);
+        this(groupByExpressions, outputExpressions, Optional.empty(), false,
+                false, true, AggPhase.LOCAL, child);
     }
 
     public LogicalAggregate(
@@ -87,8 +88,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
             boolean isFinalPhase,
             AggPhase aggPhase,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, Optional.empty(), disassembled, normalized, isFinalPhase,
-                aggPhase, Optional.empty(), Optional.empty(), child);
+        this(groupByExpressions, outputExpressions, Optional.empty(), disassembled, normalized,
+                isFinalPhase, aggPhase, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalAggregate(
