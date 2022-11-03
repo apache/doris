@@ -41,6 +41,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -409,44 +410,27 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void replayInitCatalog(InitCatalogLog log) {
-        ExternalCatalog catalog = null;
-        writeLock();
-        try {
-            catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-        } finally {
-            writeUnlock();
-        }
-        if (catalog != null) {
-            catalog.replayInitCatalog(log);
-        }
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        Preconditions.checkArgument(catalog != null);
+        catalog.replayInitCatalog(log);
     }
 
     public void replayInitExternalDb(InitDatabaseLog log) {
-        ExternalCatalog catalog = null;
-        ExternalDatabase db = null;
-        writeLock();
-        try {
-            catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-            db = catalog.getDbForReplay(log.getDbId());
-        } finally {
-            writeUnlock();
-        }
-        if (db != null) {
-            db.replayInitDb(log, catalog);
-        }
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        Preconditions.checkArgument(catalog != null);
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        Preconditions.checkArgument(db != null);
+        db.replayInitDb(log, catalog);
     }
 
     public void replayInitExternalTable(InitTableLog log) {
-        writeLock();
-        try {
-            ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-            ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-            ExternalTable table = db.getTableForReplay(log.getTableId());
-            table.setNewFullSchema(log.getSchema());
-            table.setInitialized();
-        } finally {
-            writeUnlock();
-        }
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        Preconditions.checkArgument(catalog != null);
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        Preconditions.checkArgument(db != null);
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        Preconditions.checkArgument(table != null);
+        table.replayInitTable(log.getSchema());
     }
 
     public void replayRefreshExternalDb(ExternalObjectLog log) {

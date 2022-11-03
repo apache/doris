@@ -73,50 +73,45 @@ public class HMSExternalTable extends ExternalTable {
         return dlaType != DLAType.UNKNOWN;
     }
 
-    public void makeSureInitialized() {
-        initLock.writeLock().lock();
-        try {
-            if (!objectCreated) {
-                try {
-                    getRemoteTable();
-                } catch (MetaNotFoundException e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-                supportedHiveFileFormats = Lists.newArrayList(
-                    "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-                    "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
-                    "org.apache.hadoop.mapred.TextInputFormat");
-                if (remoteTable == null) {
-                    dlaType = DLAType.UNKNOWN;
+    public synchronized void makeSureInitialized() {
+        if (!objectCreated) {
+            try {
+                getRemoteTable();
+            } catch (MetaNotFoundException e) {
+                // CHECKSTYLE IGNORE THIS LINE
+            }
+            supportedHiveFileFormats = Lists.newArrayList(
+                "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+                "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+                "org.apache.hadoop.mapred.TextInputFormat");
+            if (remoteTable == null) {
+                dlaType = DLAType.UNKNOWN;
+            } else {
+                if (supportedIcebergTable()) {
+                    dlaType = DLAType.ICEBERG;
+                } else if (supportedHoodieTable()) {
+                    dlaType = DLAType.HUDI;
+                } else if (supportedHiveTable()) {
+                    dlaType = DLAType.HIVE;
                 } else {
-                    if (supportedIcebergTable()) {
-                        dlaType = DLAType.ICEBERG;
-                    } else if (supportedHoodieTable()) {
-                        dlaType = DLAType.HUDI;
-                    } else if (supportedHiveTable()) {
-                        dlaType = DLAType.HIVE;
-                    } else {
-                        dlaType = DLAType.UNKNOWN;
-                    }
+                    dlaType = DLAType.UNKNOWN;
                 }
-                objectCreated = true;
             }
-            if (!initialized) {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    fullSchema = null;
-                    // Forward to master and wait the journal to replay.
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
-                    try {
-                        remoteExecutor.forward(catalog.getId(), catalog.getDbNullable(dbName).getId(), id);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to forward init table {} operation to master. {}", name, e.getMessage());
-                    }
-                    return;
+            objectCreated = true;
+        }
+        if (!initialized) {
+            if (!Env.getCurrentEnv().isMaster()) {
+                fullSchema = null;
+                // Forward to master and wait the journal to replay.
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                try {
+                    remoteExecutor.forward(catalog.getId(), catalog.getDbNullable(dbName).getId(), id);
+                } catch (Exception e) {
+                    LOG.warn("Failed to forward init table {} operation to master. {}", name, e.getMessage());
                 }
-                init();
+                return;
             }
-        } finally {
-            initLock.writeLock().unlock();
+            init();
         }
     }
 

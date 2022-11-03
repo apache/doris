@@ -88,24 +88,19 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> impl
         }
     }
 
-    public void makeSureInitialized() {
-        initLock.writeLock().lock();
-        try {
-            if (!initialized) {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    // Forward to master and wait the journal to replay.
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
-                    try {
-                        remoteExecutor.forward(extCatalog.getId(), id, -1);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to forward init db {} operation to master. {}", name, e.getMessage());
-                    }
-                    return;
+    public synchronized void makeSureInitialized() {
+        if (!initialized) {
+            if (!Env.getCurrentEnv().isMaster()) {
+                // Forward to master and wait the journal to replay.
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                try {
+                    remoteExecutor.forward(extCatalog.getId(), id, -1);
+                } catch (Exception e) {
+                    LOG.warn("Failed to forward init db {} operation to master. {}", name, e.getMessage());
                 }
-                init();
+                return;
             }
-        } finally {
-            initLock.writeLock().unlock();
+            init();
         }
     }
 
@@ -187,7 +182,6 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> impl
             tableNameToId.put(tbl.getName(), tbl.getId());
         }
         rwLock = new ReentrantReadWriteLock(true);
-        initLock = new ReentrantReadWriteLock(true);
     }
 
     public void addTableForTest(HMSExternalTable tbl) {

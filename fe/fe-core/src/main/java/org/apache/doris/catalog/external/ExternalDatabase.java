@@ -52,7 +52,6 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
-    protected ReentrantReadWriteLock initLock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "id")
     protected long id;

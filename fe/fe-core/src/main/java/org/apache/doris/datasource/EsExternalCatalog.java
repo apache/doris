@@ -136,33 +136,28 @@ public class EsExternalCatalog extends ExternalCatalog {
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     @Override
-    public void makeSureInitialized() {
-        initLock.writeLock().lock();
-        try {
-            if (!objectCreated) {
+    public synchronized void makeSureInitialized() {
+        if (!objectCreated) {
+            try {
+                validate(catalogProperty.getProperties());
+            } catch (DdlException e) {
+                LOG.warn("validate error", e);
+            }
+            esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
+            objectCreated = true;
+        }
+        if (!initialized) {
+            if (!Env.getCurrentEnv().isMaster()) {
+                // Forward to master and wait the journal to replay.
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
                 try {
-                    validate(catalogProperty.getProperties());
-                } catch (DdlException e) {
-                    LOG.warn("validate error", e);
+                    remoteExecutor.forward(id, -1, -1);
+                } catch (Exception e) {
+                    LOG.warn("Failed to forward init catalog {} operation to master. {}", name, e.getMessage());
                 }
-                esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
-                objectCreated = true;
+                return;
             }
-            if (!initialized) {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    // Forward to master and wait the journal to replay.
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
-                    try {
-                        remoteExecutor.forward(id, -1, -1);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to forward init catalog {} operation to master. {}", name, e.getMessage());
-                    }
-                    return;
-                }
-                init();
-            }
-        } finally {
-            initLock.writeLock().unlock();
+            init();
         }
     }
 

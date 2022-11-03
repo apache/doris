@@ -68,7 +68,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected String dbName;
     protected boolean objectCreated = false;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
-    protected ReentrantReadWriteLock initLock = new ReentrantReadWriteLock(true);
 
     /**
      * No args constructor for persist.
@@ -111,8 +110,9 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         this.initialized = false;
     }
 
-    public void setInitialized() {
-        this.initialized = true;
+    public void replayInitTable(List<Column> schema) {
+        fullSchema = schema;
+        initialized = true;
     }
 
     public void makeSureInitialized() {}
@@ -317,7 +317,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         rwLock = new ReentrantReadWriteLock(true);
-        initLock = new ReentrantReadWriteLock(true);
         objectCreated = false;
     }
 }

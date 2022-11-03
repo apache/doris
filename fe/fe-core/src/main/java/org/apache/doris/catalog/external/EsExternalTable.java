@@ -54,29 +54,24 @@ public class EsExternalTable extends ExternalTable {
     }
 
 
-    public void makeSureInitialized() {
-        initLock.writeLock().lock();
-        try {
-            if (!initialized) {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    fullSchema = null;
-                    // Forward to master and wait the journal to replay.
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
-                    try {
-                        remoteExecutor.forward(catalog.getId(), catalog.getDbNullable(dbName).getId(), id);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to forward init table {} operation to master. {}", name, e.getMessage());
-                    }
-                } else {
-                    init();
+    public synchronized void makeSureInitialized() {
+        if (!initialized) {
+            if (!Env.getCurrentEnv().isMaster()) {
+                fullSchema = null;
+                // Forward to master and wait the journal to replay.
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                try {
+                    remoteExecutor.forward(catalog.getId(), catalog.getDbNullable(dbName).getId(), id);
+                } catch (Exception e) {
+                    LOG.warn("Failed to forward init table {} operation to master. {}", name, e.getMessage());
                 }
+            } else {
+                init();
             }
-            if (!objectCreated) {
-                esTable = toEsTable();
-                objectCreated = true;
-            }
-        } finally {
-            initLock.writeLock().unlock();
+        }
+        if (!objectCreated) {
+            esTable = toEsTable();
+            objectCreated = true;
         }
     }
 

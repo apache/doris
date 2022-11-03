@@ -39,7 +39,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -67,7 +66,6 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     protected boolean objectCreated = false;
-    protected ReentrantReadWriteLock initLock = new ReentrantReadWriteLock(true);
 
     /**
      * @return names of database in this catalog.
@@ -205,7 +203,6 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             db.setExtCatalog(this);
             db.setTableExtCatalog(this);
         }
-        initLock = new ReentrantReadWriteLock(true);
         objectCreated = false;
     }
 
