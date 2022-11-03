@@ -197,6 +197,10 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
         auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
         auto& real_column_ptr =
                 column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
+        auto null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+        auto need_to_validate = [&null_map, &filter_bitmap](int j) {
+            return !filter_bitmap->Get(j) && (null_map == nullptr || null_map[j] == 0);
+        };
 
         switch (desc->type().type) {
         case TYPE_CHAR:
@@ -210,7 +214,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                 limit = std::min(config::string_type_length_soft_limit_bytes, desc->type().len);
             }
             for (int j = 0; j < num_rows; ++j) {
-                if (!filter_bitmap->Get(j)) {
+                if (need_to_validate(j)) {
                     auto str_val = column_string->get_data_at(j);
                     bool invalid = str_val.size > limit;
                     if (invalid) {
@@ -244,7 +248,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                             real_column_ptr.get()));
 
             for (int j = 0; j < num_rows; ++j) {
-                if (!filter_bitmap->Get(j)) {
+                if (need_to_validate(j)) {
                     auto dec_val = binary_cast<vectorized::Int128, DecimalV2Value>(
                             column_decimal->get_data()[j]);
                     error_msg.clear();
@@ -287,8 +291,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
         // 1. column is nullable but the desc is not nullable
         // 2. desc->type is BITMAP
         if ((!desc->is_nullable() || desc->type() == TYPE_OBJECT) && column_ptr) {
-            const auto& null_map = column_ptr->get_null_map_data();
-            for (int j = 0; j < null_map.size(); ++j) {
+            for (int j = 0; j < num_rows; ++j) {
                 if (null_map[j] && !filter_bitmap->Get(j)) {
                     error_msg.clear();
                     fmt::format_to(error_msg, "null value for not null column, column={}; ",
