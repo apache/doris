@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
@@ -130,9 +131,9 @@ public:
     }
 
     // Only used on ColumnDictionary
-    virtual void set_segment_id(uint32_t segment_id) {}
+    virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
-    virtual uint32_t get_segment_id() const { return 0; }
+    virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
 
     /// Returns number of values in column.
     virtual size_t size() const = 0;

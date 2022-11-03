@@ -26,6 +26,7 @@
 
 #include "decimal12.h"
 #include "olap/column_predicate.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
@@ -402,7 +403,7 @@ private:
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
                 auto& _value_in_dict_flags =
-                        _segment_id_to_value_in_dict_flags[column->get_segment_id()];
+                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
                 if (_value_in_dict_flags.empty()) {
                     nested_col_ptr->find_codes(_values, _value_in_dict_flags);
                 }
@@ -475,7 +476,7 @@ private:
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
                 auto& _value_in_dict_flags =
-                        _segment_id_to_value_in_dict_flags[column->get_segment_id()];
+                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
                 if (_value_in_dict_flags.empty()) {
                     nested_col_ptr->find_codes(_values, _value_in_dict_flags);
                 }
@@ -552,7 +553,7 @@ private:
     }
 
     phmap::flat_hash_set<T> _values;
-    mutable phmap::flat_hash_map<uint32_t, std::vector<vectorized::UInt8>>
+    mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
