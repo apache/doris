@@ -81,6 +81,8 @@ struct RowsetWriterContext {
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;
 
+    TabletSharedPtr tablet = nullptr;
+
     // for tracing local schema change record
     std::shared_ptr<vectorized::object_util::LocalSchemaChangeRecorder> schema_change_recorder = nullptr;
 };
