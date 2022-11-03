@@ -1376,27 +1376,27 @@ public class FunctionCallExpr extends Expr {
         }
     }
 
-    private boolean match(String pattern, int pos, String value) {
+    private static boolean match(String pattern, int pos, String value) {
         int length = value.length();
         int end = pattern.length();
         return pos + length <= end && pattern.substring(pos, pos + length).equals(value);
     }
 
-    private int parseNumber(String s) {
+    private static int parseNumber(String s) {
 
         String[] n = s.split(""); //array of strings
-        int i = 0;
-        while (i < n.length) {
-            if ((n[i].matches("[0-9]+"))) {// validating numbers
-                i++;
+        int num = 0;
+        for (String value : n) {
+            if ((value.matches("[0-9]+"))) {// validating numbers
+                num++;
             } else {
-                return 0;
+                return num;
             }
         }
-        return i;
+        return num;
     }
 
-    private boolean parsePattern(String pattern) {
+    private static boolean parsePattern(String pattern) {
         int pos = 0;
         int len = pattern.length();
         while (pos < len) {
