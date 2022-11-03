@@ -40,7 +40,7 @@ sql """ INSERT INTO  ${tb_name_1} VALUES (1,2);  """
 sql """ SET AUTOCOMMIT=0; """
 qt_sql """ DELETE from  ${tb_name_1} where a=1; """
 sql """ SET AUTOCOMMIT=1; """
-sql """ drop table  ${tb_name_1}; """
+qt_sql """ drop table  ${tb_name_1}; """
 
 sql """ create table ${tb_name_1} (
   a bigint  NOT NULL COMMENT "",
@@ -60,7 +60,7 @@ PROPERTIES ( "replication_num" = "1" ); """
 	
 sql """ insert into ${tb_name_1} (a,b,c,d,e,f,g,h,i,j) values (2,4,6,8,10,12,14,16,18,20);  """
 qt_sql """ delete from ${tb_name_1} where a=2;  """
-sql """ drop table ${tb_name_1};  """
+qt_sql """ drop table ${tb_name_1};  """
 
 sql """ CREATE TABLE `${tb_name_1}` (
   `i` int(10) NOT NULL default '0',
@@ -69,7 +69,7 @@ sql """ CREATE TABLE `${tb_name_1}` (
 DISTRIBUTED BY HASH (`i`) BUCKETS 4
 PROPERTIES ( "replication_num" = "1" );
 """
-sql """ drop table ${tb_name_1}; """
+qt_sql """ drop table ${tb_name_1}; """
 
 
 sql """ CREATE TABLE ${tb_name_1} (
@@ -82,17 +82,17 @@ PROPERTIES ( "replication_num" = "1" );"""
 
 sql """ INSERT INTO ${tb_name_1} VALUES (NULL,'a',4), (NULL,'b',5), (NULL,'c',6), (NULL,'d',7);"""
 
-sql """ select * from ${tb_name_1} where misc > 5 and bool is null;"""
+qt_sql """ select * from ${tb_name_1} where misc > 5 and bool is null;"""
 qt_sql """ delete   from ${tb_name_1} where misc > 5 and bool is null;"""
-sql """ select * from ${tb_name_1} where misc > 5 and bool is null;"""
+qt_sql """ select * from ${tb_name_1} where misc > 5 and bool is null;"""
 
-sql """ select count(*) from ${tb_name_1};"""
+qt_sql """ select count(*) from ${tb_name_1};"""
 qt_sql """ delete from ${tb_name_1} where misc > 2;"""
-sql """ select count(*) from ${tb_name_1};"""
+qt_sql """ select count(*) from ${tb_name_1};"""
 qt_sql """ delete from ${tb_name_1} where misc > 2;"""
-sql """ select count(*) from ${tb_name_1};"""
+qt_sql """ select count(*) from ${tb_name_1};"""
 
-sql """ drop table ${tb_name_1};"""
+qt_sql """ drop table ${tb_name_1};"""
 
 sql """ create table ${tb_name_1} (a int not null, b char(32)) 
 UNIQUE KEY (a)
@@ -112,24 +112,24 @@ sql """ insert into ${tb_name_11} values (0, 10),(1, 11),(2, 12);"""
 sql """ insert into ${tb_name_12} values (33, 10),(0, 11),(2, 12);"""
 sql """ insert into ${tb_name_2} values (1, 21),(2, 12),(3, 23);"""
 
-sql """ select * from ${tb_name_11}; """
-sql """ select * from ${tb_name_12}; """
-sql """ select * from ${tb_name_2}; """
+qt_sql """ select count(1) from ${tb_name_11}; """
+qt_sql """ select count(1) from ${tb_name_12}; """
+qt_sql """ select count(1) from ${tb_name_2}; """
 
 sql """ insert into ${tb_name_11} values (2, 12); """
 qt_sql """ delete from ${tb_name_11} where ${tb_name_1}1.a = 2; """
-sql """ select * from ${tb_name_11}; """
+qt_sql """ select count(1) from ${tb_name_11}; """
 
-sql """ drop table ${tb_name_11}; """
-sql """ drop table ${tb_name_12}; """
-sql """ drop table ${tb_name_2}; """
+qt_sql """ drop table ${tb_name_11}; """
+qt_sql """ drop table ${tb_name_12}; """
+qt_sql """ drop table ${tb_name_2}; """
 
 sql """ CREATE TABLE t (a INT)DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" );"""
 sql """ INSERT INTO t VALUES (1), (2), (3), (4), (5), (6), (7);"""
 
 qt_sql """ DELETE FROM t WHERE a = 6;"""
 
-sql """ DROP TABLE t;"""
+qt_sql """ DROP TABLE t;"""
 
 sql """ CREATE TABLE ${tb_name_1}(a INTEGER) UNIQUE KEY (a) DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ INSERT INTO ${tb_name_1} VALUES(10),(20); """
@@ -139,29 +139,29 @@ sql """ INSERT INTO ${tb_name_2} VALUES(10),(20); """
 sql """ SET SESSION sql_safe_updates=1;"""
 qt_sql """ DELETE  FROM ${tb_name_1} WHERE a > 10 ; """
 sql """ SET SESSION sql_safe_updates=default; """
-sql """ DROP TABLE ${tb_name_1}; """
-sql """ DROP TABLE ${tb_name_2}; """
+qt_sql """ DROP TABLE ${tb_name_1}; """
+qt_sql """ DROP TABLE ${tb_name_2}; """
 
 sql """ create table ${tb_name_1} (a int, b int)UNIQUE KEY (a) DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ insert into ${tb_name_1} values (3, 3), (7, 7); """
 qt_sql """ delete from ${tb_name_1} where a = 3; """
 qt_sql """ select * from ${tb_name_1}; """
-sql """ drop table ${tb_name_1}; """
+qt_sql """ drop table ${tb_name_1}; """
  
 sql """ CREATE TABLE ${tb_name_1} ( a int  )UNIQUE KEY (a) DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 qt_sql """ DELETE FROM ${tb_name_1} WHERE ${tb_name_1}.a > 0 ; """
 sql """ INSERT INTO ${tb_name_1} VALUES (0),(1),(2); """
 qt_sql """ DELETE FROM ${tb_name_1} WHERE ${tb_name_1}.a > 0 ; """
 qt_sql """ SELECT * FROM ${tb_name_1}; """
-sql """ DROP TABLE ${tb_name_1}; """
+qt_sql """ DROP TABLE ${tb_name_1}; """
 
 sql """ create table ${tb_name_1} (a int)DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 qt_sql """ delete  from ${tb_name_1}  where a = 5; """
-sql """ drop table ${tb_name_1}; """
+qt_sql """ drop table ${tb_name_1}; """
 
 sql """ create table ${tb_name_1}(f1 int )UNIQUE KEY (f1) DISTRIBUTED BY HASH (`f1`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ insert into ${tb_name_1} values (4),(3),(1),(2); """
-sql """ drop table ${tb_name_1}; """
+qt_sql """ drop table ${tb_name_1}; """
 
 sql """ CREATE TABLE ${tb_name_1} (
   `seq` int(10) NOT NULL ,
@@ -171,7 +171,7 @@ sql """ CREATE TABLE ${tb_name_1} (
 sql """ INSERT INTO ${tb_name_1} VALUES (1,'2022-10-10','2022-10-10 10:10:10'); """
 qt_sql """ select * from ${tb_name_1}; """
 qt_sql """ DELETE FROM ${tb_name_1} where `seq`='1' ; """
-sql """ drop table ${tb_name_1}; """
+qt_sql """ drop table ${tb_name_1}; """
 
 
 sql """ CREATE TABLE ${tb_name_1} (a int not null,b int not null)DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
@@ -186,16 +186,16 @@ qt_sql """ delete from ${tb_name_1} WHERE a= 1 and b=3 ; """
 qt_sql """ delete from ${tb_name_2} WHERE a= 1 and b=3 ; """
 qt_sql """ delete from ${tb_name_3} WHERE a= 1 and b=3 ; """
 qt_sql """ select * from ${tb_name_3}; """
-sql """ drop table ${tb_name_1}; """
-sql """ drop table ${tb_name_2}; """
-sql """ drop table ${tb_name_3}; """
+qt_sql """ drop table ${tb_name_1}; """
+qt_sql """ drop table ${tb_name_2}; """
+qt_sql """ drop table ${tb_name_3}; """
 
 sql """ create table ${tb_name_1}(a date not null)DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ insert  into ${tb_name_1} values ('2022-10-11'); """
 qt_sql """ select * from ${tb_name_1} ; """
 qt_sql """ delete from ${tb_name_1} where a is null; """
 qt_sql """ select count(*) from ${tb_name_1}; """
-sql """ drop table ${tb_name_1}; """
+qt_sql """ drop table ${tb_name_1}; """
 
 sql """ CREATE TABLE ${tb_name_1} ( a INT)DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ CREATE TABLE ${tb_name_2} ( a INT)DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
@@ -213,17 +213,17 @@ qt_sql """ SELECT * FROM ${tb_name_1}; """
 qt_sql """ DELETE FROM ${tb_name_1}  WHERE a = 2; """
 qt_sql """ SELECT * FROM ${tb_name_1}; """
 
-sql """ DROP TABLE ${tb_name_1}; """
-sql """ DROP TABLE ${tb_name_2}; """
-sql """ DROP DATABASE db1; """
-sql """ DROP DATABASE db2; """
+qt_sql """ DROP TABLE ${tb_name_1}; """
+qt_sql """ DROP TABLE ${tb_name_2}; """
+qt_sql """ DROP DATABASE db1; """
+qt_sql """ DROP DATABASE db2; """
 
 sql """ create table ${tb_name_1}(a date not null)DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ insert  into ${tb_name_1} values ('2022-10-11'); """
 qt_sql """ select * from ${tb_name_1} ; """
 qt_sql """ delete from ${tb_name_1} where a is null; """
 qt_sql """ select count(*) from ${tb_name_1}; """
-sql """ drop table ${tb_name_1}; """
+qt_sql """ drop table ${tb_name_1}; """
 
 sql """ CREATE TABLE ${tb_name_1}(a INT)DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ CREATE TABLE ${tb_name_2}(b INT)DISTRIBUTED BY HASH (`b`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
@@ -233,16 +233,16 @@ sql """ INSERT INTO ${tb_name_2} VALUES (1); """
 
 qt_sql """ DELETE  FROM ${tb_name_1} WHERE a = 1; """
 
-sql """ DROP TABLE  ${tb_name_1} FORCE; """
-sql """ DROP TABLE  ${tb_name_2} FORCE; """
+qt_sql """ DROP TABLE  ${tb_name_1} FORCE; """
+qt_sql """ DROP TABLE  ${tb_name_2} FORCE; """
 
-sql """ drop table if exists b;"""
-sql """ drop VIEW if exists x;"""
+qt_sql """ drop table if exists b;"""
+qt_sql """ drop VIEW if exists x;"""
 sql """ CREATE TABLE b (a INT) DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ CREATE MATERIALIZED VIEW y AS SELECT a FROM b AS e GROUP BY a; """
 sql """ CREATE VIEW x AS SELECT 1 FROM b; """
-sql """ DROP TABLE b FORCE; """
-sql """ DROP VIEW x; """
+qt_sql """ DROP TABLE b FORCE; """
+qt_sql """ DROP VIEW x; """
 
 sql """ CREATE TABLE ${tb_name_1} (a INT ) UNIQUE KEY (a) DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ INSERT INTO ${tb_name_1} (a) VALUES (1); """
@@ -252,17 +252,17 @@ sql """ CREATE TABLE ${tb_name_3} (a INT, b INT) UNIQUE KEY (a) DISTRIBUTED BY H
 sql """ INSERT INTO ${tb_name_3} (a, b) VALUES (1, 1); """
 qt_sql """ SELECT * FROM ${tb_name_1}; """
 qt_sql """ SELECT * FROM ${tb_name_2}; """
-sql """ DROP TABLE ${tb_name_1}; """
-sql """ DROP TABLE ${tb_name_2}; """
-sql """ DROP TABLE ${tb_name_3}; """
+qt_sql """ DROP TABLE ${tb_name_1}; """
+qt_sql """ DROP TABLE ${tb_name_2}; """
+qt_sql """ DROP TABLE ${tb_name_3}; """
 
 sql """ CREATE TABLE ${tb_name_1}(a INT) UNIQUE KEY (a) DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ CREATE TABLE ${tb_name_2}(a VARCHAR) UNIQUE KEY (a) DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 
 sql """ INSERT INTO ${tb_name_2} VALUES('a'); """
 qt_sql """ DELETE FROM ${tb_name_2} WHERE a='a'; """
-sql """ DROP TABLE ${tb_name_1}; """
-sql """ DROP TABLE ${tb_name_2}; """
+qt_sql """ DROP TABLE ${tb_name_1}; """
+qt_sql """ DROP TABLE ${tb_name_2}; """
 
 sql """ CREATE TABLE ${tb_name_1} (a INT, b CHAR(8), pk INT)UNIQUE KEY (a) DISTRIBUTED BY HASH (`a`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ INSERT INTO ${tb_name_1} (a,b) VALUES (10000,'foobar'),(1,'a'),(2,'b'),(3,'c'),(4,'d'),(5,'e'); """
@@ -274,8 +274,8 @@ qt_sql """ DELETE FROM ${tb_name_1} WHERE a is NOT NULL; """
 
 qt_sql """ SELECT a,b FROM ${tb_name_1}; """
 
-sql """ DROP TABLE ${tb_name_1}; """
-sql """ DROP TABLE ${tb_name_2}; """
+qt_sql """ DROP TABLE ${tb_name_1}; """
+qt_sql """ DROP TABLE ${tb_name_2}; """
 
 sql """ CREATE TABLE d3 (
                     pk int(11) NOT NULL ,
@@ -295,8 +295,8 @@ sql """ INSERT INTO e3 VALUES ('v',986); """
 qt_sql """ DELETE FROM d3 where pk is not null; """
 qt_sql """ DELETE FROM e3 where col_varchar is  null; """
 
-sql """ DROP TABLE d3; """
-sql """ DROP TABLE e3; """
+qt_sql """ DROP TABLE d3; """
+qt_sql """ DROP TABLE e3; """
 
 sql """ CREATE TABLE ${tb_name_1} (c1 INT) DISTRIBUTED BY HASH (`c1`) BUCKETS 4 PROPERTIES ( "replication_num" = "1" ); """
 sql """ INSERT INTO ${tb_name_1} VALUES (1), (2); """
@@ -309,8 +309,8 @@ qt_sql """ SELECT * FROM ${tb_name_2}; """
 qt_sql """ DELETE FROM ${tb_name_1} WHERE c1 > 1; """
 qt_sql """ SELECT * FROM ${tb_name_2}; """
 
-sql """ DROP TABLE ${tb_name_1}; """
-sql """ DROP TABLE ${tb_name_2}; """
+qt_sql """ DROP TABLE ${tb_name_1}; """
+qt_sql """ DROP TABLE ${tb_name_2}; """
 
 
 }
