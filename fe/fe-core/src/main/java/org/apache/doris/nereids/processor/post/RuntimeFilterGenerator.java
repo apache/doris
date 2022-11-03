@@ -80,25 +80,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         join.right().accept(this, context);
         join.left().accept(this, context);
-        if (deniedJoinType.contains(join.getJoinType())) {
-            /* TODO: translate left outer join to inner join if there are inner join ancestors
-             * if it has encountered inner join, like
-             *                       a=b
-             *                      /   \
-             *                     /     \
-             *                    /       \
-             *                   /         \
-             *      left join-->a=c         b
-             *                  / \
-             *                 /   \
-             *                /     \
-             *               /       \
-             *              a         c
-             * runtime filter whose src expr is b can take effect on c.
-             * but now checking the inner join is unsupported. we may support it at later version.
-             */
-            join.getOutput().forEach(slot -> ctx.removeFilters(slot.getExprId()));
-        } else {
+        if (!deniedJoinType.contains(join.getJoinType())) {
             List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values()).filter(type ->
                     (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                     .collect(Collectors.toList());
