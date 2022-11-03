@@ -170,7 +170,6 @@ private:
 inline void ThreadMemTrackerMgr::init() {
     DCHECK(_limiter_tracker_stack.size() == 0);
     DCHECK(_limiter_tracker_raw == nullptr);
-    DCHECK(_consumer_tracker_stack.empty());
     init_impl();
 }
 
