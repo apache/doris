@@ -169,6 +169,10 @@ public class AlterTest {
 
         createTable("create table test.show_test (k1 int, k2 int) distributed by hash(k1) "
                 + "buckets 1 properties(\"replication_num\" = \"1\");");
+
+        createTable("create table test.unique_sequence_col (k1 int, v1 int, v2 date) ENGINE=OLAP "
+                + " UNIQUE KEY(`k1`)  DISTRIBUTED BY HASH(`k1`) BUCKETS 1"
+                + " PROPERTIES (\"replication_num\" = \"1\", \"function_column.sequence_col\" = \"v1\");");
     }
 
     @AfterClass
@@ -1139,5 +1143,11 @@ public class AlterTest {
         executor = new ShowExecutor(connectContext, showStmt);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Unknown table 'table1_error'",
                 executor::execute);
+    }
+
+    @Test
+    public void testModifySequenceCol() {
+        String stmt = "alter table test.unique_sequence_col modify column v1 Date";
+        alterTable(stmt, true);
     }
 }
