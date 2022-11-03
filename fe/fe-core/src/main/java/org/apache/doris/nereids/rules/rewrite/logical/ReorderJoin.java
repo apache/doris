@@ -318,7 +318,6 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      */
     private LogicalJoin<? extends Plan, ? extends Plan> findInnerJoin(Plan left, List<Plan> candidates,
             Set<Expression> joinFilter, Set<Integer> usedPlansIndex) {
-        List<Expression> otherJoinConditions = Lists.newArrayList();
         Set<Slot> leftOutputSet = left.getOutputSet();
         for (int i = 0; i < candidates.size(); i++) {
             if (usedPlansIndex.contains(i)) {
@@ -326,22 +325,12 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             }
 
             Plan candidate = candidates.get(i);
-            Set<Slot> rightOutputSet = candidate.getOutputSet();
-
-            Set<Slot> joinOutput = getJoinOutput(left, candidate);
-
-            List<Expression> currentJoinFilter = joinFilter.stream()
-                    .filter(expr -> {
-                        Set<Slot> exprInputSlots = expr.getInputSlots();
-                        return !leftOutputSet.containsAll(exprInputSlots)
-                                && !rightOutputSet.containsAll(exprInputSlots)
-                                && joinOutput.containsAll(exprInputSlots);
-                    }).collect(Collectors.toList());
+            List<Expression> currentJoinFilter = findJoinCondition(joinFilter, left, candidate, leftOutputSet);
 
             Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
                     left.getOutput(), candidate.getOutput(), currentJoinFilter);
             List<Expression> hashJoinConditions = pair.first;
-            otherJoinConditions = pair.second;
+            List<Expression> otherJoinConditions = pair.second;
             if (!hashJoinConditions.isEmpty()) {
                 usedPlansIndex.add(i);
                 return new LogicalJoin<>(JoinType.INNER_JOIN,
@@ -351,17 +340,32 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
         // All { left -> one in [candidates] } is CrossJoin
         // Generate a CrossJoin
-        for (int j = candidates.size() - 1; j >= 0; j--) {
+        Plan right = null;
+        for (int j = 0; j < candidates.size(); j++) {
             if (usedPlansIndex.contains(j)) {
                 continue;
             }
             usedPlansIndex.add(j);
-            return new LogicalJoin<>(JoinType.CROSS_JOIN,
-                    ExpressionUtils.EMPTY_CONDITION,
-                    otherJoinConditions,
-                    left, candidates.get(j));
+            right = candidates.get(j);
         }
+        Preconditions.checkState(right != null, "right can't be null");
+        return new LogicalJoin<>(JoinType.CROSS_JOIN,
+                ExpressionUtils.EMPTY_CONDITION,
+                findJoinCondition(joinFilter, left, right, leftOutputSet),
+                left, right);
+    }
 
-        throw new RuntimeException("findInnerJoin: can't reach here");
+    // find all condition in for join:{left, right}.
+    private List<Expression> findJoinCondition(Set<Expression> joinFilter, Plan left, Plan right,
+            Set<Slot> leftOutputSet) {
+        Set<Slot> rightOutputSet = right.getOutputSet();
+        Set<Slot> joinOutput = getJoinOutput(left, right);
+        return joinFilter.stream()
+                .filter(expr -> {
+                    Set<Slot> exprInputSlots = expr.getInputSlots();
+                    return !leftOutputSet.containsAll(exprInputSlots)
+                            && !rightOutputSet.containsAll(exprInputSlots)
+                            && joinOutput.containsAll(exprInputSlots);
+                }).collect(Collectors.toList());
     }
 }
