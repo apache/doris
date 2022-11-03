@@ -918,7 +918,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         runtimeFilters.clear();
     }
 
-    protected String getRuntimeFilterExplainString(boolean isBuildNode) {
+    protected String getRuntimeFilterExplainString(boolean isBuildNode, boolean isBrief) {
         if (runtimeFilters.isEmpty()) {
             return "";
         }
@@ -926,19 +926,25 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         for (RuntimeFilter filter : runtimeFilters) {
             StringBuilder filterStr = new StringBuilder();
             filterStr.append(filter.getFilterId());
-            filterStr.append("[");
-            filterStr.append(filter.getType().toString().toLowerCase());
-            filterStr.append("]");
-            if (isBuildNode) {
-                filterStr.append(" <- ");
-                filterStr.append(filter.getSrcExpr().toSql());
-            } else {
-                filterStr.append(" -> ");
-                filterStr.append(filter.getTargetExpr(getId()).toSql());
+            if (!isBrief) {
+                filterStr.append("[");
+                filterStr.append(filter.getType().toString().toLowerCase());
+                filterStr.append("]");
+                if (isBuildNode) {
+                    filterStr.append(" <- ");
+                    filterStr.append(filter.getSrcExpr().toSql());
+                } else {
+                    filterStr.append(" -> ");
+                    filterStr.append(filter.getTargetExpr(getId()).toSql());
+                }
             }
             filtersStr.add(filterStr.toString());
         }
         return Joiner.on(", ").join(filtersStr) + "\n";
+    }
+
+    protected String getRuntimeFilterExplainString(boolean isBuildNode) {
+        return getRuntimeFilterExplainString(isBuildNode, false);
     }
 
     public void convertToVectoriezd() {

@@ -1122,6 +1122,10 @@ public class HashJoinNode extends PlanNode {
 
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+            if (!runtimeFilters.isEmpty()) {
+                output.append(detailPrefix).append("Build RFs: ");
+                output.append(getRuntimeFilterExplainString(true, true));
+            }
             return output.toString();
         }
 
