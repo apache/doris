@@ -140,6 +140,7 @@ Status DeltaWriter::init() {
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _tablet->table_id();
     context.is_direct_write = true;
+    context.tablet = _tablet;
     RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();

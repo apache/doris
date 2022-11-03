@@ -82,6 +82,7 @@ struct RowsetWriterContext {
     // If it is directly write from load procedure, else
     // it could be compaction or schema change etc..
     bool is_direct_write = false;
+    TabletSharedPtr tablet = nullptr;
     // for tracing local schema change record
     std::shared_ptr<vectorized::object_util::LocalSchemaChangeRecorder>
                                             schema_change_recorder = nullptr;
