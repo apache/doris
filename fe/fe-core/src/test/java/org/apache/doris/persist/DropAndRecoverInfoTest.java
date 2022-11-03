@@ -29,9 +29,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
-public class DropInfoTest {
+public class DropAndRecoverInfoTest {
     @Test
-    public void testSerialization() throws Exception {
+    public void testDropInfoSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
@@ -69,6 +69,38 @@ public class DropInfoTest {
         Assert.assertFalse(info2.equals(new DropInfo(1, 0, -1L, true, 0)));
         Assert.assertFalse(info2.equals(new DropInfo(1, 2, -1L, false, 0)));
         Assert.assertTrue(info2.equals(new DropInfo(1, 2, -1L, true, 0)));
+
+        // 3. delete files
+        dis.close();
+        file.delete();
+    }
+
+    @Test
+    public void testRecoveryInfoSerialization() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        // 1. Write objects to file
+        File file = new File("./recoverInfo");
+        file.createNewFile();
+        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+
+        RecoverInfo info1 = new RecoverInfo(1, 2, 3, "a", "b", "c");
+        info1.write(dos);
+        dos.flush();
+        dos.close();
+
+        // 2. Read objects from file
+        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        RecoverInfo rInfo1 = RecoverInfo.read(dis);
+
+        Assert.assertEquals(1, rInfo1.getDbId());
+        Assert.assertEquals(2, rInfo1.getTableId());
+        Assert.assertEquals(3, rInfo1.getPartitionId());
+        Assert.assertEquals("a", rInfo1.getNewDbName());
+        Assert.assertEquals("b", rInfo1.getNewTableName());
+        Assert.assertEquals("c", rInfo1.getNewPartitionName());
 
         // 3. delete files
         dis.close();
