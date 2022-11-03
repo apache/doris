@@ -43,7 +43,7 @@ public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "indexId")
-    private int indexId;
+    private int indexId = -1; // -1 for compatibale
     @SerializedName(value = "indexName")
     private String indexName;
     @SerializedName(value = "columns")
