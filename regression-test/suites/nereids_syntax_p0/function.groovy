@@ -60,7 +60,7 @@ suite("function") {
     }
 
     test {
-        sql "select date(date('1994-01-01'))"
+        sql "select substring(substring('1994-01-01', 5), 3)"
         result([["1-01"]])
     }
 }
