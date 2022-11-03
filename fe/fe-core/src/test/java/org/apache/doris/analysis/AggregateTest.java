@@ -455,5 +455,76 @@ public class AggregateTest extends TestWithFeService {
             }
             Assert.fail("must be AnalysisException.");
         } while (false);
+
+        // wrong pattern param
+        do {
+            String query = "select sequence_match('(?1)(?)', time_col, empid = 1, empid = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains(
+                    "The format of pattern params is wrong"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1', time_col, empid = 1, empid = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains(
+                    "The format of pattern params is wrong"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(1)(2)', time_col, empid = 1, empid = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains(
+                    "The format of pattern params is wrong"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1)(?t)(?2)', time_col, empid = 1, empid = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains(
+                    "The format of pattern params is wrong"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select sequence_match('(?1)(?2).**', time_col, empid = 1, empid = 2) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains(
+                    "The format of pattern params is wrong"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
     }
 }
