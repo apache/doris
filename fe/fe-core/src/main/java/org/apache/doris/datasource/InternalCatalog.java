@@ -1365,6 +1365,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                         olapTable.storeRowColumn().toString());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA,
+                        olapTable.isDynamicSchema().toString());
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
