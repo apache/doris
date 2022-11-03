@@ -51,6 +51,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _decompressor(nullptr),
           _skip_lines(0) {
     _file_format_type = _params.format_type;
+    _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     _file_compress_type = _params.compress_type;
     _size = _range.size;
 
@@ -119,7 +120,9 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_DEFLATE:
         _line_reader.reset(new PlainTextLineReader(_profile, real_reader, _decompressor.get(),
                                                    _size, _line_delimiter, _line_delimiter_length));
-
+        break;
+    case TFileFormatType::FORMAT_PROTO:
+        _line_reader.reset(new PlainBinaryLineReader(real_reader));
         break;
     default:
         return Status::InternalError(
@@ -209,6 +212,7 @@ Status CsvReader::_create_decompressor() {
         }
     } else {
         switch (_file_format_type) {
+        case TFileFormatType::FORMAT_PROTO:
         case TFileFormatType::FORMAT_CSV_PLAIN:
             compress_type = CompressType::UNCOMPRESSED;
             break;
@@ -265,7 +269,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block, size_t* ro
 }
 
 Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
-    if (!validate_utf8(line.data, line.size)) {
+    if (!_is_proto_format && !validate_utf8(line.data, line.size)) {
         if (!_is_load) {
             return Status::InternalError("Only support csv data in utf8 codec");
         } else {
