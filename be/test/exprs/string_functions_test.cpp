@@ -218,7 +218,7 @@ TEST_F(StringFunctionsTest, split_part) {
               StringFunctions::split_part(context, StringVal("abc#123##234"), StringVal("#"), -5));
 
     EXPECT_EQ(StringVal::null(), StringFunctions::split_part(context, StringVal("abc#123##234"),
-                                                             StringVal("#"), StringVal::null()));
+                                                             StringVal("#"), IntVal::null()));
 
     EXPECT_EQ(StringVal::null(), StringFunctions::split_part(context, StringVal("abc#123##234"),
                                                              StringVal::null(), -1));
