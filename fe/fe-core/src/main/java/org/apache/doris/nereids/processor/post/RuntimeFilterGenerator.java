@@ -18,12 +18,18 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -36,7 +42,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -72,6 +78,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        join.right().accept(this, context);
+        join.left().accept(this, context);
         if (deniedJoinType.contains(join.getJoinType())) {
             /* TODO: translate left outer join to inner join if there are inner join ancestors
              * if it has encountered inner join, like
@@ -95,71 +103,67 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                     .collect(Collectors.toList());
             AtomicInteger cnt = new AtomicInteger();
+            Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = ctx.getAliasTransferMap();
             join.getHashJoinConjuncts().stream()
                     .map(EqualTo.class::cast)
+                    // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
                     // TODO: we will support it in later version.
-                    /*.peek(expr -> {
-                        // target is always the expr at the two side of equal of hash conjunctions.
-                        // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
-                        List<SlotReference> slots = expr.children().stream().filter(SlotReference.class::isInstance)
-                                .map(SlotReference.class::cast).collect(Collectors.toList());
-                        if (slots.size() != 2
-                                || !(ctx.checkExistKey(ctx.getTargetExprIdToFilter(), slots.get(0).getExprId())
-                                || ctx.checkExistKey(ctx.getTargetExprIdToFilter(), slots.get(1).getExprId()))) {
+                    .forEach(expr -> legalTypes.forEach(type -> {
+                        Pair<Expression, Expression> exprs = checkAndMaybeSwapChild(expr, join);
+                        if (exprs == null) {
                             return;
                         }
-                        int tag = ctx.checkExistKey(ctx.getTargetExprIdToFilter(), slots.get(0).getExprId()) ? 0 : 1;
-                        // generate runtime filter to associated expr. for example, a = b and a = c, RF b -> a can
-                        // generate RF b -> c
-                        List<RuntimeFilter> copiedRuntimeFilter = ctx.getFiltersByTargetExprId(slots.get(tag)
-                                        .getExprId()).stream()
-                                .map(filter -> new RuntimeFilter(generator.getNextId(), filter.getSrcExpr(),
-                                        slots.get(tag ^ 1), filter.getType(), filter.getExprOrder(), join))
-                                .collect(Collectors.toList());
-                        ctx.setTargetExprIdToFilters(slots.get(tag ^ 1).getExprId(),
-                                copiedRuntimeFilter.toArray(new RuntimeFilter[0]));
-                    })*/
-                    .forEach(expr -> legalTypes.stream()
-                            .map(type -> RuntimeFilter.createRuntimeFilter(generator.getNextId(), expr,
-                                    type, cnt.getAndIncrement(), join))
-                            .filter(Objects::nonNull)
-                            .forEach(filter ->
-                                    ctx.setTargetExprIdToFilters(filter.getTargetExpr().getExprId(), filter)));
+                        Pair<Slot, Slot> slots = Pair.of(
+                                aliasTransferMap.get((Slot) exprs.first).second.toSlot(),
+                                aliasTransferMap.get((Slot) exprs.second).second.toSlot());
+                        RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
+                                slots.second, slots.first, type,
+                                cnt.getAndIncrement(), join);
+                        ctx.setTargetExprIdToFilters(slots.first.getExprId(), filter);
+                        ctx.setTargetsOnScanNode(aliasTransferMap.get(((Slot) exprs.first)).first, slots.first);
+                    }));
         }
-        join.left().accept(this, context);
-        join.right().accept(this, context);
         return join;
     }
 
     // TODO: support src key is agg slot.
     @Override
     public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        project.child().accept(this, context);
+        Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap
+                = context.getRuntimeFilterContext().getAliasTransferMap();
+        // change key when encounter alias.
         project.getProjects().stream().filter(Alias.class::isInstance)
                 .map(Alias.class::cast)
-                .filter(expr -> expr.child() instanceof SlotReference)
-                .forEach(expr -> ctx.setKVInNormalMap(ctx.getAliasChildToSelf(), ((SlotReference) expr.child()), expr));
-        project.child().accept(this, context);
+                .filter(alias -> alias.child() instanceof NamedExpression
+                        && aliasTransferMap.containsKey((NamedExpression) alias.child()))
+                .forEach(alias -> {
+                    NamedExpression child = ((NamedExpression) alias.child());
+                    aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(child));
+                });
         return project;
     }
 
     @Override
     public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext context) {
+        // add all the slots in map.
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        scan.getOutput().stream()
-                .filter(slot -> ctx.getSlotListOfTheSameSlotAtOlapScanNode(slot).stream()
-                        .filter(expr -> ctx.checkExistKey(ctx.getTargetExprIdToFilter(), expr.getExprId()))
-                        .peek(expr -> {
-                            if (expr.getExprId() == slot.getExprId()) {
-                                return;
-                            }
-                            List<RuntimeFilter> filters = ctx.getFiltersByTargetExprId(expr.getExprId());
-                            ctx.removeFilters(expr.getExprId());
-                            filters.forEach(filter -> filter.setTargetSlot(slot));
-                            ctx.setKVInNormalMap(ctx.getTargetExprIdToFilter(), slot.getExprId(), filters);
-                        })
-                        .count() > 0)
-                .forEach(slot -> ctx.setTargetsOnScanNode(scan.getId(), slot));
+        scan.getOutput().forEach(slot ->
+                ctx.setKVInNormalMap(ctx.getAliasTransferMap(), slot, Pair.of(scan.getId(), slot)));
         return scan;
+    }
+
+    private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
+            PhysicalHashJoin join) {
+        if (expr.children().stream().anyMatch(Literal.class::isInstance)
+                || expr.child(0).equals(expr.child(1))
+                || !expr.children().stream().allMatch(SlotReference.class::isInstance)) {
+            return null;
+        }
+        // current we assume that there are certainly different slot reference in equal to.
+        // they are not from the same relation.
+        int exchangeTag = join.child(0).getOutput().stream().anyMatch(slot -> slot.getExprId().equals(
+                ((SlotReference) expr.child(1)).getExprId())) ? 1 : 0;
+        return Pair.of(expr.child(exchangeTag), expr.child(1 ^ exchangeTag));
     }
 }

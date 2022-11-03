@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -32,12 +33,10 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -62,8 +61,10 @@ public class RuntimeFilterContext {
 
     private final Map<PhysicalHashJoin, List<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
 
-    // Alias's child to itself.
-    private final Map<Slot, NamedExpression> aliasChildToSelf = Maps.newHashMap();
+    // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
+    // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
+    // you can see disjoint set data structure to learn the processing detailed.
+    private final Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = Maps.newHashMap();
 
     private final Map<Slot, OlapScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
@@ -86,24 +87,19 @@ public class RuntimeFilterContext {
         return limits;
     }
 
-    public void setTargetExprIdToFilters(ExprId id, RuntimeFilter... filters) {
-        Preconditions.checkArgument(Arrays.stream(filters)
-                .allMatch(filter -> filter.getTargetExpr().getExprId() == id));
+    public void setTargetExprIdToFilters(ExprId id, RuntimeFilter filter) {
+        Preconditions.checkArgument(filter.getTargetExpr().getExprId() == id);
         this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList())
-                .addAll(Arrays.asList(filters));
-    }
-
-    public List<RuntimeFilter> getFiltersByTargetExprId(ExprId id) {
-        return targetExprIdToFilter.get(id);
+                .add(filter);
     }
 
     public void removeFilters(ExprId id) {
         targetExprIdToFilter.remove(id);
     }
 
-    public void setTargetsOnScanNode(RelationId id, Slot... slots) {
+    public void setTargetsOnScanNode(RelationId id, Slot slot) {
         this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList())
-                .addAll(Arrays.asList(slots));
+                .add(slot);
     }
 
     public <K, V> void setKVInNormalMap(@NotNull Map<K, V> map, K key, V value) {
@@ -114,8 +110,8 @@ public class RuntimeFilterContext {
         return exprIdToOlapScanNodeSlotRef;
     }
 
-    public Map<Slot, NamedExpression> getAliasChildToSelf() {
-        return aliasChildToSelf;
+    public Map<NamedExpression, Pair<RelationId, NamedExpression>> getAliasTransferMap() {
+        return aliasTransferMap;
     }
 
     public Map<Slot, OlapScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
@@ -143,14 +139,6 @@ public class RuntimeFilterContext {
         return legacyFilters;
     }
 
-    public void setLegacyFilter(org.apache.doris.planner.RuntimeFilter filter) {
-        this.legacyFilters.add(filter);
-    }
-
-    public <K, V> boolean checkExistKey(@NotNull Map<K, V> map, K key) {
-        return map.containsKey(key);
-    }
-
     /**
      * get nereids runtime filters
      * @return nereids runtime filters
@@ -164,21 +152,6 @@ public class RuntimeFilterContext {
                 });
         filters.sort((a, b) -> a.getId().compareTo(b.getId()));
         return filters;
-    }
-
-    /**
-     * get the slot list of the same olap scan node of the input slot.
-     * @param slot slot
-     * @return slot list
-     */
-    public List<NamedExpression> getSlotListOfTheSameSlotAtOlapScanNode(Slot slot) {
-        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
-        NamedExpression expr = slot;
-        do {
-            builder.add(expr);
-            expr = aliasChildToSelf.get(expr.toSlot());
-        } while (expr != null);
-        return builder.build();
     }
 
     public void setTargetNullCount() {
