@@ -28,7 +28,8 @@ suite("test_unique_table_new_sequence") {
     DISTRIBUTED BY HASH(`k1`) BUCKETS 3
     PROPERTIES (
     "function_column.sequence_col" = "v2",
-    "replication_allocation" = "tag.location.default: 1"
+    "replication_allocation" = "tag.location.default: 1",
+    "light_schema_change" = "true"
     );
     """
     // load unique key
@@ -99,6 +100,20 @@ suite("test_unique_table_new_sequence") {
     sql "UPDATE ${tableName} SET v2 = 11 WHERE k1 = 3"
 
     sql "SET show_hidden_columns=true"
+
+    sql "sync"
+
+    order_qt_all "SELECT * from ${tableName}"
+
+    qt_desc "desc ${tableName}"
+
+    sql "ALTER TABLE ${tableName} RENAME COLUMN v2 vv2"
+
+    qt_desc "desc ${tableName}"
+
+    sql "INSERT INTO ${tableName} values(21, 8, 22)"
+
+    sql "INSERT INTO ${tableName} values(23, 9, 24)"
 
     sql "sync"
 
