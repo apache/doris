@@ -155,7 +155,7 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.direct_mode = single_version || _aggregation;
 
-    RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
+    RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.reader_type = READER_QUERY;
@@ -204,6 +204,23 @@ Status OlapScanner::_init_tablet_reader_params(
                 _tablet_reader_params.return_columns.push_back(index);
             }
         }
+
+        // expand the sequence column
+        if (_tablet->tablet_schema().has_sequence_col()) {
+            bool has_replace_col = false;
+            for (auto col : _return_columns) {
+                if (_tablet->tablet_schema().column(col).aggregation() ==
+                        FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                    has_replace_col = true;
+                    break;
+                }
+            }
+            if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+                    has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
+                        sequence_col_idx) == _return_columns.end()) {
+                _tablet_reader_params.return_columns.push_back(sequence_col_idx);
+            }
+        }
     }
 
     // use _tablet_reader_params.return_columns, because reader use this to merge sort
@@ -227,7 +244,7 @@ Status OlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-Status OlapScanner::_init_return_columns(bool need_seq_col) {
+Status OlapScanner::_init_return_columns() {
     for (auto slot : _tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
@@ -244,24 +261,6 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
             _tablet_columns_convert_to_null_set.emplace(index);
         _query_slots.push_back(slot);
     }
-
-    // expand the sequence column
-    if (_tablet->tablet_schema().has_sequence_col() && need_seq_col) {
-        bool has_replace_col = false;
-        for (auto col : _return_columns) {
-            if (_tablet->tablet_schema().column(col).aggregation() ==
-                FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
-                has_replace_col = true;
-                break;
-            }
-        }
-        if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
-            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                         sequence_col_idx) == _return_columns.end()) {
-            _return_columns.push_back(sequence_col_idx);
-        }
-    }
-
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }

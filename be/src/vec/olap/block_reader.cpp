@@ -123,8 +123,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 OLAPStatus BlockReader::init(const ReaderParams& read_params) {
     TabletReader::init(read_params);
 
-    auto return_column_size =
-            read_params.origin_return_columns->size() - (_sequence_col_idx != -1 ? 1 : 0);
+    auto return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
