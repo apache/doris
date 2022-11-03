@@ -29,7 +29,8 @@ public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
     public Rule build() {
         return logicalAggregate().thenApply(ctx -> {
             boolean useStreamAgg = !ctx.connectContext.getSessionVariable().disableStreamPreaggregations
-                    && !ctx.root.getGroupByExpressions().isEmpty();
+                    && !ctx.root.getGroupByExpressions().isEmpty()
+                    && !ctx.root.isFinalPhase();
             return new PhysicalAggregate<>(
                     ctx.root.getGroupByExpressions(),
                     ctx.root.getOutputExpressions(),
