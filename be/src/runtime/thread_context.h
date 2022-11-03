@@ -39,6 +39,7 @@
 // Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
 // Usage example: std::unique_ptr<MemTracker> tracker = std::make_unique<MemTracker>("first_tracker");
 //                { SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get()); xxx; xxx; }
+// Usually used to record query more detailed memory, including ExecNode operators.
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 #else
@@ -300,9 +301,16 @@ public:
 
 class AddThreadMemTrackerConsumer {
 public:
+    // The owner and user of MemTracker are in the same thread, and the raw pointer is faster.
     explicit AddThreadMemTrackerConsumer(MemTracker* mem_tracker);
 
+    // The owner and user of MemTracker are in different threads.
+    explicit AddThreadMemTrackerConsumer(const std::shared_ptr<MemTracker>& mem_tracker);
+
     ~AddThreadMemTrackerConsumer();
+
+private:
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr; // Avoid mem_tracker being released midway.
 };
 
 class StopCheckThreadMemTrackerLimit {

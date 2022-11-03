@@ -68,11 +68,9 @@ LoadChannelMgr::~LoadChannelMgr() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    int64_t load_mgr_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _load_soft_mem_limit = load_mgr_mem_limit * config::load_process_soft_mem_limit_percent / 100;
-    _process_soft_mem_limit =
-            ExecEnv::GetInstance()->process_mem_tracker()->limit() * config::soft_mem_limit_frac;
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(load_mgr_mem_limit, "LoadChannelMgr");
+    _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
+    _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
+    _mem_tracker = std::make_unique<MemTracker>("LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
@@ -96,13 +94,10 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
 
             // Use the same mem limit as LoadChannelMgr for a single load channel
-            auto channel_mem_tracker = std::make_shared<MemTrackerLimiter>(
-                    _mem_tracker->limit(),
-                    fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
-                                load_id.to_string()),
-                    _mem_tracker);
-            channel.reset(new LoadChannel(load_id, channel_mem_tracker, channel_timeout_s,
-                                          is_high_priority, params.sender_ip(),
+            auto channel_mem_tracker = std::make_unique<MemTracker>(fmt::format(
+                    "LoadChannel#senderIp={}#loadID={}", params.sender_ip(), load_id.to_string()));
+            channel.reset(new LoadChannel(load_id, std::move(channel_mem_tracker),
+                                          channel_timeout_s, is_high_priority, params.sender_ip(),
                                           params.is_vectorized()));
             _load_channels.insert({load_id, channel});
         }
@@ -200,7 +195,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 
     // this log print every 1 min, so that we could observe the mem consumption of load process
     // on this Backend
-    LOG(INFO) << "load mem consumption(bytes). limit: " << _mem_tracker->limit()
+    LOG(INFO) << "load mem consumption(bytes). limit: " << _load_hard_mem_limit
               << ", current: " << _mem_tracker->consumption()
               << ", peak: " << _mem_tracker->peak_consumption();
 
