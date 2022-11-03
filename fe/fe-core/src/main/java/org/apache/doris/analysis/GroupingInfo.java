@@ -90,15 +90,20 @@ public class GroupingInfo {
     }
 
     public void substitutePreRepeatExprs(ExprSubstitutionMap smap, Analyzer analyzer) {
-        HashSet<Expr> unMaterializedExprs = new HashSet<>(preRepeatExprs);
+        HashSet<Expr> unMaterializedSlotRefs = new HashSet<>(preRepeatExprs);
+        unMaterializedSlotRefs.removeIf(expr -> !(expr instanceof SlotRef));
         preRepeatExprs = Expr.substituteList(preRepeatExprs, smap, analyzer, true);
-        // remove unmaterialized exprs from preRepeatExprs
+
+        // remove unmaterialized slotRef from preRepeatExprs
         preRepeatExprs.removeIf(expr -> expr instanceof SlotRef && !((SlotRef) expr).getDesc().isMaterialized());
         for (Expr expr : preRepeatExprs) {
-            unMaterializedExprs.remove(smap.mappingForRhsExpr(expr));
+            Expr toRemove = smap.mappingForRhsExpr(expr);
+            // now all slotRefs in preRepeatExprs are materialized, so remove it from unMaterializedSlotRefs
+            unMaterializedSlotRefs.remove(toRemove != null ? toRemove : expr);
         }
-        // remove unmaterialized exprs from outputTupleSmap and outputTupleDesc
-        for (Expr expr : unMaterializedExprs) {
+
+        // remove unmaterialized slotRef from outputTupleSmap and outputTupleDesc if there is any
+        for (Expr expr : unMaterializedSlotRefs) {
             Expr rExpr = outputTupleSmap.get(expr);
             outputTupleSmap.removeByRhsExpr(rExpr);
             if (rExpr instanceof SlotRef) {
