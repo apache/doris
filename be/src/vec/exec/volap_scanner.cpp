@@ -175,7 +175,7 @@ Status VOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.direct_mode = _aggregation || single_version ||
                                             _parent->_olap_scan_node.__isset.push_down_agg_type_opt;
     }
-    RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
+    RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
@@ -243,6 +243,22 @@ Status VOlapScanner::_init_tablet_reader_params(
                 _tablet_reader_params.return_columns.push_back(index);
             }
         }
+        // expand the sequence column
+        if (_tablet_schema->has_sequence_col()) {
+            bool has_replace_col = false;
+            for (auto col : _return_columns) {
+                if (_tablet_schema->column(col).aggregation() ==
+                    FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                    has_replace_col = true;
+                    break;
+                }
+            }
+            if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
+                has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
+                                             sequence_col_idx) == _return_columns.end()) {
+                _tablet_reader_params.return_columns.push_back(sequence_col_idx);
+            }
+        }
     }
 
     // If a agg node is this scan node direct parent
@@ -274,7 +290,7 @@ Status VOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-Status VOlapScanner::_init_return_columns(bool need_seq_col) {
+Status VOlapScanner::_init_return_columns() {
     for (auto slot : _tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
@@ -292,23 +308,6 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         _return_columns.push_back(index);
         if (slot->is_nullable() && !_tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
-        }
-    }
-
-    // expand the sequence column
-    if (_tablet_schema->has_sequence_col() && need_seq_col) {
-        bool has_replace_col = false;
-        for (auto col : _return_columns) {
-            if (_tablet_schema->column(col).aggregation() ==
-                FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
-                has_replace_col = true;
-                break;
-            }
-        }
-        if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
-            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                         sequence_col_idx) == _return_columns.end()) {
-            _return_columns.push_back(sequence_col_idx);
         }
     }
 
