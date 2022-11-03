@@ -1365,15 +1365,15 @@ public:
 
 class FunctionSplitByChar : public IFunction {
 
+/**
+ * explain              :Used to split the string to get the offset and length of each element in the string
+ * parameter s          :The string to be split
+ * parameter c          :delimiter(type of string)
+ * parameter v_offset   :A container used to store the offset of each element in a string
+ * parameter v_charlen  :A container used to store the length of each element
+*/
 private:
     void getOffsetsAndLen(const std::string& s, const std::string& c, std::vector<int>& v_offset, std::vector<int>& v_charlen) {
-        /**
-         * 
-         * s : string need to be split
-         * c : delimiter_string
-         * v_offset  : each word splited offset in string
-         * v_charlen : each word length in string
-        */
         char delimiter_char = c[0];
         int32_t pos = 0;
 	    int32_t pos_start = 0;
@@ -1411,8 +1411,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        //return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
-        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+        return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
     }
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
@@ -1421,6 +1420,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 2);
 
+        //Create a container for the output
         auto col_res = ColumnArray::create(ColumnString::create());       
         ColumnString & res_data = typeid_cast<ColumnString &>(col_res->get_data());
         auto& res_offsets = col_res->get_offsets();
@@ -1428,30 +1428,32 @@ public:
         auto& res_data_chars = res_data.get_chars();
         auto& res_data_offsets = res_data.get_offsets();
 
-
+        //Get the string column and the delimiter column
         ColumnPtr argument_columns[2];
         for (size_t i = 0; i < 2; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
         }
-
         auto str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
 
-        int32 current_dst_offset = 0;
-
+        //int32 current_dst_offset = 0;
+        //Operate on each row of data
         for (size_t i = 0; i < input_rows_count; i++) {    
-            int32 k = 0;
+            //int32 k = 0;
             auto delimiter = delimiter_col->get_data_at(i);
-            auto delimiter_str = delimiter_col->get_data_at(i).to_string();
-            //auto str = str_col->get_data_at(i);
-            auto str_str = str_col->get_data_at(i).to_string();
+            auto delimiter_str = delimiter.to_string();
+            auto str = str_col->get_data_at(i);
+            auto str_str = str.to_string();
+
             if (delimiter.size == 0) {
-                res_data_chars.resize(str_str.size());
-                res_data_offsets.resize(1);
+                //If there is no delimiter, the entire string is printed
+                res_data_chars.resize(res_data_chars.size() + str_str.size());
+                res_data_offsets.resize(res_data_offsets.size() + 1);
                 memcpy(&res_data_chars[res_data_offsets[i-1]], &(*&str_str[0]), str_str.size());
                 res_data_offsets[i] = res_data_offsets[i-1] + str_str.size();
-                res_offsets[i] = res_offsets[i-1] + res_data_chars.size();
+                res_offsets[i] = res_offsets[i-1] + 1;
             } else if (delimiter.size == 1) {
+                //v_offset and v_charlen hold the offset and length of each element in the string after splitting
                 std::vector<int> v_offset;
                 std::vector<int> v_charlen;
                 getOffsetsAndLen(str_col->get_data_at(i).to_string(), delimiter_str, v_offset, v_charlen);
@@ -1459,8 +1461,8 @@ public:
                 for(int count : v_charlen) {
                     len += count;
                 }
-                res_data_chars.resize(len);
-                res_data_offsets.resize(v_offset.size());
+                res_data_chars.resize(res_data_chars.size() + len);
+                res_data_offsets.resize(res_data_offsets.size() + v_offset.size());
 
                 for (size_t j = 0; j < v_offset.size(); j++) {
                     //res_data_chars.resize(res_data_chars.size() + v_charlen[j] + 1);
@@ -1469,10 +1471,11 @@ public:
                     res_data_offsets[j] = res_data_offsets[j-1] + v_charlen[j];
                     // res_data_chars[res_data_offsets[j-1] + v_charlen[j]] = 0;                     
                     // res_data_offsets[j] = res_data_offsets[j-1] + v_charlen[j] + 1;
-                    ++k;
+                    //++k;
                 }
-                current_dst_offset += k;
-                res_offsets[i]=  res_offsets[i-1] + current_dst_offset;
+                //current_dst_offset += k;
+                //res_offsets[i]=  res_offsets[i-1] + current_dst_offset;
+                res_offsets[i]=  res_offsets[i-1] + v_offset.size();
             } 
                      
         }
