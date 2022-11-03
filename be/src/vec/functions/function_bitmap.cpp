@@ -21,13 +21,15 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/string_parser.hpp"
+#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-
 namespace doris::vectorized {
 
 struct BitmapEmpty {
@@ -582,6 +584,55 @@ public:
     }
 };
 
+class FunctionBitmapToArray : public IFunction {
+public:
+    static constexpr auto name = "bitmap_to_array";
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapToArray>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto nested_type = make_nullable(std::make_shared<DataTypeInt64>());
+        return std::make_shared<DataTypeArray>(nested_type);
+    }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto return_nested_type = make_nullable(std::make_shared<DataTypeInt64>());
+        auto dest_array_column_ptr = ColumnArray::create(return_nested_type->create_column(),
+                                                         ColumnArray::ColumnOffsets::create());
+
+        IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
+        ColumnNullable* dest_nested_nullable_col =
+                reinterpret_cast<ColumnNullable*>(dest_nested_column);
+        dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
+        auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
+
+        auto arg_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto bitmap_col = assert_cast<const ColumnBitmap*>(arg_col.get());
+        const auto& bitmap_col_data = bitmap_col->get_data();
+        auto& nested_column_data =
+                assert_cast<ColumnVector<Int64>*>(dest_nested_column)->get_data();
+        auto& dest_offsets = dest_array_column_ptr->get_offsets();
+        dest_offsets.reserve(input_rows_count);
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            bitmap_col_data[i].to_array(nested_column_data);
+            dest_nested_null_map.resize_fill(nested_column_data.size(), 0);
+            dest_offsets.push_back(nested_column_data.size());
+        }
+
+        block.replace_by_position(result, std::move(dest_array_column_ptr));
+        return Status::OK();
+    }
+};
+
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
 using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
 using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
@@ -631,6 +682,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubBitmap>();
     factory.register_function<FunctionBitmapSubsetLimit>();
     factory.register_function<FunctionBitmapSubsetInRange>();
+    factory.register_function<FunctionBitmapToArray>();
 }
 
 } // namespace doris::vectorized
