@@ -1056,12 +1056,10 @@ public class FunctionCallExpr extends Expr {
             if (!children.get(1).type.isDateType()) {
                 throw new AnalysisException("The timestamp params of " + fnName + " function must be DATE or DATETIME");
             }
-            String pattern = children.get(0).toSql();
-            int patternLength = pattern.length();
-            pattern = pattern.substring(1, patternLength - 1);
-            if (!parsePattern(pattern)) {
+            if (!parsePattern(String.valueOf(children.get(0)))) {
                 throw new AnalysisException("The format of pattern params is wrong");
             }
+
 
             Type[] childTypes = new Type[children.size()];
             for (int i = 0; i < 2; i++) {
@@ -1389,7 +1387,7 @@ public class FunctionCallExpr extends Expr {
         String[] n = s.split(""); //array of strings
         int num = 0;
         for (String value : n) {
-            if ((value.matches("[0-9]+"))) { // validating numbers
+            if ((value.matches("[0-9]+"))) {// validating numbers
                 num++;
             } else {
                 return num;
@@ -1407,13 +1405,12 @@ public class FunctionCallExpr extends Expr {
                 if (match(pattern, pos, "t")) {
                     pos += 1;
                     if (match(pattern, pos, "<=") || match(pattern, pos, "==")
-                            || match(pattern, pos, ">=")) {
+                        || match(pattern, pos, ">=")) {
                         pos += 2;
                     } else if (match(pattern, pos, ">") || match(pattern, pos, "<")) {
                         pos += 1;
-                    } else {
+                    } else
                         return false;
-                    }
 
                     int numLen = parseNumber(pattern.substring(pos));
                     if (numLen == 0) {
@@ -1429,17 +1426,15 @@ public class FunctionCallExpr extends Expr {
                         pos += numLen;
                     }
                 }
-                if (!match(pattern, pos, ")")) {
+                if (!match(pattern, pos, ")"))
                     return false;
-                }
                 pos += 1;
             } else if (match(pattern, pos, ".*")) {
                 pos += 2;
             } else if (match(pattern, pos, ".")) {
                 pos += 1;
-            } else {
+            } else
                 return false;
-            }
         }
         return true;
     }

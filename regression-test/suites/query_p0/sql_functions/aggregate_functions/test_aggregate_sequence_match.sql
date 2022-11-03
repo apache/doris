@@ -13,7 +13,7 @@ PROPERTIES (
 ); 
 
 INSERT INTO sequence_match_test1(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
-                                                   (2, '2022-11-02 11:28:02', 1),
+                                                   (2, '2022-11-02 11:41:00', 7),
                                                    (3, '2022-11-02 16:15:01', 3),
                                                    (4, '2022-11-02 19:05:04', 4),
                                                    (5, '2022-11-02 21:24:12', 5);
@@ -26,8 +26,15 @@ SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_ma
 SELECT sequence_match('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_match_test1;
 SELECT sequence_count('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_match_test1;
 
-SELECT sequence_match('(?1)(?t>3600)(?2)', date, number = 1, number = 1) FROM sequence_match_test1;
-SELECT sequence_count('(?1)(?t>3600)(?2)', date, number = 1, number = 1) FROM sequence_match_test1;
+--not match
+SELECT sequence_match('(?1)(?t>10000)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
+--match
+SELECT sequence_match('(?1)(?t>=10000)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
+
+--not match
+SELECT sequence_count('(?1)(?t>10000)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
+--match
+SELECT sequence_count('(?1)(?t>=10000)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
 
 SELECT sequence_match('(?1)(?2)', date, number = 1, number = 4, number = 3) FROM sequence_match_test1;
 SELECT sequence_count('(?1)(?2)', date, number = 1, number = 4, number = 3) FROM sequence_match_test1;
