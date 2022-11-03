@@ -229,7 +229,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     auto mem_tracker_counter = ADD_COUNTER(&_profile, "MemoryLimit", TUnit::BYTES);
     mem_tracker_counter->set(bytes_limit);
 
-    if (query_type() == TQueryType::SELECT) {
+    if (query_type() == TQueryType::SELECT || query_type() == TQueryType::EXTERNAL) {
         _query_mem_tracker =
                 _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
                         print_id(query_id), bytes_limit);

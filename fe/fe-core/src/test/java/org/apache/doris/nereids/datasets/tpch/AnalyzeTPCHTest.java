@@ -17,13 +17,15 @@
 
 package org.apache.doris.nereids.datasets.tpch;
 
+import org.junit.jupiter.api.Test;
+
 /**
  * There are still many functions that have not been implemented,
  * so the tpch cannot be fully parsed, and the interface is only reserved here.
  * When the related functions of tpch are supported, the comments will be deleted and the analyze of tpch will be verified.
  */
 public class AnalyzeTPCHTest extends TPCHTestBase {
-    /*
+
     @Test
     public void q1() {
         checkAnalyze(TPCHUtils.Q1);
@@ -187,5 +189,5 @@ public class AnalyzeTPCHTest extends TPCHTestBase {
     @Test
     public void q22_rewrite() {
         checkAnalyze(TPCHUtils.Q22_rewrite);
-    }*/
+    }
 }
