@@ -51,5 +51,4 @@ suite("test_ctas") {
 
         sql """ DROP TABLE IF EXISTS test_ctas1 """
     }
-
 }
