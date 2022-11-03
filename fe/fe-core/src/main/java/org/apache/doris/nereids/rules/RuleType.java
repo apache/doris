@@ -52,6 +52,8 @@ public enum RuleType {
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
     REGISTER_CTE(RuleTypeClass.REWRITE),
 
+    RELATION_AUTHENTICATION(RuleTypeClass.VALIDATION),
+
     // check analysis rule
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
 
@@ -185,8 +187,10 @@ public enum RuleType {
     enum RuleTypeClass {
         REWRITE,
         EXPLORATION,
+        // This type is used for unit test only.
         CHECK,
         IMPLEMENTATION,
+        VALIDATION,
         SENTINEL,
         ;
     }

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ResolveHaving;
 import org.apache.doris.nereids.rules.analysis.Scope;
+import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 
 import com.google.common.collect.ImmutableList;
 
@@ -48,6 +49,7 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                 )),
                 bottomUpBatch(ImmutableList.of(
                         new BindRelation(),
+                        new UserAuthentication(),
                         new BindSlotReference(scope),
                         new BindFunction(),
                         new ResolveHaving(),
