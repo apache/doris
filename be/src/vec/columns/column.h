@@ -129,6 +129,11 @@ public:
         return nullptr;
     }
 
+    // Only used on ColumnDictionary
+    virtual void set_segment_id(uint32_t segment_id) {}
+
+    virtual uint32_t get_segment_id() const { return 0; }
+
     /// Returns number of values in column.
     virtual size_t size() const = 0;
 

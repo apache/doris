@@ -20,6 +20,7 @@
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <roaring/roaring.hh>
 #include <type_traits>
 
@@ -400,7 +401,11 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+                auto& _value_in_dict_flags =
+                        _segment_id_to_value_in_dict_flags[column->get_segment_id()];
+                if (_value_in_dict_flags.empty()) {
+                    nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+                }
 
                 for (uint16_t i = 0; i < size; i++) {
                     uint16_t idx = sel[i];
@@ -469,7 +474,11 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+                auto& _value_in_dict_flags =
+                        _segment_id_to_value_in_dict_flags[column->get_segment_id()];
+                if (_value_in_dict_flags.empty()) {
+                    nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+                }
 
                 for (uint16_t i = 0; i < size; i++) {
                     if (is_and ^ flags[i]) {
@@ -543,7 +552,8 @@ private:
     }
 
     phmap::flat_hash_set<T> _values;
-    mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
+    mutable phmap::flat_hash_map<uint32_t, std::vector<vectorized::UInt8>>
+            _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
     static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
