@@ -169,7 +169,7 @@ under the License.
 
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
-        <commons-codec.version>1.9</commons-codec.version>
+        <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.9</commons-lang3.version>
         <commons-pool2.version>2.2</commons-pool2.version>
