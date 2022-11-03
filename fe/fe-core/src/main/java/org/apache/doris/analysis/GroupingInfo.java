@@ -25,6 +25,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.ListIterator;
@@ -89,7 +90,21 @@ public class GroupingInfo {
     }
 
     public void substitutePreRepeatExprs(ExprSubstitutionMap smap, Analyzer analyzer) {
+        HashSet<Expr> unMaterializedExprs = new HashSet<>(preRepeatExprs);
         preRepeatExprs = Expr.substituteList(preRepeatExprs, smap, analyzer, true);
+        // remove unmaterialized exprs from preRepeatExprs
+        preRepeatExprs.removeIf(expr -> expr instanceof SlotRef && !((SlotRef) expr).getDesc().isMaterialized());
+        for (Expr expr : preRepeatExprs) {
+            unMaterializedExprs.remove(smap.mappingForRhsExpr(expr));
+        }
+        // remove unmaterialized exprs from outputTupleSmap and outputTupleDesc
+        for (Expr expr : unMaterializedExprs) {
+            Expr rExpr = outputTupleSmap.get(expr);
+            outputTupleSmap.removeByRhsExpr(rExpr);
+            if (rExpr instanceof SlotRef) {
+                outputTupleDesc.getSlots().remove(((SlotRef) rExpr).getDesc());
+            }
+        }
     }
 
     // generate virtual slots for grouping or grouping_id functions
