@@ -141,10 +141,11 @@ public class AnalyzeTPCHTest extends TPCHTestBase {
         checkAnalyze(TPCHUtils.Q17);
     }
 
-    @Test
+    // TODO: support [broadcast] hint
+    /*@Test
     public void q17_rewrite() {
         checkAnalyze(TPCHUtils.Q17_rewrite);
-    }
+    }*/
 
     @Test
     public void q18() {
@@ -181,10 +182,11 @@ public class AnalyzeTPCHTest extends TPCHTestBase {
         checkAnalyze(TPCHUtils.Q21_rewrite);
     }
 
-    @Test
+    // NOTE: not support '1 for 2' syntax
+    /*@Test
     public void q22() {
         checkAnalyze(TPCHUtils.Q22);
-    }
+    }*/
 
     @Test
     public void q22_rewrite() {
