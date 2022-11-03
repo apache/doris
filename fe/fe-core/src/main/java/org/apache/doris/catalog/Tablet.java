@@ -431,8 +431,7 @@ public class Tablet extends MetaObject implements Writable {
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendId());
             if (backend == null || !backend.isAlive() || !replica.isAlive()
-                    || (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getHost()))
-                    || replica.tooSlow() || !backend.isMixNode()) {
+                    || checkHost(hosts, backend) || replica.tooSlow() || !backend.isMixNode()) {
                 // this replica is not alive,
                 // or if this replica is on same host with another replica, we also treat it as 'dead',
                 // so that Tablet Scheduler will create a new replica on different host.
@@ -563,6 +562,10 @@ public class Tablet extends MetaObject implements Writable {
 
         // 7. healthy
         return Pair.of(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
+    }
+
+    private boolean checkHost(Set<String> hosts, Backend backend) {
+        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getHost());
     }
 
     /**
