@@ -564,7 +564,7 @@ public:
         this->data(place).init(pattern, arg_count);
 
         const auto& timestamp =
-                assert_cast<const ColumnVector<DateValueType>*>(columns[1])->get_data()[row_num];
+                static_cast<const ColumnVector<NativeType>&>(*columns[1]).get_data()[row_num];
         typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events
                 events;
 
@@ -573,7 +573,7 @@ public:
             events.set(i - 2, event);
         }
 
-        this->data(place).add(timestamp, events);
+        this->data(place).add(binary_cast<NativeType, DateValueType>(timestamp), events);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
