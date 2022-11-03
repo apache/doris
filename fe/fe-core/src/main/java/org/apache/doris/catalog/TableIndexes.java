@@ -58,16 +58,16 @@ public class TableIndexes implements Writable {
         this.properties = properties;
     }
 
-    public int incAndGetMaxIndexUniqueId() {
+    private synchronized int incAndGetMaxIndexUniqueId() {
         this.maxIndexId++;
         return this.maxIndexId;
     }
 
-    public int getMaxIndexUniqueId() {
+    private synchronized int getMaxIndexUniqueId() {
         return this.maxIndexId;
     }
 
-    public void initIndexUniqueId() {
+    public synchronized void initIndexUniqueId() {
         maxIndexId = Index.INDEX_ID_INIT_VALUE;
         for (Index index : indexes) {
             setUniqueIdForIndex(index);
