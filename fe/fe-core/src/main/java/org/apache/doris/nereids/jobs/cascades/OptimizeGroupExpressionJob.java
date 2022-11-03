@@ -43,8 +43,9 @@ public class OptimizeGroupExpressionJob extends Job {
         List<Rule> validRules = new ArrayList<>();
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
         List<Rule> explorationRules = getRuleSet().getExplorationRules();
-        validRules.addAll(getValidRules(groupExpression, explorationRules));
+
         validRules.addAll(getValidRules(groupExpression, implementationRules));
+        validRules.addAll(getValidRules(groupExpression, explorationRules));
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
         for (Rule rule : validRules) {

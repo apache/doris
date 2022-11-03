@@ -51,8 +51,12 @@ public class GroupExpression {
     private boolean statDerived;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
+    // key is the physical properties the group expression support for its parent
+    // and value is cost and request physical properties to its children.
     private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
     // Each physical group expression maintains mapping incoming requests to the corresponding child requests.
+    // key is the output physical properties satisfying the incoming request properties
+    // value is the request physical properties
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
     public GroupExpression(Plan plan) {
@@ -185,6 +189,8 @@ public class GroupExpression {
 
     /**
      * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
+     * if the outputProperties exists, will be covered.
+     * @return true if lowest cost table change.
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
             List<PhysicalProperties> childrenInputProperties, double cost) {
@@ -203,7 +209,6 @@ public class GroupExpression {
 
     /**
      * get the lowest cost when satisfy property
-     *
      * @param property property that needs to be satisfied
      * @return Lowest cost to satisfy that property
      */

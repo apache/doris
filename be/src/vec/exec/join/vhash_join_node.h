@@ -288,7 +288,6 @@ public:
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     Status close(RuntimeState* state) override;
-    HashTableVariants& get_hash_table_variants() { return _hash_table_variants; }
     void init_join_op();
 
     const RowDescriptor& row_desc() const override { return _output_row_desc; }
@@ -311,10 +310,8 @@ private:
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
 
-    // mark the build hash table whether contain null column
-    std::vector<bool> _build_not_ignore_null;
-    // mark the probe table should dispose null column
-    std::vector<bool> _probe_not_ignore_null;
+    // mark the build hash table whether it needs to store null value
+    std::vector<bool> _store_null_in_hash_table;
 
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
@@ -343,7 +340,6 @@ private:
 
     RuntimeProfile::Counter* _join_filter_timer;
 
-    int64_t _hash_table_rows;
     int64_t _mem_used;
 
     Arena _arena;
@@ -368,14 +364,20 @@ private:
     Sizes _probe_key_sz;
     Sizes _build_key_sz;
 
+    bool _have_other_join_conjunct;
     const bool _match_all_probe; // output all rows coming from the probe input. Full/Left Join
-    const bool _match_one_build; // match at most one build row to each probe row. Left semi Join
     const bool _match_all_build; // output all rows coming from the build input. Full/Right Join
     bool _build_unique;          // build a hash table without duplicated rows. Left semi/anti Join
 
     const bool _is_right_semi_anti;
     const bool _is_outer_join;
-    bool _have_other_join_conjunct = false;
+
+    // For null aware left anti join, we apply a short circuit strategy.
+    // 1. Set _short_circuit_for_null_in_build_side to true if join operator is null aware left anti join.
+    // 2. In build phase, we stop building hash table when we meet the first null value and set _short_circuit_for_null_in_probe_side to true.
+    // 3. In probe phase, if _short_circuit_for_null_in_probe_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
+    bool _short_circuit_for_null_in_build_side = false;
+    bool _short_circuit_for_null_in_probe_side = false;
 
     Block _join_block;
 
