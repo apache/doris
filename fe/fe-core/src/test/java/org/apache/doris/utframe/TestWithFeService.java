@@ -373,8 +373,8 @@ public abstract class TestWithFeService {
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
-            beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-            new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
