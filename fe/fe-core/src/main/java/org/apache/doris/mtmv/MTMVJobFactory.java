@@ -22,7 +22,6 @@ import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.analysis.MVRefreshIntervalTriggerInfo;
 import org.apache.doris.analysis.MVRefreshTriggerInfo;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.mtmv.metadata.MTMVJob;
@@ -62,7 +61,6 @@ public class MTMVJobFactory {
     private static MTMVJob genPeriodicalJob(MaterializedView materializedView, String dbName) {
         String uid = UUID.randomUUID().toString();
         MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
-        job.setId(Env.getCurrentEnv().getNextId());
         job.setTriggerMode(TriggerMode.PERIODICAL);
         job.setSchedule(genJobSchedule(materializedView));
         job.setDbName(dbName);
@@ -75,7 +73,6 @@ public class MTMVJobFactory {
     private static MTMVJob genOnceJob(MaterializedView materializedView, String dbName) {
         String uid = UUID.randomUUID().toString();
         MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
-        job.setId(Env.getCurrentEnv().getNextId());
         job.setTriggerMode(TriggerMode.ONCE);
         job.setDbName(dbName);
         job.setMvName(materializedView.getName());
