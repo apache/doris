@@ -75,6 +75,7 @@ struct ColumnIteratorOptions {
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+    IOContext io_cxt;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

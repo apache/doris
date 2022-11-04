@@ -18,6 +18,7 @@
 #include "io/cache/whole_file_cache.h"
 
 #include "io/fs/local_file_system.h"
+#include "olap/iterators.h"
 
 namespace doris {
 namespace io {

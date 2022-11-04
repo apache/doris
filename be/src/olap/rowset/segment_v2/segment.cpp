@@ -150,7 +150,7 @@ Status Segment::_parse_footer() {
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read);
+    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read));
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum
@@ -248,7 +248,8 @@ Status Segment::_create_column_readers() {
 // in the new schema column c's cid == 2
 // but in the old schema column b's cid == 2
 // but they are not the same column
-Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter) {
+Status Segment::new_column_iterator(const TabletColumn& tablet_column, const IOContext& io_ctx,
+                                    ColumnIterator** iter) {
     if (_column_readers.count(tablet_column.unique_id()) < 1) {
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
@@ -260,6 +261,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIte
                         tablet_column.is_nullable(), std::move(type_info), tablet_column.length(),
                         tablet_column.precision(), tablet_column.frac()));
         ColumnIteratorOptions iter_opts;
+        iter_opts.io_ctx = io_ctx;
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();

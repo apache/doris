@@ -33,6 +33,10 @@ class RowBlockV2;
 class Schema;
 class ColumnPredicate;
 
+struct IOContext {
+    bool use_local_file_cache = false;
+};
+
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -57,10 +61,6 @@ public:
         const RowCursor* upper_key;
         // whether `upper_key` is included in the range
         bool include_upper;
-    };
-
-    struct IOContext {
-        bool use_local_file_cache = false;
     };
 
     // reader's key ranges, empty if not existed.
