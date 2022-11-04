@@ -50,7 +50,7 @@ public class ParseException extends AnalysisException {
         if (start.line.isPresent() && start.startPosition.isPresent()) {
             int line = start.line.get();
             int startPosition = start.startPosition.get();
-            sb.append("(line ").append(line).append(", pos").append(startPosition).append(")").append("\n");
+            sb.append("(line ").append(line).append(", pos ").append(startPosition).append(")").append("\n");
             if (command.isPresent()) {
                 sb.append("\n== SQL ==\n");
                 String cmd = command.get();

@@ -69,7 +69,7 @@ public class NereidsParserTest extends ParserTestBase {
     public void testErrorListener() {
         parsePlan("select * from t1 where a = 1 illegal_symbol")
                 .assertThrowsExactly(ParseException.class)
-                .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n");
+                .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos 29)\n");
     }
 
     @Test
