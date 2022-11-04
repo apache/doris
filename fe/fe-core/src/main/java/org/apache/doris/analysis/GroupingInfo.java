@@ -25,7 +25,6 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.ListIterator;
@@ -90,17 +89,21 @@ public class GroupingInfo {
     }
 
     public void substitutePreRepeatExprs(ExprSubstitutionMap smap, Analyzer analyzer) {
-        HashSet<Expr> unMaterializedSlotRefs = new HashSet<>(preRepeatExprs);
-        unMaterializedSlotRefs.removeIf(expr -> !(expr instanceof SlotRef));
+        ArrayList<Expr> originalPreRepeatExprs = new ArrayList<>(preRepeatExprs);
         preRepeatExprs = Expr.substituteList(preRepeatExprs, smap, analyzer, true);
 
         // remove unmaterialized slotRef from preRepeatExprs
-        preRepeatExprs.removeIf(expr -> expr instanceof SlotRef && !((SlotRef) expr).getDesc().isMaterialized());
-        for (Expr expr : preRepeatExprs) {
-            Expr toRemove = smap.mappingForRhsExpr(expr);
-            // now all slotRefs in preRepeatExprs are materialized, so remove it from unMaterializedSlotRefs
-            unMaterializedSlotRefs.remove(toRemove != null ? toRemove : expr);
+        ArrayList<Expr> materializedPreRepeatExprs = new ArrayList<>();
+        ArrayList<Expr> unMaterializedSlotRefs = new ArrayList<>();
+        for (int i = 0; i < preRepeatExprs.size(); ++i) {
+            Expr expr = preRepeatExprs.get(i);
+            if (expr instanceof SlotRef && !((SlotRef) expr).getDesc().isMaterialized()) {
+                unMaterializedSlotRefs.add(originalPreRepeatExprs.get(i));
+            } else {
+                materializedPreRepeatExprs.add(expr);
+            }
         }
+        preRepeatExprs = materializedPreRepeatExprs;
 
         // remove unmaterialized slotRef from outputTupleSmap and outputTupleDesc if there is any
         for (Expr expr : unMaterializedSlotRefs) {
