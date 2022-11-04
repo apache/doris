@@ -23,7 +23,8 @@ under the License.
 -->
 
 ## SEQUENCE-MATCH
-### Syntax
+### Description
+#### Syntax
 
 `sequence_match(pattern, timestamp, cond1, cond2, ...);`
 
@@ -33,7 +34,7 @@ under the License.
 
 在同一秒钟发生的事件可能以未定义的顺序排列在序列中，影响最终结果。
 
-### Arguments
+#### Arguments
 
 `pattern` — 模式字符串.
 
@@ -58,7 +59,7 @@ under the License.
 
 `cond1`, `cond2` — 事件链的约束条件。 数据类型是： `UInt8`。 最多可以传递32个条件参数。 该函数只考虑这些条件中描述的事件。 如果序列包含未在条件中描述的数据，则函数将跳过这些数据。
 
-### Returned value
+#### Returned value
 
 1，如果模式匹配。
 
@@ -256,3 +257,7 @@ SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5, number = 6) FROM
 |                                                                            1 |
 +------------------------------------------------------------------------------+
 ```
+
+### keywords
+
+SEQUENCE_MATCH

@@ -23,7 +23,8 @@ under the License.
 -->
 
 ## SEQUENCE-COUNT
-### Syntax
+### Description
+#### Syntax
 
 `sequence_count(pattern, timestamp, cond1, cond2, ...);`
 
@@ -33,7 +34,7 @@ Counts the number of event chains that matched the pattern. The function searche
 
 Events that occur at the same second may lay in the sequence in an undefined order affecting the result.
 
-### Arguments
+#### Arguments
 
 `pattern` — Pattern string.
 
@@ -58,7 +59,7 @@ We describe `t` by a direct interpolation of the two times,  For example, patter
 
 `cond1`, `cond2` — Conditions that describe the chain of events. Data type: `UInt8`. You can pass up to 32 condition arguments. The function takes only the events described in these conditions into account. If the sequence contains data that isn’t described in a condition, the function skips them.
 
-### Returned value
+#### Returned value
 
 Number of non-overlapping event chains that are matched.
 
@@ -254,3 +255,7 @@ SELECT sequence_count('(?1)(?2)', date, number = 1, number = 5, number = 6) FROM
 |                                                                            1 |
 +------------------------------------------------------------------------------+
 ```
+
+### keywords
+
+SEQUENCE_COUNT
