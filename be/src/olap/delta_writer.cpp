@@ -398,7 +398,7 @@ void DeltaWriter::save_mem_consumption_snapshot() {
         _memtable_consumption_snapshot = 0;
     } else {
         _memtable_consumption_snapshot = _mem_table->memory_usage();
-    }    
+    }
 }
 
 int64_t DeltaWriter::get_memtable_consumption_inflush() const {
