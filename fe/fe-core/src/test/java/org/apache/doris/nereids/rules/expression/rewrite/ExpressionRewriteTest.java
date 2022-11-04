@@ -207,9 +207,9 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 new DecimalLiteral(new BigDecimal(1)));
         assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalType.createDecimalType(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
-        assertRewrite(new Cast(new IntegerLiteral( 1), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new IntegerLiteral(1), DecimalType.createDecimalType(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
-        assertRewrite(new Cast(new BigIntLiteral( 1L), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new BigIntLiteral(1L), DecimalType.createDecimalType(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
     }
 }
