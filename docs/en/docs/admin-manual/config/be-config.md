@@ -1590,3 +1590,21 @@ Translated with www.DeepL.com/Translator (free version)
 * Type：int64
 * Description：Save time of cache file, in seconds
 * Default：604800（1 week）
+
+### `enable_segcompaction`
+
+* Type: bool
+* Description: Enable to use segment compaction during loading
+* Default value: false
+
+### `segcompaction_threshold_segment_num`
+
+* Type: int32
+* Description: Trigger segcompaction if the num of segments in a rowset exceeds this threshold
+* Default value: 10
+
+### `segcompaction_small_threshold`
+
+* Type: int32
+* Description: The segment whose row number above the threshold will be compacted during segcompaction
+* Default value: 1048576
