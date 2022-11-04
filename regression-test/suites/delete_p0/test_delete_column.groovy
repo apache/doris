@@ -185,7 +185,7 @@ qt_sql """ select * from ${tb_name_1},${tb_name_2},${tb_name_3} where ${tb_name_
 qt_sql """ delete from ${tb_name_1} WHERE a= 1 and b=3 ; """
 qt_sql """ delete from ${tb_name_2} WHERE a= 1 and b=3 ; """
 qt_sql """ delete from ${tb_name_3} WHERE a= 1 and b=3 ; """
-qt_sql """ select * from ${tb_name_3}; """
+qt_sql """ select * from ${tb_name_3} order by a; """
 qt_sql """ drop table ${tb_name_1}; """
 qt_sql """ drop table ${tb_name_2}; """
 qt_sql """ drop table ${tb_name_3}; """
