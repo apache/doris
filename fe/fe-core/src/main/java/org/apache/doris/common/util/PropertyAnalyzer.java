@@ -786,8 +786,11 @@ public class PropertyAnalyzer {
     /**
      * Check the type property of the catalog props.
      */
-    public static void checkCatalogProperties(Map<String, String> properties) throws AnalysisException {
-        if (!properties.containsKey("type")) {
+    public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
+            throws AnalysisException {
+        if (!properties.containsKey("type") && !isAlter) {
+            // For "alter catalog" stmt, no need to contain "type".
+            // For "create catalog" stmt, must contain "type"
             throw new AnalysisException("All the external catalog should contain the 'type' property.");
         }
 

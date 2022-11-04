@@ -130,7 +130,7 @@ public class HMSExternalTable extends ExternalTable {
         Map<String, String> paras = remoteTable.getParameters();
         if (paras == null) {
             return false;
-        }Å
+        }
         boolean isIcebergTable = paras.containsKey("table_type")
                 && paras.get("table_type").equalsIgnoreCase("ICEBERG");
         boolean isMorInDelete = paras.containsKey("write.delete.mode")
@@ -349,7 +349,6 @@ public class HMSExternalTable extends ExternalTable {
     public Map<String, String> getS3Properties() {
         return catalog.getCatalogProperty().getS3Properties();
     }
-
 
     public List<Partition> getHivePartitions(ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
         List<Partition> hivePartitions = new ArrayList<>();

@@ -74,7 +74,7 @@ public class CreateCatalogStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
-        PropertyAnalyzer.checkCatalogProperties(properties);
+        PropertyAnalyzer.checkCatalogProperties(properties, false);
     }
 
     @Override

@@ -113,7 +113,7 @@ public class FeNameFormat {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
         }
     }
-    
+
     public static String getColumnNameRegex() {
         return COLUMN_NAME_REGEX;
     }
