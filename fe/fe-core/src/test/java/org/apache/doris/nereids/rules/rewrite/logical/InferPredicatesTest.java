@@ -312,13 +312,12 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                                     logicalOlapScan()
                             ).when(filer -> filer.getPredicates().toSql().contains("id > 1")),
                             logicalProject(
-                                    logicalFilter(
-                                            logicalAggregate(
-                                                    logicalProject(
-                                                            logicalOlapScan()
-                                                    )
-                                            )
-                                    ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                                    logicalAggregate(
+                                            logicalProject(
+                                                    logicalFilter(
+                                                    logicalOlapScan()
+                                            ).when(filer -> filer.getPredicates().toSql().contains("sid > 1"))
+                                    ))
                             )
                     )
                 );
