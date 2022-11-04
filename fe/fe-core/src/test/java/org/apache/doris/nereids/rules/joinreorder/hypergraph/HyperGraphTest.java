@@ -17,24 +17,12 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
-import org.apache.doris.nereids.pattern.GroupExpressionMatching;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorderGroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.util.LogicalPlanBuilder;
-import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Test;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class HyperGraphTest {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -45,15 +33,13 @@ public class HyperGraphTest {
 
     @Test
     void testHyperGraph() {
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan5, JoinType.INNER_JOIN, Pair.of(0, 0))
+        HyperGraph hyperGraph = new HyperGraphBuilder()
+                .init("t1", 0)
+                .join(JoinType.INNER_JOIN, "t2", 0)
+                .join(JoinType.INNER_JOIN, "t3", 0)
+                .join(JoinType.INNER_JOIN, "t4", 0)
+                .join(JoinType.INNER_JOIN, "t5", 0)
                 .build();
-
-        Plan joinCluster = extractJoinCluster(plan);
-        HyperGraph hyperGraph = HyperGraph.fromPlan(joinCluster);
         String dottyGraph = hyperGraph.toDottyHyperGraph();
         String target = "digraph G {  # 2 edges\n"
                 + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0 \n"
@@ -71,28 +57,5 @@ public class HyperGraphTest {
                 + "}\n";
         assert dottyGraph.equals(target) : dottyGraph;
 
-    }
-
-    Plan extractJoinCluster(Plan plan) {
-        Rule rule = new HyperGraphJoinReorderGroupPlan().build();
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
-                plan);
-        deriveStats(cascadesContext);
-        GroupExpressionMatching groupExpressionMatching
-                = new GroupExpressionMatching(rule.getPattern(),
-                cascadesContext.getMemo().getRoot().getLogicalExpression());
-        List<Plan> planList = new ArrayList<>();
-        for (Plan matchingPlan : groupExpressionMatching) {
-            planList.add(matchingPlan);
-        }
-        assert planList.size() == 1 : "Now we only support one join cluster";
-        return planList.get(0);
-    }
-
-    private void deriveStats(CascadesContext cascadesContext) {
-        cascadesContext.pushJob(
-                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                        cascadesContext.getCurrentJobContext()));
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 }
