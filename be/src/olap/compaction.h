@@ -64,7 +64,7 @@ protected:
     Status modify_rowsets();
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(TabletSchemaSPtr schema);
+    Status construct_output_rowset_writer(TabletSchemaSPtr schema, bool is_vertical);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
@@ -72,6 +72,9 @@ protected:
     Status find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                                             std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
+
+    bool should_vertical_compaction();
+    int64_t get_avg_segment_rows();
 
 protected:
     // the root tracker for this compaction

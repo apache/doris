@@ -85,7 +85,7 @@ private:
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
 
-private:
+protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 

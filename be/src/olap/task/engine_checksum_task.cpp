@@ -53,6 +53,7 @@ Status EngineChecksumTask::_compute_checksum() {
     TupleReader reader;
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
+    reader_params.tablet_schema = tablet->tablet_schema();
     reader_params.reader_type = READER_CHECKSUM;
     reader_params.version = Version(0, _version);
 
