@@ -21,8 +21,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudf_string") {
-    def tableName = "test_javaudf_string"
+suite("test_javaudf_case") {
+    def tableName = "test_javaudf_dateWindowRollup"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
@@ -30,44 +30,38 @@ suite("test_javaudf_string") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
-            `user_id`     INT         NOT NULL COMMENT "用户id",
-            `char_col`    CHAR        NOT NULL COMMENT "",
-            `varchar_col` VARCHAR(10) NOT NULL COMMENT "",
-            `string_col`  STRING      NOT NULL COMMENT ""
+            `starttime` Date NOT NULL COMMENT "",
+            `start`     int NOT NULL COMMENT "",
+            `end`       int COMMENT ""
             )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
+            DISTRIBUTED BY HASH(starttime) PROPERTIES("replication_num" = "1");
         """
-        StringBuilder sb = new StringBuilder()
-        int i = 1
-        for (; i < 9; i ++) {
-            sb.append("""
-                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),
-            """)
-        }
-        sb.append("""
-                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg')
-            """)
-        sql """ INSERT INTO ${tableName} VALUES
-             ${sb.toString()}
+        
+        
+        sql """ INSERT INTO ${tableName} (`starttime`,`start`,`end`) VALUES
+                ("2022-10-21",-3,0),
+                ("2022-10-25",-7,-3),
+                ("2022-10-26",-7,null)
             """
-        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY starttime; """
 
         File path = new File(jarPath)
         if (!path.exists()) {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
-        sql """ CREATE FUNCTION java_udf_string_test(string, int, int) RETURNS string PROPERTIES (
+        sql """ CREATE FUNCTION java_udf_dateWindowRollup_test(date,int,int) RETURNS String PROPERTIES (
             "file"="file://${jarPath}",
-            "symbol"="org.apache.doris.udf.StringTest",
+            "symbol"="org.apache.doris.udf.DateWindowRollup",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_string_test(varchar_col, 2, 3) result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_string_test('abcdef', 2, 3), java_udf_string_test('abcdefg', 2, 3) result FROM ${tableName} ORDER BY result; """
+        qt_select """ SELECT java_udf_dateWindowRollup_test("2022-10-24",-7,0) as result; """
+        qt_select """ SELECT java_udf_dateWindowRollup_test(null,-7,0) as result ; """
+        qt_select """ SELECT starttime,java_udf_dateWindowRollup_test(starttime,start,end) as sum FROM ${tableName} order by starttime; """
+        
 
-        sql """ DROP FUNCTION java_udf_string_test(string, int, int); """
+        sql """ DROP FUNCTION java_udf_dateWindowRollup_test(date,int,int); """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
