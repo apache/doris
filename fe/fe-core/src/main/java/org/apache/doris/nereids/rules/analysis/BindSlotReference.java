@@ -68,14 +68,15 @@ import java.util.stream.Stream;
  * BindSlotReference.
  */
 public class BindSlotReference implements AnalysisRuleFactory {
+
     private final Optional<Scope> outerScope;
 
     public BindSlotReference() {
         this(Optional.empty());
     }
 
-    public BindSlotReference(Optional<Scope> outputScope) {
-        this.outerScope = Objects.requireNonNull(outputScope, "outerScope can not be null");
+    public BindSlotReference(Optional<Scope> outerScope) {
+        this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
     }
 
     private Scope toScope(List<Slot> slots) {
@@ -217,6 +218,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
         @Override
         public Expression visitUnboundAlias(UnboundAlias unboundAlias, PlannerContext context) {
             Expression child = unboundAlias.child().accept(this, context);
+            if (unboundAlias.getAlias().isPresent()) {
+                return new Alias(child, unboundAlias.getAlias().get());
+            }
             if (child instanceof NamedExpression) {
                 return new Alias(child, ((NamedExpression) child).getName());
             } else {

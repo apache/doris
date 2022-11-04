@@ -43,8 +43,8 @@ Status IntersectNode::init(const TPlanNode& tnode, RuntimeState* state) {
 // 2 probe with child(1), then filter the hash table and find the matched item, use them to rebuild a hash table
 // repeat [2] this for all the rest child
 Status IntersectNode::open(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(SetOperationNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
         _hash_tbl_iterator = _hash_tbl->begin();

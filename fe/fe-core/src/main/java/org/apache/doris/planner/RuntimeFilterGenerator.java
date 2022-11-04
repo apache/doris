@@ -222,7 +222,8 @@ public final class RuntimeFilterGenerator {
             // from the ON clause.
             if (!joinNode.getJoinOp().isLeftOuterJoin()
                     && !joinNode.getJoinOp().isFullOuterJoin()
-                    && !joinNode.getJoinOp().equals(JoinOperator.LEFT_ANTI_JOIN)) {
+                    && !joinNode.getJoinOp().equals(JoinOperator.LEFT_ANTI_JOIN)
+                    && !joinNode.getJoinOp().equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 joinConjuncts.addAll(joinNode.getEqJoinConjuncts());
             }
 

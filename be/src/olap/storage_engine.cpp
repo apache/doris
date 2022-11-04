@@ -81,6 +81,8 @@ using strings::Substitute;
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(segcompaction_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "segcompaction"}}));
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "compaction"}}));
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(schema_change_mem_consumption, MetricUnit::BYTES, "",
@@ -110,6 +112,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
+          _segcompaction_mem_tracker(
+                  std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::SegCompaction")),
           _compaction_mem_tracker(
                   std::make_shared<MemTrackerLimiter>(-1, "StorageEngine::AutoCompaction")),
           _segment_meta_mem_tracker(std::make_unique<MemTracker>("StorageEngine::SegmentMeta")),
@@ -134,6 +138,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
+    REGISTER_HOOK_METRIC(segcompaction_mem_consumption,
+                         [this]() { return _segcompaction_mem_tracker->consumption(); });
     REGISTER_HOOK_METRIC(compaction_mem_consumption,
                          [this]() { return _compaction_mem_tracker->consumption(); });
     REGISTER_HOOK_METRIC(schema_change_mem_consumption,
@@ -142,6 +148,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
+    DEREGISTER_HOOK_METRIC(segcompaction_mem_consumption);
     DEREGISTER_HOOK_METRIC(compaction_mem_consumption);
     DEREGISTER_HOOK_METRIC(schema_change_mem_consumption);
     _clear();
@@ -151,6 +158,14 @@ StorageEngine::~StorageEngine() {
     }
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
+    }
+
+    if (_quick_compaction_thread_pool) {
+        _quick_compaction_thread_pool->shutdown();
+    }
+
+    if (_seg_compaction_thread_pool) {
+        _seg_compaction_thread_pool->shutdown();
     }
 
     if (_tablet_meta_checkpoint_thread_pool) {

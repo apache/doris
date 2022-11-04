@@ -144,6 +144,11 @@ private:
         }
     }
 
+    std::string _debug_string() override {
+        std::string info = "LikeColumnPredicate";
+        return info;
+    }
+
     std::string _origin;
     // life time controlled by scan node
     doris_udf::FunctionContext* _fn_ctx;

@@ -155,25 +155,26 @@ public class TableFunctionNode extends PlanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "table function: ");
+        output.append(prefix).append("table function: ");
         for (Expr fnExpr : fnCallExprList) {
-            output.append(fnExpr.toSql() + " ");
+            output.append(fnExpr.toSql()).append(" ");
         }
         output.append("\n");
 
-        output.append(prefix + "lateral view tuple id: ");
+        output.append(prefix).append("lateral view tuple id: ");
         for (TupleId tupleId : lateralViewTupleIds) {
-            output.append(tupleId.asInt() + " ");
+            output.append(tupleId.asInt()).append(" ");
         }
         output.append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
             return output.toString();
         }
 
-        output.append(prefix + "output slot id: ");
+        output.append(prefix).append("output slot id: ");
         for (SlotId slotId : outputSlotIds) {
-            output.append(slotId.asInt() + " ");
+            output.append(slotId.asInt()).append(" ");
         }
         output.append("\n");
 

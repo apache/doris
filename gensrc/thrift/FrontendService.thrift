@@ -678,6 +678,17 @@ struct TWaitingTxnStatusResult {
     2: optional i32 txn_status_id
 }
 
+struct TInitExternalCtlMetaRequest {
+    1: optional i64 catalogId
+    2: optional i64 dbId
+    3: optional i64 tableId
+}
+
+struct TInitExternalCtlMetaResult {
+    1: optional i64 maxJournalId;
+    2: optional string status;
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -713,4 +724,5 @@ service FrontendService {
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 
     AgentService.TGetStoragePolicyResult refreshStoragePolicy()
+    TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 }

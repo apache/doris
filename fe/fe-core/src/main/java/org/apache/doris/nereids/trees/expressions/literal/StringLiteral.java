@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.StringType;
 /**
  * Represents String literal
  */
-public class StringLiteral extends Literal {
+public class StringLiteral extends StringLikeLiteral {
 
     private final String value;
 
@@ -34,25 +34,13 @@ public class StringLiteral extends Literal {
      * @param value real value stored in java object
      */
     public StringLiteral(String value) {
-        super(StringType.INSTANCE);
+        super(value, StringType.INSTANCE);
         this.value = value;
     }
 
     @Override
     public String getValue() {
         return value;
-    }
-
-    @Override
-    public double getDouble() {
-        long v = 0;
-        int pos = 0;
-        int len = Math.min(value.length(), 8);
-        while (pos < len) {
-            v += ((long) value.charAt(pos)) << ((7 - pos) * 8);
-            pos++;
-        }
-        return (double) v;
     }
 
     @Override

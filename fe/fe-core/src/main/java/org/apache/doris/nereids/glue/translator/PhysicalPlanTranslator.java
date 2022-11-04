@@ -48,7 +48,6 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
@@ -143,6 +142,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalAggregate(
             PhysicalAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
+
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
 
         // TODO: stale planner generate aggregate tuple in a special way. tuple include 2 parts:
@@ -177,7 +177,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .flatMap(Set::stream)
                 .collect(Collectors.toList());
         ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateFunctionList.stream()
-                .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
+                .map(aggregateFunction -> (FunctionCallExpr) ExpressionTranslator.translate(aggregateFunction, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
         // process partition list
@@ -251,6 +251,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 throw new RuntimeException("Unsupported yet");
         }
         currentFragment.setPlanRoot(aggregationNode);
+        if (aggregate.getStats() != null) {
+            aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
+        }
         return currentFragment;
     }
 
@@ -267,7 +270,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             slotRef.setLabel(slot.getName());
         }
 
-        ArrayList<TupleId> tupleIds = new ArrayList();
+        ArrayList<TupleId> tupleIds = new ArrayList<>();
         tupleIds.add(tupleDescriptor.getId());
         EmptySetNode emptySetNode = new EmptySetNode(context.nextPlanNodeId(), tupleIds);
 
@@ -292,10 +295,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
             Expr expr = legacyExprs.get(i);
             slotDescriptor.setSourceExpr(expr);
-            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
+            slotDescriptor.setIsNullable(legacyExprs.get(i).isNullable());
         }
 
         UnionNode unionNode = new UnionNode(context.nextPlanNodeId(), oneRowTuple.getId());
+        unionNode.setCardinality(1L);
         unionNode.addConstExprList(legacyExprs);
         unionNode.finalizeForNereids(oneRowTuple, oneRowTuple.getSlots());
 
@@ -372,11 +376,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      *       After a+1 can be parsed , reprocessing.
      */
     @Override
-    public PlanFragment visitLogicalSort(LogicalSort<? extends Plan> sort, PlanTranslatorContext context) {
-        return super.visitLogicalSort(sort, context);
-    }
-
-    @Override
     public PlanFragment visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort,
             PlanTranslatorContext context) {
         PlanFragment childFragment = visitAbstractPhysicalSort(sort, context);
@@ -442,6 +441,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode childNode = childFragment.getPlanRoot();
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true);
         sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
+        if (sort.getStats() != null) {
+            sortNode.setCardinality((long) sort.getStats().getRowCount());
+        }
         childFragment.addPlanRoot(sortNode);
         return childFragment;
     }
@@ -663,6 +665,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hashJoinNode.setvOutputTupleDesc(outputDescriptor);
             hashJoinNode.setvSrcToOutputSMap(srcToOutput);
         }
+        if (hashJoin.getStats() != null) {
+            hashJoinNode.setCardinality((long) hashJoin.getStats().getRowCount());
+        }
         return currentFragment;
     }
 
@@ -687,6 +692,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextPlanNodeId(),
                     leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds);
+            if (nestedLoopJoin.getStats() != null) {
+                crossJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
+            }
             rightFragment.getPlanRoot().setCompactData(false);
             crossJoinNode.setChild(0, leftFragment.getPlanRoot());
             connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);

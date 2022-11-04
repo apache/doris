@@ -67,9 +67,9 @@ suite("test_explain_tpch_sf_1_q16") {
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
 				"  |  group by: <slot 29>, <slot 30>, <slot 31>, <slot 27>") && 
-		explainStr.contains("join op: LEFT ANTI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+		explainStr.contains("join op: NULL AWARE LEFT ANTI JOIN(BROADCAST)[Build side of null aware left anti join must be broadcast]\n" +
 				"  |  equal join conjunct: <slot 21> = `s_suppkey`") && 
-		explainStr.contains("vec output tuple id: 8") && 
+		explainStr.contains("vec output tuple id: 8") &&
 		explainStr.contains("output slot ids: 27 29 30 31 \n" + 
 				"  |  hash output slot ids: 21 23 24 25 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 

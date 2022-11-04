@@ -175,7 +175,7 @@ public class JdbcExecutor {
 
     public long convertDateToLong(Object obj) {
         LocalDate date = ((Date) obj).toLocalDate();
-        long time = UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+        long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 0, 0, 0, true);
         return time;
     }
@@ -188,7 +188,7 @@ public class JdbcExecutor {
         } else {
             date = ((Timestamp) obj).toLocalDateTime();
         }
-        long time = UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+        long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 date.getHour(), date.getMinute(), date.getSecond(), false);
         return time;
     }

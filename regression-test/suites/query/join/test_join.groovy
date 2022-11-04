@@ -1166,6 +1166,7 @@ suite("test_join", "query,p0") {
                 order by 1, 2, 3, 4, 5 limit 65535"""
     }
 
+    qt_right_anti_join_with_other_pred "select t.k1 from ${tbName2} b right anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by t.k1"
 
     // join with no join keyword
     for (s in selected){

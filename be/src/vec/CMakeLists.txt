@@ -99,8 +99,7 @@ set(VEC_FILES
   exec/vintersect_node.cpp
   exec/vexcept_node.cpp
   exec/vselect_node.cpp
-  exec/vblocking_join_node.cpp
-  exec/vcross_join_node.cpp
+  exec/vnested_loop_join_node.cpp
   exec/vodbc_scan_node.cpp
   exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp

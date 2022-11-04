@@ -21,20 +21,29 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class RecoverInfo implements Writable {
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "newDbName")
     private String newDbName;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "newTableName")
     private String newTableName;
+    @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "newPartitionName")
     private String newPartitionName;
 
-    public RecoverInfo() {
+    private RecoverInfo() {
         // for persist
     }
 
@@ -74,24 +83,23 @@ public class RecoverInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-
-        Text.writeString(out, newDbName);
-        Text.writeString(out, newTableName);
-        Text.writeString(out, newPartitionName);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionId = in.readLong();
+    public static RecoverInfo read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
-            newDbName = Text.readString(in);
-            newTableName = Text.readString(in);
-            newPartitionName = Text.readString(in);
+            return GsonUtils.GSON.fromJson(Text.readString(in), RecoverInfo.class);
+        } else {
+            RecoverInfo recoverInfo = new RecoverInfo();
+            recoverInfo.readFields(in);
+            return recoverInfo;
         }
     }
 
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
+        dbId = in.readLong();
+        tableId = in.readLong();
+        partitionId = in.readLong();
+    }
 }

@@ -21,6 +21,13 @@ import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewri
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 /**
  * Rewrite rule of simplify CAST expression.
@@ -35,24 +42,38 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitCast(Cast origin, ExpressionRewriteContext context) {
-        return simplify(origin);
+        return simplify(origin, context);
     }
 
-    private Expression simplify(Cast cast) {
-        Expression source = cast.child();
-        // simplify inside
-        if (source instanceof Cast) {
-            source = simplify((Cast) source);
-        }
+    private Expression simplify(Cast cast, ExpressionRewriteContext context) {
+        Expression child = rewrite(cast.child(), context);
 
         // remove redundant cast
         // CAST(value as type), value is type
-        if (cast.getDataType().equals(source.getDataType())) {
-            return source;
+        if (cast.getDataType().equals(child.getDataType())) {
+            return child;
         }
 
-        if (source != cast.child()) {
-            return new Cast(source, cast.getDataType());
+        if (child instanceof Literal) {
+            // TODO: just trick here, process other type
+            DataType castType = cast.getDataType();
+            if (castType instanceof StringType) {
+                if (child instanceof VarcharLiteral) {
+                    return new StringLiteral(((VarcharLiteral) child).getValue());
+                } else if (child instanceof CharLiteral) {
+                    return new StringLiteral(((CharLiteral) child).getValue());
+                }
+            } else if (castType instanceof VarcharType) {
+                if (child instanceof VarcharLiteral) {
+                    return new VarcharLiteral(((VarcharLiteral) child).getValue(), ((VarcharType) castType).getLen());
+                } else if (child instanceof CharLiteral) {
+                    return new VarcharLiteral(((CharLiteral) child).getValue(), ((VarcharType) castType).getLen());
+                }
+            }
+        }
+
+        if (child != cast.child()) {
+            return new Cast(child, cast.getDataType());
         }
         return cast;
     }

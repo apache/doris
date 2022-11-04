@@ -513,6 +513,10 @@ public class CreateFunctionStmt extends DdlStmt {
         }
     }
 
+    public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
+            org.joda.time.LocalDate.class);
+    public static final Set<Class> DATETIME_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
+            org.joda.time.DateTime.class, org.joda.time.LocalDateTime.class);
     private static final ImmutableMap<PrimitiveType, Set<Class>> PrimitiveTypeToJavaClassType =
             new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
                     .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
@@ -525,10 +529,10 @@ public class CreateFunctionStmt extends DdlStmt {
                     .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.DATE, Sets.newHashSet(LocalDate.class))
-                    .put(PrimitiveType.DATEV2, Sets.newHashSet(LocalDate.class))
-                    .put(PrimitiveType.DATETIME, Sets.newHashSet(LocalDateTime.class))
-                    .put(PrimitiveType.DATETIMEV2, Sets.newHashSet(LocalDateTime.class))
+                    .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATETIMEV2, DATETIME_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
                     .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))

@@ -439,7 +439,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 dropPartitionClauses = getDropPartitionClause(db, olapTable, partitionColumn, partitionFormat);
                 tableName = olapTable.getName();
             } catch (DdlException e) {
-                e.printStackTrace();
+                LOG.warn("should not happen", e);
             } finally {
                 olapTable.readUnlock();
             }

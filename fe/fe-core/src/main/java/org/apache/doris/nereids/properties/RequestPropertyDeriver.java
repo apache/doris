@@ -61,6 +61,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         this.requestPropertyFromParent = context.getRequiredProperties();
     }
 
+    /**
+     * get request children property list
+     */
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
         groupExpression.getPlan().accept(this, new PlanContext(groupExpression));

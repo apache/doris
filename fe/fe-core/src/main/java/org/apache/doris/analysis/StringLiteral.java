@@ -96,9 +96,9 @@ public class StringLiteral extends LiteralExpr {
         int minLength = Math.min(thisBytes.length, otherBytes.length);
         int i = 0;
         for (i = 0; i < minLength; i++) {
-            if (thisBytes[i] < otherBytes[i]) {
+            if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
                 return -1;
-            } else if (thisBytes[i] > otherBytes[i]) {
+            } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
                 return 1;
             }
         }
@@ -149,6 +149,11 @@ public class StringLiteral extends LiteralExpr {
     @Override
     public String getStringValue() {
         return value;
+    }
+
+    @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
     }
 
     @Override

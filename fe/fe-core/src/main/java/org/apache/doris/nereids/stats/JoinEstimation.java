@@ -150,7 +150,7 @@ public class JoinEstimation {
     /**
      * estimate join
      */
-    public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
+    public static StatsDeriveResult estimateV2(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
         JoinType joinType = join.getJoinType();
         double rowCount = Double.MAX_VALUE;
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
@@ -196,7 +196,10 @@ public class JoinEstimation {
      * Do estimate.
      * // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
      */
-    public static StatsDeriveResult estimate2(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
+    public static StatsDeriveResult estimate(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableNereidsStatsDeriveV2) {
+            return estimateV2(leftStats, rightStats, join);
+        }
         JoinType joinType = join.getJoinType();
         // TODO: normalize join hashConjuncts.
         // List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();

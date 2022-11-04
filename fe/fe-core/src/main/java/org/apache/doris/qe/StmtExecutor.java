@@ -93,6 +93,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -211,6 +212,7 @@ public class StmtExecutor implements ProfileWriter {
             this.statementContext.setConnectContext(ctx);
             this.statementContext.setOriginStatement(originStmt);
             this.statementContext.setParsedStatement(parsedStmt);
+            this.statementContext.setCteContext(new CTEContext());
         } else {
             this.statementContext = new StatementContext(ctx, originStmt);
             this.statementContext.setParsedStatement(parsedStmt);
@@ -218,14 +220,20 @@ public class StmtExecutor implements ProfileWriter {
         this.context.setStatementContext(statementContext);
     }
 
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) {
-        if (cols.size() == 0) {
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+        if (cols.isEmpty()) {
             return null;
         }
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
         for (Expr expr : cols) {
+            if (!expr.isLiteralOrCastExpr()) {
+                throw new UserException(
+                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
+            }
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
+            } else if (expr instanceof ArrayLiteral) {
+                row.addColBuilder().setValue(expr.getStringValueForArray());
             } else {
                 row.addColBuilder().setValue(expr.getStringValue());
             }
@@ -430,7 +438,7 @@ public class StmtExecutor implements ProfileWriter {
                             throw e.getException();
                         }
                         // fall back to legacy planner
-                        LOG.info("fall back to legacy planner, because: {}", e.getMessage());
+                        LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
                         analyze(context.getSessionVariable().toThrift());
                     }
@@ -538,8 +546,8 @@ public class StmtExecutor implements ProfileWriter {
                         queryType = "Insert";
                     }
                 } catch (Throwable t) {
-                    LOG.warn("handle insert stmt fail", t);
-                    // the transaction of this insert may already begun, we will abort it at outer finally block.
+                    LOG.warn("handle insert stmt fail: {}", t.getMessage());
+                    // the transaction of this insert may already begin, we will abort it at outer finally block.
                     throw t;
                 }
             } else if (parsedStmt instanceof DdlStmt) {
@@ -716,10 +724,10 @@ public class StmtExecutor implements ProfileWriter {
                 } catch (UserException e) {
                     throw e;
                 } catch (Exception e) {
+                    LOG.error("Analyze failed. {}", context.getQueryIdentifier(), e);
                     if (parsedStmt instanceof LogicalPlanAdapter) {
-                        throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage()));
+                        throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
                     }
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());
                 } finally {
                     MetaLockUtils.readUnlockTables(tables);
@@ -1775,3 +1783,4 @@ public class StmtExecutor implements ProfileWriter {
         return parsedStmt;
     }
 }
+

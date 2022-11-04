@@ -50,6 +50,9 @@ public enum RuleType {
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
+    REGISTER_CTE(RuleTypeClass.REWRITE),
+
+    RELATION_AUTHENTICATION(RuleTypeClass.VALIDATION),
 
     // check analysis rule
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
@@ -58,6 +61,7 @@ public enum RuleType {
     NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
     AGGREGATE_DISASSEMBLE(RuleTypeClass.REWRITE),
     COLUMN_PRUNE_PROJECTION(RuleTypeClass.REWRITE),
+    ELIMINATE_UNNECESSARY_PROJECT(RuleTypeClass.REWRITE),
     ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
 
     PROJECT_ELIMINATE_ALIAS_NODE(RuleTypeClass.REWRITE),
@@ -85,7 +89,7 @@ public enum RuleType {
     PUSHDOWN_FILTER_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSHDOWN_FILTER_THROUGH_LEFT_SEMI_JOIN(RuleTypeClass.REWRITE),
     PUSH_FILTER_INSIDE_JOIN(RuleTypeClass.REWRITE),
-    PUSHDOWN_FILTER_THROUGH_PROJET(RuleTypeClass.REWRITE),
+    PUSHDOWN_FILTER_THROUGH_PROJECT(RuleTypeClass.REWRITE),
     PUSHDOWN_PROJECT_THROUGHT_LIMIT(RuleTypeClass.REWRITE),
     // column prune rules,
     COLUMN_PRUNE_AGGREGATION_CHILD(RuleTypeClass.REWRITE),
@@ -106,7 +110,7 @@ public enum RuleType {
     // Eliminate plan
     ELIMINATE_LIMIT(RuleTypeClass.REWRITE),
     ELIMINATE_FILTER(RuleTypeClass.REWRITE),
-    ELIMINATE_OUTER(RuleTypeClass.REWRITE),
+    ELIMINATE_OUTER_JOIN(RuleTypeClass.REWRITE),
     FIND_HASH_CONDITION_FOR_JOIN(RuleTypeClass.REWRITE),
     MATERIALIZED_INDEX_AGG_SCAN(RuleTypeClass.REWRITE),
     MATERIALIZED_INDEX_AGG_FILTER_SCAN(RuleTypeClass.REWRITE),
@@ -156,6 +160,7 @@ public enum RuleType {
     LOGICAL_ASSERT_NUM_ROWS_TO_PHYSICAL_ASSERT_NUM_ROWS(RuleTypeClass.IMPLEMENTATION),
     IMPLEMENTATION_SENTINEL(RuleTypeClass.IMPLEMENTATION),
 
+    LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANPOSE_PROJECT(RuleTypeClass.EXPLORATION),
     // sentinel, use to count rules
     SENTINEL(RuleTypeClass.SENTINEL),
     ;
@@ -182,8 +187,10 @@ public enum RuleType {
     enum RuleTypeClass {
         REWRITE,
         EXPLORATION,
+        // This type is used for unit test only.
         CHECK,
         IMPLEMENTATION,
+        VALIDATION,
         SENTINEL,
         ;
     }
