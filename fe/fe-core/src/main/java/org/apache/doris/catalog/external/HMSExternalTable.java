@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.qe.MasterCatalogExecutor;
@@ -113,7 +114,8 @@ public class HMSExternalTable extends ExternalTable {
                 try {
                     remoteExecutor.forward(catalog.getId(), catalog.getDbNullable(dbName).getId(), id);
                 } catch (Exception e) {
-                    LOG.warn("Failed to forward init table {} operation to master. {}", name, e.getMessage());
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init external table %s operation to master", name), e);
                 }
                 return;
             }
@@ -128,7 +130,7 @@ public class HMSExternalTable extends ExternalTable {
         Map<String, String> paras = remoteTable.getParameters();
         if (paras == null) {
             return false;
-        }
+        }Å
         boolean isIcebergTable = paras.containsKey("table_type")
                 && paras.get("table_type").equalsIgnoreCase("ICEBERG");
         boolean isMorInDelete = paras.containsKey("write.delete.mode")
@@ -158,7 +160,9 @@ public class HMSExternalTable extends ExternalTable {
      * Now we only support three file input format hive tables: parquet/orc/text. And they must be managed_table.
      */
     private boolean supportedHiveTable() {
-        boolean isManagedTable = remoteTable.getTableType().equalsIgnoreCase("MANAGED_TABLE");
+        // boolean isManagedTable = remoteTable.getTableType().equalsIgnoreCase("MANAGED_TABLE");
+        // TODO: try to support EXTERNAL_TABLE
+        boolean isManagedTable = true;
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         boolean supportedFileFormat = inputFileFormat != null && supportedHiveFileFormats.contains(inputFileFormat);
         return isManagedTable && supportedFileFormat;
@@ -349,7 +353,7 @@ public class HMSExternalTable extends ExternalTable {
 
     public List<Partition> getHivePartitions(ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
         List<Partition> hivePartitions = new ArrayList<>();
-        IMetaStoreClient client = catalog.getClient();
+        IMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
         try {
             client.listPartitionsByExpr(remoteTable.getDbName(), remoteTable.getTableName(),
                     SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate),

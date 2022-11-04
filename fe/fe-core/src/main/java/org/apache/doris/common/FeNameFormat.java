@@ -20,7 +20,6 @@ package org.apache.doris.common;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloRole;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 
@@ -31,15 +30,6 @@ public class FeNameFormat {
     private static final String COLUMN_NAME_REGEX = "^[_a-zA-Z@][a-zA-Z0-9_]{0,63}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
-
-    public static void checkClusterName(String clusterName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(clusterName) || !clusterName.matches(COMMON_NAME_REGEX)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CLUSTER_NAME, clusterName);
-        }
-        if (clusterName.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CLUSTER_NAME, clusterName);
-        }
-    }
 
     public static void checkCatalogName(String catalogName) throws AnalysisException {
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName) && (Strings.isNullOrEmpty(catalogName)

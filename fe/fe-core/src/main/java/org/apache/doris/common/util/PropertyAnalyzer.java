@@ -788,10 +788,12 @@ public class PropertyAnalyzer {
      */
     public static void checkCatalogProperties(Map<String, String> properties) throws AnalysisException {
         if (!properties.containsKey("type")) {
-            throw new AnalysisException("All the external catalog should contain the type property.");
+            throw new AnalysisException("All the external catalog should contain the 'type' property.");
         }
-        try {
-            if (properties.get("type").equalsIgnoreCase("es")) {
+
+        // validate the properties of es catalog
+        if (properties.get("type").equalsIgnoreCase("es")) {
+            try {
                 if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
                     EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);
                 }
@@ -807,9 +809,9 @@ public class PropertyAnalyzer {
                 if (properties.containsKey(EsExternalCatalog.PROP_NODES_DISCOVERY)) {
                     EsUtil.getBoolean(properties, EsExternalCatalog.PROP_NODES_DISCOVERY);
                 }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
             }
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage());
         }
     }
 }

@@ -76,7 +76,7 @@ public class EsExternalCatalog extends ExternalCatalog {
     /**
      * Default constructor for EsExternalCatalog.
      */
-    public EsExternalCatalog(long catalogId, String name, Map<String, String> props) throws DdlException {
+    public EsExternalCatalog(long catalogId, String name, Map<String, String> props) {
         this.id = catalogId;
         this.name = name;
         this.type = "es";
@@ -85,30 +85,35 @@ public class EsExternalCatalog extends ExternalCatalog {
         this.catalogProperty.setProperties(props);
     }
 
-    private void setProperties(Map<String, String> properties) throws DdlException {
-        nodes = properties.get(PROP_HOSTS).trim().split(",");
-        if (properties.containsKey(PROP_SSL)) {
-            enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
-        }
+    private void setProperties(Map<String, String> properties) {
+        try {
+            nodes = properties.get(PROP_HOSTS).trim().split(",");
+            if (properties.containsKey(PROP_SSL)) {
+                enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
+            }
 
-        if (StringUtils.isNotBlank(properties.get(PROP_USERNAME))) {
-            username = properties.get(PROP_USERNAME).trim();
-        }
+            if (StringUtils.isNotBlank(properties.get(PROP_USERNAME))) {
+                username = properties.get(PROP_USERNAME).trim();
+            }
 
-        if (StringUtils.isNotBlank(properties.get(PROP_PASSWORD))) {
-            password = properties.get(PROP_PASSWORD).trim();
-        }
+            if (StringUtils.isNotBlank(properties.get(PROP_PASSWORD))) {
+                password = properties.get(PROP_PASSWORD).trim();
+            }
 
-        if (properties.containsKey(PROP_DOC_VALUE_SCAN)) {
-            enableDocValueScan = EsUtil.getBoolean(properties, PROP_DOC_VALUE_SCAN);
-        }
+            if (properties.containsKey(PROP_DOC_VALUE_SCAN)) {
+                enableDocValueScan = EsUtil.getBoolean(properties, PROP_DOC_VALUE_SCAN);
+            }
 
-        if (properties.containsKey(PROP_KEYWORD_SNIFF)) {
-            enableKeywordSniff = EsUtil.getBoolean(properties, PROP_KEYWORD_SNIFF);
-        }
+            if (properties.containsKey(PROP_KEYWORD_SNIFF)) {
+                enableKeywordSniff = EsUtil.getBoolean(properties, PROP_KEYWORD_SNIFF);
+            }
 
-        if (properties.containsKey(PROP_NODES_DISCOVERY)) {
-            enableNodesDiscovery = EsUtil.getBoolean(properties, PROP_NODES_DISCOVERY);
+            if (properties.containsKey(PROP_NODES_DISCOVERY)) {
+                enableNodesDiscovery = EsUtil.getBoolean(properties, PROP_NODES_DISCOVERY);
+            }
+        } catch (DdlException e) {
+            // should not happen. the properties are already checked in analysis phase.
+            throw new RuntimeException("should not happen", e);
         }
     }
 
@@ -119,12 +124,6 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     public synchronized void makeSureInitialized() {
         if (!objectCreated) {
-            try {
-                validate(catalogProperty.getProperties());
-            } catch (DdlException e) {
-                Util.logAndThrowRuntimeException(LOG, String.format("validate es catalog %s properties error", name),
-                        e);
-            }
             esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
             objectCreated = true;
         }
@@ -146,11 +145,6 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     private void init() {
         InitCatalogLog initCatalogLog = new InitCatalogLog();
-        try {
-            validate(this.catalogProperty.getProperties());
-        } catch (DdlException e) {
-            LOG.warn("validate error", e);
-        }
         this.esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.ES);
