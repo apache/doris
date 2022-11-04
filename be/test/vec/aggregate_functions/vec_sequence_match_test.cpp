@@ -21,7 +21,6 @@
 #include "gtest/gtest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/aggregate_function_topn.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
@@ -45,7 +44,7 @@ public:
         DataTypes data_types = {
                 std::make_shared<DataTypeString>(), std::make_shared<DataTypeDateTime>(),
                 std::make_shared<DataTypeUInt8>(),  std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),
+                std::make_shared<DataTypeUInt8>()
         };
         Array array;
         agg_function_sequence_match = factory.get("sequence_match", data_types, array, false);
@@ -185,7 +184,7 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
             std::make_shared<DataTypeString>(),
             std::make_shared<DataTypeDateTime>(),
             std::make_shared<DataTypeUInt8>(),
-            std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>()
     };
     Array array;
     agg_function_sequence_count = factory.get("sequence_count", data_types, array, false);
@@ -254,7 +253,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
             std::make_shared<DataTypeString>(),
             std::make_shared<DataTypeDateTime>(),
             std::make_shared<DataTypeUInt8>(),
-            std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>()
     };
     Array array;
     agg_function_sequence_match = factory.get("sequence_match", data_types, array, false);
@@ -347,7 +346,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
             std::make_shared<DataTypeString>(),
             std::make_shared<DataTypeDateTime>(),
             std::make_shared<DataTypeUInt8>(),
-            std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>()
     };
     Array array;
     agg_function_sequence_count = factory.get("sequence_count", data_types, array, false);
