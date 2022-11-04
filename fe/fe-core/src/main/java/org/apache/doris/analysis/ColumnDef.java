@@ -343,6 +343,9 @@ public class ColumnDef {
                 new FloatLiteral(defaultValue);
                 break;
             case DECIMALV2:
+                //no need to check precision and scale, since V2 is fixed point
+                new DecimalLiteral(defaultValue);
+                break;
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
