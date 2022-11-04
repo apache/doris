@@ -288,7 +288,7 @@ public class MTMVJob implements Writable {
         list.add(getSchedule() == null ? "NULL" : getSchedule().toString());
         list.add(getDbName());
         list.add(getMvName());
-        list.add(getQuery().substring(0, 10240));
+        list.add(getQuery().length() > 10240 ? getQuery().substring(0, 10240) : getQuery());
         list.add(getCreateUser());
         list.add(getRetryPolicy().toString());
         list.add(getState().toString());

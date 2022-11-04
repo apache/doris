@@ -223,13 +223,13 @@ public class MTMVTask implements Writable {
         list.add(getJobName());
         list.add(getDbName());
         list.add(getMvName());
-        list.add(getQuery().substring(0, 10240));
+        list.add(getQuery().length() > 10240 ? getQuery().substring(0, 10240) : getQuery());
         list.add(getUser());
         list.add(Integer.toString(getPriority()));
         list.add(Integer.toString(getRetryTimes()));
         list.add(getState().toString());
         list.add(Integer.toString(getErrorCode()));
-        list.add(getErrorMessage().substring(0, 10240));
+        list.add(getErrorMessage().length() > 10240 ? getErrorMessage().substring(0, 10240) : getErrorMessage());
         list.add(Long.toString(getCreateTime()));
         list.add(Long.toString(getExpireTime()));
         list.add(Long.toString(getFinishTime()));
