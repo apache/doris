@@ -157,7 +157,8 @@ public class HiveMetaStoreClientHelper {
         String type = hiveConf.get(HIVE_METASTORE_TYPE);
         LOG.info("cmy debug type: {}", type);
         try {
-            if (HIVE_METASTORE_TYPE.equalsIgnoreCase(type)) {
+            if (type.equalsIgnoreCase("dlf")) {
+                // For aliyun DLF
                 metaStoreClient = new ProxyMetaStoreClient(hiveConf);
             } else {
                 metaStoreClient = new HiveMetaStoreClient(hiveConf);

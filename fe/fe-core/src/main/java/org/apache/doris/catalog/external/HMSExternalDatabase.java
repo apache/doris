@@ -19,6 +19,7 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
@@ -96,7 +97,8 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> impl
                 try {
                     remoteExecutor.forward(extCatalog.getId(), id, -1);
                 } catch (Exception e) {
-                    LOG.warn("Failed to forward init db {} operation to master. {}", name, e.getMessage());
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init external db %s operation to master", name), e);
                 }
                 return;
             }

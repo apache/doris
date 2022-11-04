@@ -23,6 +23,7 @@ import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.qe.MasterCatalogExecutor;
@@ -44,16 +45,17 @@ import java.util.Map;
  */
 @Getter
 public class EsExternalCatalog extends ExternalCatalog {
-    public static final String DEFAULT_DB = "default_db";
     private static final Logger LOG = LogManager.getLogger(EsExternalCatalog.class);
 
-    private static final String PROP_HOSTS = "elasticsearch.hosts";
-    private static final String PROP_USERNAME = "elasticsearch.username";
-    private static final String PROP_PASSWORD = "elasticsearch.password";
-    private static final String PROP_DOC_VALUE_SCAN = "elasticsearch.doc_value_scan";
-    private static final String PROP_KEYWORD_SNIFF = "elasticsearch.keyword_sniff";
-    private static final String PROP_NODES_DISCOVERY = "elasticsearch.nodes_discovery";
-    private static final String PROP_SSL = "elasticsearch.ssl";
+    public static final String DEFAULT_DB = "default_db";
+
+    public static final String PROP_HOSTS = "elasticsearch.hosts";
+    public static final String PROP_SSL = "elasticsearch.ssl";
+    public static final String PROP_USERNAME = "elasticsearch.username";
+    public static final String PROP_PASSWORD = "elasticsearch.password";
+    public static final String PROP_DOC_VALUE_SCAN = "elasticsearch.doc_value_scan";
+    public static final String PROP_KEYWORD_SNIFF = "elasticsearch.keyword_sniff";
+    public static final String PROP_NODES_DISCOVERY = "elasticsearch.nodes_discovery";
 
     private EsRestClient esRestClient;
 
@@ -78,35 +80,15 @@ public class EsExternalCatalog extends ExternalCatalog {
         this.id = catalogId;
         this.name = name;
         this.type = "es";
-        validate(props);
+        setProperties(props);
         this.catalogProperty = new CatalogProperty();
         this.catalogProperty.setProperties(props);
     }
 
-    private void validate(Map<String, String> properties) throws DdlException {
-        if (properties == null) {
-            throw new DdlException(
-                    "Please set properties of elasticsearch table, " + "they are: hosts, user, password, index");
-        }
-
-        if (StringUtils.isBlank(properties.get(PROP_HOSTS))) {
-            throw new DdlException("Hosts of ES table is null.");
-        }
+    private void setProperties(Map<String, String> properties) throws DdlException {
         nodes = properties.get(PROP_HOSTS).trim().split(",");
-        // check protocol
-        for (String seed : nodes) {
-            if (!seed.startsWith("http")) {
-                throw new DdlException("the protocol must be used");
-            }
-            if (properties.containsKey(PROP_SSL)) {
-                enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
-                if (enableSsl && seed.startsWith("http://")) {
-                    throw new DdlException("if ssl_enabled is true, the https protocol must be used");
-                }
-                if (!enableSsl && seed.startsWith("https://")) {
-                    throw new DdlException("if ssl_enabled is false, the http protocol must be used");
-                }
-            }
+        if (properties.containsKey(PROP_SSL)) {
+            enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
         }
 
         if (StringUtils.isNotBlank(properties.get(PROP_USERNAME))) {
@@ -128,7 +110,6 @@ public class EsExternalCatalog extends ExternalCatalog {
         if (properties.containsKey(PROP_NODES_DISCOVERY)) {
             enableNodesDiscovery = EsUtil.getBoolean(properties, PROP_NODES_DISCOVERY);
         }
-
     }
 
     /**
@@ -141,7 +122,8 @@ public class EsExternalCatalog extends ExternalCatalog {
             try {
                 validate(catalogProperty.getProperties());
             } catch (DdlException e) {
-                LOG.warn("validate error", e);
+                Util.logAndThrowRuntimeException(LOG, String.format("validate es catalog %s properties error", name),
+                        e);
             }
             esRestClient = new EsRestClient(this.nodes, this.username, this.password, this.enableSsl);
             objectCreated = true;
@@ -153,7 +135,8 @@ public class EsExternalCatalog extends ExternalCatalog {
                 try {
                     remoteExecutor.forward(id, -1, -1);
                 } catch (Exception e) {
-                    LOG.warn("Failed to forward init catalog {} operation to master. {}", name, e.getMessage());
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init catalog %s operation to master.", name), e);
                 }
                 return;
             }

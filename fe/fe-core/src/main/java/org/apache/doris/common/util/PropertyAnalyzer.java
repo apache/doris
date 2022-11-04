@@ -30,6 +30,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -777,7 +779,37 @@ public class PropertyAnalyzer {
         } else if (value.equals("false")) {
             return false;
         }
-        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE
-                                    + " must be `true` or `false`");
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
+    }
+
+
+    /**
+     * Check the type property of the catalog props.
+     */
+    public static void checkCatalogProperties(Map<String, String> properties) throws AnalysisException {
+        if (!properties.containsKey("type")) {
+            throw new AnalysisException("All the external catalog should contain the type property.");
+        }
+        try {
+            if (properties.get("type").equalsIgnoreCase("es")) {
+                if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
+                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);
+                }
+
+                if (properties.containsKey(EsExternalCatalog.PROP_DOC_VALUE_SCAN)) {
+                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_DOC_VALUE_SCAN);
+                }
+
+                if (properties.containsKey(EsExternalCatalog.PROP_KEYWORD_SNIFF)) {
+                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_KEYWORD_SNIFF);
+                }
+
+                if (properties.containsKey(EsExternalCatalog.PROP_NODES_DISCOVERY)) {
+                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_NODES_DISCOVERY);
+                }
+            }
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage());
+        }
     }
 }

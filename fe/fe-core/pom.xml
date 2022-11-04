@@ -692,7 +692,7 @@ under the License.
         <!-- for aliyun dlf -->
         <dependency>
             <groupId>com.aliyun.datalake</groupId>
-            <artifactId>metastore-client-hive3</artifactId>
+            <artifactId>metastore-client-hive2</artifactId>
             <exclusions>
                 <exclusion>
                     <groupId>com.aliyun</groupId>
