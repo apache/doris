@@ -18,10 +18,13 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TDataGenFunctionName;
 
 import java.util.List;
 
 public abstract class DataGenTableValuedFunction extends TableValuedFunctionIf {
     public abstract List<TableValuedFunctionTask> getTasks() throws AnalysisException;
+
+    public abstract TDataGenFunctionName getDataGenFunctionName();
 
 }

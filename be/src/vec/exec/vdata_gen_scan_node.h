@@ -21,7 +21,7 @@
 
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
-#include "vec/exec/tablefunction/vtable_valued_function_inf.h"
+#include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
 
 namespace doris {
 
@@ -34,11 +34,11 @@ class Status;
 
 namespace vectorized {
 
-class VTableValuedFunctionScanNode : public ScanNode {
+class VDataGenFunctionScanNode : public ScanNode {
 public:
-    VTableValuedFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode,
+    VDataGenFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs);
-    ~VTableValuedFunctionScanNode() override = default;
+    ~VDataGenFunctionScanNode() override = default;
 
     // initialize _mysql_scanner, and create _text_converter.
     Status prepare(RuntimeState* state) override;
@@ -59,7 +59,7 @@ public:
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
 protected:
-    std::shared_ptr<VTableValuedFunctionInf> _table_func;
+    std::shared_ptr<VDataGenFunctionInf> _table_func;
     bool _is_init;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;

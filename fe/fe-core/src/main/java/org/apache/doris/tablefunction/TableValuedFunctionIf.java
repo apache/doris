@@ -25,14 +25,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.thrift.TTVFunctionName;
 
 import java.util.List;
 
 public abstract class TableValuedFunctionIf {
     private FunctionGenTable table = null;
-
-    public abstract TTVFunctionName getFunctionName();
 
     public FunctionGenTable getTable() throws AnalysisException {
         if (table == null) {

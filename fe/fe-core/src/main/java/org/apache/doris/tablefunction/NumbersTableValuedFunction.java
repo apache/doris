@@ -23,14 +23,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.DataGenScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.TableValuedFunctionScanNode;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TDataGenFunctionName;
+import org.apache.doris.thrift.TDataGenScanRange;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TTVFNumbersScanRange;
-import org.apache.doris.thrift.TTVFScanRange;
-import org.apache.doris.thrift.TTVFunctionName;
 
 import com.google.common.collect.Lists;
 
@@ -71,8 +71,8 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     }
 
     @Override
-    public TTVFunctionName getFunctionName() {
-        return TTVFunctionName.NUMBERS;
+    public TDataGenFunctionName getDataGenFunctionName() {
+        return TDataGenFunctionName.NUMBERS;
     }
 
     @Override
@@ -102,11 +102,11 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
         List<TableValuedFunctionTask> res = Lists.newArrayList();
         for (int i = 0; i < tabletsNum; ++i) {
             TScanRange scanRange = new TScanRange();
-            TTVFScanRange tvfScanRange = new TTVFScanRange();
+            TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
             TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange();
             tvfNumbersScanRange.setTotalNumbers(totalNumbers);
-            tvfScanRange.setNumbersParams(tvfNumbersScanRange);
-            scanRange.setTvfScanRange(tvfScanRange);
+            dataGenScanRange.setNumbersParams(tvfNumbersScanRange);
+            scanRange.setDataGenScanRange(dataGenScanRange);
             res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
         }
         return res;
@@ -114,6 +114,6 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new TableValuedFunctionScanNode(id, desc, "TableValuedFunctionScanNode", this);
+        return new DataGenScanNode(id, desc, "DataGenScanNode", this);
     }
 }

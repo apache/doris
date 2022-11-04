@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/vtable_valued_function_scannode.h"
+#include "vec/exec/vdata_gen_scan_node.h"
 
 #include <sstream>
 
@@ -26,28 +26,28 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
-#include "vec/exec/tablefunction/vnumbers_tbf.h"
+#include "vec/exec/data_gen_functions/vnumbers_tvf.h"
 
 namespace doris::vectorized {
 
-VTableValuedFunctionScanNode::VTableValuedFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode,
+VDataGenFunctionScanNode::VDataGenFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                                            const DescriptorTbl& descs)
         : ScanNode(pool, tnode, descs),
           _is_init(false),
-          _tuple_id(tnode.table_valued_func_scan_node.tuple_id),
+          _tuple_id(tnode.data_gen_scan_node.tuple_id),
           _tuple_desc(nullptr) {
     // set _table_func here
-    switch (tnode.table_valued_func_scan_node.func_name) {
-    case TTVFunctionName::NUMBERS:
-        _table_func = std::make_shared<VNumbersTBF>(_tuple_id, _tuple_desc);
+    switch (tnode.data_gen_scan_node.func_name) {
+    case TDataGenFunctionName::NUMBERS:
+        _table_func = std::make_shared<VNumbersTVF>(_tuple_id, _tuple_desc);
         break;
     default:
         LOG(FATAL) << "Unsupported function type";
     }
 }
 
-Status VTableValuedFunctionScanNode::prepare(RuntimeState* state) {
-    VLOG_CRITICAL << "VTableValuedFunctionScanNode::Prepare";
+Status VDataGenFunctionScanNode::prepare(RuntimeState* state) {
+    VLOG_CRITICAL << "VDataGenFunctionScanNode::Prepare";
 
     if (_is_init) {
         return Status::OK();
@@ -70,7 +70,7 @@ Status VTableValuedFunctionScanNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VTableValuedFunctionScanNode::open(RuntimeState* state) {
+Status VDataGenFunctionScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
 
     if (nullptr == state) {
@@ -86,12 +86,12 @@ Status VTableValuedFunctionScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VTableValuedFunctionScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    LOG(FATAL) << "VTableValuedFunctionScanNode only support vectorized execution";
+Status VDataGenFunctionScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    LOG(FATAL) << "VDataGenFunctionScanNode only support vectorized execution";
     return Status::OK();
 }
 
-Status VTableValuedFunctionScanNode::get_next(RuntimeState* state, vectorized::Block* block,
+Status VDataGenFunctionScanNode::get_next(RuntimeState* state, vectorized::Block* block,
                                               bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
@@ -103,7 +103,7 @@ Status VTableValuedFunctionScanNode::get_next(RuntimeState* state, vectorized::B
     return res;
 }
 
-Status VTableValuedFunctionScanNode::close(RuntimeState* state) {
+Status VDataGenFunctionScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
@@ -113,7 +113,7 @@ Status VTableValuedFunctionScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-Status VTableValuedFunctionScanNode::set_scan_ranges(
+Status VDataGenFunctionScanNode::set_scan_ranges(
         const std::vector<TScanRangeParams>& scan_ranges) {
     return _table_func->set_scan_ranges(scan_ranges);
 }

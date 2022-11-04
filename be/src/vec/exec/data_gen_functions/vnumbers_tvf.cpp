@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/tablefunction/vnumbers_tbf.h"
+#include "vec/exec/data_gen_functions/vnumbers_tvf.h"
 
 #include <sstream>
 
@@ -29,10 +29,10 @@
 
 namespace doris::vectorized {
 
-VNumbersTBF::VNumbersTBF(TupleId tuple_id, const TupleDescriptor* tuple_desc)
-        : VTableValuedFunctionInf(tuple_id, tuple_desc) {}
+VNumbersTVF::VNumbersTVF(TupleId tuple_id, const TupleDescriptor* tuple_desc)
+        : VDataGenFunctionInf(tuple_id, tuple_desc) {}
 
-Status VNumbersTBF::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     bool mem_reuse = block->mem_reuse();
     DCHECK(block->rows() == 0);
     std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
@@ -75,8 +75,8 @@ Status VNumbersTBF::get_next(RuntimeState* state, vectorized::Block* block, bool
     return Status::OK();
 }
 
-Status VNumbersTBF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_range_params) {
-    _total_numbers = scan_range_params[0].scan_range.tvf_scan_range.numbers_params.totalNumbers;
+Status VNumbersTVF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_range_params) {
+    _total_numbers = scan_range_params[0].scan_range.data_gen_scan_range.numbers_params.totalNumbers;
     return Status::OK();
 }
 

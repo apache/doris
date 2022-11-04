@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TTVFunctionName;
 
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
@@ -191,11 +190,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
 
     // =========== implement abstract methods of TableValuedFunctionIf =================
-    @Override
-    public TTVFunctionName getFunctionName() {
-        return TTVFunctionName.S3;
-    }
-
     @Override
     public String getTableName() {
         return "S3TableValuedFunction";

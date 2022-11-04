@@ -24,12 +24,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
+import org.apache.doris.thrift.TDataGenScanNode;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TTableValuedFunctionScanNode;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -40,14 +40,14 @@ import java.util.List;
 /**
  * This scan node is used for table valued function.
  */
-public class TableValuedFunctionScanNode extends ScanNode {
-    private static final Logger LOG = LogManager.getLogger(TableValuedFunctionScanNode.class.getName());
+public class DataGenScanNode extends ScanNode {
+    private static final Logger LOG = LogManager.getLogger(DataGenScanNode.class.getName());
 
     private List<TScanRangeLocations> shardScanRanges;
     private DataGenTableValuedFunction tvf;
     private boolean isFinalized = false;
 
-    public TableValuedFunctionScanNode(PlanNodeId id, TupleDescriptor desc,
+    public DataGenScanNode(PlanNodeId id, TupleDescriptor desc,
                                        String planNodeName, DataGenTableValuedFunction tvf) {
         super(id, desc, planNodeName, StatisticalType.TABLE_VALUED_FUNCTION_NODE);
         this.tvf = tvf;
@@ -86,10 +86,10 @@ public class TableValuedFunctionScanNode extends ScanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.TABLE_VALUED_FUNCTION_SCAN_NODE;
-        TTableValuedFunctionScanNode tvfScanNode = new TTableValuedFunctionScanNode();
-        tvfScanNode.setTupleId(desc.getId().asInt());
-        tvfScanNode.setFuncName(tvf.getFunctionName());
-        msg.table_valued_func_scan_node = tvfScanNode;
+        TDataGenScanNode dataGenScanNode = new TDataGenScanNode();
+        dataGenScanNode.setTupleId(desc.getId().asInt());
+        dataGenScanNode.setFuncName(tvf.getDataGenFunctionName());
+        msg.data_gen_scan_node = dataGenScanNode;
     }
 
     private List<TScanRangeLocations> getShardLocations() throws AnalysisException {
