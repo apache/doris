@@ -36,9 +36,9 @@ SubFileCache::SubFileCache(const Path& cache_dir, int64_t alive_time_sec,
 
 SubFileCache::~SubFileCache() {}
 
-Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read,
-                             const IOContext* ctx) {
-    if (ctx == nullptr || !ctx->use_local_file_cache) {
+Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
+                             size_t* bytes_read) {
+    if (!ctx.use_local_file_cache) {
         return _remote_file_reader->read_at(offset, result, bytes_read, ctx);
     }
     std::vector<size_t> need_cache_offsets;
