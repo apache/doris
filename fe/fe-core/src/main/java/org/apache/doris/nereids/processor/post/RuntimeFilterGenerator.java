@@ -43,6 +43,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -78,6 +79,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = ctx.getAliasTransferMap();
         join.right().accept(this, context);
         join.left().accept(this, context);
         if (!deniedJoinType.contains(join.getJoinType())) {
@@ -85,25 +87,28 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                     .collect(Collectors.toList());
             AtomicInteger cnt = new AtomicInteger();
-            Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = ctx.getAliasTransferMap();
             join.getHashJoinConjuncts().stream()
                     .map(EqualTo.class::cast)
                     // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
                     // TODO: we will support it in later version.
                     .forEach(expr -> legalTypes.forEach(type -> {
                         Pair<Expression, Expression> exprs = checkAndMaybeSwapChild(expr, join);
-                        if (exprs == null) {
+                        if (exprs == null || !aliasTransferMap.containsKey((Slot) exprs.first)) {
                             return;
                         }
                         Pair<Slot, Slot> slots = Pair.of(
                                 aliasTransferMap.get((Slot) exprs.first).second.toSlot(),
-                                aliasTransferMap.get((Slot) exprs.second).second.toSlot());
+                                ((Slot) exprs.second));
                         RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                                 slots.second, slots.first, type,
                                 cnt.getAndIncrement(), join);
                         ctx.setTargetExprIdToFilters(slots.first.getExprId(), filter);
                         ctx.setTargetsOnScanNode(aliasTransferMap.get(((Slot) exprs.first)).first, slots.first);
                     }));
+        } else {
+            // copy to avoid bug when next call of getOutputSet()
+            Set<Slot> slots = join.getOutputSet();
+            slots.forEach(aliasTransferMap::remove);
         }
         return join;
     }
