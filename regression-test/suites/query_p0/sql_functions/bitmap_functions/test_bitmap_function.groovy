@@ -186,4 +186,9 @@ suite("test_bitmap_function") {
     qt_sql """ select bitmap_to_array(user_id) from ${intersectCountTable}; """
     qt_sql """ select bitmap_to_array(bitmap_empty()); """
     qt_sql """ select bitmap_to_array(bitmap_from_string('100,200,3,4')); """
+
+    qt_sql """ select bitmap_to_string(sub_bitmap(bitmap_from_string('1,2,3,4,5'), 0, 3)) value; """
+    qt_sql """ select bitmap_to_string(sub_bitmap(bitmap_from_string('1'), 0, 3)) value;  """
+    qt_sql """ select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('100'), 0, 3)) value;  """
+    qt_sql """ select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('20221103'), 0, 20221104)) date_list_bitmap;  """
 }
