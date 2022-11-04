@@ -85,7 +85,7 @@ public class DataGenScanNode extends ScanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
-        msg.node_type = TPlanNodeType.TABLE_VALUED_FUNCTION_SCAN_NODE;
+        msg.node_type = TPlanNodeType.DATA_GEN_SCAN_NODE;
         TDataGenScanNode dataGenScanNode = new TDataGenScanNode();
         dataGenScanNode.setTupleId(desc.getId().asInt());
         dataGenScanNode.setFuncName(tvf.getDataGenFunctionName());
