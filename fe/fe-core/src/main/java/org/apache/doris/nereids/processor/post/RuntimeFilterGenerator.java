@@ -23,13 +23,18 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 <<<<<<< HEAD
+<<<<<<< HEAD
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 =======
 >>>>>>> 1. runtime filter prune
+=======
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+>>>>>>> rf pruner
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -40,9 +45,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStat;
-import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableSet;
@@ -86,6 +88,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = ctx.getAliasTransferMap();
         join.right().accept(this, context);
         join.left().accept(this, context);
+<<<<<<< HEAD
         if (deniedJoinType.contains(join.getJoinType())) {
             // copy to avoid bug when next call of getOutputSet()
             Set<Slot> slots = join.getOutputSet();
@@ -93,6 +96,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         } else {
             List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                     .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
+=======
+        if (!deniedJoinType.contains(join.getJoinType())) {
+            List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values()).filter(type ->
+                    (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
+>>>>>>> rf pruner
                     .collect(Collectors.toList());
             AtomicInteger cnt = new AtomicInteger();
             join.getHashJoinConjuncts().stream()
@@ -100,6 +108,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
                     // TODO: we will support it in later version.
                     .forEach(expr -> legalTypes.forEach(type -> {
+<<<<<<< HEAD
                         Pair<Expression, Expression> normalizedChildren = checkAndMaybeSwapChild(expr, join);
                         // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
                         // contains join with denied join type. for example: a left join b on a.id = b.id
@@ -110,56 +119,36 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         Pair<Slot, Slot> slots = Pair.of(
                                 aliasTransferMap.get((Slot) normalizedChildren.first).second.toSlot(),
                                 ((Slot) normalizedChildren.second));
+=======
+                        Pair<Expression, Expression> exprs = checkAndMaybeSwapChild(expr, join);
+                        if (exprs == null || !aliasTransferMap.containsKey((Slot) exprs.first)) {
+                            return;
+                        }
+                        Pair<Slot, Slot> slots = Pair.of(
+                                aliasTransferMap.get((Slot) exprs.first).second.toSlot(),
+                                ((Slot) exprs.second));
+>>>>>>> rf pruner
                         RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                                 slots.second, slots.first, type,
                                 cnt.getAndIncrement(), join);
                         ctx.addJoinToTargetMap(join, slots.first.getExprId());
+<<<<<<< HEAD
                         ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
                         ctx.setTargetsOnScanNode(
                                 aliasTransferMap.get((Slot) normalizedChildren.first).first,
                                 slots.first);
                     }));
+=======
+                        ctx.setTargetExprIdToFilters(slots.first.getExprId(), filter);
+                        ctx.setTargetsOnScanNode(aliasTransferMap.get(((Slot) exprs.first)).first, slots.first);
+                    }));
+        } else {
+            // copy to avoid bug when next call of getOutputSet()
+            Set<Slot> slots = join.getOutputSet();
+            slots.forEach(aliasTransferMap::remove);
+>>>>>>> rf pruner
         }
         return join;
-    }
-
-    /**
-     * consider L join R on L.a=R.b
-     * runtime-filter: L.a<-R.b is effective,
-     * if R.b.selectivity<1 or b is partly covered by a
-     *
-     * TODO: min-max
-     * @param equalTo join condition
-     * @param join join node
-     * @return true if runtime-filter is effective
-     */
-    private boolean isEffectiveRuntimeFilter(EqualTo equalTo, PhysicalHashJoin join) {
-        if (!ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
-            return true;
-        }
-        StatsDeriveResult leftStats = ((AbstractPlan) join.child(0)).getStats();
-        StatsDeriveResult rightStats = ((AbstractPlan) join.child(1)).getStats();
-        Set<Slot> leftSlots = equalTo.child(0).getInputSlots();
-        if (leftSlots.size() > 1) {
-            return false;
-        }
-        Set<Slot> rightSlots = equalTo.child(1).getInputSlots();
-        if (rightSlots.size() > 1) {
-            return false;
-        }
-        Slot leftSlot = leftSlots.iterator().next();
-        Slot rightSlot = rightSlots.iterator().next();
-        ColumnStat probeColumnStat = leftStats.getColumnStatsBySlot(leftSlot);
-        ColumnStat buildColumnStat = rightStats.getColumnStatsBySlot(rightSlot);
-        //TODO remove these code when we ensure left child if from probe side
-        if (probeColumnStat == null || buildColumnStat == null) {
-            probeColumnStat = leftStats.getColumnStatsBySlot(rightSlot);
-            buildColumnStat = rightStats.getColumnStatsBySlot(leftSlot);
-            if (probeColumnStat == null || buildColumnStat == null) {
-                return false;
-            }
-        }
-        return buildColumnStat.getSelectivity() < 1 || probeColumnStat.coverage(buildColumnStat) < 1;
     }
 
     // TODO: support src key is agg slot.

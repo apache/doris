@@ -36,6 +36,11 @@ public class PlanPostProcessors {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
     }
 
+    /**
+     * post process
+     * @param physicalPlan input plan
+     * @return physcial plan
+     */
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
         PhysicalPlan resultPlan = physicalPlan;
         for (PlanPostProcessor processor : getProcessors()) {
@@ -52,6 +57,8 @@ public class PlanPostProcessors {
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()) {
             builder.add(new RuntimeFilterGenerator());
+            builder.add(new RuntimeFilterPruner());
+            builder.add(new Validator());
         }
         builder.add(new Validator());
         return builder.build();
