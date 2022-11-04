@@ -69,7 +69,6 @@
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
 #include "vec/exec/vbroker_scan_node.h"
-#include "vec/exec/vcross_join_node.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/ves_http_scan_node.h"
 #include "vec/exec/vexcept_node.h"
@@ -77,6 +76,7 @@
 #include "vec/exec/vintersect_node.h"
 #include "vec/exec/vjdbc_scan_node.h"
 #include "vec/exec/vmysql_scan_node.h"
+#include "vec/exec/vnested_loop_join_node.h"
 #include "vec/exec/vodbc_scan_node.h"
 #include "vec/exec/volap_scan_node.h"
 #include "vec/exec/vrepeat_node.h"
@@ -532,7 +532,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::CROSS_JOIN_NODE:
         if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VCrossJoinNode(pool, tnode, descs));
+            *node = pool->add(new vectorized::VNestedLoopJoinNode(pool, tnode, descs));
         } else {
             *node = pool->add(new CrossJoinNode(pool, tnode, descs));
         }
