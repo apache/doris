@@ -115,6 +115,8 @@ public class BindFunction implements AnalysisRuleFactory {
 
         @Override
         public BoundFunction visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
+            unboundFunction = (UnboundFunction) super.visitUnboundFunction(unboundFunction, env);
+
             // FunctionRegistry can't support boolean arg now, tricky here.
             if (unboundFunction.getName().equalsIgnoreCase("count")) {
                 List<Expression> arguments = unboundFunction.getArguments();
@@ -141,6 +143,8 @@ public class BindFunction implements AnalysisRuleFactory {
          */
         @Override
         public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Env context) {
+            arithmetic = (TimestampArithmetic) super.visitTimestampArithmetic(arithmetic, context);
+
             String funcOpName;
             if (arithmetic.getFuncName() == null) {
                 // e.g. YEARS_ADD, MONTHS_SUB
