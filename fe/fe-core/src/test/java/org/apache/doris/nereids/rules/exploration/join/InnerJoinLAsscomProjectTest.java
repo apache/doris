@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -38,9 +39,11 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Objects;
 
 class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
 
@@ -142,93 +145,152 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
 
     @Test
     public void testHashAndOther() {
+        // Alias (scan1 join scan2 on scan1.id=scan2.id and scan1.name>scan2.name);
         List<Expression> bottomHashJoinConjunct = ImmutableList.of(
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
-        List<Expression> topHashJoinConjunct = ImmutableList.of(
-                new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)),
-                new EqualTo(scan2.getOutput().get(0), scan3.getOutput().get(0)));
-        List<Expression> topOtherJoinConjunct = ImmutableList.of(
-                new GreaterThan(scan1.getOutput().get(1), scan3.getOutput().get(1)),
-                new GreaterThan(scan2.getOutput().get(1), scan3.getOutput().get(1)));
-
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
                 .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
+                .build();
+
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(bottomJoin.getOutput().get(0), scan3.getOutput().get(0)),
+                new EqualTo(bottomJoin.getOutput().get(2), scan3.getOutput().get(0)));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(bottomJoin.getOutput().get(1), scan3.getOutput().get(1)),
+                new GreaterThan(bottomJoin.getOutput().get(3), scan3.getOutput().get(1)));
+        LogicalPlan topJoin = new LogicalPlanBuilder(bottomJoin)
                 .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .printlnTree()
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
                 .matchesExploration(
-                        logicalJoin(
+                        innerLogicalJoin(
                                 logicalProject(
-                                        logicalJoin(
-                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
-                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
-                                        ).when(join -> join.getOtherJoinConjuncts().size() == 1
-                                                && join.getHashJoinConjuncts().size() == 1)
-                                ),
-                                logicalProject(
-                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
-                                )
-                        ).when(join -> join.getOtherJoinConjuncts().size() == 2
-                                && join.getHashJoinConjuncts().size() == 2)
+                                        innerLogicalJoin().when(
+                                                join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                                        "[(id#0 = id#8)]")
+                                                        && Objects.equals(join.getOtherJoinConjuncts().toString(),
+                                                        "[(name#1 > name#9)]"))),
+                                group()
+                        ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                "[(t2.id#6 = id#8), (t1.id#4 = t2.id#6)]")
+                                && Objects.equals(join.getOtherJoinConjuncts().toString(),
+                                "[(t2.name#7 > name#9), (t1.name#5 > t2.name#7)]"))
                 )
                 .printlnExploration();
     }
 
     @Test
     public void testComplexConjuncts() {
+        // Alias (scan1 join scan2 on scan1.id=scan2.id and scan1.name>scan2.name);
         List<Expression> bottomHashJoinConjunct = ImmutableList.of(
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
-        List<Expression> topHashJoinConjunct = ImmutableList.of(
-                new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)),
-                new EqualTo(scan2.getOutput().get(0), new Add(scan1.getOutput().get(0), scan3.getOutput().get(0))));
-        List<Expression> topOtherJoinConjunct = ImmutableList.of(
-                new GreaterThan(scan1.getOutput().get(1), scan3.getOutput().get(1)),
-                new GreaterThan(scan2.getOutput().get(0), new Add(scan1.getOutput().get(0), scan3.getOutput().get(0))));
-
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
                 .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
+                .build();
+
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(bottomJoin.getOutput().get(0), scan3.getOutput().get(0)),
+                new EqualTo(bottomJoin.getOutput().get(2),
+                        new Add(bottomJoin.getOutput().get(0), scan3.getOutput().get(0))));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(bottomJoin.getOutput().get(1), scan3.getOutput().get(1)),
+                new GreaterThan(bottomJoin.getOutput().get(2),
+                        new Add(bottomJoin.getOutput().get(0), scan3.getOutput().get(0))));
+        LogicalPlan topJoin = new LogicalPlanBuilder(bottomJoin)
                 .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         // test for no exception
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .printlnTree()
-                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build());
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .checkMemo(memo -> {
+                    Group root = memo.getRoot();
+                    Assertions.assertEquals(1, root.getLogicalExpressions().size());
+                });
     }
 
     @Test
     public void testComplexConjunctsWithSubString() {
+        // Alias (scan1 join scan2 on scan1.id=scan2.id and scan1.name>scan2.name);
         List<Expression> bottomHashJoinConjunct = ImmutableList.of(
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
+                .build();
+
         List<Expression> topHashJoinConjunct = ImmutableList.of(
-                new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)),
-                new EqualTo(scan2.getOutput().get(0), new Add(scan1.getOutput().get(0), scan3.getOutput().get(0))));
+                new EqualTo(bottomJoin.getOutput().get(0), scan3.getOutput().get(0)),
+                new EqualTo(bottomJoin.getOutput().get(2),
+                        new Add(bottomJoin.getOutput().get(0), scan3.getOutput().get(0))));
         List<Expression> topOtherJoinConjunct = ImmutableList.of(
-                new GreaterThan(scan1.getOutput().get(1), scan3.getOutput().get(1)),
-                new Not(new EqualTo(new Substring(scan1.getOutput().get(1),
+                new GreaterThan(bottomJoin.getOutput().get(1), scan3.getOutput().get(1)),
+                new Not(new EqualTo(new Substring(bottomJoin.getOutput().get(1),
                         new Cast(new StringLiteral("1"), IntegerType.INSTANCE),
                         new Cast(new StringLiteral("3"), IntegerType.INSTANCE)),
                         Literal.of("abc"))));
-
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
-                .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
+        LogicalPlan topJoin = new LogicalPlanBuilder(bottomJoin)
                 .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .printlnTree()
-                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build());
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .checkMemo(memo -> {
+                    Group root = memo.getRoot();
+                    Assertions.assertEquals(1, root.getLogicalExpressions().size());
+                });
+    }
+
+    @Test
+    public void testComplexConjunctsAndAlias() {
+        // Alias (scan1 join scan2 on scan1.id=scan2.id and scan1.name>scan2.name);
+        List<Expression> bottomHashJoinConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
+        List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
+                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
+                .build();
+
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(bottomJoin.getOutput().get(0), scan3.getOutput().get(0)),
+                new EqualTo(new Add(bottomJoin.getOutput().get(0), bottomJoin.getOutput().get(1)),
+                        scan3.getOutput().get(1)));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(new Add(bottomJoin.getOutput().get(0), bottomJoin.getOutput().get(1)),
+                        scan3.getOutput().get(1)));
+        LogicalPlan topJoin = new LogicalPlanBuilder(bottomJoin)
+                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
+                .printlnTree()
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .matchesExploration(
+                        innerLogicalJoin(
+                                logicalProject(
+                                        innerLogicalJoin().when(
+                                                join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                                        "[(id#0 = id#8), ((id#0 + name#1) = name#9)]")
+                                                        && Objects.equals(join.getOtherJoinConjuncts().toString(),
+                                                        "[((id#0 + name#1) > name#9)]"))),
+                                group()
+                        ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(), "[(t1.id#4 = t2.id#6)]")
+                                && Objects.equals(join.getOtherJoinConjuncts().toString(), "[(t1.name#5 > t2.name#7)]"))
+                );
     }
 }
