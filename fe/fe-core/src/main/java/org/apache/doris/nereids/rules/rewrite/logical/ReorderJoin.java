@@ -351,15 +351,15 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
         // All { left -> one in [candidates] } is CrossJoin
         // Generate a CrossJoin
-        for (int j = candidates.size() - 1; j >= 0; j--) {
-            if (usedPlansIndex.contains(j)) {
+        for (int i = 0; i < candidates.size(); i++) {
+            if (usedPlansIndex.contains(i)) {
                 continue;
             }
-            usedPlansIndex.add(j);
+            usedPlansIndex.add(i);
             return new LogicalJoin<>(JoinType.CROSS_JOIN,
                     ExpressionUtils.EMPTY_CONDITION,
                     otherJoinConditions,
-                    left, candidates.get(j));
+                    left, candidates.get(i));
         }
 
         throw new RuntimeException("findInnerJoin: can't reach here");

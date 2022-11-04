@@ -29,7 +29,7 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 public interface IdenticalSignature extends ComputeSignature {
     static boolean isIdentical(AbstractDataType signatureType, AbstractDataType realType) {
         // TODO: copy matchesType to DataType
-        return signatureType.toCatalogDataType().matchesType(realType.toCatalogDataType());
+        return realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
     }
 
     @Override
