@@ -145,6 +145,32 @@ public:
         offsets.push_back(new_size);
     }
 
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets_,
+                                            const size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+
+        size_t new_size = offsets_[num] - offsets_[0] + num * sizeof(char);
+        const size_t old_size = chars.size();
+        chars.resize(new_size + old_size);
+
+        auto* data_ptr = chars.data();
+        size_t offset = old_size;
+
+        for (size_t i = 0; i != num; ++i) {
+            uint32_t len = offsets_[i + 1] - offsets_[i];
+            if (LIKELY(len)) {
+                memcpy(data_ptr + offset, data + offsets_[i], len);
+                offset += len;
+            }
+            data_ptr[offset] = 0;
+            offset += 1;
+            offsets.push_back(offset);
+        }
+        DCHECK(offset == chars.size());
+    }
+
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         size_t new_size = 0;

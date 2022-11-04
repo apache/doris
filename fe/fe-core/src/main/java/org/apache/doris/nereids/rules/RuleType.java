@@ -50,6 +50,7 @@ public enum RuleType {
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
+    REGISTER_CTE(RuleTypeClass.REWRITE),
 
     // check analysis rule
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
@@ -107,7 +108,7 @@ public enum RuleType {
     // Eliminate plan
     ELIMINATE_LIMIT(RuleTypeClass.REWRITE),
     ELIMINATE_FILTER(RuleTypeClass.REWRITE),
-    ELIMINATE_OUTER(RuleTypeClass.REWRITE),
+    ELIMINATE_OUTER_JOIN(RuleTypeClass.REWRITE),
     FIND_HASH_CONDITION_FOR_JOIN(RuleTypeClass.REWRITE),
     MATERIALIZED_INDEX_AGG_SCAN(RuleTypeClass.REWRITE),
     MATERIALIZED_INDEX_AGG_FILTER_SCAN(RuleTypeClass.REWRITE),

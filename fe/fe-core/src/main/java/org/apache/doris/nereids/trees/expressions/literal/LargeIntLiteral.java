@@ -28,7 +28,7 @@ import java.util.Objects;
 /**
  * large int type literal
  */
-public class LargeIntLiteral extends Literal {
+public class LargeIntLiteral extends IntegerLikeLiteral {
 
     private final BigInteger value;
 
@@ -60,5 +60,10 @@ public class LargeIntLiteral extends Literal {
     @Override
     public double getDouble() {
         return value.doubleValue();
+    }
+
+    @Override
+    public Number getNumber() {
+        return value;
     }
 }

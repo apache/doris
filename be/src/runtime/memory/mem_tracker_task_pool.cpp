@@ -108,7 +108,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
                     MemTracker::print_bytes(it->second->consumption()),
                     MemTracker::print_bytes(it->second->peak_consumption()));
             expired_task_ids.emplace_back(it->first);
-        } else if (config::memory_verbose_track) {
+        } else if (config::memory_debug) {
             it->second->print_log_usage("query routine");
             it->second->enable_print_log_usage();
         }
