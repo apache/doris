@@ -55,7 +55,7 @@ suite("function") {
 
     // nested function
     test {
-        sql "select date('1994-01-01') + interval '1' YEAR"
+        sql "select cast(date('1994-01-01') + interval '1' YEAR as varchar)"
         result([["1995-01-01 00:00:00"]])
     }
 

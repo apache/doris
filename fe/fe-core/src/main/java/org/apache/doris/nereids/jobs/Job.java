@@ -50,11 +50,15 @@ public abstract class Job {
         this(type, context, true);
     }
 
+    /** job full parameter constructor */
     public Job(JobType type, JobContext context, boolean once) {
         this.type = type;
         this.context = context;
         this.once = once;
-        this.enableTrace = ConnectContext.get().getSessionVariable().isEnableNereidsTrace();
+        ConnectContext connectContext = ConnectContext.get();
+        this.enableTrace = connectContext == null
+                ? false
+                : connectContext.getSessionVariable().isEnableNereidsTrace();
     }
 
     public void pushJob(Job job) {
