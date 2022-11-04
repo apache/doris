@@ -854,6 +854,9 @@ CONF_Int32(segcompaction_small_threshold, "1048576");
 
 CONF_String(jvm_max_heap_size, "1024M");
 
+// Allow users to specific JAVA_HOME by configuration.
+CONF_String(java_home_dir, "${JAVA_HOME}");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

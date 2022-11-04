@@ -22,7 +22,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <mutex>
+#include <string>
 
+#include "common/config.h"
 #include "common/status.h"
 
 namespace {
@@ -53,10 +55,7 @@ LibJVMLoader& LibJVMLoader::instance() {
     static std::string library;
     std::call_once(find_library, []() {
         const auto* java_home = getenv("JAVA_HOME");
-        if (!java_home) {
-            return;
-        }
-        std::string path(java_home);
+        std::string path(java_home ? java_home : config::java_home_dir.c_str());
         for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
             if (entry.path().filename() == LIBJVM_SO) {
                 library = entry.path().string();
