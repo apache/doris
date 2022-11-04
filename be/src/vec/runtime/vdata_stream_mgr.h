@@ -22,7 +22,6 @@
 #include <set>
 #include <unordered_map>
 
-#include "bthread/mutex.h"
 #include "common/global_types.h"
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -65,7 +64,6 @@ public:
     void cancel(const TUniqueId& fragment_instance_id);
 
 private:
-    // Using bthread mutex here, because stream mgr maybe called in bthread context
     std::mutex _lock;
     using StreamMap = std::unordered_multimap<uint32_t, std::shared_ptr<VDataStreamRecvr>>;
     StreamMap _receiver_map;

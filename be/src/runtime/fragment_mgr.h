@@ -24,8 +24,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "bthread/condition_variable.h"
-#include "bthread/mutex.h"
 #include "common/status.h"
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"

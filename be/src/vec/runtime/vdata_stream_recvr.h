@@ -23,8 +23,6 @@
 #include <list>
 #include <thread>
 
-#include "bthread/condition_variable.h"
-#include "bthread/mutex.h"
 #include "common/global_types.h"
 #include "common/object_pool.h"
 #include "common/status.h"
