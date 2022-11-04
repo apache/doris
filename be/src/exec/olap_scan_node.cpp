@@ -1451,10 +1451,15 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                     COUNTER_UPDATE(_scanner_sched_counter, 1);
                     olap_scanners.erase(iter++);
                 } else {
-                    LOG(FATAL) << "Failed to assign scanner task to thread pool! "
-                               << s.get_error_msg();
+                    status = Status::InternalError("Failed to assign scanner task to thread pool! " + s.get_error_msg());
+                    std::lock_guard<SpinLock> guard(_status_mutex);
+                    _status = status;
+                    break;
                 }
                 ++_total_assign_num;
+            }
+            if (!status.ok()) {
+                break;
             }
         } else {
             while (iter != olap_scanners.end()) {
@@ -1467,9 +1472,15 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 if (thread_pool->offer(task)) {
                     olap_scanners.erase(iter++);
                 } else {
-                    LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+                    status = Status::InternalError("Failed to assign scanner task to thread pool! ");
+                    std::lock_guard<SpinLock> guard(_status_mutex);
+                    _status = status;
+                    break;
                 }
                 ++_total_assign_num;
+            }
+            if (!status.ok()) {
+                break;
             }
         }
 
