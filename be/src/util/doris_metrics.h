@@ -185,6 +185,7 @@ public:
     UIntGauge* brpc_function_endpoint_stub_count;
     UIntGauge* tablet_writer_count;
 
+    UIntGauge* segcompaction_mem_consumption;
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
     UIntGauge* load_channel_mem_consumption;
