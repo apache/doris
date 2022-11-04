@@ -89,8 +89,11 @@ WITH BROKER "broker_name"
 ### Broker Name
 
 Usually the user needs to specify an existing Broker Name through the `WITH BROKER" broker_name "` clause in the operation command.
+
 Broker Name is a name that the user specifies when adding a Broker process through the ALTER SYSTEM ADD BROKER command.
+
 A name usually corresponds to one or more broker processes. Doris selects available broker processes based on the name.
+
 You can use the `SHOW BROKER` command to view the Brokers that currently exist in the cluster.
 
 **Note: Broker Name is just a user-defined name and does not represent the type of Broker.**
