@@ -31,7 +31,7 @@
 namespace doris::vectorized {
 
 VDataGenFunctionScanNode::VDataGenFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode,
-                                                           const DescriptorTbl& descs)
+                                                   const DescriptorTbl& descs)
         : ScanNode(pool, tnode, descs),
           _is_init(false),
           _tuple_id(tnode.data_gen_scan_node.tuple_id),
@@ -92,7 +92,7 @@ Status VDataGenFunctionScanNode::get_next(RuntimeState* state, RowBatch* row_bat
 }
 
 Status VDataGenFunctionScanNode::get_next(RuntimeState* state, vectorized::Block* block,
-                                              bool* eos) {
+                                          bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }
@@ -113,8 +113,7 @@ Status VDataGenFunctionScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-Status VDataGenFunctionScanNode::set_scan_ranges(
-        const std::vector<TScanRangeParams>& scan_ranges) {
+Status VDataGenFunctionScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return _table_func->set_scan_ranges(scan_ranges);
 }
 

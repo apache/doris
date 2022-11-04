@@ -69,6 +69,7 @@
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
 #include "vec/exec/vbroker_scan_node.h"
+#include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/ves_http_scan_node.h"
 #include "vec/exec/vexcept_node.h"
@@ -76,7 +77,6 @@
 #include "vec/exec/vintersect_node.h"
 #include "vec/exec/vjdbc_scan_node.h"
 #include "vec/exec/vmysql_scan_node.h"
-#include "vec/exec/vnested_loop_join_node.h"
 #include "vec/exec/vodbc_scan_node.h"
 #include "vec/exec/volap_scan_node.h"
 #include "vec/exec/vrepeat_node.h"
@@ -220,7 +220,7 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_shared<MemTracker>("ExecNode:" + _runtime_profile->name(),
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
                                                 _runtime_profile.get());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -517,13 +517,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::HASH_JOIN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (!tnode.hash_join_node.__isset.vintermediate_tuple_id_list) {
-                // in progress of upgrading from 1.1-lts to 1.2-lts
-                error_msg << "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized hash "
-                             "join cannot be executed, you can switch to non-vectorized engine by "
-                             "'set global enable_vectorized_engine = false'";
-                return Status::InternalError(error_msg.str());
-            }
             *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         } else {
             *node = pool->add(new HashJoinNode(pool, tnode, descs));
@@ -532,7 +525,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::CROSS_JOIN_NODE:
         if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VNestedLoopJoinNode(pool, tnode, descs));
+            *node = pool->add(new vectorized::VCrossJoinNode(pool, tnode, descs));
         } else {
             *node = pool->add(new CrossJoinNode(pool, tnode, descs));
         }

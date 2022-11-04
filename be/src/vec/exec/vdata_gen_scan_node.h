@@ -36,8 +36,7 @@ namespace vectorized {
 
 class VDataGenFunctionScanNode : public ScanNode {
 public:
-    VDataGenFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode,
-                                 const DescriptorTbl& descs);
+    VDataGenFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VDataGenFunctionScanNode() override = default;
 
     // initialize _mysql_scanner, and create _text_converter.
