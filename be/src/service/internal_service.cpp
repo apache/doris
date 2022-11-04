@@ -480,7 +480,6 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         PTypeDesc* type_desc = result->add_column_types();
         col_types[idx].to_protobuf(type_desc);
     }
-    LOG(INFO) << "complete parse, status: " << st;
     st.to_protobuf(result->mutable_status());
 }
 

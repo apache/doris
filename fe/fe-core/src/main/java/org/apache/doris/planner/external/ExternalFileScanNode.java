@@ -215,8 +215,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     private void initFunctionGenTable(FunctionGenTable table, ExternalFileTableValuedFunction tvf) {
         Preconditions.checkNotNull(table);
-        FileScanProviderIf scanProvider;
-        scanProvider = new TVFScanProvider(table, desc, tvf);
+        FileScanProviderIf scanProvider = new TVFScanProvider(table, desc, tvf);
         this.scanProviders.add(scanProvider);
     }
 

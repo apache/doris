@@ -38,7 +38,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 
 /**
- * This scan node is used for table valued function.
+ * This scan node is used for data source generated from memory.
  */
 public class DataGenScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(DataGenScanNode.class.getName());
