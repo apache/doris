@@ -938,7 +938,8 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         std::unique_lock<std::mutex> lock(_lock);
         if (!_fragment_map.count(tfragment_instance_id)) {
             VLOG_NOTICE << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
-            _cv.wait_for(lock, 1000000);
+            _cv.wait_for(lock, std::chrono::milliseconds(1000),
+                         [&] { return _fragment_map.count(tfragment_instance_id); });
         }
 
         auto iter = _fragment_map.find(tfragment_instance_id);
