@@ -82,7 +82,6 @@ public:
 
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
-    // read_options is used to set some read options.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
                          bool use_cache = false);
 

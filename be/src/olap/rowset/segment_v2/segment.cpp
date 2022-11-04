@@ -26,6 +26,7 @@
 #include "common/logging.h" // LOG
 #include "io/cache/file_cache_manager.h"
 #include "io/fs/file_system.h"
+#include "olap/iterators.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -152,7 +153,6 @@ Status Segment::_parse_footer() {
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    IOContext io_ctx;
     RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, io_ctx,
                                           &bytes_read));
     DCHECK_EQ(bytes_read, footer_length);

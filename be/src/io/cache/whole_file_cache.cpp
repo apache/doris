@@ -36,15 +36,15 @@ WholeFileCache::~WholeFileCache() {}
 
 Status WholeFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                                size_t* bytes_read) {
-    if (!ctx.use_local_file_cache) {
-        return _remote_file_reader->read_at(offset, result, bytes_read, ctx);
+    if (!io_ctx.use_local_file_cache) {
+        return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
     }
     if (_cache_file_reader == nullptr) {
         RETURN_IF_ERROR(_generate_cache_reader(offset, result.size));
     }
     std::shared_lock<std::shared_mutex> rlock(_cache_lock);
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            _cache_file_reader->read_at(offset, result, bytes_read),
+            _cache_file_reader->read_at(offset, result, io_ctx, bytes_read),
             fmt::format("Read local cache file failed: {}", _cache_file_reader->path().native()));
     if (*bytes_read != result.size) {
         LOG(ERROR) << "read cache file failed: " << _cache_file_reader->path().native()

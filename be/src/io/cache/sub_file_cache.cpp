@@ -38,8 +38,8 @@ SubFileCache::~SubFileCache() {}
 
 Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                              size_t* bytes_read) {
-    if (!ctx.use_local_file_cache) {
-        return _remote_file_reader->read_at(offset, result, bytes_read, ctx);
+    if (!io_ctx.use_local_file_cache) {
+        return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
     }
     std::vector<size_t> need_cache_offsets;
     RETURN_IF_ERROR(_get_need_cache_offsets(offset, result.size, &need_cache_offsets));
@@ -102,7 +102,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ct
             size_t sub_bytes_read = -1;
             RETURN_NOT_OK_STATUS_WITH_WARN(
                     _cache_file_readers[*iter]->read_at(offset_begin - *iter, read_slice,
-                                                        &sub_bytes_read),
+                                                        io_ctx, &sub_bytes_read),
                     fmt::format("Read local cache file failed: {}",
                                 _cache_file_readers[*iter]->path().native()));
             if (sub_bytes_read != read_slice.size) {

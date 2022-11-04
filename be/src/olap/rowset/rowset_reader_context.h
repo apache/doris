@@ -68,7 +68,7 @@ struct RowsetReaderContext {
     std::shared_ptr<RowBlockV2> reuse_block;
     std::shared_ptr<Schema> reuse_input_schema;
     // if use_local_file_cache is true, remote file will be read using local cache file.
-    bool use_local_file_cache = false;
+    bool use_local_file_cache = true;
 };
 
 } // namespace doris

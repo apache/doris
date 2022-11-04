@@ -25,9 +25,6 @@
 #include "util/slice.h"
 
 namespace doris {
-
-class IOContext;
-
 namespace io {
 
 class FileReader {
