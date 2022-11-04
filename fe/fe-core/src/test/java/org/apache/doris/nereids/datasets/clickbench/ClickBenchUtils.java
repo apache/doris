@@ -21,7 +21,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 public class ClickBenchUtils {
 
-    public static final String Q0 ="SELECT COUNT(*) FROM hits;";
+    public static final String Q0 = "SELECT COUNT(*) FROM hits;";
     public static final String Q1 = "SELECT COUNT(*) FROM hits WHERE AdvEngineID <> 0;";
     public static final String Q2 = "SELECT SUM(AdvEngineID), COUNT(*), AVG(ResolutionWidth) FROM hits;";
     public static final String Q3 = "SELECT AVG(UserID) FROM hits;";

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.datasets.clickbench;
 
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 
-public class ClickbenchTestBase  extends AnalyzeCheckTestBase {
+public class ClickBenchTestBase extends AnalyzeCheckTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");

@@ -402,8 +402,7 @@ public class ResolveAggregateFunctionsTest extends AnalyzeCheckTestBase implemen
                                                 logicalOlapScan()
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
                                 ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true))))
-                        ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot())))
-                );
+                        ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 ORDER BY SUM(a2)";
         sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
@@ -414,9 +413,7 @@ public class ResolveAggregateFunctionsTest extends AnalyzeCheckTestBase implemen
                                         logicalAggregate(
                                                 logicalOlapScan()
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
-                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true))))
-                        )
-                );
+                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true))))));
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 ORDER BY SUM(a2)";
         a1 = new SlotReference(
@@ -435,9 +432,7 @@ public class ResolveAggregateFunctionsTest extends AnalyzeCheckTestBase implemen
                                         logicalAggregate(
                                                 logicalOlapScan()
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true))))
-                        )
-                );
+                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true))))));
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 ORDER BY MIN(pk)";
         a1 = new SlotReference(
@@ -462,8 +457,7 @@ public class ResolveAggregateFunctionsTest extends AnalyzeCheckTestBase implemen
                                                 logicalOlapScan()
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, minPK)))
                                 ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(minPK.toSlot(), true, true))))
-                        ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot())))
-                );
+                        ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 ORDER BY SUM(a1 + a2)";
         Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
@@ -474,9 +468,7 @@ public class ResolveAggregateFunctionsTest extends AnalyzeCheckTestBase implemen
                                         logicalAggregate(
                                                 logicalOlapScan()
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2)))
-                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA1A2.toSlot(), true, true))))
-                        )
-                );
+                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA1A2.toSlot(), true, true))))));
 
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 ORDER BY SUM(a1 + a2 + 3)";
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new SmallIntLiteral((short) 3))),
@@ -489,8 +481,7 @@ public class ResolveAggregateFunctionsTest extends AnalyzeCheckTestBase implemen
                                                 logicalOlapScan()
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2, sumA1A23)))
                                 ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA1A23.toSlot(), true, true))))
-                        ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA1A2.toSlot())))
-                );
+                        ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA1A2.toSlot()))));
 
         sql = "SELECT a1 FROM t1 GROUP BY a1 ORDER BY COUNT(*)";
         Alias countStar = new Alias(new ExprId(3), new Count(), "count(*)");
@@ -502,8 +493,7 @@ public class ResolveAggregateFunctionsTest extends AnalyzeCheckTestBase implemen
                                                 logicalOlapScan()
                                         ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, countStar)))
                                 ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(countStar.toSlot(), true, true))))
-                        ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot())))
-                );
+                        ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
     }
 
     @Test

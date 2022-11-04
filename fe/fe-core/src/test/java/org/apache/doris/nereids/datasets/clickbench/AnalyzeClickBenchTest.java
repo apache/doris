@@ -19,7 +19,7 @@ package org.apache.doris.nereids.datasets.clickbench;
 
 import org.junit.jupiter.api.Test;
 
-public class AnalyzeClickBenchTest extends ClickbenchTestBase {
+public class AnalyzeClickBenchTest extends ClickBenchTestBase {
     @Test
     public void q0() {
         checkAnalyze(ClickBenchUtils.Q0);
