@@ -21,6 +21,8 @@
 #include <deque>
 #include <mutex>
 
+#include "bthread/condition_variable.h"
+#include "bthread/mutex.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/file_reader.h"
 #include "runtime/message_body_sink.h"

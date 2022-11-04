@@ -45,7 +45,6 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "service/brpc_conflict.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
@@ -432,10 +431,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
           _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
-    REGISTER_HOOK_METRIC(plan_fragment_count, [this]() {
-        // std::lock_guard<std::mutex> lock(_lock);
-        return _fragment_map.size();
-    });
+    REGISTER_HOOK_METRIC(plan_fragment_count, [this]() { return _fragment_map.size(); });
 
     auto s = Thread::create(
             "FragmentMgr", "cancel_timeout_plan_fragment", [this]() { this->cancel_worker(); },
@@ -942,8 +938,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         std::unique_lock<std::mutex> lock(_lock);
         if (!_fragment_map.count(tfragment_instance_id)) {
             VLOG_NOTICE << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
-            _cv.wait_for(lock, std::chrono::milliseconds(1000),
-                         [&] { return _fragment_map.count(tfragment_instance_id); });
+            _cv.wait_for(lock, 1000000);
         }
 
         auto iter = _fragment_map.find(tfragment_instance_id);
