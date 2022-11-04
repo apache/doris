@@ -999,7 +999,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             "");
     _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
                                                 _runtime_profile.get());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _intermediate_row_desc));
@@ -1008,6 +1007,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
     }
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     // Build phase
     auto build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
