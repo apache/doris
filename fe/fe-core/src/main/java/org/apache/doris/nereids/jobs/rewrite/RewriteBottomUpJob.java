@@ -28,7 +28,6 @@ import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Objects;
@@ -42,8 +41,6 @@ public class RewriteBottomUpJob extends Job {
     private final Group group;
     private final List<Rule> rules;
     private final boolean childrenOptimized;
-
-    private final boolean enableTrace = ConnectContext.get().getSessionVariable().isEnableNereidsTrace();
 
     public RewriteBottomUpJob(Group group, JobContext context, List<RuleFactory> factories) {
         this(group, factories.stream()
