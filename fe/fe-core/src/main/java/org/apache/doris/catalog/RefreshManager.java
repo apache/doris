@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InternalCatalog;
 
 import org.apache.logging.log4j.LogManager;
@@ -117,6 +118,10 @@ public class RefreshManager {
             throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
         }
         ((ExternalDatabase) db).setUnInitialized();
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
     }
 
     private void refreshInternalCtlIcebergTable(RefreshTableStmt stmt, Env env) throws UserException {
@@ -156,5 +161,10 @@ public class RefreshManager {
             throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
         }
         ((ExternalTable) table).setUnInitialized();
+        ExternalObjectLog log = new ExternalObjectLog();
+        log.setCatalogId(catalog.getId());
+        log.setDbId(db.getId());
+        log.setTableId(table.getId());
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 }
