@@ -95,7 +95,6 @@ set(VEC_FILES
   exec/vintersect_node.cpp
   exec/vexcept_node.cpp
   exec/vselect_node.cpp
-  exec/vnested_loop_join_node.cpp
   exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
   exec/vempty_set_node.cpp
@@ -110,6 +109,8 @@ set(VEC_FILES
   exec/vparquet_scanner.cpp
   exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
+  exec/join/vjoin_node_base.cpp
+  exec/join/vnested_loop_join_node.cpp
   exec/data_gen_functions/vnumbers_tvf.cpp
   exec/vdata_gen_scan_node.cpp
   exprs/vectorized_agg_fn.cpp

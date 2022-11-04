@@ -20,17 +20,17 @@
 #include <variant>
 
 #include "common/object_pool.h"
-#include "exec/exec_node.h"
-#include "exprs/runtime_filter_slots.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash_map.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/exec/join/join_op.h"
 #include "vec/exec/join/vacquire_list.hpp"
+#include "vec/exec/join/vjoin_node_base.h"
 #include "vec/functions/function.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
+class IRuntimeFilter;
 namespace vectorized {
 
 template <typename RowRefListType>
@@ -160,30 +160,6 @@ using HashTableVariants = std::variant<
         I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
         I256FixedKeyHashTableContext<false, RowRefListWithFlags>>;
 
-using JoinOpVariants =
-        std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
-
-#define APPLY_FOR_JOINOP_VARIANTS(M) \
-    M(INNER_JOIN)                    \
-    M(LEFT_SEMI_JOIN)                \
-    M(LEFT_ANTI_JOIN)                \
-    M(LEFT_OUTER_JOIN)               \
-    M(FULL_OUTER_JOIN)               \
-    M(RIGHT_OUTER_JOIN)              \
-    M(CROSS_JOIN)                    \
-    M(RIGHT_SEMI_JOIN)               \
-    M(RIGHT_ANTI_JOIN)               \
-    M(NULL_AWARE_LEFT_ANTI_JOIN)
-
 class VExprContext;
 class HashJoinNode;
 
@@ -257,7 +233,7 @@ using HashTableCtxVariants = std::variant<
         ProcessHashTableProbe<
                 std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>>;
 
-class HashJoinNode : public ::doris::ExecNode {
+class HashJoinNode final : public VJoinNodeBase {
 public:
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~HashJoinNode() override;
@@ -268,24 +244,15 @@ public:
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     Status close(RuntimeState* state) override;
-    void init_join_op();
-
-    const RowDescriptor& row_desc() const override { return _output_row_desc; }
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
-
-    TJoinOp::type _join_op;
-
-    JoinOpVariants _join_op_variants;
     // probe expr
     VExprContexts _probe_expr_ctxs;
     // build expr
     VExprContexts _build_expr_ctxs;
     // other expr
     std::unique_ptr<VExprContext*> _vother_join_conjunct_ptr;
-    // output expr
-    VExprContexts _output_expr_ctxs;
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
@@ -299,19 +266,15 @@ private:
     DataTypes _right_table_data_types;
     DataTypes _left_table_data_types;
 
-    RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _build_table_timer;
     RuntimeProfile::Counter* _build_expr_call_timer;
     RuntimeProfile::Counter* _build_table_insert_timer;
     RuntimeProfile::Counter* _build_table_expanse_timer;
-    RuntimeProfile::Counter* _probe_timer;
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
     RuntimeProfile::Counter* _build_buckets_counter;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
-    RuntimeProfile::Counter* _build_rows_counter;
-    RuntimeProfile::Counter* _probe_rows_counter;
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
@@ -343,14 +306,6 @@ private:
     Sizes _probe_key_sz;
     Sizes _build_key_sz;
 
-    bool _have_other_join_conjunct;
-    const bool _match_all_probe; // output all rows coming from the probe input. Full/Left Join
-    const bool _match_all_build; // output all rows coming from the build input. Full/Right Join
-    bool _build_unique;          // build a hash table without duplicated rows. Left semi/anti Join
-
-    const bool _is_right_semi_anti;
-    const bool _is_outer_join;
-
     // For null aware left anti join, we apply a short circuit strategy.
     // 1. Set _short_circuit_for_null_in_build_side to true if join operator is null aware left anti join.
     // 2. In build phase, we stop building hash table when we meet the first null value and set _short_circuit_for_null_in_probe_side to true.
@@ -361,22 +316,15 @@ private:
     SharedHashTableController* _shared_hashtable_controller = nullptr;
     VRuntimeFilterSlots* _runtime_filter_slots;
 
-    Block _join_block;
-
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
-
-    RowDescriptor _intermediate_row_desc;
-    RowDescriptor _output_row_desc;
 
     MutableColumnPtr _tuple_is_null_left_flag_column;
     MutableColumnPtr _tuple_is_null_right_flag_column;
 
 private:
-    void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status);
-
-    Status _hash_table_build(RuntimeState* state);
+    Status _materialize_build_side(RuntimeState* state) override;
 
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
@@ -397,10 +345,6 @@ private:
     static constexpr auto _MAX_BUILD_BLOCK_COUNT = 128;
 
     void _prepare_probe_block();
-
-    void _construct_mutable_join_block();
-
-    Status _build_output_block(Block* origin_block, Block* output_block);
 
     // add tuple is null flag column to Block for filter conjunct and output expr
     void _add_tuple_is_null_column(Block* block);
