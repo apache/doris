@@ -37,7 +37,7 @@ public class GraphSimplifierTest {
         while (graphSimplifier.applySimplificationStep()) {
         }
 
-        String target = "digraph G {  # 2 edges\n"
+        String target = "digraph G {  # 4 edges\n"
                 + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0 \n"
                 + " rowCount=10.00\"];\n"
                 + "  LOGICAL_OLAP_SCAN1 [label=\"LOGICAL_OLAP_SCAN1 \n"
