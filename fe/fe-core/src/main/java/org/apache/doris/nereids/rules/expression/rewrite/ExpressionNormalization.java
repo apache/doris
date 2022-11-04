@@ -41,10 +41,10 @@ public class ExpressionNormalization extends ExpressionRewrite {
             BetweenToCompoundRule.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
-            SimplifyCastRule.INSTANCE,
             CharacterLiteralTypeCoercion.INSTANCE,
             TypeCoercion.INSTANCE,
-            FoldConstantRule.INSTANCE
+            FoldConstantRule.INSTANCE,
+            SimplifyCastRule.INSTANCE
     );
 
     public ExpressionNormalization(ConnectContext context) {
