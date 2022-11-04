@@ -172,7 +172,7 @@ protected:
         rowset.rowset_meta()->set_rowset_id(rowset_id);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(false, &segments);
+        Status st = rowset.load_segments(&segments);
         ASSERT_TRUE(st.ok());
     }
 };

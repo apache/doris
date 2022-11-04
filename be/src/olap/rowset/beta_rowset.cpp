@@ -96,8 +96,7 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
     return Status::OK();
 }
 
-Status BetaRowset::load_segments(bool use_local_file_cache,
-                                 std::vector<segment_v2::SegmentSharedPtr>* segments) {
+Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
@@ -107,7 +106,7 @@ Status BetaRowset::load_segments(bool use_local_file_cache,
         auto cache_path = segment_cache_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
         auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema,
-                                           use_local_file_cache, &segment);
+                                           ctx, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
                          << unique_id() << " : " << s.to_string();

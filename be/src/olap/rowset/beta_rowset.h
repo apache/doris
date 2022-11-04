@@ -78,8 +78,7 @@ public:
 
     bool check_file_exist() override;
 
-    Status load_segments(bool use_local_file_cache,
-                         std::vector<segment_v2::SegmentSharedPtr>* segments);
+    Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
     Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
 

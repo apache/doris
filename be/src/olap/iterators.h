@@ -59,6 +59,10 @@ public:
         bool include_upper;
     };
 
+    struct IOContext {
+        bool use_local_file_cache = false;
+    };
+
     // reader's key ranges, empty if not existed.
     // used by short key index to filter row blocks
     std::vector<KeyRange> key_ranges;
@@ -90,6 +94,8 @@ public:
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
+
+    IOContext io_ctx;
 };
 
 // Used to read data in RowBlockV2 one by one

@@ -36,7 +36,7 @@ public:
 
     Status close() override { return Status::OK(); }
 
-    Status read_at(size_t offset, Slice result, size_t* bytes_read) override {
+    Status read_at(size_t offset, Slice result, size_t* bytes_read, const IOContext* ctx) override {
         return Status::NotSupported("dummy file cache only used for GC");
     }
 

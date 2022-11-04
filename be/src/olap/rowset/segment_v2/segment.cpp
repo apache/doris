@@ -43,7 +43,7 @@ namespace segment_v2 {
 using io::FileCacheManager;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, const std::string& cache_path,
-                     uint32_t segment_id, TabletSchemaSPtr tablet_schema, bool use_local_file_cache,
+                     uint32_t segment_id, TabletSchemaSPtr tablet_schema,
                      std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
     io::FileReaderSPtr file_reader;
@@ -57,8 +57,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, const std::
         RETURN_IF_ERROR(fs->open_file(path, &file_reader));
     }
 #endif
-    if (fs->type() != io::FileSystemType::LOCAL && !config::file_cache_type.empty() &&
-        use_local_file_cache) {
+    if (fs->type() != io::FileSystemType::LOCAL && !config::file_cache_type.empty()) {
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, file_reader,
                 config::file_cache_type);
@@ -151,7 +150,7 @@ Status Segment::_parse_footer() {
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read));
+    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read);
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum

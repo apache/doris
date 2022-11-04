@@ -82,9 +82,9 @@ public:
 
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
-    // If use_local_file_cache is true, remote file reader will create local cache file to read.
+    // read_options is used to set some read options.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         bool use_cache = false, bool use_local_file_cache = false);
+                         bool use_cache = false);
 
     // Try to prune the segment cache if expired.
     Status prune();
@@ -95,12 +95,12 @@ private:
     // Lookup the given rowset in the cache.
     // If the rowset is found, the cache entry will be written into handle.
     // Return true if entry is found, otherwise return false.
-    bool _lookup(const std::string& key, SegmentCacheHandle* handle);
+    bool _lookup(const SegmentLoader::CacheKey& key, SegmentCacheHandle* handle);
 
     // Insert a cache entry by key.
     // And the cache entry will be returned in handle.
     // This function is thread-safe.
-    void _insert(const std::string& key, CacheValue& value, SegmentCacheHandle* handle);
+    void _insert(const SegmentLoader::CacheKey& key, CacheValue& value, SegmentCacheHandle* handle);
 
 private:
     static SegmentLoader* _s_instance;

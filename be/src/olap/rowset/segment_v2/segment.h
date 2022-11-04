@@ -63,8 +63,7 @@ class Segment : public std::enable_shared_from_this<Segment> {
 public:
     static Status open(io::FileSystemSPtr fs, const std::string& path,
                        const std::string& cache_path, uint32_t segment_id,
-                       TabletSchemaSPtr tablet_schema, bool use_local_file_cache,
-                       std::shared_ptr<Segment>* output);
+                       TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output);
 
     ~Segment();
 

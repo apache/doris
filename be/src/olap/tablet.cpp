@@ -1912,7 +1912,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
 Status Tablet::_load_rowset_segments(const RowsetSharedPtr& rowset,
                                      std::vector<segment_v2::SegmentSharedPtr>* segments) {
     auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
-    RETURN_IF_ERROR(beta_rowset->load_segments(false, segments));
+    RETURN_IF_ERROR(beta_rowset->load_segments(segments));
     return Status::OK();
 }
 

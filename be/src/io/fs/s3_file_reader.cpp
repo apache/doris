@@ -49,7 +49,7 @@ Status S3FileReader::close() {
     return Status::OK();
 }
 
-Status S3FileReader::read_at(size_t offset, Slice result, size_t* bytes_read) {
+Status S3FileReader::read_at(size_t offset, Slice result, size_t* bytes_read, const IOContext* ctx) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",

@@ -467,7 +467,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(false, &segments);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 
@@ -482,7 +482,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(false, &segments);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 
@@ -497,7 +497,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        Status st = rowset.load_segments(false, &segments);
+        Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
 

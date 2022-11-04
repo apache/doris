@@ -33,7 +33,11 @@ WholeFileCache::WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
 
 WholeFileCache::~WholeFileCache() {}
 
-Status WholeFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
+Status WholeFileCache::read_at(size_t offset, Slice result, size_t* bytes_read,
+                               const IOContext* ctx) {
+    if (ctx == nullptr || !ctx->use_local_file_cache) {
+        return _remote_file_reader->read_at(offset, result, bytes_read, ctx);
+    }
     if (_cache_file_reader == nullptr) {
         RETURN_IF_ERROR(_generate_cache_reader(offset, result.size));
     }

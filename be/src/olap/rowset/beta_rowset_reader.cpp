@@ -149,11 +149,12 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     read_options.record_rowids = read_context->record_rowids;
     read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
+    read_options.io_ctx.use_local_file_cache = read_context->use_local_file_cache;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            _rowset, &_segment_cache_handle, read_context->reader_type == ReaderType::READER_QUERY,
-            read_context->use_local_file_cache));
+            _rowset, &_segment_cache_handle,
+            read_context->reader_type == ReaderType::READER_QUERY));
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
