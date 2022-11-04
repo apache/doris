@@ -38,7 +38,6 @@ public class HyperGraphJoinReorderGroupPlan extends OneRewriteRuleFactory {
                 .thenApply(ctx -> {
                     LogicalJoin<? extends Plan, ? extends Plan> rootJoin = ctx.root;
                     HyperGraph graph = HyperGraph.fromPlan(rootJoin);
-                    System.out.println(graph.toDottyHyperGraph());
                     if (graph.optimize()) {
                         return graph.toPlan();
                     }

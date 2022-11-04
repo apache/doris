@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.BitSet;
@@ -24,6 +26,7 @@ import java.util.BitSet;
 class Edge {
     final int index;
     final LogicalJoin join;
+    final double selectivity;
 
     // The endpoints (hypernodes) of this hyperedge.
     // left and right may not overlap, and both must have at least one bit set.
@@ -37,6 +40,7 @@ class Edge {
     public Edge(LogicalJoin join, int index) {
         this.index = index;
         this.join = join;
+        this.selectivity = getRowCount(join) / (getRowCount(join.left()) * getRowCount(join.right()));
     }
 
     public LogicalJoin getJoin() {
@@ -114,5 +118,17 @@ class Edge {
     public int getIndex() {
         return index;
     }
+
+    public double getSelectivity() {
+        return selectivity;
+    }
+
+    private double getRowCount(Plan plan) {
+        if (plan instanceof GroupPlan) {
+            return ((GroupPlan) plan).getGroup().getStatistics().getRowCount();
+        }
+        return plan.getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+    }
+
 }
 

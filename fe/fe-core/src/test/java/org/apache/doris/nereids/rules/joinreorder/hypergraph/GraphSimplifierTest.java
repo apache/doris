@@ -49,15 +49,17 @@ public class GraphSimplifierTest {
                 + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4 \n"
                 + " rowCount=50.00\"];\n"
                 + "e0 [shape=circle, width=.001, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN0 -> e0 [arrowhead=none, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN4 -> e0 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> e0 [arrowhead=none, label=\"0.10\"]\n"
+                + "LOGICAL_OLAP_SCAN4 -> e0 [arrowhead=none, label=\"0.10\"]\n"
                 + "LOGICAL_OLAP_SCAN1 -> e0 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN2 [label=\"0.05\",arrowhead=none]\n"
                 + "e2 [shape=circle, width=.001, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN0 -> e2 [arrowhead=none, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN1 -> e2 [arrowhead=none, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN2 -> e2 [arrowhead=none, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN4 -> e2 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> e2 [arrowhead=none, label=\"0.03\"]\n"
+                + "LOGICAL_OLAP_SCAN1 -> e2 [arrowhead=none, label=\"0.03\"]\n"
+                + "LOGICAL_OLAP_SCAN2 -> e2 [arrowhead=none, label=\"0.03\"]\n"
+                + "LOGICAL_OLAP_SCAN4 -> e2 [arrowhead=none, label=\"0.03\"]\n"
                 + "LOGICAL_OLAP_SCAN3 -> e2 [arrowhead=none, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN4 [label=\"0.03\",arrowhead=none]\n"
                 + "}\n";
         String dottyGraph = hyperGraph.toDottyHyperGraph();
         assert dottyGraph.equals(target) : dottyGraph;

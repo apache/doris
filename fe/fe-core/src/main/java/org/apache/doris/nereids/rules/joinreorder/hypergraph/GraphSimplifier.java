@@ -349,7 +349,7 @@ public class GraphSimplifier {
 
         @Override
         public String toString() {
-            return String.format("%d -> %d", beforeIndex, afterIndex, benefit);
+            return String.format("%d -> %d %.2f", beforeIndex, afterIndex, benefit);
         }
     }
 

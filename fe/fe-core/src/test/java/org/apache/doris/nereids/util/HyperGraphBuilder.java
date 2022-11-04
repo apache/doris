@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorderGroupPlan;
 import org.apache.doris.nereids.rules.joinreorder.hypergraph.HyperGraph;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -44,14 +44,15 @@ public class HyperGraphBuilder {
 
     public HyperGraph build() {
         Plan planWithStats = extractJoinCluster(this.plan);
+        System.out.println(planWithStats.treeString());
         HyperGraph graph = HyperGraph.fromPlan(planWithStats);
         return graph;
     }
 
     public HyperGraphBuilder init(String name, int rowCount) {
         assert !tableRowCount.containsKey(name) : "The join table must be new";
-        plan = PlanConstructor.newLogicalOlapScan(tableRowCount.size(), name, 0);
         tableRowCount.put(name, rowCount);
+        plan = PlanConstructor.newLogicalOlapScan(tableRowCount.size(), name, 0);
         return this;
     }
 
@@ -61,7 +62,7 @@ public class HyperGraphBuilder {
         Plan scan = PlanConstructor.newLogicalOlapScan(tableRowCount.size(), name, 0);
         ImmutableList<EqualTo> hashConjunts = ImmutableList.of(
                 new EqualTo(this.plan.getOutput().get(0), scan.getOutput().get(0)));
-        plan = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
+        this.plan = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
                 this.plan, scan);
         return this;
     }
@@ -70,7 +71,6 @@ public class HyperGraphBuilder {
         Rule rule = new HyperGraphJoinReorderGroupPlan().build();
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
-        deriveStats(cascadesContext);
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(),
                 cascadesContext.getMemo().getRoot().getLogicalExpression());
@@ -83,24 +83,19 @@ public class HyperGraphBuilder {
         return planList.get(0);
     }
 
-    private void deriveStats(CascadesContext cascadesContext) {
-        cascadesContext.pushJob(
-                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                        cascadesContext.getCurrentJobContext()));
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-    }
-
     private void injectRowcount(Plan plan) {
         if (plan instanceof GroupPlan) {
             GroupPlan olapGroupPlan = (GroupPlan) plan;
+            StatsCalculator.estimate(olapGroupPlan.getGroup().getLogicalExpression());
             LogicalOlapScan scanPlan = (LogicalOlapScan) olapGroupPlan.getGroup().getLogicalExpression().getPlan();
             StatsDeriveResult stats = olapGroupPlan.getGroup().getStatistics();
             stats.setRowCount(tableRowCount.get(scanPlan.getTable().getName()));
             return;
         }
         LogicalJoin join = (LogicalJoin) plan;
-        assert join.getGroupExpression().get().isStatDerived() : "All plan in HyperGraph has been derived stats";
         injectRowcount(join.left());
         injectRowcount(join.right());
+        // Because the children stats has been changed, so we need to recalculate it
+        StatsCalculator.estimate(join.getGroupExpression().get());
     }
 }

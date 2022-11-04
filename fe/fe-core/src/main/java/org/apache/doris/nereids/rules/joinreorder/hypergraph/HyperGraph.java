@@ -195,7 +195,7 @@ public class HyperGraph {
      */
     public String toDottyHyperGraph() {
         StringBuilder builder = new StringBuilder();
-        builder.append(String.format("digraph G {  # %d edges\n", edges.size() / 2));
+        builder.append(String.format("digraph G {  # %d edges\n", edges.size()));
         List<String> graphvisNodes = new ArrayList<>();
         for (Node node : nodes) {
             String nodeName = node.getName();
@@ -208,10 +208,10 @@ public class HyperGraph {
                     nodeID, nodeName, node.getRowCount()));
             graphvisNodes.add(nodeName);
         }
-        for (int i = 0; i < edges.size(); i += 2) {
+        for (int i = 0; i < edges.size(); i += 1) {
             Edge edge = edges.get(i);
             // TODO: add cardinality to label
-            String label = "";
+            String label = String.format("%.2f", edge.getSelectivity());
             if (edges.get(i).isSimple()) {
                 String arrowHead = "";
                 if (edge.getJoin().getJoinType() == JoinType.INNER_JOIN) {
