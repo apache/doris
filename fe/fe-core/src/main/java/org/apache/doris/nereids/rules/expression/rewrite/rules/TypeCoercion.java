@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewri
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -199,7 +198,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
             DataType argType = child.getDataType();
             Optional<DataType> castType = castTypes.get(childIndex);
             if (castType.isPresent() && !castType.get().equals(argType)) {
-                return new Cast(child, castType.get());
+                return TypeCoercionUtils.castIfNotSameType(child, castType.get());
             } else {
                 return child;
             }
