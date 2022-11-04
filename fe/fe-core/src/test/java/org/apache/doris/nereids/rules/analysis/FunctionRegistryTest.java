@@ -70,13 +70,13 @@ public class FunctionRegistryTest implements PatternMatchSupported {
                         logicalOneRowRelation().when(r -> {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition().child(0)).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) firstSubstring.getLength().get().child(0)).getValue());
+                            Assertions.assertEquals(1, ((Literal) firstSubstring.getPosition()).getValue());
+                            Assertions.assertEquals(2, ((Literal) firstSubstring.getLength().get()).getValue());
 
                             Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
                             Assertions.assertTrue(secondSubstring.getSource() instanceof Substring);
-                            Assertions.assertEquals((byte) 1, ((Literal) secondSubstring.getPosition().child(0)).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) secondSubstring.getLength().get().child(0)).getValue());
+                            Assertions.assertEquals(1, ((Literal) secondSubstring.getPosition()).getValue());
+                            Assertions.assertEquals(2, ((Literal) secondSubstring.getLength().get()).getValue());
                             return true;
                         })
                 );
@@ -93,13 +93,13 @@ public class FunctionRegistryTest implements PatternMatchSupported {
                         logicalOneRowRelation().when(r -> {
                             Substring firstSubstring = (Substring) r.getProjects().get(0).child(0);
                             Assertions.assertEquals("abc", ((Literal) firstSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 1, ((Literal) firstSubstring.getPosition().child(0)).getValue());
+                            Assertions.assertEquals(1, ((Literal) firstSubstring.getPosition()).getValue());
                             Assertions.assertTrue(firstSubstring.getLength().isPresent());
 
                             Substring secondSubstring = (Substring) r.getProjects().get(1).child(0);
                             Assertions.assertEquals("def", ((Literal) secondSubstring.getSource()).getValue());
-                            Assertions.assertEquals((byte) 2, ((Literal) secondSubstring.getPosition().child(0)).getValue());
-                            Assertions.assertEquals((byte) 3, ((Literal) secondSubstring.getLength().get().child(0)).getValue());
+                            Assertions.assertEquals(2, ((Literal) secondSubstring.getPosition()).getValue());
+                            Assertions.assertEquals(3, ((Literal) secondSubstring.getLength().get()).getValue());
                             return true;
                         })
                 );
