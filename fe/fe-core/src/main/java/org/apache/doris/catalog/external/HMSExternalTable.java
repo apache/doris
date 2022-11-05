@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -44,6 +45,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Hive metastore external table.
@@ -51,10 +53,14 @@ import java.util.Map;
 public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
-    private static final List<String> SUPPORTED_HIVE_FILE_FORMATS = Lists.newArrayList(
-            "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-            "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
-            "org.apache.hadoop.mapred.TextInputFormat");
+    private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
+
+    static {
+        SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+    }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
     private DLAType dlaType = DLAType.UNKNOWN;
