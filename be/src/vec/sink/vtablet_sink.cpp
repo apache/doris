@@ -446,6 +446,46 @@ size_t VOlapTableSink::get_pending_bytes() const {
     return mem_consumption;
 }
 
+Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
+                                   const VOlapTablePartition** partition, uint32_t& tablet_index,
+                                   bool& stop_processing, bool& is_continue) {
+    Status status = Status::OK();
+    *partition = nullptr;
+    tablet_index = 0;
+    BlockRow block_row;
+    block_row = {block, row_index};
+    if (!_vpartition->find_partition(&block_row, partition)) {
+        RETURN_IF_ERROR(state->append_error_msg_to_file(
+                []() -> std::string { return ""; },
+                [&]() -> std::string {
+                    fmt::memory_buffer buf;
+                    fmt::format_to(buf, "no partition for this tuple. tuple={}",
+                                   block->dump_data(row_index, 1));
+                    return fmt::to_string(buf);
+                },
+                &stop_processing));
+        _number_filtered_rows++;
+        if (stop_processing) {
+            return Status::EndOfFile("Encountered unqualified data, stop processing");
+        }
+        is_continue = true;
+        return status;
+    }
+    _partition_ids.emplace((*partition)->id);
+    if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
+        if (_partition_to_tablet_map.find((*partition)->id) == _partition_to_tablet_map.end()) {
+            tablet_index = _vpartition->find_tablet(&block_row, **partition);
+            _partition_to_tablet_map.emplace((*partition)->id, tablet_index);
+        } else {
+            tablet_index = _partition_to_tablet_map[(*partition)->id];
+        }
+    } else {
+        tablet_index = _vpartition->find_tablet(&block_row, **partition);
+    }
+
+    return status;
+}
+
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -493,7 +533,6 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _convert_to_dest_desc_block(&block);
     }
 
-    BlockRow block_row;
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     bool stop_processing = false;
@@ -501,76 +540,85 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _partition_to_tablet_map.clear();
     }
 
-    std::vector<std::unordered_map<
-            NodeChannel*,
-            std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
-            channel_to_payload;
-    channel_to_payload.resize(_channels.size());
-    for (int i = 0; i < num_rows; ++i) {
-        if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
-            continue;
-        }
-        const VOlapTablePartition* partition = nullptr;
-        uint32_t tablet_index = 0;
-        block_row = {&block, i};
-        if (!_vpartition->find_partition(&block_row, &partition)) {
-            RETURN_IF_ERROR(state->append_error_msg_to_file(
-                    []() -> std::string { return ""; },
-                    [&]() -> std::string {
-                        fmt::memory_buffer buf;
-                        fmt::format_to(buf, "no partition for this tuple. tuple={}",
-                                       block.dump_data(i, 1));
-                        return fmt::to_string(buf);
-                    },
-                    &stop_processing));
-            _number_filtered_rows++;
-            if (stop_processing) {
-                return Status::EndOfFile("Encountered unqualified data, stop processing");
+    bool use_vec = _is_vectorized && state->be_exec_version() > 0;
+    if (use_vec) {
+        std::vector<std::unordered_map<
+                NodeChannel*,
+                std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
+                channel_to_payload;
+        channel_to_payload.resize(_channels.size());
+        for (int i = 0; i < num_rows; ++i) {
+            if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
+                continue;
             }
-            continue;
-        }
-        _partition_ids.emplace(partition->id);
-        if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
-            if (_partition_to_tablet_map.find(partition->id) == _partition_to_tablet_map.end()) {
-                tablet_index = _vpartition->find_tablet(&block_row, *partition);
-                _partition_to_tablet_map.emplace(partition->id, tablet_index);
-            } else {
-                tablet_index = _partition_to_tablet_map[partition->id];
+            const VOlapTablePartition* partition = nullptr;
+            uint32_t tablet_index = 0;
+            bool is_continue = false;
+            RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
+                                        is_continue));
+            if (is_continue) {
+                continue;
             }
-        } else {
-            tablet_index = _vpartition->find_tablet(&block_row, *partition);
-        }
-        for (int j = 0; j < partition->indexes.size(); ++j) {
-            auto tid = partition->indexes[j].tablets[tablet_index];
-            auto it = _channels[j]->_channels_by_tablet.find(tid);
-            DCHECK(it != _channels[j]->_channels_by_tablet.end())
-                    << "unknown tablet, tablet_id=" << tablet_index;
-            for (const auto& channel : it->second) {
-                if (channel_to_payload[j].count(channel.get()) < 1) {
-                    channel_to_payload[j].insert(
-                            {channel.get(),
-                             std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
-                                       std::vector<int64_t>> {
-                                     std::unique_ptr<vectorized::IColumn::Selector>(
-                                             new vectorized::IColumn::Selector()),
-                                     std::vector<int64_t>()}});
+            for (int j = 0; j < partition->indexes.size(); ++j) {
+                auto tid = partition->indexes[j].tablets[tablet_index];
+                auto it = _channels[j]->_channels_by_tablet.find(tid);
+                DCHECK(it != _channels[j]->_channels_by_tablet.end())
+                        << "unknown tablet, tablet_id=" << tablet_index;
+                for (const auto& channel : it->second) {
+                    if (channel_to_payload[j].count(channel.get()) < 1) {
+                        channel_to_payload[j].insert(
+                                {channel.get(),
+                                 std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                           std::vector<int64_t>> {
+                                         std::unique_ptr<vectorized::IColumn::Selector>(
+                                                 new vectorized::IColumn::Selector()),
+                                         std::vector<int64_t>()}});
+                    }
+                    channel_to_payload[j][channel.get()].first->push_back(i);
+                    channel_to_payload[j][channel.get()].second.push_back(tid);
                 }
-                channel_to_payload[j][channel.get()].first->push_back(i);
-                channel_to_payload[j][channel.get()].second.push_back(tid);
-            }
-            _number_output_rows++;
-        }
-    }
-    for (size_t i = 0; i < _channels.size(); i++) {
-        for (const auto& entry : channel_to_payload[i]) {
-            // if this node channel is already failed, this add_row will be skipped
-            auto st = entry.first->add_block(&block, entry.second);
-            if (!st.ok()) {
-                _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
-                                             st.get_error_msg());
+                _number_output_rows++;
             }
         }
+        for (size_t i = 0; i < _channels.size(); i++) {
+            for (const auto& entry : channel_to_payload[i]) {
+                // if this node channel is already failed, this add_row will be skipped
+                auto st = entry.first->add_block(&block, entry.second);
+                if (!st.ok()) {
+                    _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
+                                                 st.get_error_msg());
+                }
+            }
+        }
+    } else {
+        size_t MAX_PENDING_BYTES = _load_mem_limit / 3;
+        while (get_pending_bytes() > MAX_PENDING_BYTES && !state->is_cancelled()) {
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+
+        for (int i = 0; i < num_rows; ++i) {
+            if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
+                continue;
+            }
+            const VOlapTablePartition* partition = nullptr;
+            uint32_t tablet_index = 0;
+            BlockRow block_row;
+            block_row = {&block, i};
+            bool is_continue = false;
+            RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
+                                        is_continue));
+            if (is_continue) {
+                continue;
+            }
+
+            for (int j = 0; j < partition->indexes.size(); ++j) {
+                int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
+                _channels[j]->add_row(block_row, tablet_id);
+                _number_output_rows++;
+            }
+        }
     }
+
     // check intolerable failure
     for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());

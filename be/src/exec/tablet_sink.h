@@ -187,6 +187,8 @@ public:
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
+    Status add_row(const BlockRow& block_row, int64_t tablet_id);
+
     virtual Status add_block(vectorized::Block* block,
                              const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
                                              std::vector<int64_t>>& payload) {
@@ -236,7 +238,7 @@ public:
 
     void clear_all_batches();
 
-    virtual void clear_all_blocks() { LOG(FATAL) << "NodeChannel::clear_all_blocks not supported"; }
+    virtual void clear_all_blocks() {}
 
     std::string channel_info() const {
         return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
