@@ -81,7 +81,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Queue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -149,13 +148,8 @@ public class HiveMetaStoreClientHelper {
     public static IMetaStoreClient getClient(HiveConf hiveConf) throws DdlException {
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
-        Properties prop = hiveConf.getAllProperties();
-        for (String key : prop.stringPropertyNames()) {
-            LOG.info("cmy debug key: {}, value: {}", key, prop.getProperty(key));
-        }
         IMetaStoreClient metaStoreClient = null;
         String type = hiveConf.get(HIVE_METASTORE_TYPE);
-        LOG.info("cmy debug type: {}", type);
         try {
             if (type.equalsIgnoreCase("dlf")) {
                 // For aliyun DLF

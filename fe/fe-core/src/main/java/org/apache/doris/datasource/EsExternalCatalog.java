@@ -36,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -205,5 +206,11 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     public ExternalDatabase getDbForReplay(long dbId) {
         return idToDb.get(dbId);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        setProperties(this.catalogProperty.getProperties());
     }
 }
