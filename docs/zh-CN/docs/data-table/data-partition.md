@@ -61,7 +61,7 @@ Doris 的建表是一个同步命令，SQL执行完成即返回结果，命令�
 ```sql
 -- Range Partition
 
-CREATE TABLE IF NOT EXISTS example_db.expamle_range_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_range_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
@@ -93,7 +93,7 @@ PROPERTIES
 
 -- List Partition
 
-CREATE TABLE IF NOT EXISTS example_db.expamle_list_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_list_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "用户id",
     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
@@ -161,7 +161,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    - 通过 `VALUES [...)` 同时指定上下界比较容易理解。这里举例说明，当使用 `VALUES LESS THAN (...)` 语句进行分区的增删操作时，分区范围的变化情况：
 
-     - 如上 `expamle_range_tbl` 示例，当建表完成后，会自动生成如下3个分区：
+     - 如上 `example_range_tbl` 示例，当建表完成后，会自动生成如下3个分区：
 
        ```text
        p201701: [MIN_VALUE,  2017-02-01)
