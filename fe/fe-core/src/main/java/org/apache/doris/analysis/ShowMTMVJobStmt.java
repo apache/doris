@@ -77,7 +77,7 @@ public class ShowMTMVJobStmt extends ShowStmt {
     }
 
     public String getMVName() {
-        return mvName.getTbl();
+        return mvName != null ? mvName.getTbl() : null;
     }
 
     public String getJobName() {
@@ -108,4 +108,31 @@ public class ShowMTMVJobStmt extends ShowStmt {
         }
         return builder.build();
     }
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SHOW MTMV JOB");
+
+        if (jobName != null) {
+            sb.append(" FOR ");
+            sb.append(getJobName());
+        }
+        if (dbName != null) {
+            sb.append(" FROM ");
+            sb.append(ClusterNamespace.getNameFromFullName(dbName));
+        }
+        if (mvName != null) {
+            sb.append(" ON ");
+            sb.append(mvName.toSql());
+        }
+
+        return sb.toString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
+    }
+
 }
