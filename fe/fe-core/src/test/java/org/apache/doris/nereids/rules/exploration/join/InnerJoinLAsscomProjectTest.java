@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -39,7 +38,6 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -127,7 +125,6 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
                 .printlnOrigin()
-                .printlnExploration()
                 .matchesExploration(
                         logicalJoin(
                                 logicalProject(
@@ -185,6 +182,24 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                 .printlnExploration();
     }
 
+    /**
+     * <pre>
+     * LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(t1.id#4 = id#8), (t2.id#6 = (t1.id#4 + id#8))], otherJoinConjuncts=[(t1.name#5 > name#9), (t2.id#6 > (t1.id#4 + id#8))] )
+     * |--LogicalProject ( projects=[id#0 AS `t1.id`#4, name#1 AS `t1.name`#5, id#2 AS `t2.id`#6, name#3 AS `t2.name`#7] )
+     * |  +--LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(id#0 = id#2)], otherJoinConjuncts=[(name#1 > name#3)] )
+     * |     |--LogicalOlapScan ( qualified=db.t1, output=[id#0, name#1], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * |     +--LogicalOlapScan ( qualified=db.t2, output=[id#2, name#3], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * +--LogicalOlapScan ( qualified=db.t3, output=[id#8, name#9], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * -----------------------------
+     * LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(t2.id#6 = (t1.id#4 + id#8)), (t1.id#4 = t2.id#6)], otherJoinConjuncts=[(t2.id#6 > (t1.id#4 + id#8)), (t1.name#5 > t2.name#7)] )
+     * |--LogicalProject ( projects=[id#0 AS `t1.id`#4, name#1 AS `t1.name`#5, id#8, name#9] )
+     * |  +--LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(id#0 = id#8)], otherJoinConjuncts=[(name#1 > name#9)] )
+     * |     |--LogicalOlapScan ( qualified=db.t1, output=[id#0, name#1], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * |     +--LogicalOlapScan ( qualified=db.t3, output=[id#8, name#9], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * +--LogicalProject ( projects=[id#2 AS `t2.id`#6, name#3 AS `t2.name`#7] )
+     *    +--LogicalOlapScan ( qualified=db.t2, output=[id#2, name#3], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * </pre>
+     */
     @Test
     public void testComplexConjuncts() {
         // Alias (scan1 join scan2 on scan1.id=scan2.id and scan1.name>scan2.name);
@@ -211,14 +226,41 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
 
         // test for no exception
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .printlnTree()
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
-                .checkMemo(memo -> {
-                    Group root = memo.getRoot();
-                    Assertions.assertEquals(1, root.getLogicalExpressions().size());
-                });
+                .matchesExploration(
+                        innerLogicalJoin(
+                                logicalProject(
+                                        innerLogicalJoin().when(
+                                                join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                                        "[(id#0 = id#8)]")
+                                                        && Objects.equals(join.getOtherJoinConjuncts().toString(),
+                                                        "[(name#1 > name#9)]"))),
+                                group()
+                        ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                "[(t2.id#6 = (t1.id#4 + id#8)), (t1.id#4 = t2.id#6)]")
+                                && Objects.equals(join.getOtherJoinConjuncts().toString(),
+                                "[(t2.id#6 > (t1.id#4 + id#8)), (t1.name#5 > t2.name#7)]"))
+                );
     }
 
+    /**
+     * <pre>
+     * LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(t1.id#4 = id#8), (t2.id#6 = (t1.id#4 + id#8))], otherJoinConjuncts=[(t1.name#5 > name#9), ( not (substring(t1.name#5, CAST('1' AS INT), CAST('3' AS INT)) = 'abc'))] )
+     * |--LogicalProject ( projects=[id#0 AS `t1.id`#4, name#1 AS `t1.name`#5, id#2 AS `t2.id`#6, name#3 AS `t2.name`#7] )
+     * |  +--LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(id#0 = id#2)], otherJoinConjuncts=[(name#1 > name#3)] )
+     * |     |--LogicalOlapScan ( qualified=db.t1, output=[id#0, name#1], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * |     +--LogicalOlapScan ( qualified=db.t2, output=[id#2, name#3], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * +--LogicalOlapScan ( qualified=db.t3, output=[id#8, name#9], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * -----------------------------
+     * LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(t2.id#6 = (t1.id#4 + id#8)), (t1.id#4 = t2.id#6)], otherJoinConjuncts=[(t1.name#5 > t2.name#7)] )
+     * |--LogicalProject ( projects=[id#0 AS `t1.id`#4, name#1 AS `t1.name`#5, id#8, name#9] )
+     * |  +--LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(id#0 = id#8)], otherJoinConjuncts=[(name#1 > name#9), ( not (substring(name#1, CAST('1' AS INT), CAST('3' AS INT)) = 'abc'))] )
+     * |     |--LogicalOlapScan ( qualified=db.t1, output=[id#0, name#1], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * |     +--LogicalOlapScan ( qualified=db.t3, output=[id#8, name#9], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * +--LogicalProject ( projects=[id#2 AS `t2.id`#6, name#3 AS `t2.name`#7] )
+     *    +--LogicalOlapScan ( qualified=db.t2, output=[id#2, name#3], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * </pre>
+     */
     @Test
     public void testComplexConjunctsWithSubString() {
         // Alias (scan1 join scan2 on scan1.id=scan2.id and scan1.name>scan2.name);
@@ -235,6 +277,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                 new EqualTo(bottomJoin.getOutput().get(0), scan3.getOutput().get(0)),
                 new EqualTo(bottomJoin.getOutput().get(2),
                         new Add(bottomJoin.getOutput().get(0), scan3.getOutput().get(0))));
+        // substring(t3.name, 5, 10) != '123456'
         List<Expression> topOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(bottomJoin.getOutput().get(1), scan3.getOutput().get(1)),
                 new Not(new EqualTo(new Substring(bottomJoin.getOutput().get(1),
@@ -246,14 +289,40 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .printlnTree()
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
-                .checkMemo(memo -> {
-                    Group root = memo.getRoot();
-                    Assertions.assertEquals(1, root.getLogicalExpressions().size());
-                });
+                .matchesExploration(
+                        innerLogicalJoin(
+                                logicalProject(
+                                        innerLogicalJoin().when(
+                                                join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                                        "[(id#0 = id#8)]")
+                                                        && Objects.equals(join.getOtherJoinConjuncts().toString(),
+                                                        "[(name#1 > name#9), ( not (substring(name#1, CAST('1' AS INT), CAST('3' AS INT)) = 'abc'))]"))),
+                                group()
+                        ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                "[(t2.id#6 = (t1.id#4 + id#8)), (t1.id#4 = t2.id#6)]")
+                                && Objects.equals(join.getOtherJoinConjuncts().toString(), "[(t1.name#5 > t2.name#7)]"))
+                );
     }
 
+    /**
+     * <pre>
+     * LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(t1.id#4 = id#8), ((t1.id#4 + t1.name#5) = name#9)], otherJoinConjuncts=[((t1.id#4 + t1.name#5) > name#9)] )
+     * |--LogicalProject ( projects=[id#0 AS `t1.id`#4, name#1 AS `t1.name`#5, id#2 AS `t2.id`#6, name#3 AS `t2.name`#7] )
+     * |  +--LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(id#0 = id#2)], otherJoinConjuncts=[(name#1 > name#3)] )
+     * |     |--LogicalOlapScan ( qualified=db.t1, output=[id#0, name#1], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * |     +--LogicalOlapScan ( qualified=db.t2, output=[id#2, name#3], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * +--LogicalOlapScan ( qualified=db.t3, output=[id#8, name#9], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * -----------------------------
+     * LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(t1.id#4 = t2.id#6)], otherJoinConjuncts=[(t1.name#5 > t2.name#7)] )
+     * |--LogicalProject ( projects=[id#0 AS `t1.id`#4, name#1 AS `t1.name`#5, id#8, name#9] )
+     * |  +--LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(id#0 = id#8), ((id#0 + name#1) = name#9)], otherJoinConjuncts=[((id#0 + name#1) > name#9)] )
+     * |     |--LogicalOlapScan ( qualified=db.t1, output=[id#0, name#1], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * |     +--LogicalOlapScan ( qualified=db.t3, output=[id#8, name#9], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * +--LogicalProject ( projects=[id#2 AS `t2.id`#6, name#3 AS `t2.name`#7] )
+     *    +--LogicalOlapScan ( qualified=db.t2, output=[id#2, name#3], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
+     * </pre>
+     */
     @Test
     public void testComplexConjunctsAndAlias() {
         // Alias (scan1 join scan2 on scan1.id=scan2.id and scan1.name>scan2.name);
@@ -278,7 +347,6 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
-                .printlnTree()
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
                 .matchesExploration(
                         innerLogicalJoin(
@@ -291,6 +359,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                                 group()
                         ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(), "[(t1.id#4 = t2.id#6)]")
                                 && Objects.equals(join.getOtherJoinConjuncts().toString(), "[(t1.name#5 > t2.name#7)]"))
-                );
+                )
+                .printlnExploration();
     }
 }
