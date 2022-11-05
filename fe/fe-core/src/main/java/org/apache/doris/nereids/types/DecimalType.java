@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
@@ -99,7 +100,7 @@ public class DecimalType extends FractionalType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.MAX_DECIMALV2_TYPE;
+        return ScalarType.createDecimalType(precision, scale);
     }
 
     public int getPrecision() {
