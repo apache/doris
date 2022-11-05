@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
@@ -136,23 +137,27 @@ public class MTMVJobManager {
                 job.setId(Env.getCurrentEnv().getNextId());
             }
             if (job.getTriggerMode() == TriggerMode.PERIODICAL) {
+                JobSchedule schedule = job.getSchedule();
+                if (schedule == null) {
+                    throw new DdlException("Job [" + job.getName() + "] has no scheduling");
+                }
                 job.setState(JobState.ACTIVE);
+                nameToJobMap.put(job.getName(), job);
+                idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
-                    JobSchedule schedule = job.getSchedule();
-                    if (schedule == null) {
-                        throw new DdlException("Job [" + job.getName() + "] has no scheduling");
-                    }
+                    // log job before submit any task.
+                    Env.getCurrentEnv().getEditLog().logCreateScheduleJob(job);
                     ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
                             MTMVUtils.getDelaySeconds(job), schedule.getPeriod(), schedule.getTimeUnit());
                     periodFutureMap.put(job.getId(), future);
                 }
-                nameToJobMap.put(job.getName(), job);
-                idToJobMap.put(job.getId(), job);
             } else if (job.getTriggerMode() == TriggerMode.ONCE) {
                 job.setState(JobState.ACTIVE);
+                job.setExpireTime(MTMVUtils.getNowTimeStamp() + Config.scheduler_mtmv_job_expired);
                 nameToJobMap.put(job.getName(), job);
                 idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
+                    Env.getCurrentEnv().getEditLog().logCreateScheduleJob(job);
                     MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
                     submitJobTask(job.getName(), executeOption);
                 }
@@ -160,11 +165,11 @@ public class MTMVJobManager {
                 job.setState(JobState.ACTIVE);
                 nameToJobMap.put(job.getName(), job);
                 idToJobMap.put(job.getId(), job);
+                if (!isReplay) {
+                    Env.getCurrentEnv().getEditLog().logCreateScheduleJob(job);
+                }
             } else {
                 throw new DdlException("Unsupported trigger mode for multi-table mv.");
-            }
-            if (!isReplay) {
-                Env.getCurrentEnv().getEditLog().logCreateScheduleJob(job);
             }
         } finally {
             unlock();
@@ -283,7 +288,7 @@ public class MTMVJobManager {
             jobList.addAll(nameToJobMap.values().stream().filter(u -> u.getDbName().equals(dbName))
                     .collect(Collectors.toList()));
         }
-        return jobList;
+        return jobList.stream().sorted().collect(Collectors.toList());
     }
 
     public List<MTMVJob> showJobs(String dbName, String mvName) {
@@ -311,7 +316,7 @@ public class MTMVJobManager {
                 return;
             }
         }
-        if (job.getExpireTime() > 0 && System.currentTimeMillis() > job.getExpireTime()) {
+        if (job.getExpireTime() > 0 && MTMVUtils.getNowTimeStamp() > job.getExpireTime()) {
             return;
         }
         try {
@@ -346,7 +351,7 @@ public class MTMVJobManager {
     }
 
     public void removeExpiredJobs() {
-        long currentTimeMs = System.currentTimeMillis();
+        long currentTimeSeconds = MTMVUtils.getNowTimeStamp();
 
         List<Long> jobIdsToDelete = Lists.newArrayList();
         if (!tryLock()) {
@@ -355,7 +360,7 @@ public class MTMVJobManager {
         try {
             List<MTMVJob> jobs = showJobs(null);
             for (MTMVJob job : jobs) {
-                // active periodical job should not clean
+                // active job should not clean
                 if (job.getState() == MTMVUtils.JobState.ACTIVE) {
                     continue;
                 }
@@ -369,7 +374,7 @@ public class MTMVJobManager {
 
                 }
                 long expireTime = job.getExpireTime();
-                if (expireTime > 0 && currentTimeMs > expireTime) {
+                if (expireTime > 0 && currentTimeSeconds > expireTime) {
                     jobIdsToDelete.add(job.getId());
                 }
             }

@@ -66,7 +66,7 @@ public class MTMVJobFactory {
         job.setDbName(dbName);
         job.setMvName(materializedView.getName());
         job.setQuery(materializedView.getQuery());
-        job.setCreateTime(System.currentTimeMillis() / 1000);
+        job.setCreateTime(MTMVUtils.getNowTimeStamp());
         return job;
     }
 
@@ -77,7 +77,7 @@ public class MTMVJobFactory {
         job.setDbName(dbName);
         job.setMvName(materializedView.getName());
         job.setQuery(materializedView.getQuery());
-        job.setCreateTime(System.currentTimeMillis() / 1000);
+        job.setCreateTime(MTMVUtils.getNowTimeStamp());
         return job;
     }
 

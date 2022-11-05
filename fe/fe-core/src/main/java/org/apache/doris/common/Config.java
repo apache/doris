@@ -1796,7 +1796,10 @@ public class Config extends ConfigBase {
     public static int max_pending_mtmv_scheduler_task_num = 100;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static long scheduler_mtmv_task_expire_ms = 24 * 60 * 60 * 1000L; // 1day
+    public static long scheduler_mtmv_job_expired = 24 * 60 * 60L; // 1day
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
 
     /**
      * The candidate of the backend node for federation query such as hive table and es table query.

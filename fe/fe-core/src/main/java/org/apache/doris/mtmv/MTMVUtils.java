@@ -114,11 +114,22 @@ public class MTMVUtils {
     }
 
     public static TimeUnit getTimeUint(String strTimeUnit) {
-        switch (strTimeUnit) {
-            case "Seconds": return TimeUnit.SECONDS;
-            case "Hours": return TimeUnit.HOURS;
-            case "Days": return TimeUnit.DAYS;
-            default: return TimeUnit.DAYS;
+        switch (strTimeUnit.toUpperCase()) {
+            case "SECOND": return TimeUnit.SECONDS;
+            case "HOUR": return TimeUnit.HOURS;
+            case "DAY": return TimeUnit.DAYS;
+            default:
+                return TimeUnit.DAYS;
         }
+    }
+
+    // In MTMV package, all the timestamp unit is second.
+    public static long getNowTimeStamp() {
+        return System.currentTimeMillis() / 1000;
+    }
+
+    public static String getTimeString(long timestamp) {
+        LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochSecond(timestamp), ZoneId.systemDefault());
+        return time.toString();
     }
 }

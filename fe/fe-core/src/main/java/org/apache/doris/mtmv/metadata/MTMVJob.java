@@ -28,6 +28,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,7 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public class MTMVJob implements Writable {
+public class MTMVJob implements Writable, Comparable {
     @SerializedName("id")
     private long id;
 
@@ -87,7 +88,7 @@ public class MTMVJob implements Writable {
 
     public MTMVJob(String name) {
         this.name = name;
-        this.createTime = System.currentTimeMillis();
+        this.createTime = MTMVUtils.getNowTimeStamp();
     }
 
     public static MTMVJob read(DataInput in) throws IOException {
@@ -292,9 +293,14 @@ public class MTMVJob implements Writable {
         list.add(getCreateUser());
         list.add(getRetryPolicy().toString());
         list.add(getState().toString());
-        list.add(Long.toString(getCreateTime()));
-        list.add(Long.toString(getExpireTime()));
-        list.add(Long.toString(getLastModifyTime()));
+        list.add(MTMVUtils.getTimeString(getCreateTime()));
+        list.add(MTMVUtils.getTimeString(getExpireTime()));
+        list.add(MTMVUtils.getTimeString(getLastModifyTime()));
         return list;
+    }
+
+    @Override
+    public int compareTo(@NotNull Object o) {
+        return (int) (getCreateTime() - ((MTMVJob) o).getCreateTime());
     }
 }

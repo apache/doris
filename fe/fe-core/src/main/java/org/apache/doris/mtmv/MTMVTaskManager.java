@@ -111,7 +111,7 @@ public class MTMVTaskManager {
         }
 
         String taskId = UUID.randomUUID().toString();
-        MTMVTask task = taskExecutor.initTask(taskId, System.currentTimeMillis());
+        MTMVTask task = taskExecutor.initTask(taskId, MTMVUtils.getNowTimeStamp());
         task.setPriority(params.getPriority());
         Env.getCurrentEnv().getEditLog().logCreateScheduleTask(task);
         arrangeToPendingTask(taskExecutor);
@@ -287,7 +287,7 @@ public class MTMVTaskManager {
                     getAllHistory().stream().filter(u -> u.getDbName().equals(dbName)).collect(Collectors.toList()));
 
         }
-        return taskList;
+        return taskList.stream().sorted().collect(Collectors.toList());
     }
 
     public List<MTMVTask> showTasks(String dbName, String mvName) {
@@ -308,7 +308,7 @@ public class MTMVTaskManager {
 
     public void replayCreateJobTask(MTMVTask task) {
         if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILED) {
-            if (System.currentTimeMillis() > task.getExpireTime()) {
+            if (MTMVUtils.getNowTimeStamp() > task.getExpireTime()) {
                 return;
             }
         }
@@ -391,7 +391,7 @@ public class MTMVTaskManager {
     }
 
     public void removeExpiredTasks() {
-        long currentTimeMs = System.currentTimeMillis();
+        long currentTime = MTMVUtils.getNowTimeStamp();
 
         List<String> historyToDelete = Lists.newArrayList();
 
@@ -404,7 +404,7 @@ public class MTMVTaskManager {
             while (iterator.hasNext()) {
                 MTMVTask task = iterator.next();
                 long expireTime = task.getExpireTime();
-                if (currentTimeMs > expireTime) {
+                if (currentTime > expireTime) {
                     historyToDelete.add(task.getTaskId());
                     iterator.remove();
                 }
@@ -440,7 +440,7 @@ public class MTMVTaskManager {
                 taskExecutor.getTask().setErrorMessage("Fe abort the task");
                 taskExecutor.getTask().setErrorCode(-1);
                 taskExecutor.getTask().setState(TaskState.FAILED);
-                taskExecutor.getTask().setFinishTime(System.currentTimeMillis());
+                taskExecutor.getTask().setFinishTime(MTMVUtils.getNowTimeStamp());
                 runningIter.remove();
                 addHistory(taskExecutor.getTask());
                 changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING,

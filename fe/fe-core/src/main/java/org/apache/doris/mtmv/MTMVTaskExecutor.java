@@ -138,14 +138,15 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         task.setTaskId(taskId);
         task.setJobName(job.getName());
         if (createTime == null) {
-            task.setCreateTime(System.currentTimeMillis());
+            task.setCreateTime(MTMVUtils.getNowTimeStamp());
         } else {
             task.setCreateTime(createTime);
         }
+        task.setMvName(job.getMvName());
         task.setUser(job.getCreateUser());
         task.setDbName(job.getDbName());
         task.setQuery(job.getQuery());
-        task.setExpireTime(System.currentTimeMillis() + Config.scheduler_mtmv_task_expire_ms);
+        task.setExpireTime(MTMVUtils.getNowTimeStamp() + Config.scheduler_mtmv_task_expired);
         task.setRetryTimes(job.getRetryPolicy().getTimes());
         this.task = task;
         return task;

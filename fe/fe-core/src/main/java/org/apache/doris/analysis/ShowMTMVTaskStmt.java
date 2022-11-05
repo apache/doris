@@ -19,13 +19,16 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Strings;
+
 public class ShowMTMVTaskStmt extends ShowStmt {
     private final String taskId; // optional
-    private final String dbName; // optional
+    private String dbName; // optional
     private final TableName mvName; // optional
 
     public ShowMTMVTaskStmt() {
@@ -85,6 +88,9 @@ public class ShowMTMVTaskStmt extends ShowStmt {
         super.analyze(analyzer);
         if (dbName != null && mvName != null && !dbName.equals(mvName.getDb())) {
             throw new UserException("Database name should be same when they both been set.");
+        }
+        if (!Strings.isNullOrEmpty(dbName)) {
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
     }
 

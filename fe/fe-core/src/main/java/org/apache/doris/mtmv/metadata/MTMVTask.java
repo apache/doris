@@ -25,13 +25,14 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class MTMVTask implements Writable {
+public class MTMVTask implements Writable, Comparable {
     // also named query id in ConnectContext
     @SerializedName("taskId")
     private String taskId;
@@ -157,7 +158,7 @@ public class MTMVTask implements Writable {
     }
 
     public String getErrorMessage() {
-        return errorMessage;
+        return errorMessage == null ? "" : errorMessage;
     }
 
     public void setErrorMessage(String errorMessage) {
@@ -230,9 +231,14 @@ public class MTMVTask implements Writable {
         list.add(getState().toString());
         list.add(Integer.toString(getErrorCode()));
         list.add(getErrorMessage().length() > 10240 ? getErrorMessage().substring(0, 10240) : getErrorMessage());
-        list.add(Long.toString(getCreateTime()));
-        list.add(Long.toString(getExpireTime()));
-        list.add(Long.toString(getFinishTime()));
+        list.add(MTMVUtils.getTimeString(getCreateTime()));
+        list.add(MTMVUtils.getTimeString(getExpireTime()));
+        list.add(MTMVUtils.getTimeString(getFinishTime()));
         return list;
+    }
+
+    @Override
+    public int compareTo(@NotNull Object o) {
+        return (int) (getCreateTime() - ((MTMVTask) o).getCreateTime());
     }
 }
