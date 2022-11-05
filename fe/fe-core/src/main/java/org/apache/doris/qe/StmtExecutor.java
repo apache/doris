@@ -307,6 +307,12 @@ public class StmtExecutor implements ProfileWriter {
         infos.put(ProfileManager.DEFAULT_DB, context.getDatabase());
         infos.put(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
         infos.put(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
+
+        Map<String, Integer> fragmentToInstancesNum =
+                coord == null ? Maps.newHashMap() : coord.getFragmentToInstancesNum();
+        infos.put(ProfileManager.INSTANCES_NUM_PER_FRAGMENT, fragmentToInstancesNum.toString());
+        infos.put(ProfileManager.TOTAL_INSTANCES_NUM,
+                String.valueOf(fragmentToInstancesNum.values().stream().reduce(0, Integer::sum)));
         return infos;
     }
 

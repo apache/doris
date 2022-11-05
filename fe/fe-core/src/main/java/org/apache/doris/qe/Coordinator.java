@@ -405,6 +405,14 @@ public class Coordinator {
         return errorTabletInfos;
     }
 
+    public Map<String, Integer> getFragmentToInstancesNum() {
+        Map<String, Integer> result = Maps.newTreeMap();
+        for (Map.Entry<PlanFragmentId, FragmentExecParams> entry : fragmentExecParamsMap.entrySet()) {
+            result.put(entry.getKey().toString(), entry.getValue().instanceExecParams.size());
+        }
+        return result;
+    }
+
     // Initialize
     private void prepare() {
         for (PlanFragment fragment : fragments) {
