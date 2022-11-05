@@ -19,6 +19,7 @@ package org.apache.doris.cluster;
 
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
@@ -35,8 +36,11 @@ public class DecommissionBackendTest extends TestWithFeService {
     }
 
     @Override
-    protected void runBeforeAll() throws Exception {
-        FeConstants.default_scheduler_interval_millisecond = 10;
+    protected void beforeCreatingConnectContext() throws Exception {
+        FeConstants.default_scheduler_interval_millisecond = 1000;
+        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_repair_delay_factor_second = 1;
+        Config.allow_replica_on_same_host = true;
     }
 
     @Test
@@ -52,21 +56,29 @@ public class DecommissionBackendTest extends TestWithFeService {
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         // 3. create table tbl1
-        createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '2');");
+        createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
 
         // 5. execute decommission
-        Backend backend = idToBackendRef.values().stream().findFirst().orElseThrow(() -> new RuntimeException("Not any be existed"));
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + backend.getHeartbeatPort() + "\"";
+        Backend srcBackend = null;
+        for (Backend backend : idToBackendRef.values()) {
+            if (Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).size() > 0) {
+                srcBackend = backend;
+                break;
+            }
+        }
+
+        Assertions.assertTrue(srcBackend != null);
+        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
 
-        Assertions.assertEquals(true, backend.isDecommissioned());
+        Assertions.assertEquals(true, srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
-        while (System.currentTimeMillis() - startTimestamp < 60000
-            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(backend.getId())) {
+        while (System.currentTimeMillis() - startTimestamp < 90000
+            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
@@ -76,3 +88,4 @@ public class DecommissionBackendTest extends TestWithFeService {
     }
 
 }
+
