@@ -394,6 +394,7 @@ Status UserFunctionCache::_add_to_classpath(UserFunctionCacheEntry* entry) {
     jmethodID url_ctor = env->GetMethodID(class_url, "<init>", "(Ljava/lang/String;)V");
     jobject urlInstance = env->NewObject(class_url, url_ctor, env->NewStringUTF(path.c_str()));
     env->CallVoidMethod(class_loader, method_add_url, urlInstance);
+    entry->is_loaded.store(true);
     return Status::OK();
 #else
     return Status::InternalError("No libjvm is found!");
