@@ -51,7 +51,7 @@ import java.util.Map;
 public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
-    private List<String> supportedHiveFileFormats = Lists.newArrayList(
+    private static final List<String> SUPPORTED_HIVE_FILE_FORMATS = Lists.newArrayList(
             "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
             "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
             "org.apache.hadoop.mapred.TextInputFormat");
@@ -87,10 +87,6 @@ public class HMSExternalTable extends ExternalTable {
             } catch (MetaNotFoundException e) {
                 // CHECKSTYLE IGNORE THIS LINE
             }
-            supportedHiveFileFormats = Lists.newArrayList(
-                "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-                "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
-                "org.apache.hadoop.mapred.TextInputFormat");
             if (remoteTable == null) {
                 dlaType = DLAType.UNKNOWN;
             } else {
@@ -164,7 +160,8 @@ public class HMSExternalTable extends ExternalTable {
         // TODO: try to support EXTERNAL_TABLE
         boolean isManagedTable = true;
         String inputFileFormat = remoteTable.getSd().getInputFormat();
-        boolean supportedFileFormat = inputFileFormat != null && supportedHiveFileFormats.contains(inputFileFormat);
+        boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
         return isManagedTable && supportedFileFormat;
     }
 

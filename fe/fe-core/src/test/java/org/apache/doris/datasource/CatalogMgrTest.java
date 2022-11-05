@@ -223,7 +223,7 @@ public class CatalogMgrTest extends TestWithFeService {
         Assert.assertEquals("http://192.168.0.1", properties.get(EsExternalCatalog.PROP_HOSTS));
         Assert.assertEquals("user1", esExternalCatalog.getUsername());
         Assert.assertEquals("http://192.168.0.1", esExternalCatalog.getNodes()[0]);
-        
+
         CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
         properties = hms.getProperties();
         Assert.assertEquals(2, properties.size());
