@@ -239,7 +239,7 @@ Status HashJoinNode::open(RuntimeState* state) {
     try {
         std::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status)).detach();
     } catch (const std::system_error& e) {
-        LOG(WARN) << "create thread fail, " << e.what();
+        LOG(WARNING) << "create thread fail, " << e.what();
         return Status::InternalError(e.what());
     }
 
