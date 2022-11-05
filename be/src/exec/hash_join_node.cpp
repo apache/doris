@@ -236,7 +236,12 @@ Status HashJoinNode::open(RuntimeState* state) {
     // main thread
     std::promise<Status> thread_status;
     add_runtime_exec_option("Hash Table Built Asynchronously");
-    std::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status)).detach();
+    try {
+        std::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status)).detach();
+    } catch (const std::system_error& e) {
+        LOG(WARN) << "create thread fail, " << e.what();
+        return Status::InternalError(e.what());
+    }
 
     if (!_runtime_filter_descs.empty()) {
         RuntimeFilterSlots runtime_filter_slots(_probe_expr_ctxs, _build_expr_ctxs,
