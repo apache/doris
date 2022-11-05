@@ -1280,12 +1280,13 @@ public:
                 StringOP::push_empty_string(i, res_chars, res_offsets);
             } else {
                 int32_t offset = -delimiter.size;
-                int32_t num = 0;
+                int32_t num = 0; //substring count of content splitted by delimiter
                 std::vector<int> find(str.size, -1); //store delimiter position
-                while (num < str.size) {
-                    size_t n = str.size - offset - delimiter.size;
-                    if (delimiter.size == 1) {
-                        // If delimiter is a char, use memchr to split
+
+                // If delimiter is a char, use memchr to split
+                if (delimiter.size == 1) {
+                    while (num < str.size) {
+                        size_t n = str.size - offset - 1;
                         const char* pos = reinterpret_cast<const char*>(
                                 memchr(str.data + offset + 1, delimiter_str[0], n));
                         if (pos != nullptr) {
@@ -1297,8 +1298,11 @@ public:
                             num = (num == 0) ? 0 : num + 1;
                             break;
                         }
-                    } else {
-                        // If delimiter is a string, use memmem to split
+                    }
+                } else {
+                    // If delimiter is a string, use memmem to split
+                    while (num < str.size) {
+                        size_t n = str.size - offset - delimiter.size;
                         char* pos =
                                 reinterpret_cast<char*>(memmem(str.data + offset + delimiter.size,
                                                                n, delimiter.data, delimiter.size));
