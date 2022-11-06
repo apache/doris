@@ -20,6 +20,7 @@
 #include <thrift/protocol/TBinaryProtocol.h>
 
 #include <memory>
+#include <mutex>
 #include <sstream>
 
 #include "common/logging.h"
@@ -42,7 +43,8 @@ ClientCacheHelper::~ClientCacheHelper() {
 
 void ClientCacheHelper::_get_client_from_cache(const TNetworkAddress& hostport, void** client_key) {
     *client_key = nullptr;
-    std::lock_guard<std::mutex> lock(_lock);
+    // std::lock_guard<std::mutex> lock(_lock);
+    std::lock_guard<std::mutex> lock{_shard_locks[_get_addr_lock_idx(hostport)]};
     //VLOG_RPC << "get_client(" << hostport << ")";
     auto cache_entry = _client_cache.find(hostport);
 
@@ -180,7 +182,8 @@ void ClientCacheHelper::release_client(void** client_key) {
 void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
     std::vector<ThriftClientImpl*> to_close;
     {
-        std::lock_guard<std::mutex> lock(_lock);
+        // std::lock_guard<std::mutex> lock(_lock);
+        std::lock_guard<std::mutex> lock(_shard_locks[_get_addr_lock_idx(hostport)]);
         auto cache_entry = _client_cache.find(hostport);
 
         if (cache_entry == _client_cache.end()) {

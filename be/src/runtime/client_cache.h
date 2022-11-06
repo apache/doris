@@ -86,6 +86,13 @@ public:
     void init_metrics(const std::string& name);
 
 private:
+
+    size_t _get_addr_lock_idx(const TNetworkAddress& address) {
+        size_t h = std::hash<TNetworkAddress>()(address);
+        return h % _shard_nums;
+    }
+
+
     template <class T>
     friend class ClientCache;
     // Private constructor so that only ClientCache can instantiate this class.
@@ -97,7 +104,12 @@ private:
     // Protects all member variables
     // TODO: have more fine-grained locks or use lock-free data structures,
     // this isn't going to scale for a high request rate
+    // now it only protects client map
     std::mutex _lock;
+
+    constexpr static size_t _shard_nums = 8;
+
+    std::mutex _shard_locks[_shard_nums];
 
     // map from (host, port) to list of client keys for that address
     using ClientCacheMap = std::unordered_map<TNetworkAddress, std::list<void*>>;
