@@ -102,7 +102,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                                 slots.second, slots.first, type,
                                 cnt.getAndIncrement(), join);
-                        ctx.setTargetExprIdToFilters(slots.first.getExprId(), filter);
+                        ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
                         ctx.setTargetsOnScanNode(aliasTransferMap.get(((Slot) exprs.first)).first, slots.first);
                     }));
         } else {

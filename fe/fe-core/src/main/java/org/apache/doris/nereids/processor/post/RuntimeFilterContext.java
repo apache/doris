@@ -87,7 +87,7 @@ public class RuntimeFilterContext {
         return limits;
     }
 
-    public void setTargetExprIdToFilters(ExprId id, RuntimeFilter filter) {
+    public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
         Preconditions.checkArgument(filter.getTargetExpr().getExprId() == id);
         this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList())
                 .add(filter);
