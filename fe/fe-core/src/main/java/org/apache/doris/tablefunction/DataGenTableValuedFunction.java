@@ -15,23 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.tablefunction;
 
-import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TDataGenFunctionName;
 
 import java.util.List;
 
-public class FunctionGenTable extends Table {
-    private TableValuedFunctionIf tvf;
+public abstract class DataGenTableValuedFunction extends TableValuedFunctionIf {
+    public abstract List<TableValuedFunctionTask> getTasks() throws AnalysisException;
 
-    public FunctionGenTable(long id, String tableName, TableType type, List<Column> fullSchema,
-                            TableValuedFunctionIf tvf) {
-        super(id, tableName, type, fullSchema);
-        this.tvf = tvf;
-    }
-
-    public TableValuedFunctionIf getTvf() {
-        return tvf;
-    }
+    public abstract TDataGenFunctionName getDataGenFunctionName();
 
 }

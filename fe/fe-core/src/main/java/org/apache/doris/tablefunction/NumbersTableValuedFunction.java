@@ -17,21 +17,22 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.DataGenScanNode;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TDataGenFunctionName;
+import org.apache.doris.thrift.TDataGenScanRange;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TTVFNumbersScanRange;
-import org.apache.doris.thrift.TTVFScanRange;
-import org.apache.doris.thrift.TTVFunctionName;
 
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -43,9 +44,8 @@ import java.util.List;
 /**
  * The Implement of table valued function——numbers(N,M).
  */
-public class NumbersTableValuedFunction extends TableValuedFunctionInf {
+public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     public static final String NAME = "numbers";
-    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
     // The total numbers will be generated.
     private long totalNumbers;
     // The total backends will server it.
@@ -71,8 +71,8 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
     }
 
     @Override
-    public TTVFunctionName getFuncName() {
-        return TTVFunctionName.NUMBERS;
+    public TDataGenFunctionName getDataGenFunctionName() {
+        return TDataGenFunctionName.NUMBERS;
     }
 
     @Override
@@ -102,13 +102,18 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
         List<TableValuedFunctionTask> res = Lists.newArrayList();
         for (int i = 0; i < tabletsNum; ++i) {
             TScanRange scanRange = new TScanRange();
-            TTVFScanRange tvfScanRange = new TTVFScanRange();
+            TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
             TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange();
             tvfNumbersScanRange.setTotalNumbers(totalNumbers);
-            tvfScanRange.setNumbersParams(tvfNumbersScanRange);
-            scanRange.setTvfScanRange(tvfScanRange);
+            dataGenScanRange.setNumbersParams(tvfNumbersScanRange);
+            scanRange.setDataGenScanRange(dataGenScanRange);
             res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
         }
         return res;
+    }
+
+    @Override
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
+        return new DataGenScanNode(id, desc, "DataGenScanNode", this);
     }
 }
