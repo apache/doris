@@ -82,3 +82,21 @@ Label 是用于保证对应的导入作业，仅能成功导入一次。一个�
 
 导入方式分为同步和异步。对于同步导入方式，返回结果即表示导入成功还是失败。而对于异步导入方式，返回成功仅代表作业提交成功，不代表数据导入成功，需要使用对应的命令查看导入作业的运行状态。
 
+## 导入array类型
+
+向量化场景才能支持array函数，非向量化场景不支持。
+
+如果想要应用array函数导入数据，则应先启用向量化功能；然后需要根据array函数的参数类型将输入参数列转换为array类型；最后，就可以继续使用array函数了。
+
+例如以下导入，需要先将列b14和列a13先cast成`array<string>`类型，再运用`array_union`函数。
+
+```sql
+LOAD LABEL label_03_14_49_34_898986_19090452100 ( 
+  DATA INFILE("hdfs://test.hdfs.com:9000/user/test/data/sys/load/array_test.data") 
+  INTO TABLE `test_array_table` 
+  COLUMNS TERMINATED BY "|" (`k1`, `a1`, `a2`, `a3`, `a4`, `a5`, `a6`, `a7`, `a8`, `a9`, `a10`, `a11`, `a12`, `a13`, `b14`) 
+  SET(a14=array_union(cast(b14 as array<string>), cast(a13 as array<string>))) WHERE size(a2) > 270) 
+  WITH BROKER "hdfs" ("username"="test_array", "password"="") 
+  PROPERTIES( "max_filter_ratio"="0.8" );
+```
+
