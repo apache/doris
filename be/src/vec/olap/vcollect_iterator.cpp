@@ -230,8 +230,7 @@ Status VCollectIterator::topn_next(Block* block) {
         return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     }
 
-    Block tmp_block = block->clone_empty();
-    auto cloneBlock = tmp_block.clone_without_columns();
+    auto cloneBlock = block->clone_without_columns();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
 
     // TODO include all orderby_key_columns
@@ -257,8 +256,8 @@ Status VCollectIterator::topn_next(Block* block) {
         size_t read_rows = 0;
         bool eof = false;
         while (read_rows < _topn_limit && !eof) {
-            tmp_block.clear_column_data();
-            auto res = rs_reader->next_block(&tmp_block);
+            block->clear_column_data();
+            auto res = rs_reader->next_block(block);
             if (!res.ok()) {
                 if (res.precise_code() == OLAP_ERR_DATA_EOF) {
                     eof = true;
@@ -267,39 +266,39 @@ Status VCollectIterator::topn_next(Block* block) {
                 }
             }
 
-            // filter tmp_block
+            // filter block
             RETURN_IF_ERROR(
                 VExprContext::filter_block(*(_reader->_reader_context.filter_block_vconjunct_ctx_ptr),
-                    &tmp_block, tmp_block.columns()));
+                    block, block->columns()));
 
             // update read rows
-            read_rows += tmp_block.rows();
+            read_rows += block->rows();
 
-            // insert tmp_block rows to mutable_block and adjust sorted_row_pos
+            // insert block rows to mutable_block and adjust sorted_row_pos
             bool changed = false;
 
             size_t rows_to_copy = 0;
             if (sorted_row_pos.empty()) {
-                rows_to_copy = std::min(tmp_block.rows(), _topn_limit);
+                rows_to_copy = std::min(block->rows(), _topn_limit);
             } else {
                 // _is_reverse == true  last_row_pos is the pos of smallest row
                 // _is_reverse == false last_row_pos is biggest row
                 size_t last_row_pos = *sorted_row_pos.rbegin();
 
-                // find the how many rows tmp_block which is less than the last row in mutable_block
-                for (size_t i = 0; i < tmp_block.rows(); i++) {
+                // find the how many rows which is less than the last row in mutable_block
+                for (size_t i = 0; i < block->rows(); i++) {
                     // if there is not enough rows in sorted_row_pos, just copy new rows
                     if (sorted_row_pos.size() + rows_to_copy < _topn_limit) {
                         rows_to_copy++;
                         continue;
                     }
 
-                    DCHECK_GE(tmp_block.columns(), compare_column_idx + 1);
+                    DCHECK_GE(block->columns(), compare_column_idx + 1);
                     DCHECK_GE(mutable_block.columns(), compare_column_idx + 1);
 
-                    DCHECK(tmp_block.get_by_position(compare_column_idx).type->equals(
+                    DCHECK(block->get_by_position(compare_column_idx).type->equals(
                         *mutable_block.get_datatype_by_position(compare_column_idx)));
-                    int res = tmp_block.get_by_position(compare_column_idx).column->compare_at(
+                    int res = block->get_by_position(compare_column_idx).column->compare_at(
                                 i, last_row_pos,
                                 *(mutable_block.get_column_by_position(compare_column_idx)), 0);
 
@@ -315,9 +314,9 @@ Status VCollectIterator::topn_next(Block* block) {
             }
 
             if (rows_to_copy > 0) {
-                // create column that is not in mutable_block but in tmp_block
-                for (size_t i = mutable_block.columns(); i < tmp_block.columns(); ++i) {
-                    auto col = tmp_block.get_by_position(i).clone_empty();
+                // create column that is not in mutable_block but in block
+                for (size_t i = mutable_block.columns(); i < block->columns(); ++i) {
+                    auto col = block->get_by_position(i).clone_empty();
                     mutable_block.mutable_columns().push_back(col.column->assume_mutable());
                     mutable_block.data_types().push_back(std::move(col.type));
                     mutable_block.get_names().push_back(std::move(col.name));
@@ -325,7 +324,7 @@ Status VCollectIterator::topn_next(Block* block) {
                 }
 
                 size_t base = mutable_block.rows();
-                mutable_block.add_rows(&tmp_block, 0, rows_to_copy, false);
+                mutable_block.add_rows(block, 0, rows_to_copy, false);
                 for (size_t i = 0; i < rows_to_copy; i++) {
                     sorted_row_pos.insert(base + i);
                     changed = true;
