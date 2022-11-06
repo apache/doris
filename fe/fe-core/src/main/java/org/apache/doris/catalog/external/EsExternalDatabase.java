@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
@@ -41,7 +42,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Elasticsearch metastore external database.
  */
 public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implements GsonPostProcessable {
-
     private static final Logger LOG = LogManager.getLogger(EsExternalDatabase.class);
 
     // Cache of table name to table id.
@@ -94,7 +94,8 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
                 try {
                     remoteExecutor.forward(extCatalog.getId(), id, -1);
                 } catch (Exception e) {
-                    LOG.warn("Failed to forward init db {} operation to master. {}", name, e.getMessage());
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init external db %s operation to master", name), e);
                 }
                 return;
             }

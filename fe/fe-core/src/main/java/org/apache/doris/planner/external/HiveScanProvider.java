@@ -79,7 +79,7 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
     private static final Logger LOG = LogManager.getLogger(HiveScanProvider.class);
 
     private static final String PROP_FIELD_DELIMITER = "field.delim";
-    private static final String DEFAULT_FIELD_DELIMITER = "|";
+    private static final String DEFAULT_FIELD_DELIMITER = "\001";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
 
     protected HMSExternalTable hmsTable;
@@ -141,10 +141,7 @@ public class HiveScanProvider implements HMSTableScanProviderIf {
         if (partitionKeys.size() > 0) {
             ExprNodeGenericFuncDesc hivePartitionPredicate = HiveMetaStoreClientHelper.convertToHivePartitionExpr(exprs,
                     partitionKeys, hmsTable.getName());
-
-            String metaStoreUris = getMetaStoreUrl();
-            hivePartitions.addAll(HiveMetaStoreClientHelper.getHivePartitions(metaStoreUris, getRemoteHiveTable(),
-                    hivePartitionPredicate));
+            hivePartitions.addAll(hmsTable.getHivePartitions(hivePartitionPredicate));
         }
 
         String inputFormatName = getRemoteHiveTable().getSd().getInputFormat();

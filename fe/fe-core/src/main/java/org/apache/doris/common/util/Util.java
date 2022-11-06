@@ -545,12 +545,15 @@ public class Util {
     }
 
     public static boolean isCsvFormat(TFileFormatType fileFormatType) {
-        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
-                || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
+        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
                 || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+    }
+
+    public static void logAndThrowRuntimeException(Logger logger, String msg, Throwable e) {
+        logger.warn(msg, e);
+        throw new RuntimeException(msg, e);
     }
 }
