@@ -21,6 +21,10 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -47,6 +51,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -153,6 +159,9 @@ public class TypeCoercionUtils {
                 || leftType instanceof IntegralType && rightType instanceof DecimalType) {
             return true;
         }
+        if (leftType instanceof DecimalType && rightType instanceof DecimalType) {
+            return true;
+        }
         // TODO: add decimal promotion support
         if (!(leftType instanceof DecimalType) && !(rightType instanceof DecimalType) && !leftType.equals(rightType)) {
             return true;
@@ -205,6 +214,8 @@ public class TypeCoercionUtils {
             tightestCommonType = DecimalType.widerDecimalType((DecimalType) left, DecimalType.forType(right));
         } else if (left instanceof IntegralType && right instanceof DecimalType) {
             tightestCommonType = DecimalType.widerDecimalType((DecimalType) right, DecimalType.forType(left));
+        } else if (left instanceof DecimalType && right instanceof DecimalType) {
+            tightestCommonType = DecimalType.widerDecimalType((DecimalType) left, (DecimalType) right);
         }
         return Optional.ofNullable(tightestCommonType);
     }
@@ -326,27 +337,43 @@ public class TypeCoercionUtils {
     /**
      * cast input type if input's datatype is not same with dateType.
      */
-    public static Expression castIfNotSameType(Expression input, DataType dataType) {
-        if (input.getDataType().equals(dataType)) {
+    public static Expression castIfNotSameType(Expression input, DataType targetType) {
+        if (input.getDataType().equals(targetType)) {
             return input;
         } else {
             if (input instanceof Literal) {
-                DataType type = input.getDataType();
-                while (!type.equals(dataType)) {
-                    DataType promoted = type.promotion();
-                    if (type.equals(promoted)) {
+                DataType inputType = input.getDataType();
+                while (!inputType.equals(targetType)) {
+                    DataType promoted = inputType.promotion();
+                    if (inputType.equals(promoted)) {
                         break;
                     }
-                    type = promoted;
+                    inputType = promoted;
                 }
-                if (type.equals(dataType)) {
-                    Literal promoted = DataType.promoteNumberLiteral(((Literal) input).getValue(), dataType);
+                if (inputType.equals(targetType)) {
+                    Literal promoted = DataType.promoteNumberLiteral(((Literal) input).getValue(), targetType);
                     if (promoted != null) {
                         return promoted;
                     }
                 }
+                if (targetType instanceof DecimalType) {
+                    if (input instanceof IntegerLikeLiteral
+                            || input instanceof FloatLiteral
+                            || input instanceof DoubleLiteral
+                            || input instanceof DecimalLiteral) {
+                        String strVal = ((Literal) input).getValue().toString();
+                        if (strVal.contains(".")) {
+                            strVal += "000000000";
+                        } else {
+                            strVal += ".000000000";
+                        }
+                        BigDecimal bd = new BigDecimal(strVal);
+                        bd = bd.setScale(((DecimalType) targetType).getScale(), RoundingMode.HALF_EVEN);
+                        return new DecimalLiteral(bd);
+                    }
+                }
             }
-            return new Cast(input, dataType);
+            return new Cast(input, targetType);
         }
     }
 }
