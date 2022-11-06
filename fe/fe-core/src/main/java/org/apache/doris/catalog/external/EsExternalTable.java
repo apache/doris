@@ -20,6 +20,7 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.external.elasticsearch.EsUtil;
@@ -63,7 +64,8 @@ public class EsExternalTable extends ExternalTable {
                 try {
                     remoteExecutor.forward(catalog.getId(), catalog.getDbNullable(dbName).getId(), id);
                 } catch (Exception e) {
-                    LOG.warn("Failed to forward init table {} operation to master. {}", name, e.getMessage());
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init external table %s operation to master", name), e);
                 }
             } else {
                 init();
