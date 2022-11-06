@@ -19,35 +19,34 @@
 
 #include <memory>
 
-#include "common/global_types.h"
 #include "runtime/descriptors.h"
-#include "vec/core/block.h"
+#include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
 
 namespace doris {
 
+class TextConverter;
+class Tuple;
+class TupleDescriptor;
 class RuntimeState;
+class MemPool;
 class Status;
 
 namespace vectorized {
 
-class VTableValuedFunctionInf {
+class VNumbersTVF : public VDataGenFunctionInf {
 public:
-    VTableValuedFunctionInf(TupleId tuple_id, const TupleDescriptor* tuple_desc)
-            : _tuple_id(tuple_id), _tuple_desc(tuple_desc) {}
+    VNumbersTVF(TupleId tuple_id, const TupleDescriptor* tuple_desc);
+    ~VNumbersTVF() = default;
 
-    virtual ~VTableValuedFunctionInf() = default;
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
-    // Should set function parameters in this method
-    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) = 0;
-    Status close(RuntimeState* state) { return Status::OK(); }
-
-    void set_tuple_desc(const TupleDescriptor* tuple_desc) { _tuple_desc = tuple_desc; }
+    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
 protected:
-    TupleId _tuple_id;
-    // Descriptor of tuples generated
-    const TupleDescriptor* _tuple_desc;
+    int64_t _total_numbers;
+    // Number of returned columns, actually only 1 column
+    int _slot_num = 1;
+    int64_t _cur_offset = 0;
 };
 
 } // namespace vectorized

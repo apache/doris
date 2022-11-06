@@ -24,13 +24,11 @@ import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.util.Map;
 
-/**
- * An interface for hms table scan node to get the need information.
- */
-public interface HMSTableScanProviderIf extends FileScanProviderIf {
-    String getMetaStoreUrl();
+public abstract class HMSTableScanProvider extends QueryScanProvider {
 
-    Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
+    public abstract String getMetaStoreUrl();
 
-    Map<String, String> getTableProperties() throws MetaNotFoundException;
+    public abstract Table getRemoteHiveTable() throws DdlException, MetaNotFoundException;
+
+    public abstract Map<String, String> getTableProperties() throws MetaNotFoundException;
 }

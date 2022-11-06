@@ -17,36 +17,43 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.thrift.TTVFunctionName;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanNode;
 
 import java.util.List;
 
-public abstract class TableValuedFunctionInf {
+public abstract class TableValuedFunctionIf {
+    private FunctionGenTable table = null;
 
-    public abstract TTVFunctionName getFuncName();
-
-    public FunctionGenTable getTable() {
-        FunctionGenTable table = new FunctionGenTable(-1, getTableName(), TableIf.TableType.TABLE_VALUED_FUNCTION,
-                                getTableColumns());
+    public FunctionGenTable getTable() throws AnalysisException {
+        if (table == null) {
+            table = new FunctionGenTable(-1, getTableName(), TableIf.TableType.TABLE_VALUED_FUNCTION,
+                    getTableColumns(), this);
+        }
         return table;
     }
 
     // All table functions should be registered here
-    public static TableValuedFunctionInf getTableFunction(String funcName, List<String> params) throws UserException {
-        if (funcName.equalsIgnoreCase(NumbersTableValuedFunction.NAME)) {
-            return new NumbersTableValuedFunction(params);
+    public static TableValuedFunctionIf getTableFunction(String funcName, List<String> params) throws UserException {
+        switch (funcName.toLowerCase()) {
+            case NumbersTableValuedFunction.NAME:
+                return new NumbersTableValuedFunction(params);
+            case S3TableValuedFunction.NAME:
+                return new S3TableValuedFunction(params);
+            default:
+                throw new UserException("Could not find table function " + funcName);
         }
-        throw new UserException("Could not find table function " + funcName);
     }
 
     public abstract String getTableName();
 
-    public abstract List<Column> getTableColumns();
+    public abstract List<Column> getTableColumns() throws AnalysisException;
 
-    public abstract List<TableValuedFunctionTask> getTasks() throws AnalysisException;
+    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
 }
