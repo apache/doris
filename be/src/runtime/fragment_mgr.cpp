@@ -388,6 +388,10 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
 
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
+    if (!exec_status.ok()) {
+        LOG(WARNING) << "report error status: " << exec_status.to_string()
+                     << " to coordinator: " << _coord_addr;
+    }
     try {
         try {
             coord->reportExecStatus(res, params);
@@ -627,7 +631,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         fragments_ctx->coord_addr = params.coord;
         LOG(INFO) << "query_id: "
                   << UniqueId(fragments_ctx->query_id.hi, fragments_ctx->query_id.lo)
-                  << " coord_addr " << fragments_ctx->coord_addr;
+                  << " coord_addr " << fragments_ctx->coord_addr
+                  << " total fragment num on current host: " << params.fragment_num_on_host;
         fragments_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
@@ -743,8 +748,8 @@ bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
            type == TPlanNodeType::SCHEMA_SCAN_NODE || type == TPlanNodeType::META_SCAN_NODE ||
            type == TPlanNodeType::BROKER_SCAN_NODE || type == TPlanNodeType::ES_SCAN_NODE ||
            type == TPlanNodeType::ES_HTTP_SCAN_NODE || type == TPlanNodeType::ODBC_SCAN_NODE ||
-           type == TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE ||
-           type == TPlanNodeType::FILE_SCAN_NODE || type == TPlanNodeType::JDBC_SCAN_NODE;
+           type == TPlanNodeType::DATA_GEN_SCAN_NODE || type == TPlanNodeType::FILE_SCAN_NODE ||
+           type == TPlanNodeType::JDBC_SCAN_NODE;
 }
 
 Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,

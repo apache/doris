@@ -1937,7 +1937,7 @@ public class Env {
      **/
     public long loadCatalog(DataInputStream in, long checksum) throws IOException {
         CatalogMgr mgr = CatalogMgr.read(in);
-        // When enable the multi catalog in the first time, the mgr will be a null value.
+        // When enable the multi catalog in the first time, the "mgr" will be a null value.
         // So ignore it to use default catalog manager.
         if (mgr != null) {
             this.catalogMgr = mgr;

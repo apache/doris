@@ -187,7 +187,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << ", output_version=" << _output_version;
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());

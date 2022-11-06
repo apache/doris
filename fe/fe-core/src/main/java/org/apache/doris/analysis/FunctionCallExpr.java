@@ -206,10 +206,12 @@ public class FunctionCallExpr extends Expr {
         originChildSize = children.size();
     }
 
-    public FunctionCallExpr(String functionName, FunctionParams params, Optional<List<Type>> argTypes) {
+    public FunctionCallExpr(String functionName, FunctionParams params, FunctionParams aggFnParams,
+            Optional<List<Type>> argTypes) {
         this.fnName = new FunctionName(functionName);
         this.fnParams = params;
         this.isMergeAggFn = false;
+        this.aggFnParams = aggFnParams;
         if (fnParams.exprs() != null) {
             children.addAll(fnParams.exprs());
         }
@@ -222,6 +224,7 @@ public class FunctionCallExpr extends Expr {
         this.fnName = functionName;
         this.fn = function;
         this.type = function.getReturnType();
+        this.fnParams = functionParams;
         if (functionParams.exprs() != null) {
             this.children.addAll(functionParams.exprs());
         }

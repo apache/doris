@@ -181,7 +181,7 @@ import com.google.common.collect.Sets;
 import lombok.Getter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -2268,7 +2268,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
         hiveTable.setComment(stmt.getComment());
         // check hive table whether exists in hive database
-        HiveMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(
+        IMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(
                 hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
         if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hiveTable.getHiveDb(),
                 hiveTable.getHiveTable())) {
@@ -2291,7 +2291,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         HudiUtils.validateCreateTable(hudiTable);
         // check hudi table whether exists in hive database
         String metastoreUris = hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
-        HiveMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(metastoreUris);
+        IMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(metastoreUris);
         if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hudiTable.getHmsDatabaseName(),
                 hudiTable.getHmsTableName())) {
             throw new DdlException(

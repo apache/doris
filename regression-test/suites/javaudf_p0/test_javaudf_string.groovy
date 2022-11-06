@@ -30,20 +30,22 @@ suite("test_javaudf_string") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `string_col` VARCHAR(10) NOT NULL COMMENT "用户id"
+            `user_id`     INT         NOT NULL COMMENT "用户id",
+            `char_col`    CHAR        NOT NULL COMMENT "",
+            `varchar_col` VARCHAR(10) NOT NULL COMMENT "",
+            `string_col`  STRING      NOT NULL COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
         StringBuilder sb = new StringBuilder()
         int i = 1
-        for (; i < 10; i ++) {
+        for (; i < 9; i ++) {
             sb.append("""
-                (${i}, 'abcdefg${i}'),
+                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),
             """)
         }
         sb.append("""
-                (${i}, 'abcdefg${i}')
+                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg')
             """)
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}
@@ -61,7 +63,8 @@ suite("test_javaudf_string") {
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_string_test(string_col, 2, 3) result FROM ${tableName} ORDER BY result; """
+        qt_select """ SELECT java_udf_string_test(varchar_col, 2, 3) result FROM ${tableName} ORDER BY result; """
+        qt_select """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_string_test('abcdef', 2, 3), java_udf_string_test('abcdefg', 2, 3) result FROM ${tableName} ORDER BY result; """
 
         sql """ DROP FUNCTION java_udf_string_test(string, int, int); """

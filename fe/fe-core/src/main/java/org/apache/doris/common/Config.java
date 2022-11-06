@@ -1315,18 +1315,6 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
-     * enable spark load for temporary use
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_spark_load = true;
-
-    /**
-     * enable use odbc table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_odbc_table = true;
-
-    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
@@ -1578,7 +1566,7 @@ public class Config extends ConfigBase {
 
     /*
      * If set to true, when creating table, Doris will allow to locate replicas of a tablet
-     * on same host. And also the tablet repair and balance will be disabled.
+     * on same host.
      * This is only for local test, so that we can deploy multi BE on same host and create table
      * with multi replicas.
      * DO NOT use it for production env.
@@ -1829,4 +1817,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
+
+    /**
+     * The iceberg and hudi table will be removed in v1.3
+     * Use multi catalog instead.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_iceberg_hudi_table = true;
+
+    /**
+     * The default connection timeout for hive metastore.
+     * hive.metastore.client.socket.timeout
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static long hive_metastore_client_timeout_second = 10;
 }

@@ -275,7 +275,7 @@ public class DistributedPlanner {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
-        } else if (node instanceof TableValuedFunctionScanNode) {
+        } else if (node instanceof DataGenScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
         } else if (node instanceof OlapScanNode) {
             // olap scan node
