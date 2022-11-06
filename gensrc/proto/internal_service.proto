@@ -525,6 +525,17 @@ message PTabletWriteSlaveDoneResult {
     optional PStatus status = 1;
 };
 
+message PFetchTableSchemaRequest {
+  optional bytes file_scan_range = 1;
+};
+
+message PFetchTableSchemaResult {
+  optional PStatus status = 1;
+  optional int32 column_nums = 2;
+  repeated string column_names = 3;
+  repeated PTypeDesc column_types = 4;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -558,5 +569,6 @@ service PBackendService {
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
+    rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
 };
 
