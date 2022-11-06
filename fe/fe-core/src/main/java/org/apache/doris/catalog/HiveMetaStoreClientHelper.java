@@ -930,6 +930,9 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Map<String, String> getPropertiesForDLF(String catalogName, HiveConf hiveConf) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get properties from hive-site.xml for catalog {}: {}", catalogName, hiveConf.getAllProperties());
+        }
         Map<String, String> res = Maps.newHashMap();
         String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
         if (!"dlf".equalsIgnoreCase(metastoreType)) {
