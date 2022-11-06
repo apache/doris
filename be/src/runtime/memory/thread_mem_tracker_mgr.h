@@ -78,7 +78,7 @@ public:
 
     // Must be fast enough! Thread update_tracker may be called very frequently.
     // So for performance, add tracker as early as possible, and then call update_tracker<Existed>.
-    void push_consumer_tracker(MemTracker* mem_tracker);
+    bool push_consumer_tracker(MemTracker* mem_tracker);
     void pop_consumer_tracker();
     std::string last_consumer_tracker() {
         return _consumer_tracker_stack.empty() ? "" : _consumer_tracker_stack.back()->label();
@@ -191,12 +191,14 @@ inline void ThreadMemTrackerMgr::clear() {
     init_impl();
 }
 
-inline void ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
+inline bool ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
     DCHECK(tracker) << print_debug_string();
-    DCHECK(!std::count(_consumer_tracker_stack.begin(), _consumer_tracker_stack.end(), tracker))
-            << print_debug_string();
+    if (std::count(_consumer_tracker_stack.begin(), _consumer_tracker_stack.end(), tracker)) {
+        return false;
+    }
     _consumer_tracker_stack.push_back(tracker);
     tracker->release(_untracked_mem);
+    return true;
 }
 
 inline void ThreadMemTrackerMgr::pop_consumer_tracker() {

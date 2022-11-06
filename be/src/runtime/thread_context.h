@@ -311,6 +311,7 @@ public:
 
 private:
     std::shared_ptr<MemTracker> _mem_tracker = nullptr; // Avoid mem_tracker being released midway.
+    bool _need_pop = false;
 };
 
 class StopCheckThreadMemTrackerLimit {
