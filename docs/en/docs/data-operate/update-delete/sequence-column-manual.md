@@ -60,15 +60,15 @@ The principle is the same as the reading process during Base Compaction.
 When the Sequence column creates a table, an attribute is added to the property, which is used to identify the type import of `__DORIS_SEQUENCE_COL__`. The grammar design is mainly to add a mapping from the sequence column to other columns. The settings of each seed method will be described below introduce.
 
 #### Create Table
-1. When you create the Uniq table, you can specify the mapping of sequence column to other columns.
+1. When you create the Uniq table, you can specify the mapping of sequence column to other columns (recommend)
 ```text
 PROPERTIES (
     "function_column.sequence_col" = 'column_name',
 );
 ```
-The sequence_col is used to specify the mapping of the sequence column to other columns, which can be integral and time (DATE, DATETIME). The type of this column cannot be changed after creation. You no longer need to specify mapping column when importing. If `function_column.sequence_col` is set, `function_column.sequence_type` is ignored.
+The sequence_col is used to specify the mapping of the sequence column to a column in the table, which can be integral and time (DATE, DATETIME). The type of this column cannot be changed after creation. If `function_column.sequence_col` is set, `function_column.sequence_type` is ignored.
 
-2. When you create the Uniq table, you can specify the sequence column type.
+2. When you create the Uniq table, you can specify the sequence column type
 ```text
 PROPERTIES (
     "function_column.sequence_type" = 'Date',
@@ -78,14 +78,14 @@ The sequence_type is used to specify the type of the sequence column, which can 
 
 #### Stream Load
 
-The syntax of the stream load is to add the mapping of hidden columns corresponding to source_sequence in the 'function_column.sequence_col' field in the header, for example
+If `function_column.sequence_col` is set when creating table, stream load does not need to specify mapping columns in the header. Otherwise, the stream load need to add the mapping of hidden columns corresponding to source_sequence in the 'function_column.sequence_col' field in the header, for example
 ```shell
 curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
 ```
 
 #### Broker Load
 
-Set the source_sequence field for the hidden column map at `ORDER BY`
+If `function_column.sequence_col` is set when creating table, broker load does not need to specify mapping columns. Otherwise, Set the source_sequence field for the hidden column map at `ORDER BY`.
 
 ```sql
 LOAD LABEL db1.label1

@@ -64,16 +64,16 @@ Sequence列建表时在property中增加了一个属性，用来标识`__DORIS_S
 
 **建表**
 
-方法一：创建Uniq表时，可以指定sequence列到其他column的映射。
+方法一：创建Uniq表时，可以指定sequence列到其他column的映射（推荐）
 
 ```text
 PROPERTIES (
     "function_column.sequence_col" = 'column_name',
 );
 ```
-sequence_col用来指定sequence列到其他column的映射，该列可以为整型和时间类型（DATE、DATETIME），创建后不能更改该列的类型。导入时不用再指定映射列。如果设置了`function_column.sequence_col`, `function_column.sequence_type`将被忽略。
+sequence_col用来指定sequence列到表中某一列的映射，该列可以为整型和时间类型（DATE、DATETIME），创建后不能更改该列的类型。如果设置了`function_column.sequence_col`, `function_column.sequence_type`将被忽略。
 
-方法二：创建Uniq表时，可以指定sequence列类型。
+方法二：创建Uniq表时，可以指定sequence列类型
 
 ```text
 PROPERTIES (
@@ -85,7 +85,7 @@ sequence_type用来指定sequence列的类型，可以为整型和时间类型�
 
 **Stream Load**
 
-stream load 的写法是在header中的`function_column.sequence_col`字段添加隐藏列对应的source_sequence的映射， 示例
+建表时如果设置了`function_column.sequence_col`, stream load 不需要在header中指定映射列。否则, stream load需要在header中的`function_column.sequence_col`字段添加隐藏列对应的source_sequence的映射， 示例
 
 ```bash
 curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
@@ -93,7 +93,7 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
 
 **Broker Load**
 
-在`ORDER BY` 处设置隐藏列映射的source_sequence字段
+建表时如果设置了`function_column.sequence_col`, broker load 不需要指定映射列。否则，在`ORDER BY` 处设置隐藏列映射的source_sequence字段
 
 ```sql
 LOAD LABEL db1.label1
