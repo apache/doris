@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -926,6 +927,36 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return output.toString();
+    }
+
+    public static Map<String, String> getPropertiesForDLF(String catalogName, HiveConf hiveConf) {
+        Map<String, String> res = Maps.newHashMap();
+        String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
+        if (!"dlf".equalsIgnoreCase(metastoreType)) {
+            return res;
+        }
+
+        // get following properties from hive-site.xml
+        // 1. region and endpoint. eg: cn-beijing
+        String region = hiveConf.get("dlf.catalog.region");
+        if (!Strings.isNullOrEmpty(region)) {
+            res.put(HiveTable.AWS_REGION, "oss-" + region);
+            res.put(HiveTable.S3_ENDPOINT, "http://oss-" + region + ".aliyuncs.com");
+        }
+
+        // 2. ak and sk
+        String ak = hiveConf.get("dlf.catalog.accessKeyId");
+        String sk = hiveConf.get("dlf.catalog.accessKeySecret");
+        if (!Strings.isNullOrEmpty(ak)) {
+            res.put(HiveTable.S3_AK, ak);
+        }
+        if (!Strings.isNullOrEmpty(sk)) {
+            res.put(HiveTable.S3_SK, sk);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get properties for oss in hive-site.xml for catalog {}: {}", catalogName, res);
+        }
+        return res;
     }
 }
 

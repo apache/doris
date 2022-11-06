@@ -24,7 +24,6 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -61,7 +60,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault("hive.metastore.uris", "");
     }
 
-    private void init() {
+    @Override
+    protected void init() {
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
         InitCatalogLog initCatalogLog = new InitCatalogLog();
@@ -97,40 +97,26 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
-        initialized = true;
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
-    /**
-     * Catalog can't be init when creating because the external catalog may depend on third system.
-     * So you have to make sure the client of third system is initialized before any method was called.
-     */
     @Override
-    public synchronized void makeSureInitialized() {
-        if (!objectCreated) {
-            try {
-                HiveConf hiveConf = new HiveConf();
-                hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
-                client = HiveMetaStoreClientHelper.getClient(hiveConf);
-                objectCreated = true;
-            } catch (DdlException e) {
-                Util.logAndThrowRuntimeException(LOG,
-                        String.format("failed to create hive meta store client for catalog: %s", name), e);
-            }
-        }
-        if (!initialized) {
-            if (!Env.getCurrentEnv().isMaster()) {
-                // Forward to master and wait the journal to replay.
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
-                try {
-                    remoteExecutor.forward(id, -1, -1);
-                } catch (Exception e) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("failed to forward init catalog %s operation to master.", name), e);
-                }
-                return;
-            }
-            init();
+    protected void initLocalObjectsImpl() {
+        try {
+            HiveConf hiveConf = new HiveConf();
+            hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
+
+            // 1. read properties from hive-site.xml.
+            // and then use properties in CatalogProperty to override properties got from hive-site.xml
+            Map<String, String> properties = HiveMetaStoreClientHelper.getPropertiesForDLF(name, hiveConf);
+            properties.putAll(catalogProperty.getProperties());
+            catalogProperty.setProperties(properties);
+
+            // 2. init hms client
+            client = HiveMetaStoreClientHelper.getClient(hiveConf);
+        } catch (DdlException e) {
+            Util.logAndThrowRuntimeException(LOG,
+                    String.format("failed to create hive meta store client for catalog: %s", name), e);
         }
     }
 
