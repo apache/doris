@@ -1824,4 +1824,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean disable_iceberg_hudi_table = true;
+
+    /**
+     * The default connection timeout for hive metastore.
+     * hive.metastore.client.socket.timeout
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static long hive_metastore_client_timeout_second = 10;
 }
