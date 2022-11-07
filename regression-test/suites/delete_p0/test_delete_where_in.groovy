@@ -1,8 +1,6 @@
 suite("test_delete_where_in", "delete_p0") {
         def tb_name = "test_1"
-        def uuid = UUID.randomUUID()
-        def id = uuid.toString()
-
+        
         // create table 
         sql  """CREATE TABLE ${tb_name}(
                 `k1`  INT(50)     COMMENT '*****',
