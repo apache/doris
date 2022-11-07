@@ -191,6 +191,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
     public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
+
+    public static final String NEREIDS_PENALTY_FACTOR = "nereids_penalty_factor";
     public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
@@ -516,6 +518,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
+    @VariableMgr.VarAttr(name = NEREIDS_PENALTY_FACTOR)
+    private double nereidsPenaltyFactor = 0.7;
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
 
@@ -1101,6 +1105,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isNereidsStarSchemaSupport() {
         return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
+    }
+
+    public double getNereidsPenaltyFactor() {
+        return nereidsPenaltyFactor;
+    }
+
+    public void setNereidsPenaltyFactor(double penaltyFactor) {
+        this.nereidsPenaltyFactor = penaltyFactor;
     }
 
     public boolean isEnableNereidsTrace() {
