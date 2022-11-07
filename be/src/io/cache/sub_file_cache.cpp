@@ -101,8 +101,8 @@ Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ct
             Slice read_slice(result.mutable_data() + offset_begin - offset, req_size);
             size_t sub_bytes_read = -1;
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    _cache_file_readers[*iter]->read_at(offset_begin - *iter, read_slice,
-                                                        io_ctx, &sub_bytes_read),
+                    _cache_file_readers[*iter]->read_at(offset_begin - *iter, read_slice, io_ctx,
+                                                        &sub_bytes_read),
                     fmt::format("Read local cache file failed: {}",
                                 _cache_file_readers[*iter]->path().native()));
             if (sub_bytes_read != read_slice.size) {
