@@ -153,8 +153,8 @@ Status Segment::_parse_footer() {
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, io_ctx,
-                                          &bytes_read));
+    RETURN_IF_ERROR(
+            _file_reader->read_at(file_size - 12 - footer_length, footer_buf, io_ctx, &bytes_read));
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum
