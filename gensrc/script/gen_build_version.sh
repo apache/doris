@@ -25,7 +25,7 @@
 # contains the build version based on the git hash or svn revision.
 ##############################################################
 
-build_version="1.1.4-rc01"
+build_version="1.1-lts"
 
 unset LANG
 unset LC_CTYPE
