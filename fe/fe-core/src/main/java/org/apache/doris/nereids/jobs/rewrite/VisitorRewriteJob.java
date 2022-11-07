@@ -39,8 +39,8 @@ public class VisitorRewriteJob extends Job {
     /**
      * Constructor.
      */
-    public VisitorRewriteJob(CascadesContext cascadesContext, DefaultPlanRewriter<JobContext> rewriter, boolean once) {
-        super(JobType.VISITOR_REWRITE, cascadesContext.getCurrentJobContext(), once);
+    public VisitorRewriteJob(CascadesContext cascadesContext, DefaultPlanRewriter<JobContext> rewriter) {
+        super(JobType.VISITOR_REWRITE, cascadesContext.getCurrentJobContext(), true);
         this.group = Objects.requireNonNull(cascadesContext.getMemo().getRoot(), "group cannot be null");
         this.planRewriter = Objects.requireNonNull(rewriter, "planRewriter cannot be null");
     }
