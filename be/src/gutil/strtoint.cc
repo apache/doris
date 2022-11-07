@@ -7,7 +7,8 @@
 #include "gutil/strtoint.h"
 
 #include <errno.h>
-#include <limits.h>
+
+#include <limits>
 
 // Replacement strto[u]l functions that have identical overflow and underflow
 // characteristics for both ILP-32 and LP-64 platforms, including errno
@@ -17,15 +18,15 @@ int32 strto32_adapter(const char* nptr, char** endptr, int base) {
     errno = 0;
     const long result = strtol(nptr, endptr, base);
     if (errno == ERANGE && result == LONG_MIN) {
-        return kint32min;
+        return std::numeric_limits<int>::min();
     } else if (errno == ERANGE && result == LONG_MAX) {
-        return kint32max;
-    } else if (errno == 0 && result < kint32min) {
+        return std::numeric_limits<int>::max();
+    } else if (errno == 0 && result < std::numeric_limits<int>::min()) {
         errno = ERANGE;
-        return kint32min;
-    } else if (errno == 0 && result > kint32max) {
+        return std::numeric_limits<int>::min();
+    } else if (errno == 0 && result > std::numeric_limits<int>::max()) {
         errno = ERANGE;
-        return kint32max;
+        return std::numeric_limits<int>::max();
     }
     if (errno == 0) errno = saved_errno;
     return static_cast<int32>(result);
@@ -36,10 +37,10 @@ uint32 strtou32_adapter(const char* nptr, char** endptr, int base) {
     errno = 0;
     const unsigned long result = strtoul(nptr, endptr, base);
     if (errno == ERANGE && result == ULONG_MAX) {
-        return kuint32max;
-    } else if (errno == 0 && result > kuint32max) {
+        return std::numeric_limits<unsigned int>::max();
+    } else if (errno == 0 && result > std::numeric_limits<unsigned int>::max()) {
         errno = ERANGE;
-        return kuint32max;
+        return std::numeric_limits<unsigned int>::max();
     }
     if (errno == 0) errno = saved_errno;
     return static_cast<uint32>(result);

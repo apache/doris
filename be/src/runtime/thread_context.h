@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <service/brpc_conflict.h>
-// After brpc_conflict.h
 #include <bthread/bthread.h>
 
 #include <string>
@@ -26,6 +24,7 @@
 
 #include "common/logging.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryType
+#include "gutil/macros.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
 
