@@ -46,6 +46,7 @@
 #include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "common/thread_fuzzy.h"
 #include "common/utils.h"
 #include "env/env.h"
 #include "olap/options.h"
@@ -374,6 +375,14 @@ int main(int argc, char** argv) {
     }
     // add logger for thrift internal
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
+
+    // set fuzzy
+#if defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER)
+    if (0 != ThreadFuzzer::setup()) {
+        LOG(WARNING) << "failed to setup thread fuzzy";
+        exit(1);
+    }
+#endif
 
     Status status = Status::OK();
 #ifdef LIBJVM
