@@ -40,11 +40,9 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.DecimalType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -128,11 +126,7 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
         left = new DecimalLiteral(new BigDecimal(1));
         lessThanEq = new LessThanEqual(left, right);
         promotedRight = new DecimalLiteral(new BigDecimal("2"));
-        rewrittenPred =
-                new LessThanEqual(left, promotedRight
-                        //new Cast(left, DecimalType.forType(TinyIntType.INSTANCE)),
-                        //new Cast(right, DecimalType.forType(TinyIntType.INSTANCE))
-                );
+        rewrittenPred = new LessThanEqual(left, promotedRight);
         assertRewrite(lessThanEq, rewrittenPred);
     }
 
