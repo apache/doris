@@ -228,8 +228,9 @@ set(VEC_FILES
   runtime/vpartition_info.cpp
   runtime/vparquet_writer.cpp
   runtime/vorc_writer.cpp
-  utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp
+  runtime/shared_hash_table_controller.cpp
+  utils/arrow_column_to_doris_column.cpp
   exec/format/parquet/vparquet_column_chunk_reader.cpp
   exec/format/parquet/vparquet_group_reader.cpp
   exec/format/parquet/vparquet_page_index.cpp

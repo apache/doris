@@ -28,6 +28,7 @@
 #include "vec/exec/join/join_op.h"
 #include "vec/exec/join/vacquire_list.hpp"
 #include "vec/functions/function.h"
+#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 namespace vectorized {
@@ -40,6 +41,7 @@ struct SerializedHashTableContext {
     using Iter = typename HashTable::iterator;
 
     HashTable hash_table;
+    HashTable* hash_table_ptr = &hash_table;
     Iter iter;
     bool inited = false;
 
@@ -71,6 +73,7 @@ struct PrimaryTypeHashTableContext {
     using Iter = typename HashTable::iterator;
 
     HashTable hash_table;
+    HashTable* hash_table_ptr = &hash_table;
     Iter iter;
     bool inited = false;
 
@@ -105,6 +108,7 @@ struct FixedKeyHashTableContext {
     using Iter = typename HashTable::iterator;
 
     HashTable hash_table;
+    HashTable* hash_table_ptr = &hash_table;
     Iter iter;
     bool inited = false;
 
@@ -353,6 +357,9 @@ private:
     // 3. In probe phase, if _short_circuit_for_null_in_probe_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
     bool _short_circuit_for_null_in_build_side = false;
     bool _short_circuit_for_null_in_probe_side = false;
+    bool _is_broadcast_join = false;
+    SharedHashTableController* _shared_hashtable_controller = nullptr;
+    VRuntimeFilterSlots* _runtime_filter_slots;
 
     Block _join_block;
 
