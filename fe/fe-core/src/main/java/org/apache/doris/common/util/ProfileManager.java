@@ -217,7 +217,7 @@ public class ProfileManager {
      * @param queryId
      * @throws DdlException
      */
-    public void checkAuthForQueryId(String user, String queryId) throws DdlException {
+    public void checkAuthByUserAndQueryId(String user, String queryId) throws DdlException {
         readLock.lock();
         try {
             ProfileElement element = queryIdToProfileMap.get(queryId);

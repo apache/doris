@@ -168,20 +168,9 @@ public class QueryProfileAction extends RestBaseController {
             return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(QUERY_TITLE_NAMES, queries));
         }
 
-        queries = ProfileManager.getInstance().getAllQueries().stream()
-                .filter(profile -> profile.get(4).equals("Query")).collect(Collectors.toList());
-        String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-        Stream<List<String>> queryStream = queries.stream();
-        // filter by user
-        // Only admin or root user can see all profile.
-        // Common user can only review the query of their own.
-        if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
-            queryStream = queryStream.filter(q -> q.get(1).equalsIgnoreCase(user));
-        }
-        // filted by query id
-        if (!Strings.isNullOrEmpty(queryId)) {
-            queryStream = queryStream.filter(q -> q.get(0).equals(queryId));
-        }
+        Stream<List<String>> queryStream = ProfileManager.getInstance().getAllQueries().stream()
+                .filter(profile -> profile.get(4).equals("Query"));
+        queryStream = filterQueriesByUserAndQueryId(queryStream, queryId);
         queries = queryStream.collect(Collectors.toList());
 
         // add node information
@@ -212,7 +201,6 @@ public class QueryProfileAction extends RestBaseController {
                             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
                                     boolean isAllNode) {
         executeCheckPassword(request, response);
-        // checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         Map<String, String> querySql = Maps.newHashMap();
         if (isAllNode) {
@@ -231,18 +219,25 @@ public class QueryProfileAction extends RestBaseController {
                 }
             }
         } else {
-            String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
             Stream<List<String>> queryStream = ProfileManager.getInstance().getAllQueries().stream();
-            if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
-                queryStream = queryStream.filter(q -> q.get(1).equalsIgnoreCase(user));
-            }
-            List<List<String>> queries = queryStream.filter(query -> query.get(0).equals(queryId))
-                    .collect(Collectors.toList());
+            queryStream = filterQueriesByUserAndQueryId(queryStream, queryId);
+            List<List<String>> queries = queryStream.collect(Collectors.toList());
             if (!queries.isEmpty()) {
                 querySql.put("sql", queries.get(0).get(3));
             }
         }
         return ResponseEntityBuilder.ok(querySql);
+    }
+
+    private Stream<List<String>> filterQueriesByUserAndQueryId(Stream<List<String>> queryStream, String queryId) {
+        // filter by user
+        // Only admin or root user can see all profile.
+        // Common user can only review the query of their own.
+        String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
+        if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
+            queryStream = queryStream.filter(q -> q.get(1).equals(user));
+        }
+        return queryStream.filter(query -> query.get(0).equals(queryId));
     }
 
     /**
@@ -268,13 +263,10 @@ public class QueryProfileAction extends RestBaseController {
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
 
-        String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-        if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
-            try {
-                ProfileManager.getInstance().checkAuthForQueryId(user, queryId);
-            } catch (DdlException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
-            }
+        try {
+            checkAuthByUserAndQueryId(queryId);
+        } catch (DdlException e) {
+            return ResponseEntityBuilder.badRequest(e.getMessage());
         }
 
         if (format.equals("text")) {
@@ -330,7 +322,7 @@ public class QueryProfileAction extends RestBaseController {
             }
 
             try {
-                checkAuthForQuryIdAndUser(queryId);
+                checkAuthByUserAndQueryId(queryId);
             } catch (DdlException e) {
                 return ResponseEntityBuilder.badRequest(e.getMessage());
             }
@@ -367,7 +359,7 @@ public class QueryProfileAction extends RestBaseController {
             }
         } else {
             try {
-                checkAuthForQuryIdAndUser(queryId);
+                checkAuthByUserAndQueryId(queryId);
             } catch (DdlException e) {
                 return ResponseEntityBuilder.badRequest(e.getMessage());
             }
@@ -474,10 +466,10 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.ok(result);
     }
 
-    private void checkAuthForQuryIdAndUser(String queryId) throws DdlException {
+    private void checkAuthByUserAndQueryId(String queryId) throws DdlException {
         String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
         if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
-            ProfileManager.getInstance().checkAuthForQueryId(user, queryId);
+            ProfileManager.getInstance().checkAuthByUserAndQueryId(user, queryId);
         }
     }
 
