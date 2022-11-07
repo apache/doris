@@ -88,6 +88,12 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
         Assertions.assertEquals(tabletNum, Env.getCurrentInvertedIndex().getTabletMetaMap().size());
 
+        // 6. add backend
+        String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+
     }
 
     @Test
@@ -98,13 +104,13 @@ public class DecommissionBackendTest extends TestWithFeService {
         ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
-        // 2. create database db1
-        createDatabase("db1");
+        // 2. create database db2
+        createDatabase("db2");
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         // 3. create table tbl1 tbl2
-        createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '2');");
-        createTable("create table db1.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+        createTable("create table db2.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '2');");
+        createTable("create table db2.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
@@ -120,7 +126,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertTrue(srcBackend != null);
 
         // 5. drop table tbl1
-        dropTable("db1.tbl1", false);
+        dropTable("db2.tbl1", false);
 
         // 6. execute decommission
         String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
@@ -138,7 +144,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
 
         // tbl1 has been dropped successfully
-        final String sql = "show create table db1.tbl1;";
+        final String sql = "show create table db2.tbl1;";
         Assertions.assertThrows(AnalysisException.class, () -> showCreateTable(sql));
 
         // TabletInvertedIndex still holds these tablets of srcBackend, but they are all in recycled status
@@ -147,8 +153,13 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertTrue(Env.getCurrentRecycleBin().allTabletsInRecycledStatus(tabletList));
 
         // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
-        Assertions.assertDoesNotThrow(() -> recoverTable("db1.tbl1"));
+        Assertions.assertDoesNotThrow(() -> recoverTable("db2.tbl1"));
         Assertions.assertDoesNotThrow(() -> showCreateTable(sql));
+
+        String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
     }
 
 }
