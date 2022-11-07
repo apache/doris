@@ -302,7 +302,6 @@ public class QueryProfileAction extends RestBaseController {
             @PathVariable("trace_id") String traceId,
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         if (isAllNode) {
             String httpPath = "/rest/v2/manager/query/trace_id/" + traceId;
@@ -346,7 +345,6 @@ public class QueryProfileAction extends RestBaseController {
             @PathVariable("query_id") String queryId,
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         if (isAllNode) {
             String httpPath = "/rest/v2/manager/query/profile/fragments/" + queryId;
