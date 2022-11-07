@@ -221,6 +221,7 @@ set(VEC_FILES
   functions/function_convert_tz.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
+  functions/function_has_all.cpp
   functions/url/function_url.cpp
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp

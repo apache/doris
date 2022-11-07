@@ -2865,7 +2865,22 @@ visible_functions = [
     [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
+
     [['uuid'], 'VARCHAR', [], '_ZN5doris15StringFunctions4uuidEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+
+    [['has_all'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_INT', 'ARRAY_INT'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_DECIMALV2', 'ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_DATETIME', 'ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_DATE', 'ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['has_all'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+
 ]
 
 # Except the following functions, other function will directly return
