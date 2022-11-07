@@ -150,7 +150,8 @@ void MemTrackerLimiter::make_type_snapshots(std::vector<MemTracker::Snapshot>* s
             for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
                 if (tracker->type() == type) {
                     (*snapshots).emplace_back(tracker->make_snapshot());
-                    MemTracker::make_group_snapshot(snapshots, tracker->group_num(), tracker->label());
+                    MemTracker::make_group_snapshot(snapshots, tracker->group_num(),
+                                                    tracker->label());
                 }
             }
         }

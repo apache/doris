@@ -144,8 +144,11 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     } else {
         (*output) << "<h4>*注: (详情见文档)</h4>\n";
         (*output) << "<h4>     1.`/mem_tracker?type=global`查看每个type的内存统计</h4>\n";
-        (*output) << "<h4>     2.`/mem_tracker`统计的是虚存, 等于`/memz`中`Actual memory used`</h4>\n";
-        (*output) << "<h4>     3.`process`等于所有type内存之和, `/mem_tracker`逻辑上可分为4层: 1)`process` 2)`type` 3)`query/load/compation task etc.` 4)`exec node etc.`</h4>\n";
+        (*output) << "<h4>     2.`/mem_tracker`统计的是虚存, 等于`/memz`中`Actual memory "
+                     "used`</h4>\n";
+        (*output) << "<h4>     3.`process`等于所有type内存之和, `/mem_tracker`逻辑上可分为4层: "
+                     "1)`process` 2)`type` 3)`query/load/compation task etc.` 4)`exec node "
+                     "etc.`</h4>\n";
         MemTrackerLimiter::make_process_snapshots(&snapshots);
     }
 
@@ -171,7 +174,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         string current_consumption_normalize = AccurateItoaKMGT(item.cur_consumption);
         string peak_consumption_normalize = AccurateItoaKMGT(item.peak_consumption);
         (*output) << strings::Substitute(
-                "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</td><td>$7</td></tr>\n",
+                "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</"
+                "td><td>$7</td></tr>\n",
                 item.type, item.label, item.parent_label, limit_str, item.cur_consumption,
                 current_consumption_normalize, item.peak_consumption, peak_consumption_normalize);
     }

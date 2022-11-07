@@ -69,7 +69,7 @@ public:
 
     inline static const std::string TypeString[] = {"global",     "query",         "load",
                                                     "compaction", "schema_change", "clone",
-                                                    "batch_load",  "consistency"};
+                                                    "batch_load", "consistency"};
 
 public:
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
