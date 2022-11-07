@@ -68,7 +68,7 @@ Status BaseCompaction::execute_compact_impl() {
         return Status::OLAPInternalError(OLAP_ERR_BE_CLONE_OCCURRED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::COMPACTION);
+    SCOPED_ATTACH_TASK(_mem_tracker);
 
     // 2. do base compaction, merge rowsets
     int64_t permits = get_compaction_permits();

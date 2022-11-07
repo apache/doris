@@ -26,6 +26,8 @@
 #include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "util/pretty_printer.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -39,6 +41,21 @@ public:
     QueryFragmentsCtx(int total_fragment_num, ExecEnv* exec_env)
             : fragment_num(total_fragment_num), timeout_second(-1), _exec_env(exec_env) {
         _start_time = DateTimeValue::local_time();
+    }
+
+    ~QueryFragmentsCtx() {
+        // query mem tracker consumption is equal to 0, it means that after QueryFragmentsCtx is created,
+        // it is found that query already exists in _fragments_ctx_map, and query mem tracker is not used.
+        // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
+        // on query mem tracker, released on other trackers.
+        if (query_mem_tracker->consumption() != 0) {
+            LOG(INFO) << fmt::format(
+                    "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+                    "PeakUsed={}",
+                    print_id(query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
+                    MemTracker::print_bytes(query_mem_tracker->consumption()),
+                    MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
+        }
     }
 
     bool countdown() { return fragment_num.fetch_sub(1) == 1; }
@@ -99,6 +116,8 @@ public:
     std::atomic<int> fragment_num;
     int timeout_second;
     ObjectPool obj_pool;
+    // MemTracker that is shared by all fragment instances running on this host.
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
 private:
     ExecEnv* _exec_env;

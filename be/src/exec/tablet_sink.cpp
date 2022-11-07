@@ -48,7 +48,7 @@ NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int
         : _parent(parent), _index_channel(index_channel), _node_id(node_id) {
     _node_channel_tracker = std::make_unique<MemTracker>(fmt::format(
             "NodeChannel:indexID={}:threadId={}", std::to_string(_index_channel->_index_id),
-            thread_context()->thread_id_str()));
+            thread_context()->get_thread_id()));
 }
 
 NodeChannel::~NodeChannel() noexcept {
@@ -624,7 +624,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         _add_batch_closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
         _add_batch_closure->cntl.http_request().set_content_type("application/json");
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_batch_by_http(&_add_batch_closure->cntl, NULL,
                                                              &_add_batch_closure->result,
                                                              _add_batch_closure);
@@ -632,7 +632,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
     } else {
         _add_batch_closure->cntl.http_request().Clear();
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
                                            &_add_batch_closure->result, _add_batch_closure);
         }

@@ -1596,10 +1596,10 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
+        if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
             RETURN_IF_ERROR(create_rowset());
 
-            if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
+            if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change."
                              << " _memory_limitation=" << _memory_limitation
                              << ", new_block->allocated_bytes()=" << new_block->allocated_bytes()
