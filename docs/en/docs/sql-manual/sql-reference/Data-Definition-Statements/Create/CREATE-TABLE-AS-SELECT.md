@@ -59,7 +59,7 @@ illustrate:
 
 - If the created source is an external table and the first column is of type String, the first column is automatically set to VARCHAR(65533). Because of Doris internal table, String column is not allowed as first column.
 
-<version>
+</version>
 
 ### Example
 
