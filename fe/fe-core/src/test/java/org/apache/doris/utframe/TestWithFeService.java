@@ -32,6 +32,7 @@ import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -496,6 +497,12 @@ public abstract class TestWithFeService {
         DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(
                 "drop table " + table + (force ? " force" : "") + ";", connectContext);
         Env.getCurrentEnv().dropTable(dropTableStmt);
+    }
+
+    public void recoverTable(String table) throws Exception {
+        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) parseAndAnalyzeStmt(
+                "recover table " + table + ";", connectContext);
+        Env.getCurrentEnv().recoverTable(recoverTableStmt);
     }
 
     public void createTableAsSelect(String sql) throws Exception {

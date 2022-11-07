@@ -72,7 +72,7 @@ public class SystemHandler extends AlterHandler {
         runAlterJobV2();
     }
 
-    // check all decommissioned backends, if there is no tablet on that backend, drop it.
+    // check all decommissioned backends, if there is no available tablet on that backend, drop it.
     private void runAlterJobV2() {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -84,10 +84,11 @@ public class SystemHandler extends AlterHandler {
             }
 
             List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);
-            if (backendTabletIds.isEmpty() && Config.drop_backend_after_decommission) {
+            if ((backendTabletIds.isEmpty() || Env.getCurrentRecycleBin().allTabletsInRecycledStatus(backendTabletIds))
+                    && Config.drop_backend_after_decommission) {
                 try {
                     systemInfoService.dropBackend(beId);
-                    LOG.info("no tablet on decommission backend {}, drop it", beId);
+                    LOG.info("no available tablet on decommission backend {}, drop it", beId);
                 } catch (DdlException e) {
                     // does not matter, may be backend not exist
                     LOG.info("backend {} is dropped failed after decommission {}", beId, e.getMessage());
