@@ -143,7 +143,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         // TabletInvertedIndex still holds these tablets of srcBackend, but they are all in recycled status
         List<Long> tabletList = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(srcBackend.getId());
-        Assertions.assertTrue(tabletList.size() == tabletNum);
+        Assertions.assertTrue(tabletList.size() > 0);
         Assertions.assertTrue(Env.getCurrentRecycleBin().allTabletsInRecycledStatus(tabletList));
 
         // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
