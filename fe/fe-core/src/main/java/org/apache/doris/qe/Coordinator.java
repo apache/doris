@@ -185,6 +185,9 @@ public class Coordinator {
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
     private final List<PlanFragment> fragments;
+
+    private Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
+
     // backend execute state
     private final List<BackendExecState> backendExecStates = Lists.newArrayList();
     // backend which state need to be checked when joining this coordinator.
@@ -405,10 +408,10 @@ public class Coordinator {
         return errorTabletInfos;
     }
 
-    public Map<String, Integer> getFragmentToInstancesNum() {
+    public Map<String, Integer> getBeToInstancesNum() {
         Map<String, Integer> result = Maps.newTreeMap();
-        for (Map.Entry<PlanFragmentId, FragmentExecParams> entry : fragmentExecParamsMap.entrySet()) {
-            result.put(entry.getKey().toString(), entry.getValue().instanceExecParams.size());
+        for (BackendExecStates states : beToExecStates.values()) {
+            result.put(states.brpcAddr.hostname.concat(":").concat("" + states.brpcAddr.port), states.states.size());
         }
         return result;
     }
@@ -586,7 +589,7 @@ public class Coordinator {
             int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
-            Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
+            beToExecStates.clear();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases

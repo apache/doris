@@ -308,11 +308,11 @@ public class StmtExecutor implements ProfileWriter {
         infos.put(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
         infos.put(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
 
-        Map<String, Integer> fragmentToInstancesNum =
-                coord == null ? Maps.newHashMap() : coord.getFragmentToInstancesNum();
-        infos.put(ProfileManager.INSTANCES_NUM_PER_FRAGMENT, fragmentToInstancesNum.toString());
+        Map<String, Integer> beToInstancesNum =
+                coord == null ? Maps.newTreeMap() : coord.getBeToInstancesNum();
         infos.put(ProfileManager.TOTAL_INSTANCES_NUM,
-                String.valueOf(fragmentToInstancesNum.values().stream().reduce(0, Integer::sum)));
+                String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
+        infos.put(ProfileManager.INSTANCES_NUM_PER_BE, beToInstancesNum.toString());
         return infos;
     }
 

@@ -70,7 +70,7 @@ public class ProfileManager {
 
     public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
 
-    public static final String INSTANCES_NUM_PER_FRAGMENT = "Instances Num Per Fragment";
+    public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
 
     public static final String TRACE_ID = "Trace ID";
 
