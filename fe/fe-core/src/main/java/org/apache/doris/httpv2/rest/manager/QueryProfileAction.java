@@ -269,7 +269,7 @@ public class QueryProfileAction extends RestBaseController {
         try {
             checkAuthByUserAndQueryId(queryId);
         } catch (AuthenticationException e) {
-            return ResponseEntityBuilder.unauthorized(e.getMessage());
+            return ResponseEntityBuilder.badRequest(e.getMessage());
         }
 
         if (format.equals("text")) {
@@ -327,7 +327,7 @@ public class QueryProfileAction extends RestBaseController {
             try {
                 checkAuthByUserAndQueryId(queryId);
             } catch (AuthenticationException e) {
-                return ResponseEntityBuilder.unauthorized(e.getMessage());
+                return ResponseEntityBuilder.badRequest(e.getMessage());
             }
 
             return ResponseEntityBuilder.ok(queryId);
@@ -364,7 +364,7 @@ public class QueryProfileAction extends RestBaseController {
             try {
                 checkAuthByUserAndQueryId(queryId);
             } catch (AuthenticationException e) {
-                return ResponseEntityBuilder.unauthorized(e.getMessage());
+                return ResponseEntityBuilder.badRequest(e.getMessage());
             }
 
             try {
