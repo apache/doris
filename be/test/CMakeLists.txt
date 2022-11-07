@@ -375,6 +375,7 @@ set(VEC_TEST_FILES
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
+    vec/olap/vertical_compaction_test.cpp
 )
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}

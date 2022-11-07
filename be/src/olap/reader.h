@@ -103,6 +103,9 @@ public:
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
 
+        // for vertical compaction
+        bool is_key_column_group = false;
+
         void check_validation() const;
 
         std::string to_string() const;
@@ -135,7 +138,7 @@ public:
         return Status::OLAPInternalError(OLAP_ERR_READER_INITIALIZE_ERROR);
     }
 
-    uint64_t merged_rows() const { return _merged_rows; }
+    virtual uint64_t merged_rows() const { return _merged_rows; }
 
     uint64_t filtered_rows() const {
         return _stats.rows_del_filtered + _stats.rows_del_by_bitmap +

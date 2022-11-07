@@ -230,12 +230,20 @@ CONF_Bool(enable_storage_vectorization, "true");
 CONF_Bool(enable_low_cardinality_optimize, "true");
 
 // be policy
+// whether check compaction checksum
+CONF_mBool(enable_compaction_checksum, "false");
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
+// whether enable vertical compaction
+CONF_mBool(enable_vertical_compaction, "false");
+// In vertical compaction, column number for every group
+CONF_mInt32(vertical_compaction_num_columns_per_group, "5");
+// In vertical compaction, max memory usage for row_source_buffer
+CONF_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(max_base_compaction_threads, "4");

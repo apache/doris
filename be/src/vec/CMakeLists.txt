@@ -230,6 +230,8 @@ set(VEC_FILES
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
   olap/olap_data_convertor.cpp
+  olap/vertical_merge_iterator.cpp
+  olap/vertical_block_reader.cpp
   sink/vmysql_result_writer.cpp
   sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp

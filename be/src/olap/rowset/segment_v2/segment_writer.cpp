@@ -49,8 +49,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
           _opts(opts),
           _file_writer(file_writer),
           _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
-                                                    std::to_string(segment_id))),
-          _olap_data_convertor(tablet_schema.get()) {
+                                                    std::to_string(segment_id))) {
     CHECK_NOTNULL(file_writer);
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         _num_key_columns = _tablet_schema->num_key_columns();
@@ -74,10 +73,9 @@ SegmentWriter::~SegmentWriter() {
     _mem_tracker->release(_mem_tracker->consumption());
 }
 
-void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
+void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
                                      const TabletColumn& column, TabletSchemaSPtr tablet_schema) {
-    // TODO(zc): Do we need this column_id??
-    meta->set_column_id((*column_id)++);
+    meta->set_column_id(column_id);
     meta->set_unique_id(column.unique_id());
     meta->set_type(column.type());
     meta->set_length(column.length());
@@ -91,13 +89,25 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
 }
 
 Status SegmentWriter::init() {
-    uint32_t column_id = 0;
+    std::vector<uint32_t> column_ids;
+    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+        column_ids.emplace_back(i);
+    }
+    return init(column_ids, true);
+}
+
+Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
+    DCHECK(_column_writers.empty());
+    DCHECK(_column_ids.empty());
+    _has_key = has_key;
     _column_writers.reserve(_tablet_schema->columns().size());
-    for (auto& column : _tablet_schema->columns()) {
+    _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
+    for (auto& cid : col_ids) {
+        const auto& column = _tablet_schema->column(cid);
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
-        init_column_meta(opts.meta, &column_id, column, _tablet_schema);
+        init_column_meta(opts.meta, cid, column, _tablet_schema);
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
         // and not support zone map for array type and jsonb type.
@@ -130,18 +140,24 @@ Status SegmentWriter::init() {
     }
 
     // we don't need the short key index for unique key merge on write table.
-    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
-        size_t seq_col_length = 0;
-        if (_tablet_schema->has_sequence_col()) {
-            seq_col_length =
-                    _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
+    if (_has_key) {
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+            size_t seq_col_length = 0;
+            if (_tablet_schema->has_sequence_col()) {
+                seq_col_length =
+                        _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
+            }
+            _primary_key_index_builder.reset(
+                    new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
+            RETURN_IF_ERROR(_primary_key_index_builder->init());
+        } else {
+            _short_key_index_builder.reset(
+                    new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
         }
-        _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
-        RETURN_IF_ERROR(_primary_key_index_builder->init());
-    } else {
-        _short_key_index_builder.reset(
-                new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
     }
+    // init olap data converter
+    _olap_data_convertor =
+            std::make_unique<vectorized::OlapBlockDataConvertor>(_tablet_schema.get(), _column_ids);
     return Status::OK();
 }
 
@@ -149,63 +165,70 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                    size_t num_rows) {
     assert(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
            block->columns() == _column_writers.size());
-    _olap_data_convertor.set_source_content(block, row_pos, num_rows);
+    _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // find all row pos for short key indexes
     std::vector<size_t> short_key_pos;
-    // We build a short key index every `_opts.num_rows_per_block` rows. Specifically, we
-    // build a short key index using 1st rows for first block and `_short_key_row_pos - _row_count`
-    // for next blocks.
-    // Ensure we build a short key index using 1st rows only for the first block (ISSUE-9766).
-    if (UNLIKELY(_short_key_row_pos == 0 && _row_count == 0)) {
-        short_key_pos.push_back(0);
-    }
-    while (_short_key_row_pos + _opts.num_rows_per_block < _row_count + num_rows) {
-        _short_key_row_pos += _opts.num_rows_per_block;
-        short_key_pos.push_back(_short_key_row_pos - _row_count);
+    if (_has_key) {
+        // We build a short key index every `_opts.num_rows_per_block` rows. Specifically, we
+        // build a short key index using 1st rows for first block and `_short_key_row_pos - _row_count`
+        // for next blocks.
+        // Ensure we build a short key index using 1st rows only for the first block (ISSUE-9766).
+        if (UNLIKELY(_short_key_row_pos == 0 && _num_rows_written == 0)) {
+            short_key_pos.push_back(0);
+        }
+        while (_short_key_row_pos + _opts.num_rows_per_block < _num_rows_written + num_rows) {
+            _short_key_row_pos += _opts.num_rows_per_block;
+            short_key_pos.push_back(_short_key_row_pos - _num_rows_written);
+        }
     }
 
     // convert column data from engine format to storage layer format
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
-    for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
-        auto converted_result = _olap_data_convertor.convert_column_data(cid);
+    for (size_t id = 0; id < _column_writers.size(); ++id) {
+        // olap data convertor alway start from id = 0
+        auto converted_result = _olap_data_convertor->convert_column_data(id);
         if (converted_result.first != Status::OK()) {
             return converted_result.first;
         }
-        if (cid < _num_key_columns ||
-            (_tablet_schema->has_sequence_col() && _tablet_schema->keys_type() == UNIQUE_KEYS &&
-             _opts.enable_unique_key_merge_on_write && cid == _tablet_schema->sequence_col_idx())) {
+        auto cid = _column_ids[id];
+        if (_has_key && (cid < _num_key_columns || (_tablet_schema->has_sequence_col() &&
+                                                    _tablet_schema->keys_type() == UNIQUE_KEYS &&
+                                                    _opts.enable_unique_key_merge_on_write &&
+                                                    cid == _tablet_schema->sequence_col_idx()))) {
             key_columns.push_back(converted_result.second);
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                                     converted_result.second->get_data(),
-                                                     num_rows));
+        RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
+                                                    converted_result.second->get_data(), num_rows));
+    }
+    if (_has_key) {
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+            // create primary indexes
+            for (size_t pos = 0; pos < num_rows; pos++) {
+                RETURN_IF_ERROR(
+                        _primary_key_index_builder->add_item(_encode_keys(key_columns, pos)));
+            }
+        } else {
+            // create short key indexes
+            for (const auto pos : short_key_pos) {
+                RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
+            }
+        }
     }
 
-    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
-        // create primary indexes
-        for (size_t pos = 0; pos < num_rows; pos++) {
-            RETURN_IF_ERROR(_primary_key_index_builder->add_item(_encode_keys(key_columns, pos)));
-        }
-    } else {
-        // create short key indexes
-        for (const auto pos : short_key_pos) {
-            RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
-        }
-    }
-
-    _row_count += num_rows;
-    _olap_data_convertor.clear_source_content();
+    _num_rows_written += num_rows;
+    _olap_data_convertor->clear_source_content();
     return Status::OK();
 }
 
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
-    if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE || _row_count >= _max_row_per_segment)) {
+    if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
+                      _num_rows_written >= _max_row_per_segment)) {
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
-    int64_t count_rows = (int64_t)_max_row_per_segment - _row_count;
+    int64_t count_rows = (int64_t)_max_row_per_segment - _num_rows_written;
 
     return std::min(size_rows, count_rows);
 }
@@ -266,13 +289,13 @@ Status SegmentWriter::append_row(const RowType& row) {
         RETURN_IF_ERROR(_primary_key_index_builder->add_item(encoded_key));
     } else {
         // At the beginning of one block, so add a short key index entry
-        if ((_row_count % _opts.num_rows_per_block) == 0) {
+        if ((_num_rows_written % _opts.num_rows_per_block) == 0) {
             std::string encoded_key;
             encode_key(&encoded_key, row, _num_key_columns);
             RETURN_IF_ERROR(_short_key_index_builder->add_item(encoded_key));
         }
     }
-    ++_row_count;
+    ++_num_rows_written;
     return Status::OK();
 }
 
@@ -300,11 +323,14 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return size;
 }
 
-Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
-    // check disk capacity
-    if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
-        return Status::InternalError("disk {} exceed capacity limit.", _data_dir->path_hash());
+Status SegmentWriter::finalize_columns(uint64_t* index_size) {
+    if (_has_key) {
+        _row_count = _num_rows_written;
+    } else {
+        CHECK_EQ(_row_count, _num_rows_written);
     }
+    _num_rows_written = 0;
+
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
@@ -314,16 +340,48 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
-    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
-        RETURN_IF_ERROR(_write_primary_key_index());
-    } else {
-        RETURN_IF_ERROR(_write_short_key_index());
-    }
+
     *index_size = _file_writer->bytes_appended() - index_offset;
+    if (_has_key) {
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+            RETURN_IF_ERROR(_write_primary_key_index());
+        } else {
+            RETURN_IF_ERROR(_write_short_key_index());
+        }
+        *index_size = _file_writer->bytes_appended() - index_offset;
+    }
+    // reset all column writers and data_conveter
+    _reset_column_writers();
+    _column_ids.clear();
+    _olap_data_convertor.reset();
+    return Status::OK();
+}
+
+Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     RETURN_IF_ERROR(_write_footer());
     RETURN_IF_ERROR(_file_writer->finalize());
     *segment_file_size = _file_writer->bytes_appended();
     return Status::OK();
+}
+
+Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+    // check disk capacity
+    if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
+        return Status::InternalError("disk {} exceed capacity limit.", _data_dir->path_hash());
+    }
+
+    RETURN_IF_ERROR(finalize_columns(index_size));
+
+    // writer footer
+    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    return Status::OK();
+}
+
+void SegmentWriter::_reset_column_writers() {
+    for (auto& column_writer : _column_writers) {
+        column_writer.reset();
+    }
+    _column_writers.clear();
 }
 
 // write column data to file one by one

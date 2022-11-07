@@ -120,7 +120,7 @@ private:
 
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
-private:
+protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
