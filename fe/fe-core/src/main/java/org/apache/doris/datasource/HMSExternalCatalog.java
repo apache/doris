@@ -22,16 +22,12 @@ import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -43,7 +39,8 @@ import java.util.Map;
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
-    protected IMetaStoreClient client;
+    private static final int MAX_CLIENT_POOL_SIZE = 8;
+    protected PooledHiveMetaStoreClient client;
 
     /**
      * Default constructor for HMSExternalCatalog.
@@ -67,17 +64,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         InitCatalogLog initCatalogLog = new InitCatalogLog();
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.HMS);
-        List<String> allDatabases;
-        try {
-            allDatabases = client.getAllDatabases();
-        } catch (TException e) {
-            LOG.warn("Fail to init db name to id map. {}", e.getMessage());
-            return;
-        }
+        List<String> allDatabases = client.getAllDatabases();
         // Update the db name to id map.
-        if (allDatabases == null) {
-            return;
-        }
         for (String dbName : allDatabases) {
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
@@ -102,22 +90,17 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        try {
-            HiveConf hiveConf = new HiveConf();
-            hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
+        HiveConf hiveConf = new HiveConf();
+        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
 
-            // 1. read properties from hive-site.xml.
-            // and then use properties in CatalogProperty to override properties got from hive-site.xml
-            Map<String, String> properties = HiveMetaStoreClientHelper.getPropertiesForDLF(name, hiveConf);
-            properties.putAll(catalogProperty.getProperties());
-            catalogProperty.setProperties(properties);
+        // 1. read properties from hive-site.xml.
+        // and then use properties in CatalogProperty to override properties got from hive-site.xml
+        Map<String, String> properties = HiveMetaStoreClientHelper.getPropertiesForDLF(name, hiveConf);
+        properties.putAll(catalogProperty.getProperties());
+        catalogProperty.setProperties(properties);
 
-            // 2. init hms client
-            client = HiveMetaStoreClientHelper.getClient(hiveConf);
-        } catch (DdlException e) {
-            Util.logAndThrowRuntimeException(LOG,
-                    String.format("failed to create hive meta store client for catalog: %s", name), e);
-        }
+        // 2. init hms client
+        client = new PooledHiveMetaStoreClient(hiveConf, MAX_CLIENT_POOL_SIZE);
     }
 
     @Override
@@ -135,25 +118,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
             hmsExternalDatabase.getTables().stream().forEach(table -> names.add(table.getName()));
             return names;
         } else {
-            try {
-                return client.getAllTables(getRealTableName(dbName));
-            } catch (TException e) {
-                Util.logAndThrowRuntimeException(LOG, String.format("list table names failed for %s.%s", name, dbName),
-                        e);
-            }
+            return client.getAllTables(getRealTableName(dbName));
         }
-        return Lists.newArrayList();
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        try {
-            return client.tableExists(getRealTableName(dbName), tblName);
-        } catch (TException e) {
-            Util.logAndThrowRuntimeException(LOG,
-                    String.format("check table exist failed for %s.%s.%s", name, dbName, tblName), e);
-        }
-        return false;
+        return client.tableExists(getRealTableName(dbName), tblName);
     }
 
     @Nullable
@@ -184,7 +155,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return idToDb.get(dbId);
     }
 
-    public IMetaStoreClient getClient() {
+    public PooledHiveMetaStoreClient getClient() {
         makeSureInitialized();
         return client;
     }
