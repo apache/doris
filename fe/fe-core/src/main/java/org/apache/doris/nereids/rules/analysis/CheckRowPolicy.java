@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.policy.RowPolicy;
 
+import java.util.List;
+
 /**
  * CheckPolicy.
  */
@@ -52,8 +54,15 @@ public class CheckRowPolicy extends OneAnalysisRuleFactory {
                     return checkedRelation;
                 }
                 // 2. whether there is a policy on this table for this user
+                List<String> nameParts = unbindRelation.getNameParts();
+                if (nameParts.isEmpty() || nameParts.size() > 2) {
+                    throw new IllegalStateException("Table name [" + unbindRelation.getTableName() + "] is invalid.");
+                }
                 String dbName = ctx.connectContext.getDatabase();
-                String tableName = unbindRelation.getTableName();
+                if (nameParts.size() == 2 && !nameParts.get(0).equals(dbName)) {
+                    dbName = ctx.connectContext.getClusterName() + ":" + nameParts.get(0);
+                }
+                String tableName = nameParts.get(nameParts.size() - 1);
                 RowPolicy matchPolicy = getRowPolicy(dbName, tableName, user, env);
                 if (matchPolicy == null) {
                     return checkedRelation;

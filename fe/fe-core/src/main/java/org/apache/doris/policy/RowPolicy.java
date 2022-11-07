@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
@@ -147,13 +146,10 @@ public class RowPolicy extends Policy {
             SqlParser parser = new SqlParser(input);
             CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
             originalPredicate = stmt.getWherePredicate();
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable() != null
-                    && ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-                NereidsParser nereidsParser = new NereidsParser();
-                CreatePolicyCommand command =  (CreatePolicyCommand) nereidsParser.parseSingle(originStmt);
-                nereidsPredicate = command.getWherePredicate();
-            }
+
+            NereidsParser nereidsParser = new NereidsParser();
+            CreatePolicyCommand command =  (CreatePolicyCommand) nereidsParser.parseSingle(originStmt);
+            nereidsPredicate = command.getWherePredicate();
         } catch (Exception e) {
             throw new IOException("table policy parse originStmt error", e);
         }
