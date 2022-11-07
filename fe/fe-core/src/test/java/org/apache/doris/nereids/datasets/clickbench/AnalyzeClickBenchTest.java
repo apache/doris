@@ -110,10 +110,10 @@ public class AnalyzeClickBenchTest extends ClickBenchTestBase {
         checkAnalyze(ClickBenchUtils.Q17);
     }
 
-    // @Test
-    // public void q18() {
-    //     checkAnalyze(ClickBenchUtils.Q18);
-    // }
+    @Test
+    public void q18() {
+        checkAnalyze(ClickBenchUtils.Q18);
+    }
 
     @Test
     public void q19() {
@@ -160,10 +160,10 @@ public class AnalyzeClickBenchTest extends ClickBenchTestBase {
         checkAnalyze(ClickBenchUtils.Q27);
     }
 
-    // @Test
-    // public void q28() {
-    //     checkAnalyze(ClickBenchUtils.Q28);
-    // }
+    @Test
+    public void q28() {
+        checkAnalyze(ClickBenchUtils.Q28);
+    }
 
     @Test
     public void q29() {
@@ -215,10 +215,10 @@ public class AnalyzeClickBenchTest extends ClickBenchTestBase {
         checkAnalyze(ClickBenchUtils.Q38);
     }
 
-    // @Test
-    // public void q39() {
-    //     checkAnalyze(ClickBenchUtils.Q39);
-    // }
+    @Test
+    public void q39() {
+        checkAnalyze(ClickBenchUtils.Q39);
+    }
 
     @Test
     public void q40() {
