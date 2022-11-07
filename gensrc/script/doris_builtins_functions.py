@@ -2806,6 +2806,10 @@ visible_functions = [
     [['protocol'], 'STRING', ['STRING'],
         'fake_symble_for_no_vec', '', '',
         'vec', ''],
+
+    # search functions
+    [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 ]
 
 # Except the following functions, other function will directly return
