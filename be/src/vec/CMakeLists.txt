@@ -153,6 +153,7 @@ set(VEC_FILES
   functions/array/function_array_difference.cpp
   functions/array/function_array_enumerate.cpp
   functions/array/function_array_range.cpp
+  functions/array/function_array_popback.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -210,6 +211,8 @@ set(VEC_FILES
   functions/least_greast.cpp
   functions/function_fake.cpp
   functions/url/function_url.cpp
+  functions/functions_multi_string_position.cpp
+  functions/functions_multi_string_search.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp

@@ -435,6 +435,20 @@ visible_functions = [
     [['array_slice', '%element_slice%'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     [['array_slice', '%element_slice%'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     [['array_slice', '%element_slice%'], 'ARRAY_STRING', ['ARRAY_STRING', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
+
+    [['array_popback'], 'ARRAY_BOOLEAN', ['ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_TINYINT', ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_INT', ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_BIGINT', ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_DATETIME', ['ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_DATE', ['ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_FLOAT', ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_DOUBLE', ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_STRING', ['ARRAY_STRING'], '', '', '', 'vec', ''],
     
     [['array_range'], 'ARRAY_INT',       ['INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT',       ['INT', 'INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -2792,6 +2806,10 @@ visible_functions = [
     [['protocol'], 'STRING', ['STRING'],
         'fake_symble_for_no_vec', '', '',
         'vec', ''],
+
+    # search functions
+    [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 ]
 
 # Except the following functions, other function will directly return

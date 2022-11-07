@@ -17,14 +17,13 @@
 
 #pragma once
 
+#include <bthread/bthread.h>
 #include <fmt/format.h>
 #include <parallel_hashmap/phmap.h>
-#include <service/brpc_conflict.h>
 
+#include "gutil/macros.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-// After brpc_conflict.h
-#include <bthread/bthread.h>
 
 namespace doris {
 

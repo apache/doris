@@ -42,7 +42,7 @@ class FunctionRunnable : public Runnable {
 public:
     explicit FunctionRunnable(std::function<void()> func) : _func(std::move(func)) {}
 
-    void run() OVERRIDE { _func(); }
+    void run() override { _func(); }
 
 private:
     std::function<void()> _func;
