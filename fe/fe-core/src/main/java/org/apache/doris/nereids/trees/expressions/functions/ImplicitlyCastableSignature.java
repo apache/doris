@@ -30,7 +30,7 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 public interface ImplicitlyCastableSignature extends ComputeSignature {
     static boolean isImplicitlyCastable(AbstractDataType signatureType, AbstractDataType realType) {
         // TODO: copy isImplicitlyCastable method to DataType
-        return Type.isImplicitlyCastable(signatureType.toCatalogDataType(), realType.toCatalogDataType(), true);
+        return Type.isImplicitlyCastable(realType.toCatalogDataType(), signatureType.toCatalogDataType(), true);
     }
 
     @Override

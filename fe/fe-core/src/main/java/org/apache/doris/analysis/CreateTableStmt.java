@@ -274,11 +274,6 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
-        // TODO(wyb): spark-load
-        if (engineName.equals("hive") && !Config.enable_spark_load) {
-            throw new AnalysisException("Spark Load from hive table is coming soon");
-        }
-
         // `analyzeUniqueKeyMergeOnWrite` would modify `properties`, which will be used later,
         // so we just clone a properties map here.
         boolean enableUniqueKeyMergeOnWrite = false;
@@ -530,6 +525,13 @@ public class CreateTableStmt extends DdlStmt {
             if (isExternal) {
                 throw new AnalysisException("Do not support external table with engine name = olap");
             }
+        }
+
+        if (Config.disable_iceberg_hudi_table && (engineName.equals("iceberg") || engineName.equals("hudi"))) {
+            throw new AnalysisException(
+                    "iceberg and hudi table is no longer supported. Use multi catalog feature instead."
+                            + ". Or you can temporarily set 'disable_iceberg_hudi_table=false'"
+                            + " in fe.conf to reopen this feature.");
         }
     }
 

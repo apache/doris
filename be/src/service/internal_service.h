@@ -68,6 +68,11 @@ public:
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
 
+    void fetch_table_schema(google::protobuf::RpcController* controller,
+                            const PFetchTableSchemaRequest* request,
+                            PFetchTableSchemaResult* result,
+                            google::protobuf::Closure* done) override;
+
     void tablet_writer_open(google::protobuf::RpcController* controller,
                             const PTabletWriterOpenRequest* request,
                             PTabletWriterOpenResult* response,

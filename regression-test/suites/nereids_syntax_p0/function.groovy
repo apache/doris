@@ -52,5 +52,16 @@ suite("function") {
     order_qt_avg """
         SELECT avg(lo_tax), avg(lo_extendedprice) AS avg_extendedprice FROM lineorder;
     """
+
+    // nested function
+    test {
+        sql "select cast(date('1994-01-01') + interval '1' YEAR as varchar)"
+        result([["1995-01-01 00:00:00"]])
+    }
+
+    test {
+        sql "select substring(substring('1994-01-01', 5), 3)"
+        result([["1-01"]])
+    }
 }
 

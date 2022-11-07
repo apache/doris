@@ -18,22 +18,23 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.hadoop.hive.metastore.api.MetaException;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -43,7 +44,7 @@ import java.util.Map;
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
-    protected HiveMetaStoreClient client;
+    protected IMetaStoreClient client;
 
     /**
      * Default constructor for HMSExternalCatalog.
@@ -69,7 +70,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         List<String> allDatabases;
         try {
             allDatabases = client.getAllDatabases();
-        } catch (MetaException e) {
+        } catch (TException e) {
             LOG.warn("Fail to init db name to id map. {}", e.getMessage());
             return;
         }
@@ -110,11 +111,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
             try {
                 HiveConf hiveConf = new HiveConf();
                 hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, getHiveMetastoreUris());
-                client = new HiveMetaStoreClient(hiveConf);
+                client = HiveMetaStoreClientHelper.getClient(hiveConf);
                 objectCreated = true;
-            } catch (MetaException e) {
-                LOG.warn("Failed to create HiveMetaStoreClient: {}", e.getMessage());
-                return;
+            } catch (DdlException e) {
+                Util.logAndThrowRuntimeException(LOG,
+                        String.format("failed to create hive meta store client for catalog: %s", name), e);
             }
         }
         if (!initialized) {
@@ -124,7 +125,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 try {
                     remoteExecutor.forward(id, -1, -1);
                 } catch (Exception e) {
-                    LOG.warn("Failed to forward init catalog {} operation to master. {}", name, e.getMessage());
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init catalog %s operation to master.", name), e);
                 }
                 return;
             }
@@ -143,14 +145,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
         if (hmsExternalDatabase != null && hmsExternalDatabase.isInitialized()) {
-            ArrayList<String> names = Lists.newArrayList();
+            List<String> names = Lists.newArrayList();
             hmsExternalDatabase.getTables().stream().forEach(table -> names.add(table.getName()));
             return names;
         } else {
             try {
                 return client.getAllTables(getRealTableName(dbName));
-            } catch (MetaException e) {
-                LOG.warn("List Table Names failed. {}", e.getMessage());
+            } catch (TException e) {
+                Util.logAndThrowRuntimeException(LOG, String.format("list table names failed for %s.%s", name, dbName),
+                        e);
             }
         }
         return Lists.newArrayList();
@@ -161,7 +164,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         try {
             return client.tableExists(getRealTableName(dbName), tblName);
         } catch (TException e) {
-            LOG.warn("Check table exist failed. {}", e.getMessage());
+            Util.logAndThrowRuntimeException(LOG,
+                    String.format("check table exist failed for %s.%s.%s", name, dbName, tblName), e);
         }
         return false;
     }
@@ -192,5 +196,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public ExternalDatabase getDbForReplay(long dbId) {
         return idToDb.get(dbId);
+    }
+
+    public IMetaStoreClient getClient() {
+        makeSureInitialized();
+        return client;
     }
 }
