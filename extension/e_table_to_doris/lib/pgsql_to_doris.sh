@@ -14,9 +14,17 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
-
-master_host=192.168.0.151
-master_port=9030
-doris_password=123456
-doris_odbc_name='MySQL ODBC'
+####################################################################
+# The shell is used to make data type conversion(pgsql -> doris)
+####################################################################
+#!/bin/bash
+path=$1
+sed -i 's/integer/int/g' $path
+sed -i 's/character varying([^)]*)/varchar(65533)/g' $path
+sed -i 's/character varying/varchar(65533)/g' $path
+sed -i 's/numeric/decimal/g' $path
+sed -i 's/timestamp([^)]*)/varchar(255)/g' $path
+sed -i 's/timestamp/varchar(255)/g' $path
+sed -i 's/text/string/g' $path
+sed -i 's/without time zone//g' $path
+#sed -i 's/DEFAULT.*/,/g' $path
