@@ -256,9 +256,9 @@ public class BrokerFileGroup implements Writable {
             jsonPaths = dataDescription.getJsonPaths();
             jsonRoot = dataDescription.getJsonRoot();
             fuzzyParse = dataDescription.isFuzzyParse();
-            // For broker load, we only support reading json format data line by line,
-            // so we set readJsonByLine to true here.
-            readJsonByLine = true;
+            // ATTN: for broker load, we only support reading json format data line by line,
+            // so if this is set to false, it must be stream load.
+            readJsonByLine = dataDescription.isReadJsonByLine();
             numAsString = dataDescription.isNumAsString();
         }
     }

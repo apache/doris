@@ -43,7 +43,7 @@ Doris has built-in root and admin users, and the password is empty by default.
 >
 >admin user has ADMIN_PRIV and GRANT_PRIV privileges
 >
->For specific instructions on permissions, please refer to [Permission Management](/docs/admin-manual/privilege-ldap/user-privilege)
+>For specific instructions on permissions, please refer to [Permission Management](../../admin-manual/privilege-ldap/user-privilege)
 
 After starting the Doris program, you can connect to the Doris cluster through root or admin users.
 Use the following command to log in to Doris:
@@ -107,7 +107,7 @@ CREATE DATABASE example_db;
 >
 > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
 
-After the database is created, you can view the database information through [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES).
+After the database is created, you can view the database information through [SHOW DATABASES](../../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES).
 
 ```sql
 MySQL> SHOW DATABASES;
@@ -142,7 +142,7 @@ mysql> USE example_db;
 Database changed
 ```
 
-Doris supports [composite partition and single partition](./data-partition)  two table building methods. The following takes the aggregation model as an example to demonstrate how to create two partitioned data tables.
+Doris supports [composite partition and single partition](../data-partition)  two table building methods. The following takes the aggregation model as an example to demonstrate how to create two partitioned data tables.
 
 #### Single partition
 
@@ -376,6 +376,24 @@ MySQL> SELECT * FROM table1 ORDER BY citycode;
 5 rows in set (0.01 sec)
 ```
 
+### SELECT * EXCEPT
+
+A `SELECT * EXCEPT` statement specifies the names of one or more columns to exclude from the result. All matching column names are omitted from the output.
+
+```sql
+MySQL> SELECT * except (username, citycode) FROM table1;
++--------+------+
+| siteid | pv   |
++--------+------+
+|      2 |    2 |
+|      5 |    3 |
+|      3 |    2 |
++--------+------+
+3 rows in set (0.01 sec)
+```
+
+**Note**: `SELECT * EXCEPT` does not exclude columns that do not have names.
+
 ###  Join Query
 
 Query example::
@@ -406,7 +424,7 @@ MySQL> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHE
 
 ## Table Structure Change
 
-Use the [ALTER TABLE COLUMN](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN) command to modify the table Schema, including the following changes.
+Use the [ALTER TABLE COLUMN](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN) command to modify the table Schema, including the following changes.
 
 - Adding columns
 - Deleting columns
@@ -470,7 +488,7 @@ For more help, see ``HELP ALTER TABLE``.
 
 Rollup can be understood as a materialized index structure for a Table. **Materialized** because its data is physically stored independently, and **Indexed** in the sense that Rollup can reorder columns to increase the hit rate of prefix indexes, and can reduce key columns to increase the aggregation of data.
 
-Use [ALTER TABLE ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP) to perform various changes to Rollup.
+Use [ALTER TABLE ROLLUP](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP) to perform various changes to Rollup.
 
 The following examples are given
 
@@ -539,7 +557,7 @@ Materialized views are a space-for-time data analysis acceleration technique, an
 
 At the same time, Doris can automatically ensure data consistency between materialized views and base tables, and automatically match the appropriate materialized view at query time, greatly reducing the cost of data maintenance for users and providing a consistent and transparent query acceleration experience for users.
 
-For more information about materialized views, see [Materialized Views](../advanced/materialized-view)
+For more information about materialized views, see [Materialized Views](../../advanced/materialized-view)
 
 ## Data table queries
 
@@ -656,7 +674,7 @@ mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.site
 
 When deploying multiple FE nodes, you can deploy a load balancing layer on top of multiple FEs to achieve high availability of Doris.
 
-Please refer to [Load Balancing](...) for details on installation, deployment, and usage. /admin-manual/cluster-management/load-balancing)
+Please refer to [Load Balancing](../../admin-manual/cluster-management/load-balancing) for details on installation, deployment, and usage.
 
 ## Data update and deletion
 
@@ -664,4 +682,4 @@ Doris supports deleting imported data in two ways. One way is to delete data by 
 
 The other deletion method is for the Unique primary key unique model only, where the primary key rows to be deleted are imported by importing the data, and the final physical deletion of the data is performed internally by Doris using the delete tag bit. This deletion method is suitable for deleting data in a real-time manner.
 
-For specific instructions on delete and update operations, see [Data Update](...). /data-operate/update-delete/update) documentation.
+For specific instructions on delete and update operations, see [Data Update](../../data-operate/update-delete/update) documentation.

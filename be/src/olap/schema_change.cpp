@@ -1729,6 +1729,12 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 }
 
 Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
+    if (!request.__isset.desc_tbl) {
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+                .append("desc_tbl is not set. Maybe the FE version is not equal to the BE "
+                        "version.");
+    }
+
     LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;
@@ -2186,7 +2192,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                 rs_reader->version(), VISIBLE,
                 rs_reader->rowset()->rowset_meta()->segments_overlap(), new_tablet->tablet_schema(),
                 rs_reader->oldest_write_timestamp(), rs_reader->newest_write_timestamp(),
-                &rowset_writer);
+                rs_reader->rowset()->rowset_meta()->fs(), &rowset_writer);
         if (!status.ok()) {
             res = Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
             return process_alter_exit();
@@ -2372,6 +2378,18 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         new_tablet->tablet_meta()->preferred_rowset_type()) {
         // If the base_tablet and new_tablet rowset types are different, just use directly type
         *sc_directly = true;
+    }
+
+    // if rs_reader has remote files, link schema change is not supported,
+    // use directly schema change instead.
+    if (!(*sc_directly) && !(*sc_sorting)) {
+        // check has remote rowset
+        for (auto& rs_reader : sc_params.ref_rowset_readers) {
+            if (!rs_reader->rowset()->is_local()) {
+                *sc_directly = true;
+                break;
+            }
+        }
     }
 
     return Status::OK();

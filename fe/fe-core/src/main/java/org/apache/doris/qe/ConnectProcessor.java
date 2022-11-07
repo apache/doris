@@ -192,6 +192,7 @@ public class ConnectProcessor {
             } else if (ctx.getState().getStateType() == MysqlStateType.OK) {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd(ctx.getDatabase()).update(elapseMs);
                 if (elapseMs > Config.qe_slow_log_ms) {
                     String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                     ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
@@ -281,10 +282,11 @@ public class ConnectProcessor {
                     ctx.resetReturnRows();
                 }
                 parsedStmt = stmts.get(i);
-                if (parsedStmt instanceof SelectStmt) {
-                    if (!ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                        throw new Exception(String.format("SQL: %s", parsedStmt.toSql()), nereidsParseException);
-                    }
+                if (parsedStmt instanceof SelectStmt && nereidsParseException != null
+                        && ctx.getSessionVariable().isEnableNereidsPlanner()
+                        && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                    throw new Exception(String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
+                                parsedStmt.toSql()), nereidsParseException);
                 }
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());

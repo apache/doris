@@ -108,9 +108,9 @@ Status VSchemaScanNode::open(RuntimeState* state) {
     }
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     if (_scanner_param.user) {
         TSetSessionParams param;

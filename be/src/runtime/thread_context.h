@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <service/brpc_conflict.h>
-// After brpc_conflict.h
 #include <bthread/bthread.h>
 
 #include <string>
@@ -26,6 +24,7 @@
 
 #include "common/logging.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryType
+#include "gutil/macros.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
 
@@ -39,6 +38,7 @@
 // Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
 // Usage example: std::unique_ptr<MemTracker> tracker = std::make_unique<MemTracker>("first_tracker");
 //                { SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get()); xxx; xxx; }
+// Usually used to record query more detailed memory, including ExecNode operators.
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 #else
@@ -249,19 +249,8 @@ static void attach_bthread() {
 #endif
         // Create thread-local data on demand.
         bthread_context = new ThreadContext;
-        std::shared_ptr<MemTrackerLimiter> btls_tracker =
-                std::make_shared<MemTrackerLimiter>(-1, "Bthread:id=" + std::to_string(bthread_id),
-                                                    ExecEnv::GetInstance()->bthread_mem_tracker());
-        bthread_context->attach_task(ThreadContext::TaskType::BRPC, "", TUniqueId(), btls_tracker);
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
-    } else {
-        // two scenarios:
-        // 1. A new bthread starts, but get a reuses btls.
-        // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
-        // So tracker call reset 0 like reuses btls.
-        DCHECK(bthread_context->_thread_mem_tracker_mgr->get_attach_layers() == 2);
-        bthread_context->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->reset_zero();
     }
 }
 
@@ -311,9 +300,17 @@ public:
 
 class AddThreadMemTrackerConsumer {
 public:
+    // The owner and user of MemTracker are in the same thread, and the raw pointer is faster.
     explicit AddThreadMemTrackerConsumer(MemTracker* mem_tracker);
 
+    // The owner and user of MemTracker are in different threads.
+    explicit AddThreadMemTrackerConsumer(const std::shared_ptr<MemTracker>& mem_tracker);
+
     ~AddThreadMemTrackerConsumer();
+
+private:
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr; // Avoid mem_tracker being released midway.
+    bool _need_pop = false;
 };
 
 class StopCheckThreadMemTrackerLimit {

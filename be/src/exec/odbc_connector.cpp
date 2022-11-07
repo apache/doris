@@ -70,7 +70,7 @@ ODBCConnector::~ODBCConnector() {
     }
 }
 
-Status ODBCConnector::open() {
+Status ODBCConnector::open(RuntimeState* state, bool read) {
     if (_is_open) {
         LOG(INFO) << "this scanner already opened";
         return Status::OK();

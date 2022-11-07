@@ -83,7 +83,9 @@ public class FunctionParams implements Writable {
                 paramTypes.add(desc);
             }
         }
-        return new TAggregateExpr(isMergeAggFn, paramTypes);
+        TAggregateExpr aggExpr = new TAggregateExpr(isMergeAggFn);
+        aggExpr.setParamTypes(paramTypes);
+        return aggExpr;
     }
 
     public boolean isStar() {

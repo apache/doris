@@ -106,6 +106,11 @@ public class BoolLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
         byte v = (byte) (value ? 1 : 0);
         ByteBuffer buffer = ByteBuffer.allocate(1);

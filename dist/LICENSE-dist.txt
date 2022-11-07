@@ -882,7 +882,7 @@ The Apache Software License, Version 2.0
     * Hibernate Validator Engine:
         - org.hibernate:hibernate-validator:5.1.0.Final (http://validator.hibernate.org/hibernate-validator)
     * HikariCP:
-        - com.zaxxer:HikariCP:4.0.3 (https://github.com/brettwooldridge/HikariCP)
+        - com.zaxxer:HikariCP:3.4.5 (https://github.com/brettwooldridge/HikariCP)
     * Hive Common:
         - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
     * Hive Llap Client:
@@ -1532,8 +1532,9 @@ The Apache Software License, Version 2.0
     * opentelemetry-cpp: 1.4.0
 
 The MIT License -- licenses/LICENSE-MIT.txt
-    * datatables: 1.10.25
-    * bootstrap: 1.17.1
+    * datatables: 1.12.1
+    * bootstrap: 3.3.7
+    * jquery: 3.6.0
     * libxml2: 2.9.10
     * krb5: 1.19
     * nlohmann/json 3.10.1

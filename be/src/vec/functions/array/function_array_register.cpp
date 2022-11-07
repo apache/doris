@@ -36,6 +36,8 @@ void register_function_array_intersect(SimpleFunctionFactory&);
 void register_function_array_slice(SimpleFunctionFactory&);
 void register_function_array_difference(SimpleFunctionFactory&);
 void register_function_array_enumerate(SimpleFunctionFactory&);
+void register_function_array_range(SimpleFunctionFactory&);
+void register_function_array_popback(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_element(factory);
@@ -52,6 +54,8 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_slice(factory);
     register_function_array_difference(factory);
     register_function_array_enumerate(factory);
+    register_function_array_range(factory);
+    register_function_array_popback(factory);
 }
 
 } // namespace doris::vectorized

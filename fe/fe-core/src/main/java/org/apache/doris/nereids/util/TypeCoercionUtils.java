@@ -197,6 +197,8 @@ public class TypeCoercionUtils {
                     break;
                 }
             }
+        } else if (left instanceof CharacterType && right instanceof CharacterType) {
+            tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
             tightestCommonType = StringType.INSTANCE;
         } else if (left instanceof DecimalType && right instanceof IntegralType) {
@@ -342,7 +344,6 @@ public class TypeCoercionUtils {
                     if (promoted != null) {
                         return promoted;
                     }
-
                 }
             }
             return new Cast(input, dataType);

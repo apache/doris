@@ -146,8 +146,8 @@ elif [[ "${CC}" == *clang ]]; then
     warning_option_ignored='-Wno-option-ignored'
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
-    clang_version="$("${CC}" -dumpversion)"
-    if [[ "${clang_version}" < '14.0.0' ]]; then
+
+    if "${CC}" -xc++ "${warning_unused_but_set_variable}" /dev/null 2>&1 | grep 'unknown warning option'; then
         warning_unused_but_set_variable=''
     fi
 fi
@@ -1175,13 +1175,13 @@ build_cctz() {
 build_js_and_css() {
     check_if_source_exist "${DATATABLES_SOURCE}"
     check_if_source_exist 'Bootstrap-3.3.7'
-    check_if_source_exist 'jQuery-3.3.1'
+    check_if_source_exist 'jQuery-3.6.0'
 
     mkdir -p "${TP_INSTALL_DIR}/webroot"
     cd "${TP_SOURCE_DIR}"
     cp -r "${DATATABLES_SOURCE}" "${TP_INSTALL_DIR}/webroot/"
     cp -r Bootstrap-3.3.7 "${TP_INSTALL_DIR}/webroot/"
-    cp -r jQuery-3.3.1 "${TP_INSTALL_DIR}/webroot/"
+    cp -r jQuery-3.6.0 "${TP_INSTALL_DIR}/webroot/"
     cp bootstrap-table.min.js "${TP_INSTALL_DIR}/webroot/Bootstrap-3.3.7/js"
     cp bootstrap-table.min.css "${TP_INSTALL_DIR}/webroot/Bootstrap-3.3.7/css"
 }
@@ -1345,8 +1345,13 @@ build_hdfs3() {
     cd "${BUILD_DIR}"
     rm -rf ./*
 
+    if [[ "$(uname -m)" == "x86_64" ]]; then
+        SSE_OPTION='-DENABLE_SSE=ON'
+    else
+        SSE_OPTION='-DENABLE_SSE=OFF'
+    fi
     cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF \
+        -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF "${SSE_OPTION}" \
         -DProtobuf_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" \
         -DProtobuf_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DProtobuf_LIBRARIES="${TP_INSTALL_DIR}/lib/libprotoc.a" \

@@ -357,9 +357,13 @@ struct TFunction {
   13: optional bool vectorized = false
 }
 
+enum TJdbcOperation {
+    READ,
+    WRITE
+}
+
 struct TJdbcExecutorCtorParams {
-  // Local path to the UDF's jar file
-  1: optional string jar_location_path
+  1: optional string statement
 
   // "jdbc:mysql://127.0.0.1:3307/test";
   2: optional string jdbc_url
@@ -372,6 +376,10 @@ struct TJdbcExecutorCtorParams {
 
   //"com.mysql.jdbc.Driver"
   5: optional string jdbc_driver_class
+
+  6: optional i32 batch_size
+
+  7: optional TJdbcOperation op
 }
 
 struct TJavaUdfExecutorCtorParams {

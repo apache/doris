@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -516,7 +517,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean nereidsStarSchemaSupport = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
-    private boolean enableNereidsTrace = true;
+    private boolean enableNereidsTrace = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
     private boolean enableNereidsRuntimeFilter = true;
@@ -1170,6 +1171,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIsReportSuccess(enableProfile);
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
+        tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
 

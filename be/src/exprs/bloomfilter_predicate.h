@@ -33,6 +33,10 @@
 #include "olap/uint24.h"
 #include "util/hash_util.hpp"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
 class BloomFilterAdaptor {
 public:
@@ -50,9 +54,9 @@ public:
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }
 
-    Status init(const char* data, int len) {
-        int log_space = log2(len);
-        return _bloom_filter->init_from_directory(log_space, Slice(data, len), false, 0);
+    Status init(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
+        int log_space = log2(data_size);
+        return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
     }
 
     char* data() { return (char*)_bloom_filter->directory().data; }
@@ -161,13 +165,13 @@ public:
         }
     }
 
-    Status assign(const char* data, int len) {
+    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
         if (_bloom_filter == nullptr) {
             _bloom_filter.reset(BloomFilterAdaptor::create());
         }
 
-        _bloom_filter_alloced = len;
-        return _bloom_filter->init(data, len);
+        _bloom_filter_alloced = data_size;
+        return _bloom_filter->init(data, data_size);
     }
 
     Status get_data(char** data, int* len) {
@@ -193,6 +197,8 @@ public:
 
     virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
 
+    virtual void insert_fixed_len(const char* data) = 0;
+
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
                                                 uint16_t* offsets, int number) = 0;
 
@@ -216,6 +222,10 @@ struct CommonFindOp {
         for (int i = 0; i < number; i++) {
             bloom_filter.add_element(*((T*)data + offsets[i]));
         }
+    }
+
+    void insert_single(BloomFilterAdaptor& bloom_filter, const char* data) const {
+        bloom_filter.add_element(*((T*)data));
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
@@ -266,6 +276,10 @@ struct StringFindOp {
     void insert_batch(BloomFilterAdaptor& bloom_filter, const char* data, const int* offsets,
                       int number) const {
         LOG(FATAL) << "StringFindOp does not support insert_batch";
+    }
+
+    void insert_single(BloomFilterAdaptor& bloom_filter, const char* data) const {
+        LOG(FATAL) << "StringFindOp does not support insert_single";
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
@@ -406,6 +420,11 @@ public:
     void insert_fixed_len(const char* data, const int* offsets, int number) override {
         DCHECK(_bloom_filter != nullptr);
         dummy.insert_batch(*_bloom_filter, data, offsets, number);
+    }
+
+    void insert_fixed_len(const char* data) override {
+        DCHECK(_bloom_filter != nullptr);
+        dummy.insert_single(*_bloom_filter, data);
     }
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,

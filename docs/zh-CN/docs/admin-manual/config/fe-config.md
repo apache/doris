@@ -1680,12 +1680,6 @@ mysql 中处理任务的最大线程数。
 
 mysql 中处理 io 事件的线程数。
 
-### `mysql_service_nio_enabled`
-
-默认值：true
-
-mysql 服务 nio 选项是否启用，默认启用
-
 ### `query_port`
 
 默认值：9030
@@ -2278,15 +2272,15 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 默认值为`max_be_exec_version`，如果有特殊需要，我们可以手动设置将格式版本降低，但不应低于`min_be_exec_version`。
 
-需要注意的是，我们应该始终保持该变量的值处于**所有**BE的`HeartbeatServer::min_data_version`和`HeartbeatServer::max_data_version`之间。（也就是说如果一个已经完成更新的集群如果需要降级，应该保证先降级FE再降级BE的顺序，或者手动在设置中将该变量调低再降级BE）
+需要注意的是，我们应该始终保持该变量的值处于**所有**BE的`BeExecVersionManager::min_be_exec_version`和`BeExecVersionManager::max_be_exec_version`之间。（也就是说如果一个已经完成更新的集群如果需要降级，应该保证先降级FE再降级BE的顺序，或者手动在设置中将该变量调低再降级BE）
 
 ### `max_be_exec_version`
 
-目前支持的最新数据版本，不可修改，应与配套版本的BE中的`HeartbeatServer::max_data_version`一致。
+目前支持的最新数据版本，不可修改，应与配套版本的BE中的`BeExecVersionManager::max_be_exec_version`一致。
 
 ### `min_be_exec_version`
 
-目前支持的最旧数据版本，不可修改，应与配套版本的BE中的`HeartbeatServer::min_data_version`一致。
+目前支持的最旧数据版本，不可修改，应与配套版本的BE中的`BeExecVersionManager::min_be_exec_version`一致。
 
 ### `max_query_profile_num`
 

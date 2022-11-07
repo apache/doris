@@ -136,7 +136,6 @@ class RegressionTest {
             canRun(config, suiteName, groupName)
         }
         def file = source.getFile()
-        log.info("run ${file}")
         def eventListeners = getEventListeners(config, recorder)
         new ScriptContext(file, suiteExecutors, actionExecutors,
                 config, eventListeners, suiteFilter).start { scriptContext ->
@@ -299,12 +298,12 @@ class RegressionTest {
         if (!pluginPath.exists() || !pluginPath.isDirectory()) {
             return
         }
-        pluginPath.eachFileRecurse { it ->
+        pluginPath.eachFileRecurse({ it ->
             if (it.name.endsWith(".groovy")) {
                 ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
                         config, [], { name -> true })
                 File pluginFile = it
-                context.start {
+                context.start({
                     try {
                         SuiteScript pluginScript = new GroovyFileSource(pluginFile).toScript(context, shell)
                         log.info("Begin to load plugin: ${pluginFile.getCanonicalPath()}")
@@ -313,9 +312,9 @@ class RegressionTest {
                     } catch (Throwable t) {
                         log.error("Load plugin failed: ${pluginFile.getCanonicalPath()}", t)
                     }
-                }
+                })
             }
-        }
+        })
     }
 
     static void printPassed() {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.mysql.nio.NMysqlServer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 
@@ -83,7 +84,7 @@ public class MysqlServerTest {
         int port = socket.getLocalPort();
         socket.close();
 
-        MysqlServer server = new MysqlServer(port, scheduler);
+        NMysqlServer server = new NMysqlServer(port, scheduler);
         Assert.assertTrue(server.start());
 
         // submit
@@ -102,18 +103,8 @@ public class MysqlServerTest {
 
         // stop and join
         server.stop();
-        server.join();
 
         Assert.assertEquals(2, submitNum);
-    }
-
-    @Test
-    public void testInvalidParam() throws IOException {
-        ServerSocket socket = new ServerSocket(0);
-        int port = socket.getLocalPort();
-        socket.close();
-        MysqlServer server = new MysqlServer(port, null);
-        Assert.assertFalse(server.start());
     }
 
     @Test
@@ -121,13 +112,12 @@ public class MysqlServerTest {
         ServerSocket socket = new ServerSocket(0);
         int port = socket.getLocalPort();
         socket.close();
-        MysqlServer server = new MysqlServer(port, scheduler);
+        NMysqlServer server = new NMysqlServer(port, scheduler);
         Assert.assertTrue(server.start());
-        MysqlServer server1 = new MysqlServer(port, scheduler);
+        NMysqlServer server1 = new NMysqlServer(port, scheduler);
         Assert.assertFalse(server1.start());
 
         server.stop();
-        server.join();
     }
 
     @Test
@@ -135,7 +125,7 @@ public class MysqlServerTest {
         ServerSocket socket = new ServerSocket(0);
         int port = socket.getLocalPort();
         socket.close();
-        MysqlServer server = new MysqlServer(port, badScheduler);
+        NMysqlServer server = new NMysqlServer(port, badScheduler);
         Assert.assertTrue(server.start());
 
         // submit
@@ -154,7 +144,6 @@ public class MysqlServerTest {
 
         // stop and join
         server.stop();
-        server.join();
 
         Assert.assertEquals(2, submitFailNum);
     }

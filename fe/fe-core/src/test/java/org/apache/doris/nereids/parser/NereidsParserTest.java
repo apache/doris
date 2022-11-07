@@ -26,8 +26,10 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class NereidsParserTest extends ParserTestBase {
@@ -66,7 +69,7 @@ public class NereidsParserTest extends ParserTestBase {
     public void testErrorListener() {
         parsePlan("select * from t1 where a = 1 illegal_symbol")
                 .assertThrowsExactly(ParseException.class)
-                .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos29)\n");
+                .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos 29)\n");
     }
 
     @Test
@@ -75,6 +78,29 @@ public class NereidsParserTest extends ParserTestBase {
                 .matchesFromRoot(
                         logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName()))
                 );
+    }
+
+    @Test
+    public void testParseCTE() {
+        // Just for debug; will be completed before merged;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan;
+        String cteSql1 = "with t1 as (select s_suppkey from supplier where s_suppkey < 10) select * from t1";
+        logicalPlan = nereidsParser.parseSingle(cteSql1);
+        Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
+
+        String cteSql2 = "with t1 as (select s_suppkey from supplier), t2 as (select s_suppkey from t1) select * from t2";
+        logicalPlan = nereidsParser.parseSingle(cteSql2);
+        Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 2);
+
+        String cteSql3 = "with t1 (key, name) as (select s_suppkey, s_name from supplier) select * from t1";
+        logicalPlan = nereidsParser.parseSingle(cteSql3);
+        Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
+        Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
+        Optional<List<String>> columnAliases = ((LogicalCTE<?>) logicalPlan).getAliasQueries().get(0).getColumnAliases();
+        Assertions.assertEquals(columnAliases.get().size(), 2);
     }
 
     @Test

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -43,6 +44,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -77,6 +79,8 @@ import org.apache.doris.thrift.TGetStoragePolicy;
 import org.apache.doris.thrift.TGetStoragePolicyResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
+import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
@@ -1010,7 +1014,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        List<Policy> policyList = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+        List<Policy> policyList = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
         policyList.stream().filter(p -> p instanceof StoragePolicy).map(p -> (StoragePolicy) p).forEach(
                 iter -> {
                     // default policy not init.
@@ -1059,6 +1063,78 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         LOG.debug("refresh storage policy request: {}", result);
+        return result;
+    }
+
+    @Override
+    public TInitExternalCtlMetaResult initExternalCtlMeta(TInitExternalCtlMetaRequest request) throws TException {
+        if (request.isSetCatalogId() && request.isSetDbId() && request.isSetTableId()) {
+            return initTable(request.catalogId, request.dbId, request.tableId);
+        } else if (request.isSetCatalogId() && request.isSetDbId()) {
+            return initDb(request.catalogId, request.dbId);
+        } else if (request.isSetCatalogId()) {
+            return initCatalog(request.catalogId);
+        } else {
+            throw new TException("Catalog name is not set. Init failed.");
+        }
+    }
+
+    private TInitExternalCtlMetaResult initCatalog(long catalogId) throws TException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new TException("Only support forward ExternalCatalog init operation.");
+        }
+        ((ExternalCatalog) catalog).makeSureInitialized();
+        TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
+        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        result.setStatus("OK");
+        return result;
+    }
+
+    private TInitExternalCtlMetaResult initDb(long catalogId, long dbId) throws TException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new TException("Only support forward ExternalCatalog init operation.");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbId);
+        if (db == null) {
+            throw new TException("database " + dbId + " is null");
+        }
+        if (!(db instanceof ExternalDatabase)) {
+            throw new TException("Only support forward ExternalDatabase init operation.");
+        }
+        ((ExternalDatabase) db).makeSureInitialized();
+        TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
+        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        result.setStatus("OK");
+        return result;
+    }
+
+    private TInitExternalCtlMetaResult initTable(long catalogId, long dbId, long tableId)
+            throws TException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new TException("Only support forward ExternalCatalog init operation.");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbId);
+        if (db == null) {
+            throw new TException("database " + dbId + " is null");
+        }
+        if (!(db instanceof ExternalDatabase)) {
+            throw new TException("Only support forward ExternalDatabase init operation.");
+        }
+        TableIf table = db.getTableNullable(tableId);
+        if (table == null) {
+            throw new TException("table " + tableId + " is null");
+        }
+        if (!(table instanceof ExternalTable)) {
+            throw new TException("Only support forward ExternalTable init operation.");
+        }
+
+        ((ExternalTable) table).makeSureInitialized();
+        TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
+        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        result.setStatus("OK");
         return result;
     }
 }

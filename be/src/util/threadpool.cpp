@@ -42,7 +42,7 @@ class FunctionRunnable : public Runnable {
 public:
     explicit FunctionRunnable(std::function<void()> func) : _func(std::move(func)) {}
 
-    void run() OVERRIDE { _func(); }
+    void run() override { _func(); }
 
 private:
     std::function<void()> _func;
@@ -258,7 +258,7 @@ ThreadPool::~ThreadPool() {
 
 Status ThreadPool::init() {
     if (!_pool_status.is_uninitialized()) {
-        return Status::NotSupported("The thread pool is already initialized");
+        return Status::NotSupported("The thread pool {} is already initialized", _name);
     }
     _pool_status = Status::OK();
     _num_threads_pending_start = _min_threads;
@@ -281,7 +281,7 @@ void ThreadPool::shutdown() {
     // capacity, so clients can't tell them apart. This isn't really a practical
     // concern though because shutting down a pool typically requires clients to
     // be quiesced first, so there's no danger of a client getting confused.
-    _pool_status = Status::ServiceUnavailable("The pool has been shut down.");
+    _pool_status = Status::ServiceUnavailable("The thread pool {} has been shut down.", _name);
 
     // Clear the various queues under the lock, but defer the releasing
     // of the tasks outside the lock, in case there are concurrent threads
@@ -364,7 +364,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     }
 
     if (PREDICT_FALSE(!token->may_submit_new_tasks())) {
-        return Status::ServiceUnavailable("Thread pool token was shut down");
+        return Status::ServiceUnavailable("Thread pool({}) token was shut down", _name);
     }
 
     // Size limit check.
@@ -372,7 +372,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
         return Status::ServiceUnavailable(
-                "Thread pool is at capacity ({}/{} tasks running, {}/{} tasks queued)",
+                "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)", _name,
                 _num_threads + _num_threads_pending_start, _max_threads, _total_queued_tasks,
                 _max_queue_size);
     }
@@ -454,7 +454,8 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
             }
             // If we failed to create a thread, but there are still some other
             // worker threads, log a warning message and continue.
-            LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
+            LOG(WARNING) << "Thread pool " << _name
+                         << " failed to create thread: " << status.to_string();
         }
     }
 
@@ -623,7 +624,7 @@ Status ThreadPool::set_min_threads(int min_threads) {
     std::lock_guard<std::mutex> l(_lock);
     if (min_threads > _max_threads) {
         // min threads can not be set greater than max threads
-        return Status::InternalError("set thread pool min_threads failed");
+        return Status::InternalError("set thread pool {} min_threads failed", _name);
     }
     _min_threads = min_threads;
     if (min_threads > _num_threads + _num_threads_pending_start) {
@@ -633,7 +634,8 @@ Status ThreadPool::set_min_threads(int min_threads) {
             Status status = create_thread();
             if (!status.ok()) {
                 _num_threads_pending_start--;
-                LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
+                LOG(WARNING) << "Thread pool " << _name
+                             << " failed to create thread: " << status.to_string();
                 return status;
             }
         }
@@ -645,7 +647,7 @@ Status ThreadPool::set_max_threads(int max_threads) {
     std::lock_guard<std::mutex> l(_lock);
     if (_min_threads > max_threads) {
         // max threads can not be set less than min threads
-        return Status::InternalError("set thread pool max_threads failed");
+        return Status::InternalError("set thread pool {} max_threads failed", _name);
     }
 
     _max_threads = max_threads;
@@ -657,7 +659,8 @@ Status ThreadPool::set_max_threads(int max_threads) {
             Status status = create_thread();
             if (!status.ok()) {
                 _num_threads_pending_start--;
-                LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
+                LOG(WARNING) << "Thread pool " << _name
+                             << " failed to create thread: " << status.to_string();
                 return status;
             }
         }

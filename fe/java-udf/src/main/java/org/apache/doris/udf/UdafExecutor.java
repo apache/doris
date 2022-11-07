@@ -20,7 +20,7 @@ package org.apache.doris.udf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
-import org.apache.doris.udf.UdfExecutor.JavaUdfDataType;
+import org.apache.doris.udf.UdfUtils.JavaUdfDataType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -40,8 +40,6 @@ import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -73,6 +71,8 @@ public class UdafExecutor {
     private URLClassLoader classLoader;
     private JavaUdfDataType[] argTypes;
     private JavaUdfDataType retType;
+    private Class[] argClass;
+    private Class retClass;
 
     /**
      * Constructor to create an object.
@@ -231,14 +231,7 @@ public class UdafExecutor {
 
     private boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
         if (obj == null) {
-            //if result is null, because we have insert default before, so return true directly when row == 0
-            //others because we hava resize the buffer, so maybe be insert value is not correct
-            if (row != 0) {
-                long offset = Integer.toUnsignedLong(
-                        UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row));
-                UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - 1,
-                        UdfUtils.END_OF_STRING);
-            }
+            // If result is null, return true directly when row == 0 as we have already inserted default value.
             return true;
         }
         if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) != -1) {
@@ -282,16 +275,22 @@ public class UdafExecutor {
                 return true;
             }
             case DATE: {
-                LocalDate date = (LocalDate) obj;
-                long time = UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                        0, 0, 0, true);
+                long time = UdfUtils.convertToDate(obj, retClass);
                 UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
                 return true;
             }
             case DATETIME: {
-                LocalDateTime date = (LocalDateTime) obj;
-                long time = UdfUtils.convertDateTimeToLong(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                        date.getHour(), date.getMinute(), date.getSecond(), false);
+                long time = UdfUtils.convertToDateTime(obj, retClass);
+                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
+                return true;
+            }
+            case DATEV2: {
+                long time = UdfUtils.convertToDateV2(obj, retClass);
+                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
+                return true;
+            }
+            case DATETIMEV2: {
+                long time = UdfUtils.convertToDateTimeV2(obj, retClass);
                 UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
                 return true;
             }
@@ -343,12 +342,10 @@ public class UdafExecutor {
                     return false;
                 }
                 offset += bytes.length;
-                UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - 1,
-                        UdfUtils.END_OF_STRING);
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row,
                         Integer.parseUnsignedInt(String.valueOf(offset)));
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - bytes.length - 1, bytes.length);
+                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - bytes.length, bytes.length);
                 return true;
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType);
@@ -397,13 +394,25 @@ public class UdafExecutor {
                 case DATE: {
                     long data = UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 8L * row);
-                    inputObjects[i] = UdfUtils.convertToDate(data);
+                    inputObjects[i] = UdfUtils.convertDateToJavaDate(data, argClass[i]);
                     break;
                 }
                 case DATETIME: {
                     long data = UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 8L * row);
-                    inputObjects[i] = UdfUtils.convertToDateTime(data);
+                    inputObjects[i] = UdfUtils.convertDateTimeToJavaDateTime(data, argClass[i]);
+                    break;
+                }
+                case DATEV2: {
+                    int data = UdfUtils.UNSAFE.getInt(null,
+                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 4L * row);
+                    inputObjects[i] = UdfUtils.convertDateV2ToJavaDate(data, argClass[i]);
+                    break;
+                }
+                case DATETIMEV2: {
+                    long data = UdfUtils.UNSAFE.getLong(null,
+                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 8L * row);
+                    inputObjects[i] = UdfUtils.convertDateTimeV2ToJavaDateTime(data, argClass[i]);
                     break;
                 }
                 case LARGEINT: {
@@ -485,20 +494,21 @@ public class UdafExecutor {
                             LOG.debug("result function set return parameterTypes has error");
                         } else {
                             retType = returnType.second;
+                            retClass = methods[idx].getReturnType();
                         }
                         break;
                     }
                     case UDAF_ADD_FUNCTION: {
                         allMethods.put(methods[idx].getName(), methods[idx]);
 
-                        Class<?>[] methodTypes = methods[idx].getParameterTypes();
-                        if (methodTypes.length != parameterTypes.length + 1) {
-                            LOG.debug("add function parameterTypes length not equal " + methodTypes.length + " "
+                        argClass = methods[idx].getParameterTypes();
+                        if (argClass.length != parameterTypes.length + 1) {
+                            LOG.debug("add function parameterTypes length not equal " + argClass.length + " "
                                     + parameterTypes.length + " " + methods[idx].getName());
                         }
                         if (!(parameterTypes.length == 0)) {
                             Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes,
-                                    methodTypes, true);
+                                    argClass, true);
                             if (!inputType.first) {
                                 LOG.debug("add function set arg parameterTypes has error");
                             } else {

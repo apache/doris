@@ -109,7 +109,7 @@ public class DropTableTest {
         String recoverDbSql = "recover table test.tbl2";
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown table 'tbl2'",
+                "Unknown table 'tbl2' or table id '-1' in default_cluster:test",
                 () -> Env.getCurrentEnv().recoverTable(recoverTableStmt));
     }
 }

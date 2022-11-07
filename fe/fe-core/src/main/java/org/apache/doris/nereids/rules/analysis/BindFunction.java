@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -114,6 +115,8 @@ public class BindFunction implements AnalysisRuleFactory {
 
         @Override
         public BoundFunction visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
+            unboundFunction = (UnboundFunction) super.visitUnboundFunction(unboundFunction, env);
+
             // FunctionRegistry can't support boolean arg now, tricky here.
             if (unboundFunction.getName().equalsIgnoreCase("count")) {
                 List<Expression> arguments = unboundFunction.getArguments();
@@ -122,7 +125,9 @@ public class BindFunction implements AnalysisRuleFactory {
                     return new Count();
                 }
                 if (arguments.size() == 1) {
-                    return new Count(unboundFunction.getArguments().get(0), unboundFunction.isDistinct());
+                    boolean isGlobalAgg = true;
+                    AggregateParam aggregateParam = new AggregateParam(unboundFunction.isDistinct(), isGlobalAgg);
+                    return new Count(aggregateParam, unboundFunction.getArguments().get(0));
                 }
             }
             FunctionRegistry functionRegistry = env.getFunctionRegistry();
@@ -138,6 +143,8 @@ public class BindFunction implements AnalysisRuleFactory {
          */
         @Override
         public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Env context) {
+            arithmetic = (TimestampArithmetic) super.visitTimestampArithmetic(arithmetic, context);
+
             String funcOpName;
             if (arithmetic.getFuncName() == null) {
                 // e.g. YEARS_ADD, MONTHS_SUB

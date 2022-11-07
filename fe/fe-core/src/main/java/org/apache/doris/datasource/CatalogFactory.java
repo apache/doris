@@ -24,6 +24,9 @@ import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.external.elasticsearch.EsUtil;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
@@ -73,11 +76,39 @@ public class CatalogFactory {
                 catalog = new HMSExternalCatalog(catalogId, name, props);
                 break;
             case "es":
+                validateEsCatalogProperties(props);
                 catalog = new EsExternalCatalog(catalogId, name, props);
                 break;
             default:
                 throw new RuntimeException("Unknown catalog type: " + type);
         }
         return catalog;
+    }
+
+    private static void validateEsCatalogProperties(Map<String, String> properties) throws DdlException {
+        if (properties == null) {
+            throw new DdlException(
+                    "Please set properties of elasticsearch table, " + "they are: hosts, user, password, index");
+        }
+
+        if (StringUtils.isBlank(properties.get(EsExternalCatalog.PROP_HOSTS))) {
+            throw new DdlException("Hosts of ES table is null.");
+        }
+        String[] nodes = properties.get(EsExternalCatalog.PROP_HOSTS).trim().split(",");
+        // check protocol
+        for (String seed : nodes) {
+            if (!seed.startsWith("http")) {
+                throw new DdlException("the protocol must be used");
+            }
+            if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
+                boolean enableSsl = EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);
+                if (enableSsl && seed.startsWith("http://")) {
+                    throw new DdlException("if ssl_enabled is true, the https protocol must be used");
+                }
+                if (!enableSsl && seed.startsWith("https://")) {
+                    throw new DdlException("if ssl_enabled is false, the http protocol must be used");
+                }
+            }
+        }
     }
 }

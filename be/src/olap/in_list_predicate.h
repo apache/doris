@@ -266,6 +266,28 @@ public:
         }
     }
 
+    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first->is_null() || statistic.second->is_null()) {
+            return false;
+        }
+        if constexpr (PT == PredicateType::NOT_IN_LIST) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return tmp_min_uint32_value > _max_value || tmp_max_uint32_value < _min_value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) > _max_value ||
+                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) < _min_value;
+            }
+        } else {
+            return false;
+        }
+    }
+
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             for (auto value : _values) {
@@ -512,6 +534,12 @@ private:
                 }
             }
         }
+    }
+
+    std::string _debug_string() override {
+        std::string info =
+                "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
+        return info;
     }
 
     phmap::flat_hash_set<T> _values;
