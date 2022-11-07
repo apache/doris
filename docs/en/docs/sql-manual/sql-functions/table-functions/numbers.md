@@ -35,8 +35,8 @@ This function is used in FROM clauses.
 grammar:
 ```
 numbers(
-  "number" = n,
-  "backend_num" = m
+  "number" = "n",
+  "backend_num" = "m"
   );
 ```
 

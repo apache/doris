@@ -35,9 +35,9 @@ under the License.
 语法：
 
 ```
-FROM numbers(
-  "number" = n,
-  "backend_num" = m
+numbers(
+  "number" = "n",
+  "backend_num" = "m"
   );
 ```
 
