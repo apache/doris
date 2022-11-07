@@ -1407,7 +1407,12 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         //return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
-        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+        const IDataType* first_type = arguments[0].get();
+        if (first_type->is_nullable()) {
+            return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+        } else {
+            return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        }
     }
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
@@ -1415,16 +1420,52 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 2);
+        ColumnPtr src_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
+        if (!src_column_array) {
+            return Status::RuntimeError(
+                    fmt::format("unsupported types for function {}({})", get_name(),
+                                block.get_by_position(arguments[0]).type->get_name()));
+        }
+        const auto& src_offsets = src_column_array->get_offsets();
+        const auto* src_nested_column = &src_column_array->get_data();
+        DCHECK(src_nested_column != nullptr);
 
-        //Create a container for the output
-        auto col_res = ColumnArray::create(ColumnString::create());       
-        ColumnString & res_data = typeid_cast<ColumnString &>(col_res->get_data());
-        auto& res_offsets = col_res->get_offsets();
-        res_offsets.resize(input_rows_count);
-        auto& res_data_chars = res_data.get_chars();
-        auto& res_data_offsets = res_data.get_offsets();
+        DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
+        auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
+        auto dest_column_ptr = ColumnArray::create(nested_type->create_column(),
+                                                   ColumnArray::ColumnOffsets::create());
+        IColumn* dest_nested_column = &dest_column_ptr->get_data();
+        auto& dest_offsets = dest_column_ptr->get_offsets();
+        DCHECK(dest_nested_column != nullptr);
+        dest_nested_column->reserve(src_nested_column->size());
+        dest_offsets.reserve(input_rows_count);
+
+        const NullMapType* src_null_map = nullptr;
+        if (src_nested_column->is_nullable()) {
+            const ColumnNullable* src_nested_nullable_col =
+                    check_and_get_column<ColumnNullable>(*src_nested_column);
+            src_nested_column = src_nested_nullable_col->get_nested_column_ptr();
+            src_null_map = &src_nested_nullable_col->get_null_map_column().get_data();
+        }
+
+        NullMapType* dest_null_map = nullptr;
+        if (dest_nested_column->is_nullable()) {
+            ColumnNullable* dest_nested_nullable_col =
+                    reinterpret_cast<ColumnNullable*>(dest_nested_column);
+            dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
+            dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data();
+        }
+
+        block.replace_by_position(result, std::move(dest_column_ptr));
+        return Status::OK();
+===================================================================================================================
+        //auto res_null = assert_cast<ColumnArray*>(col_res)->get_data();
+        auto &res_data_chars = res_data->get_chars();
+        auto &res_data_offsets = res_data->get_offsets();
         LOG(WARNING) << "&res_data:" << &res_data;
-        LOG(WARNING) << "&res_offsets:" << &res_offsets;
+        //LOG(WARNING) << "&res_offsets:" << &res_offsets;
         LOG(WARNING) << "&res_data_chars:" << &res_data_chars;
         LOG(WARNING) << "&res_data_offsets:" << &res_data_offsets;
         LOG(WARNING) << "-------------------------------------------";
@@ -1453,7 +1494,7 @@ public:
                 memcpy(&res_data_chars[res_data_offsets[i-1]], &(*&str_str[0]), str_str.size());
 
                 res_data_offsets[i] = res_data_offsets[i-1] + str_str.size();
-                res_offsets[i] = res_offsets[i-1] + 1;
+                //res_offsets[i] = res_offsets[i-1] + 1;
             } else if (delimiter.size == 1) {
                 //v_offset and v_charlen hold the offset and length of each element in the string after splitting
                 std::vector<int> v_offset;
@@ -1477,22 +1518,42 @@ public:
                 }
                 //current_dst_offset += k;
                 //res_offsets[i]=  res_offsets[i-1] + current_dst_offset;
-                res_offsets[i]=  res_offsets[i-1] + v_offset.size();
+                //res_offsets[i]=  res_offsets[i-1] + v_offset.size();
             } 
-                     
+            if (is_null_type){
+                null_map->get_data().push_back(true);
+            }
         }
+
         for(int i=0; i<res_data_chars.size(); i++) {
             LOG(WARNING) << "res_data_chars:" << res_data_chars[i];
         }
         for(int i=0; i<res_data_offsets.size(); i++) {
             LOG(WARNING) << "res_data_offsets:" << res_data_offsets[i];
         }
-        for(int i=0; i<res_offsets.size(); i++) {
-            LOG(WARNING) << "res_offsets:" << res_offsets[i];
-        }
-     
-        block.get_by_position(result).column = std::move(col_res);
+        //for(int i=0; i<res_offsets.size(); i++) {
+            //LOG(WARNING) << "res_offsets:" << res_offsets[i];
+        //}
+
+        DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
+        auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
+        auto dest_column_ptr= ColumnArray::create(nested_type->create_column(),
+                                                   ColumnArray::ColumnOffsets::create());
+
+        auto res_null = ColumnNullable::create(std::move(res_data), std::move(null_map)); 
+        IColumn* dest_nested_column = &dest_column_ptr->get_data();
+        auto& dest_offsets = dest_column_ptr->get_offsets();
+
+        res_offsets.push_back(res_null->size());
+        block.get_by_position(result).column = std::move(res_arr);
+        //block.get_by_position(result).column = std::move(col_res);
         //block.replace_by_position(result, std::move(col_res));
+        if (is_null_type) {
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+        } else {
+            block.get_by_position(result).column = std::move(res);
+        }
         return Status::OK();
     }
 };
