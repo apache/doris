@@ -1281,7 +1281,7 @@ public:
             } else {
                 int32_t offset = -delimiter.size;
                 int32_t num = 0; //substring count of content splitted by delimiter
-                std::vector<int> find(str.size, -1); //store delimiter position
+                std::vector<int32_t> find(str.size, -1); //store delimiter position
 
                 // If delimiter is a char, use memchr to split
                 if (delimiter.size == 1) {
