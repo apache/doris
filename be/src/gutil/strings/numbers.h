@@ -31,7 +31,7 @@ using std::vector;
  * @{ */
 
 // Convert a fingerprint to 16 hex digits.
-string FpToString(Fprint fp);
+string Uint64ToString(uint64 fp);
 
 // Formats a uint128 as a 32-digit hex string.
 string Uint128ToHexString(uint128 ui128);

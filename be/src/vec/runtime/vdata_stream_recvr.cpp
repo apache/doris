@@ -173,6 +173,8 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     _data_arrival_cv.notify_one();
 
     if (_recvr->exceeds_limit(block_size)) {
+        // yiguolei
+        // It is too tricky here, if the running thread is bthread then the tid may be wrong.
         std::thread::id tid = std::this_thread::get_id();
         MonotonicStopWatch monotonicStopWatch;
         monotonicStopWatch.start();

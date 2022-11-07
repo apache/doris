@@ -66,4 +66,8 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_enumerate(k5) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate(k6) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate(k7) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popback(k2) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popback(k5) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popback(k6) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popback(k7) from ${tableName} ORDER BY k1"
 }
