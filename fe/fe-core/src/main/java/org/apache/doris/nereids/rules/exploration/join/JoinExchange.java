@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -105,6 +105,9 @@ public class JoinExchange extends OneExplorationRuleFactory {
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }
 
+    /**
+     * check reorder masks.
+     */
     public static boolean checkReorder(LogicalJoin<? extends Plan, ? extends Plan> topJoin) {
         if (topJoin.getJoinReorderContext().hasCommute()
                 || topJoin.getJoinReorderContext().hasLeftAssociate()
