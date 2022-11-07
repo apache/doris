@@ -22,9 +22,9 @@ import org.apache.doris.nereids.util.HyperGraphBuilder;
 
 import org.junit.jupiter.api.Test;
 
-public class HyperGraphTest {
+public class GraphSimplifierTest {
     @Test
-    void testHyperGraph() {
+    void testGraphSimplifier() {
         HyperGraph hyperGraph = new HyperGraphBuilder()
                 .init("t1", 10)
                 .join(JoinType.INNER_JOIN, "t2", 20)
@@ -32,7 +32,11 @@ public class HyperGraphTest {
                 .join(JoinType.INNER_JOIN, "t4", 40)
                 .join(JoinType.INNER_JOIN, "t5", 50)
                 .build();
-        String dottyGraph = hyperGraph.toDottyHyperGraph();
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.initFirstStep();
+        while (graphSimplifier.applySimplificationStep()) {
+        }
+
         String target = "digraph G {  # 4 edges\n"
                 + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0 \n"
                 + " rowCount=10.00\"];\n"
@@ -44,12 +48,24 @@ public class HyperGraphTest {
                 + " rowCount=40.00\"];\n"
                 + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4 \n"
                 + " rowCount=50.00\"];\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"0.10\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN2 [label=\"0.05\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"0.03\",arrowhead=none]\n"
+                + "e0 [shape=circle, width=.001, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> e0 [arrowhead=none, label=\"0.10\"]\n"
+                + "LOGICAL_OLAP_SCAN2 -> e0 [arrowhead=none, label=\"0.10\"]\n"
+                + "LOGICAL_OLAP_SCAN3 -> e0 [arrowhead=none, label=\"0.10\"]\n"
+                + "LOGICAL_OLAP_SCAN4 -> e0 [arrowhead=none, label=\"0.10\"]\n"
+                + "LOGICAL_OLAP_SCAN1 -> e0 [arrowhead=none, label=\"\"]\n"
+                + "e1 [shape=circle, width=.001, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> e1 [arrowhead=none, label=\"0.05\"]\n"
+                + "LOGICAL_OLAP_SCAN3 -> e1 [arrowhead=none, label=\"0.05\"]\n"
+                + "LOGICAL_OLAP_SCAN4 -> e1 [arrowhead=none, label=\"0.05\"]\n"
+                + "LOGICAL_OLAP_SCAN2 -> e1 [arrowhead=none, label=\"\"]\n"
+                + "e2 [shape=circle, width=.001, label=\"\"]\n"
+                + "LOGICAL_OLAP_SCAN0 -> e2 [arrowhead=none, label=\"0.03\"]\n"
+                + "LOGICAL_OLAP_SCAN4 -> e2 [arrowhead=none, label=\"0.03\"]\n"
+                + "LOGICAL_OLAP_SCAN3 -> e2 [arrowhead=none, label=\"\"]\n"
                 + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN4 [label=\"0.03\",arrowhead=none]\n"
                 + "}\n";
+        String dottyGraph = hyperGraph.toDottyHyperGraph();
         assert dottyGraph.equals(target) : dottyGraph;
-
     }
 }
