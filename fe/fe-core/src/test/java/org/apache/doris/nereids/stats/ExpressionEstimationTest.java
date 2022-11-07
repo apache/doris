@@ -55,8 +55,11 @@ class ExpressionEstimationTest {
                 .setMaxValue(500);
         slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+
+        //min/max not changed. select min(A) as X from T group by B. X.max is A.max, not A.min
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
-        Assertions.assertEquals(500, estimated.minValue);
+        Assertions.assertEquals(0, estimated.minValue);
+        Assertions.assertEquals(500, estimated.maxValue);
         Assertions.assertEquals(1, estimated.ndv);
     }
 
@@ -76,8 +79,10 @@ class ExpressionEstimationTest {
         slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         Min max = new Min(a);
+        //min/max not changed. select max(A) as X from T group by B. X.min is A.min, not A.max
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
-        Assertions.assertEquals(0, estimated.maxValue);
+        Assertions.assertEquals(0, estimated.minValue);
+        Assertions.assertEquals(500, estimated.maxValue);
         Assertions.assertEquals(1, estimated.ndv);
     }
 
