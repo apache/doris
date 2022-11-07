@@ -1509,7 +1509,7 @@ build_gettext() {
 build_concurrentqueue() {
     check_if_source_exist "${CONCURRENTQUEUE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CONCURRENTQUEUE_SOURCE}"
-    cp *.h "${TP_INSTALL_DIR}/include/"
+    cp ./*.h "${TP_INSTALL_DIR}/include/"
 }
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
