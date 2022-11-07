@@ -24,6 +24,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.List;
+import java.util.Map;
 
 public class TableValuedFunctionRef extends TableRef {
 
@@ -33,10 +34,16 @@ public class TableValuedFunctionRef extends TableRef {
     public TableValuedFunctionRef(String funcName, String alias, List<String> params) throws UserException {
         super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
         this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
+        this.table = tableFunction.getTable();
         if (hasExplicitAlias()) {
             return;
         }
         aliases = new String[] { "_table_valued_function_" + funcName };
+    }
+
+    public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) throws UserException {
+        super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
+
     }
 
     public TableValuedFunctionRef(TableValuedFunctionRef other) {
@@ -66,7 +73,6 @@ public class TableValuedFunctionRef extends TableRef {
         }
         // Table function could generate a table which will has columns
         // Maybe will call be during this process
-        this.table = tableFunction.getTable();
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true; // true that we have assigned desc
         analyzeJoin(analyzer);
