@@ -114,29 +114,24 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testBinaryPredicate() {
-        Expression left = new DecimalLiteral(new BigDecimal(2.4));
+        Expression left = new DecimalLiteral(new BigDecimal("2.4"));
         Expression right = new TinyIntLiteral((byte) 2);
+        Expression promotedRight = new DecimalLiteral(new BigDecimal("2.0"));
         Expression lessThanEq = new LessThanEqual(left, right);
-        Expression rewrittenPred =
-                new LessThanEqual(
-                        left,
-                        new Cast(right, left.getDataType()));
+        Expression rewrittenPred = new LessThanEqual(left, promotedRight);
         assertRewrite(lessThanEq, rewrittenPred);
 
-        rewrittenPred =
-                new LessThanEqual(
-                        new Cast(right, left.getDataType()),
-                        left
-                        );
+        rewrittenPred = new LessThanEqual(promotedRight, left);
         lessThanEq = new LessThanEqual(right, left);
         assertRewrite(lessThanEq, rewrittenPred);
 
         left = new DecimalLiteral(new BigDecimal(1));
         lessThanEq = new LessThanEqual(left, right);
+        promotedRight = new DecimalLiteral(new BigDecimal("2"));
         rewrittenPred =
-                new LessThanEqual(
-                        new Cast(left, DecimalType.forType(TinyIntType.INSTANCE)),
-                        new Cast(right, DecimalType.forType(TinyIntType.INSTANCE))
+                new LessThanEqual(left, promotedRight
+                        //new Cast(left, DecimalType.forType(TinyIntType.INSTANCE)),
+                        //new Cast(right, DecimalType.forType(TinyIntType.INSTANCE))
                 );
         assertRewrite(lessThanEq, rewrittenPred);
     }

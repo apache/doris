@@ -145,7 +145,8 @@ public class TypeCoercionUtilsTest {
         testFindTightestCommonType(BigIntType.INSTANCE, IntegerType.INSTANCE, BigIntType.INSTANCE);
         testFindTightestCommonType(StringType.INSTANCE, StringType.INSTANCE, IntegerType.INSTANCE);
         testFindTightestCommonType(StringType.INSTANCE, IntegerType.INSTANCE, StringType.INSTANCE);
-        testFindTightestCommonType(null, DecimalType.SYSTEM_DEFAULT, DecimalType.createDecimalType(2, 1));
+        testFindTightestCommonType(DecimalType.SYSTEM_DEFAULT, DecimalType.SYSTEM_DEFAULT, DecimalType.createDecimalType(2, 1));
+        testFindTightestCommonType(DecimalType.createDecimalType(11, 6), DecimalType.createDecimalType(10, 6), DecimalType.createDecimalType(10, 5));
         testFindTightestCommonType(VarcharType.createVarcharType(10), CharType.createCharType(8), CharType.createCharType(10));
         testFindTightestCommonType(VarcharType.createVarcharType(10), VarcharType.createVarcharType(8), VarcharType.createVarcharType(10));
         testFindTightestCommonType(VarcharType.createVarcharType(10), VarcharType.createVarcharType(8), CharType.createCharType(10));
