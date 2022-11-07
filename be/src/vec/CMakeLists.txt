@@ -88,11 +88,7 @@ set(VEC_FILES
   data_types/data_type_jsonb.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
-  exec/ves_http_scan_node.cpp
-  exec/ves_http_scanner.cpp
-  exec/volap_scan_node.cpp
   exec/vsort_node.cpp
-  exec/volap_scanner.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
@@ -100,7 +96,6 @@ set(VEC_FILES
   exec/vexcept_node.cpp
   exec/vselect_node.cpp
   exec/vnested_loop_join_node.cpp
-  exec/vodbc_scan_node.cpp
   exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
   exec/vempty_set_node.cpp
@@ -111,8 +106,6 @@ set(VEC_FILES
   exec/vbroker_scan_node.cpp
   exec/vbroker_scanner.cpp
   exec/vjson_scanner.cpp
-  exec/vjdbc_connector.cpp
-  exec/vjdbc_scan_node.cpp
   exec/vparquet_scanner.cpp
   exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp

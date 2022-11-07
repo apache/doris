@@ -71,15 +71,11 @@
 #include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
-#include "vec/exec/ves_http_scan_node.h"
 #include "vec/exec/vexcept_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vintersect_node.h"
-#include "vec/exec/vjdbc_scan_node.h"
 #include "vec/exec/vmysql_scan_node.h"
 #include "vec/exec/vnested_loop_join_node.h"
-#include "vec/exec/vodbc_scan_node.h"
-#include "vec/exec/volap_scan_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -449,11 +445,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 #endif
     case TPlanNodeType::ODBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new OdbcScanNode(pool, tnode, descs));
         }
@@ -462,11 +454,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::JDBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
 #ifdef LIBJVM
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VJdbcScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
 #else
             return Status::InternalError("Jdbc scan node is disabled since no libjvm is found!");
 #endif
@@ -477,11 +465,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VEsHttpScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new EsHttpScanNode(pool, tnode, descs));
         }
@@ -497,11 +481,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::OLAP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VOlapScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new OlapScanNode(pool, tnode, descs));
         }
