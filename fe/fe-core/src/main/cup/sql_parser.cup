@@ -2948,9 +2948,9 @@ multi_partition_desc ::=
 
 fixed_multi_partition_key_desc ::=
     // FROM (lower) TO (upper) INTERVAL time_interval time_type
-    KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_type
+    KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit
     {:
-        RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_type);
+        RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit);
     :}
     ;
 

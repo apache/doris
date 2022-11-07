@@ -23,7 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.planner.DateTools;
+import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -93,8 +93,8 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     private List<SinglePartitionDesc> buildMultiPartitionToSinglePartitionDescs() throws AnalysisException {
         String partitionName;
         long countNum = 0;
-        int dayOfWeek = 1;
-        int dayOfMonth = 1;
+        int startDayOfWeek = 1;
+        int startDayOfMonth = 1;
         String partitionPrefix = this.partitionPrefix;
         LocalDateTime startTime = this.startTime;
         if (properties != null) {
@@ -105,7 +105,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                 } catch (DdlException e) {
                     throw new AnalysisException(e.getMessage());
                 }
-                dayOfWeek = Integer.parseInt(dayOfWeekStr);
+                startDayOfWeek = Integer.parseInt(dayOfWeekStr);
             }
             if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {
                 String dayOfMonthStr = properties.get(DynamicPartitionProperty.START_DAY_OF_MONTH);
@@ -114,7 +114,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                 } catch (DdlException e) {
                     throw new AnalysisException(e.getMessage());
                 }
-                dayOfMonth = Integer.parseInt(dayOfMonthStr);
+                startDayOfMonth = Integer.parseInt(dayOfMonthStr);
             }
 
             if (properties.containsKey(DynamicPartitionProperty.CREATE_HISTORY_PARTITION)) {
@@ -129,9 +129,8 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                 }
             }
         }
-        WeekFields weekFields = WeekFields.of(DayOfWeek.of(dayOfWeek), 1);
+        WeekFields weekFields = WeekFields.of(DayOfWeek.of(startDayOfWeek), 1);
         while (startTime.isBefore(this.endTime)) {
-            System.out.println("---" + startTime.format(dateTypeFormat()));
             PartitionValue lowerPartitionValue = new PartitionValue(startTime.format(dateTypeFormat()));
             switch (this.timeUnitType) {
                 case HOUR:
@@ -148,12 +147,12 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                     int weekOfYear = localDate.get(weekFields.weekOfYear());
                     partitionName = String.format("%s%s_%02d", partitionPrefix,
                             startTime.format(DateTimeFormatter.ofPattern(YEAR_FORMAT)), weekOfYear);
-                    startTime = startTime.with(ChronoField.DAY_OF_WEEK, dayOfMonth);
+                    startTime = startTime.with(ChronoField.DAY_OF_WEEK, startDayOfMonth);
                     startTime = startTime.plusWeeks(timeInterval);
                     break;
                 case MONTH:
                     partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(MONTHS_FORMAT));
-                    startTime = startTime.withDayOfMonth(dayOfMonth);
+                    startTime = startTime.withDayOfMonth(startDayOfMonth);
                     startTime = startTime.plusMonths(timeInterval);
                     break;
                 case YEAR:
@@ -193,7 +192,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     private void timeTrans() throws AnalysisException {
 
         if (partitionKeyDesc.getLowerValues().size() != 1 || partitionKeyDesc.getUpperValues().size() != 1) {
-            throw new AnalysisException("Multi build partition column size must be one "
+            throw new AnalysisException("partition column number in multi partition clause must be one "
                     + "but START column size is " + partitionKeyDesc.getLowerValues().size()
                     + ", END column size is " + partitionKeyDesc.getUpperValues().size() + ".");
         }
@@ -204,8 +203,8 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         try {
             this.startDateTimeFormat = dateFormat(this.timeUnitType, startString);
             this.endDateTimeFormat = dateFormat(this.timeUnitType, endString);
-            this.startTime = DateTools.formatDateTimeAndFullZero(startString, startDateTimeFormat);
-            this.endTime = DateTools.formatDateTimeAndFullZero(endString, endDateTimeFormat);
+            this.startTime = TimeUtils.formatDateTimeAndFullZero(startString, startDateTimeFormat);
+            this.endTime = TimeUtils.formatDateTimeAndFullZero(endString, endDateTimeFormat);
         } catch (Exception e) {
             throw new AnalysisException("Multi build partition START or END time style is illegal.");
         }
@@ -223,7 +222,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             throw new AnalysisException("Unknown time interval type for Multi build partition.");
         }
         if (this.timeInterval <= 0) {
-            throw new AnalysisException("Multi partition every clause mush be larger than zero.");
+            throw new AnalysisException("Multi partition time interval mush be larger than zero.");
         }
         try {
             this.timeUnitType = TimestampArithmeticExpr.TimeUnit.valueOf(timeType);
