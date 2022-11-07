@@ -83,8 +83,8 @@ class Node {
     public void attachEdge(Edge edge) {
         if (edge.isSimple()) {
             simpleEdges.add(edge);
-            edge.getLeft().stream().forEach(index -> simpleNeighborhood.set(index));
-            edge.getRight().stream().forEach(index -> simpleNeighborhood.set(index));
+            edge.getLeft().forEach(index -> simpleNeighborhood.set(index));
+            edge.getRight().forEach(index -> simpleNeighborhood.set(index));
             simpleNeighborhood.clear(index);
         } else {
             complexEdges.add(edge);

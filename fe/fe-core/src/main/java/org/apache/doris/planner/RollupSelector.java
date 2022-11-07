@@ -131,7 +131,7 @@ public final class RollupSelector {
         for (MaterializedIndex rollup : rollups) {
             final Set<String> rollupColumns = Sets.newHashSet();
             table.getSchemaByIndexId(rollup.getId(), true)
-                    .stream().forEach(column -> rollupColumns.add(column.getName()));
+                    .forEach(column -> rollupColumns.add(column.getName()));
 
             if (rollupColumns.containsAll(outputColumns)) {
                 // If preAggregation is off, so that we only can use base table
@@ -164,7 +164,7 @@ public final class RollupSelector {
                          equivalenceColumns, unequivalenceColumns);
 
         if (rollupsMatchingBestPrefixIndex.isEmpty()) {
-            rollupsContainsOutput.stream().forEach(n -> rollupsMatchingBestPrefixIndex.add(n.getId()));
+            rollupsContainsOutput.forEach(n -> rollupsMatchingBestPrefixIndex.add(n.getId()));
         }
 
         // 3. sorted the final candidate indexes by index id
