@@ -88,6 +88,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private Map<Long, Map<String, String>> runtimeInfos = Maps.newConcurrentMap();
     private Set<Pair<Long, Long>> dynamicPartitionTableInfo = Sets.newConcurrentHashSet();
     private boolean initialize;
+    private long leastSecondsToNextHour = 0;
 
     public enum State {
         NORMAL,
@@ -218,12 +219,25 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return AutoBucketUtils.getBucketsNum(uncompressedPartitionSize);
     }
 
+    private void computeSecondsToNextHour(ZonedDateTime now) {
+        long nowEpochSecond = now.toEpochSecond();
+        ZonedDateTime nextHour = now.plusHours(1).withMinute(0).withSecond(0);
+        long nextHourEpochSecond = nextHour.toEpochSecond();
+        long secondsToNextHour = nextHourEpochSecond - nowEpochSecond;
+        if (leastSecondsToNextHour > 0 && secondsToNextHour > 0) {
+            leastSecondsToNextHour = Math.min(leastSecondsToNextHour, secondsToNextHour);
+        } else if (secondsToNextHour > 0) {
+            leastSecondsToNextHour = secondsToNextHour;
+        }
+    }
+
     private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,
             Column partitionColumn, String partitionFormat) {
         ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
+        computeSecondsToNextHour(now);
 
         boolean createHistoryPartition = dynamicPartitionProperty.isCreateHistoryPartition();
         int idx;
@@ -601,9 +615,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // check Dynamic Partition tables only when FE start
             initDynamicPartitionTable();
         }
-        setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
         if (Config.dynamic_partition_enable) {
             executeDynamicPartition(dynamicPartitionTableInfo);
         }
+        // sometimes, 'dynamic_partition_check_interval_seconds' is too long, and adding new partition is not timely.
+        // prevent to wait too long after the hour that time to schedule to add new paritition.
+        long nextCheckIntervalSeconds = Config.dynamic_partition_check_interval_seconds * 1000L;
+        if (leastSecondsToNextHour > 0) {
+            nextCheckIntervalSeconds = Math.min(nextCheckIntervalSeconds, leastSecondsToNextHour * 1000L);
+        }
+        setInterval(nextCheckIntervalSeconds);
+        leastSecondsToNextHour = 0;
     }
 }
