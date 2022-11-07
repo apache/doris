@@ -56,7 +56,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
     private final ImmutableSet<JoinType> deniedJoinType = ImmutableSet.of(
             JoinType.LEFT_ANTI_JOIN,
-            JoinType.RIGHT_ANTI_JOIN,
             JoinType.FULL_OUTER_JOIN,
             JoinType.LEFT_OUTER_JOIN
     );
