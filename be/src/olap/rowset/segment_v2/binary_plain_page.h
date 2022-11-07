@@ -48,13 +48,19 @@ template <FieldType Type>
 class BinaryPlainPageBuilder : public PageBuilder {
 public:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
-            : _size_estimate(0), _options(options) {
+            : _size_estimate(0), _options(options), _is_dict_page(false) {
         reset();
     }
 
     bool is_page_full() override {
-        // data_page_size is 0, do not limit the page size
-        return _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+        bool ret;
+        if (_is_dict_page) {
+            ret = _size_estimate > DEFAULT_PAGE_SIZE;
+        } else {
+            // data_page_size is 0, do not limit the page size
+            ret = _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+        }
+        return ret;
     }
 
     Status add(const uint8_t* vals, size_t* count) override {
@@ -141,6 +147,8 @@ public:
 
     inline Slice get(std::size_t idx) const { return (*this)[idx]; }
 
+    void set_dict_page() { _is_dict_page = true; }
+
 private:
     void _copy_value_at(size_t idx, faststring* value) const {
         size_t value_size =
@@ -158,6 +166,7 @@ private:
     uint32_t _last_value_size = 0;
     faststring _first_value;
     faststring _last_value;
+    bool _is_dict_page;
 };
 
 template <FieldType Type>

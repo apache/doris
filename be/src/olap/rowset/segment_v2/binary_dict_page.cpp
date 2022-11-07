@@ -39,6 +39,7 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
     PageBuilderOptions dict_builder_options;
     dict_builder_options.data_page_size = _options.dict_page_size;
     _dict_builder.reset(new BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>(dict_builder_options));
+    _dict_builder->set_dict_page();
     reset();
 }
 
@@ -118,6 +119,10 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
 }
 
 OwnedSlice BinaryDictPageBuilder::finish() {
+    if (VLOG_DEBUG_IS_ON && _encoding_type == DICT_ENCODING) {
+        VLOG_DEBUG << "dict page size:" << _dict_builder->size();
+    }
+
     DCHECK(!_finished);
     _finished = true;
 
