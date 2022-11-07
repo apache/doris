@@ -488,7 +488,8 @@ public class CreateTableStmt extends DdlStmt {
                                 + indexColName);
                     }
                 }
-                indexes.add(new Index(indexDef.getIndexName(), indexDef.getColumns(), indexDef.getIndexType(),
+                indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
+                        indexDef.getColumns(), indexDef.getIndexType(),
                         indexDef.getProperties(), indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
                 distinctCol.add(indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList()));

@@ -208,7 +208,7 @@ enum IndexType {
 }
 
 message TabletIndexPB {
-    optional int32 index_id = 1;
+    optional int64 index_id = 1;
     optional string index_name = 2;
     optional IndexType index_type = 3;
     repeated int32 col_unique_id = 4;

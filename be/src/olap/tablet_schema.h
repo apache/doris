@@ -125,14 +125,14 @@ public:
     void init_from_pb(const TabletIndexPB& index);
     void to_schema_pb(TabletIndexPB* index) const;
 
-    const int32_t index_id() const { return _index_id; }
+    const int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
     const IndexType index_type() const { return _index_type; }
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
 
 private:
-    int32_t _index_id;
+    int64_t _index_id;
     std::string _index_name;
     IndexType _index_type;
     std::vector<int32_t> _col_unique_ids;

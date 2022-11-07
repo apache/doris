@@ -21,6 +21,7 @@ import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
@@ -43,7 +44,7 @@ public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "indexId")
-    private int indexId = -1; // -1 for compatibale
+    private long indexId = -1; // -1 for compatibale
     @SerializedName(value = "indexName")
     private String indexName;
     @SerializedName(value = "columns")
@@ -55,8 +56,9 @@ public class Index implements Writable {
     @SerializedName(value = "comment")
     private String comment;
 
-    public Index(String indexName, List<String> columns, IndexDef.IndexType indexType,
-                 Map<String, String> properties, String comment) {
+    public Index(long indexId, String indexName, List<String> columns,
+                 IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
+        this.indexId = indexId;
         this.indexName = indexName;
         this.columns = columns;
         this.indexType = indexType;
@@ -72,11 +74,11 @@ public class Index implements Writable {
         this.comment = null;
     }
 
-    public int getIndexId() {
+    public long getIndexId() {
         return indexId;
     }
 
-    public void setIndexId(int indexId) {
+    public void setIndexId(long indexId) {
         this.indexId = indexId;
     }
 
@@ -116,18 +118,8 @@ public class Index implements Writable {
         if (properties == null || properties.isEmpty()) {
             return "";
         }
-        StringBuilder sb = new StringBuilder("(");
-        boolean first = true;
-        for (Map.Entry<String, String> e : properties.entrySet()) {
-            if (first) {
-                first = false;
-            } else {
-                sb.append(", ");
-            }
-            sb.append("\"").append(e.getKey()).append("\"=").append("\"").append(e.getValue()).append("\"");
-        }
-        sb.append(")");
-        return sb.toString();
+
+        return "(" + new PrintableMap(properties, "=", true, false, ",").toString() + ")";
     }
 
     public String getInvertedIndexParser() {
@@ -158,7 +150,8 @@ public class Index implements Writable {
     }
 
     public Index clone() {
-        return new Index(indexName, new ArrayList<>(columns), indexType, new HashMap<>(properties), comment);
+        return new Index(indexId, indexName, new ArrayList<>(columns),
+                         indexType, new HashMap<>(properties), comment);
     }
 
     @Override

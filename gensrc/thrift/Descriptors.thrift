@@ -196,7 +196,7 @@ struct TOlapTableIndex {
   2: optional list<string> columns
   3: optional TIndexType index_type
   4: optional string comment
-  5: optional i32 index_id
+  5: optional i64 index_id
   6: optional map<string, string> properties
 }
 

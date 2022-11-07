@@ -154,6 +154,7 @@ public class IndexDef {
     public enum IndexType {
         BITMAP,
         INVERTED,
+        BLOOMFILTER,
     }
 
     public boolean isInvertedIndex() {
@@ -161,7 +162,7 @@ public class IndexDef {
     }
 
     public void checkColumn(Column column, KeysType keysType) throws AnalysisException {
-        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED) {
+        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER) {
             String indexColName = column.getName();
             PrimitiveType colType = column.getDataType();
             if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isDecimalV3Type()
@@ -183,7 +184,7 @@ public class IndexDef {
     }
 
     public void checkColumns(List<Column> columns, KeysType keysType) throws AnalysisException {
-        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED) {
+        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER) {
             for (Column col : columns) {
                 checkColumn(col, keysType);
             }

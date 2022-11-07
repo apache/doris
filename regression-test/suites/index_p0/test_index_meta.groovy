@@ -18,7 +18,7 @@
 import groovy.json.JsonOutput
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("index_meta", "add_drop_index_meta") {
+suite("index_meta", "p0") {
     // prepare test table
     def timeout = 60000
     def delta_time = 1000
@@ -68,13 +68,11 @@ suite("index_meta", "add_drop_index_meta") {
     assertEquals(show_result[0][10], "BITMAP")
     assertEquals(show_result[0][11], "index for id")
     assertEquals(show_result[0][12], "")
-    assertEquals(show_result[0][13], "0")
     assertEquals(show_result[1][2], "idx_name")
     assertEquals(show_result[1][4], "name")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "index for name")
-    assertEquals(show_result[1][12], "(\"parser\"=\"none\")")
-    assertEquals(show_result[1][13], "1")
+    assertEquals(show_result[1][12], "(\"parser\" = \"none\")")
 
     // add index on column description
     sql "create index idx_desc on ${tableName}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\") COMMENT 'index for description';"
@@ -89,19 +87,16 @@ suite("index_meta", "add_drop_index_meta") {
     assertEquals(show_result[0][10], "BITMAP")
     assertEquals(show_result[0][11], "index for id")
     assertEquals(show_result[0][12], "")
-    assertEquals(show_result[0][13], "0")
     assertEquals(show_result[1][2], "idx_name")
     assertEquals(show_result[1][4], "name")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "index for name")
-    assertEquals(show_result[1][12], "(\"parser\"=\"none\")")
-    assertEquals(show_result[1][13], "1")
+    assertEquals(show_result[1][12], "(\"parser\" = \"none\")")
     assertEquals(show_result[2][2], "idx_desc")
     assertEquals(show_result[2][4], "description")
     assertEquals(show_result[2][10], "INVERTED")
     assertEquals(show_result[2][11], "index for description")
-    assertEquals(show_result[2][12], "(\"parser\"=\"standard\")")
-    assertEquals(show_result[2][13], "2")
+    assertEquals(show_result[2][12], "(\"parser\" = \"standard\")")
 
     // drop index
     // add index on column description
@@ -116,13 +111,11 @@ suite("index_meta", "add_drop_index_meta") {
     assertEquals(show_result[0][10], "BITMAP")
     assertEquals(show_result[0][11], "index for id")
     assertEquals(show_result[0][12], "")
-    assertEquals(show_result[0][13], "0")
     assertEquals(show_result[1][2], "idx_desc")
     assertEquals(show_result[1][4], "description")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "index for description")
-    assertEquals(show_result[1][12], "(\"parser\"=\"standard\")")
-    assertEquals(show_result[1][13], "2")
+    assertEquals(show_result[1][12], "(\"parser\" = \"standard\")")
 
     // add index on column description
     sql "create index idx_name on ${tableName}(name) USING INVERTED COMMENT 'new index for name';"
@@ -137,19 +130,16 @@ suite("index_meta", "add_drop_index_meta") {
     assertEquals(show_result[0][10], "BITMAP")
     assertEquals(show_result[0][11], "index for id")
     assertEquals(show_result[0][12], "")
-    assertEquals(show_result[0][13], "0")
     assertEquals(show_result[1][2], "idx_desc")
     assertEquals(show_result[1][4], "description")
     assertEquals(show_result[1][10], "INVERTED")
     assertEquals(show_result[1][11], "index for description")
-    assertEquals(show_result[1][12], "(\"parser\"=\"standard\")")
-    assertEquals(show_result[1][13], "2")
+    assertEquals(show_result[1][12], "(\"parser\" = \"standard\")")
     assertEquals(show_result[2][2], "idx_name")
     assertEquals(show_result[2][4], "name")
     assertEquals(show_result[2][10], "INVERTED")
     assertEquals(show_result[2][11], "new index for name")
     assertEquals(show_result[2][12], "")
-    assertEquals(show_result[2][13], "3")
 
 
     def show_tablets_result = sql "show tablets from ${tableName}"
@@ -171,7 +161,6 @@ suite("index_meta", "add_drop_index_meta") {
             assertEquals(index.index_name, show_result[i][2])
             assertEquals(index.index_type, show_result[i][10])
             // assertEquals(index.properties, show_result[j][12]);
-            assertEquals(Integer.toString(index.index_id), show_result[i][13])
             i++;
         }
     }

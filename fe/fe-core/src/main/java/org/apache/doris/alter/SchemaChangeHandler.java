@@ -2068,11 +2068,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
-        // set index unique id
-        Index index = alterClause.getIndex();
-        olapTable.getTableIndexes().setUniqueIdForIndex(index);
-
-        newIndexes.add(index);
+        newIndexes.add(alterClause.getIndex());
         return false;
     }
 

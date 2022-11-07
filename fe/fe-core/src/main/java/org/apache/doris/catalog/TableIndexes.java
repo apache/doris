@@ -40,8 +40,6 @@ public class TableIndexes implements Writable {
     private List<Index> indexes;
     @SerializedName(value = "properties")
     private Map<String, String> properties;
-    @SerializedName(value = "maxIndexId")
-    private int maxIndexId = Index.INDEX_ID_INIT_VALUE;
 
     public TableIndexes() {
         this.indexes = Lists.newArrayList();
@@ -56,26 +54,6 @@ public class TableIndexes implements Writable {
     public TableIndexes(List<Index> indexes, Map<String, String> properties) {
         this.indexes = indexes;
         this.properties = properties;
-    }
-
-    private synchronized int incAndGetMaxIndexUniqueId() {
-        this.maxIndexId++;
-        return this.maxIndexId;
-    }
-
-    private synchronized int getMaxIndexUniqueId() {
-        return this.maxIndexId;
-    }
-
-    public synchronized void initIndexUniqueId() {
-        maxIndexId = Index.INDEX_ID_INIT_VALUE;
-        for (Index index : indexes) {
-            setUniqueIdForIndex(index);
-        }
-    }
-
-    public void setUniqueIdForIndex(Index index) {
-        index.setIndexId(incAndGetMaxIndexUniqueId());
     }
 
     public List<Index> getIndexes() {
