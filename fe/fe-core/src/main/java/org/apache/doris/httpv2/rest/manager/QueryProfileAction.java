@@ -19,8 +19,8 @@ package org.apache.doris.httpv2.rest.manager;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
 import org.apache.doris.common.proc.ProcResult;
@@ -237,7 +237,10 @@ public class QueryProfileAction extends RestBaseController {
         if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
             queryStream = queryStream.filter(q -> q.get(1).equals(user));
         }
-        return queryStream.filter(query -> query.get(0).equals(queryId));
+        if (!Strings.isNullOrEmpty(queryId)) {
+            queryStream = queryStream.filter(query -> query.get(0).equals(queryId));
+        }
+        return queryStream;
     }
 
     /**
@@ -265,8 +268,8 @@ public class QueryProfileAction extends RestBaseController {
 
         try {
             checkAuthByUserAndQueryId(queryId);
-        } catch (DdlException e) {
-            return ResponseEntityBuilder.badRequest(e.getMessage());
+        } catch (AuthenticationException e) {
+            return ResponseEntityBuilder.unauthorized(e.getMessage());
         }
 
         if (format.equals("text")) {
@@ -323,8 +326,8 @@ public class QueryProfileAction extends RestBaseController {
 
             try {
                 checkAuthByUserAndQueryId(queryId);
-            } catch (DdlException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
+            } catch (AuthenticationException e) {
+                return ResponseEntityBuilder.unauthorized(e.getMessage());
             }
 
             return ResponseEntityBuilder.ok(queryId);
@@ -360,8 +363,8 @@ public class QueryProfileAction extends RestBaseController {
         } else {
             try {
                 checkAuthByUserAndQueryId(queryId);
-            } catch (DdlException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
+            } catch (AuthenticationException e) {
+                return ResponseEntityBuilder.unauthorized(e.getMessage());
             }
 
             try {
@@ -466,7 +469,7 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.ok(result);
     }
 
-    private void checkAuthByUserAndQueryId(String queryId) throws DdlException {
+    private void checkAuthByUserAndQueryId(String queryId) throws AuthenticationException {
         String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
         if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
             ProfileManager.getInstance().checkAuthByUserAndQueryId(user, queryId);

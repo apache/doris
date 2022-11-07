@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
@@ -217,15 +218,15 @@ public class ProfileManager {
      * @param queryId
      * @throws DdlException
      */
-    public void checkAuthByUserAndQueryId(String user, String queryId) throws DdlException {
+    public void checkAuthByUserAndQueryId(String user, String queryId) throws AuthenticationException {
         readLock.lock();
         try {
             ProfileElement element = queryIdToProfileMap.get(queryId);
             if (element == null) {
-                throw new DdlException("query with id " + queryId + " not found");
+                throw new AuthenticationException("query with id " + queryId + " not found");
             }
             if (!element.infoStrings.get(USER).equals(user)) {
-                throw new DdlException("Access deny to view query with id: " + queryId);
+                throw new AuthenticationException("Access deny to view query with id: " + queryId);
             }
         } finally {
             readLock.unlock();
