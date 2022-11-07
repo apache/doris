@@ -70,21 +70,24 @@ public class PredicatePropagation {
 
             @Override
             public Expression visitComparisonPredicate(ComparisonPredicate cp, Void context) {
-                if (!cp.left().isConstant() && !cp.right().isConstant()) {
-                    return cp;
+                if (cp.left().isSlot() && cp.right().isConstant()) {
+                    return replaceSlot(cp);
+                } else if (cp.left().isConstant() && cp.right().isSlot()) {
+                    return replaceSlot(cp);
                 }
                 return super.visit(cp, context);
             }
 
-            @Override
-            public Expression visitSlotReference(SlotReference slotReference, Void context) {
-                if (slotReference.equals(leftSlotEqualToRightSlot.child(0))) {
-                    return leftSlotEqualToRightSlot.child(1);
-                } else if (slotReference.equals(leftSlotEqualToRightSlot.child(1))) {
-                    return leftSlotEqualToRightSlot.child(0);
-                } else {
-                    return slotReference;
-                }
+            private Expression replaceSlot(Expression expr) {
+                return expr.rewriteUp(e -> {
+                    if (e.equals(leftSlotEqualToRightSlot.child(0))) {
+                        return leftSlotEqualToRightSlot.child(1);
+                    } else if (e.equals(leftSlotEqualToRightSlot.child(1))) {
+                        return leftSlotEqualToRightSlot.child(0);
+                    } else {
+                        return e;
+                    }
+                });
             }
         }, null);
     }

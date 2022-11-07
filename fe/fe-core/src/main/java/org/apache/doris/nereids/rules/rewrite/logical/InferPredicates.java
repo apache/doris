@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
@@ -34,25 +35,23 @@ import java.util.stream.Collectors;
 
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
+ * The logic is as follows:
+ * 1. poll up bottom predicate then infer additional predicates
+ *   for example:
+ *   select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id
+ *   1. poll up bottom predicate
+ *      select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id and t.id = 1
+ *   2. infer
+ *      select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id and t.id = 1 and t2.id = 1
+ *   finally transformed sql:
+ *      select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id and t2.id = 1
+ * 2. put these predicates into `otherJoinConjuncts` , these predicates are processed in the next
+ *   round of predicate push-down
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> {
     PredicatePropagation propagation = new PredicatePropagation();
     PullUpPredicates pollUpPredicates = new PullUpPredicates();
 
-    /**
-     * The logic is as follows:
-     * 1. poll up bottom predicate then infer additional predicates
-     *   for example:
-     *   select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id
-     *   1. poll up bottom predicate
-     *      select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id and t.id = 1
-     *   2. infer
-     *      select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id and t.id = 1 and t2.id = 1
-     *   finally transformed sql:
-     *      select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id and t2.id = 1
-     * 2. put these predicates into `otherJoinConjuncts` , these predicates are processed in the next
-     *   round of predicate push-down
-     */
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
@@ -82,15 +81,11 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> {
         return join.withOtherJoinConjuncts(otherJoinConjuncts);
     }
 
-    /**
-     * reference `inferOn`
-     */
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
         filter = (LogicalFilter<? extends Plan>) super.visit(filter, context);
-        Set<Expression> filterPredicates = filter.accept(pollUpPredicates, null);
-        Set<Expression> filterChildPredicates = filter.child(0).accept(pollUpPredicates, null);
-        filterPredicates.removeAll(filterChildPredicates);
+        Set<Expression> filterPredicates = pullUpPredicates(filter);
+        filterPredicates.removeAll(pullUpPredicates(filter.child()));
         filter.getConjuncts().forEach(filterPredicates::remove);
         if (!filterPredicates.isEmpty()) {
             filterPredicates.addAll(filter.getConjuncts());
@@ -100,18 +95,22 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> {
     }
 
     private Set<Expression> getAllExpressions(Plan left, Plan right, Optional<Expression> condition) {
-        Set<Expression> baseExpressions = left.accept(pollUpPredicates, null);
-        baseExpressions.addAll(right.accept(pollUpPredicates, null));
+        Set<Expression> baseExpressions = pullUpPredicates(left);
+        baseExpressions.addAll(pullUpPredicates(right));
         condition.ifPresent(on -> baseExpressions.addAll(ExpressionUtils.extractConjunction(on)));
         baseExpressions.addAll(propagation.infer(baseExpressions));
         return baseExpressions;
     }
 
-    private List<Expression> inferNewPredicate(Plan originalPlan, Set<Expression> expressions) {
+    private Set<Expression> pullUpPredicates(Plan plan) {
+        return Sets.newHashSet(plan.accept(pollUpPredicates, null));
+    }
+
+    private List<Expression> inferNewPredicate(Plan plan, Set<Expression> expressions) {
         List<Expression> predicates = expressions.stream()
-                .filter(c -> !c.getInputSlots().isEmpty() && originalPlan.getOutputSet().containsAll(
+                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(
                         c.getInputSlots())).collect(Collectors.toList());
-        predicates.removeAll(originalPlan.accept(pollUpPredicates, null));
+        predicates.removeAll(plan.accept(pollUpPredicates, null));
         return predicates;
     }
 }

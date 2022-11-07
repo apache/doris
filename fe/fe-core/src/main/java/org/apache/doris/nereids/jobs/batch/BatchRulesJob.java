@@ -74,8 +74,8 @@ public abstract class BatchRulesJob {
                 cascadesContext.getCurrentJobContext(), once);
     }
 
-    protected Job visitorJob(DefaultPlanRewriter<JobContext> planRewriter, boolean once) {
-        return new VisitorRewriteJob(cascadesContext, planRewriter, once);
+    protected Job visitorJob(DefaultPlanRewriter<JobContext> planRewriter) {
+        return new VisitorRewriteJob(cascadesContext, planRewriter, true);
     }
 
     protected Job optimize() {

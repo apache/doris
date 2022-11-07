@@ -139,6 +139,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return this instanceof NullLiteral;
     }
 
+    public boolean isSlot() {
+        return this instanceof Slot;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

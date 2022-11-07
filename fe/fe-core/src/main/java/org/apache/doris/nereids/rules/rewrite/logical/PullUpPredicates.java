@@ -30,13 +30,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +49,7 @@ import java.util.stream.Collectors;
 public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
 
     PredicatePropagation propagation = new PredicatePropagation();
+    Map<Plan, Set<Expression>> cache = new IdentityHashMap<>();
 
     @Override
     public Set<Expression> visit(Plan plan, Void context) {
@@ -56,83 +61,102 @@ public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
 
     @Override
     public Set<Expression> visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
-        List<Expression> predicates = Lists.newArrayList(filter.getConjuncts());
-        predicates.addAll(filter.child().accept(this, context));
-        return getAvailableExpressions(Sets.newHashSet(predicates), filter);
+        return cacheOrElse(filter, () -> {
+            List<Expression> predicates = Lists.newArrayList(filter.getConjuncts());
+            predicates.addAll(filter.child().accept(this, context));
+            return getAvailableExpressions(Sets.newHashSet(predicates), filter);
+        });
     }
 
     @Override
     public Set<Expression> visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-        Set<Expression> predicates = Sets.newHashSet();
-        Set<Expression> leftPredicates = join.left().accept(this, context);
-        Set<Expression> rightPredicates = join.right().accept(this, context);
-        switch (join.getJoinType()) {
-            case INNER_JOIN:
-            case CROSS_JOIN:
-                predicates.addAll(leftPredicates);
-                predicates.addAll(rightPredicates);
-                join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                break;
-            case LEFT_SEMI_JOIN:
-                predicates.addAll(leftPredicates);
-                join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                break;
-            case RIGHT_SEMI_JOIN:
-                predicates.addAll(rightPredicates);
-                join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
-                break;
-            case LEFT_OUTER_JOIN:
-            case LEFT_ANTI_JOIN:
-                predicates.addAll(leftPredicates);
-                break;
-            case RIGHT_OUTER_JOIN:
-            case RIGHT_ANTI_JOIN:
-                predicates.addAll(rightPredicates);
-                break;
-            default:
-        }
-        return getAvailableExpressions(predicates, join);
+        return cacheOrElse(join, () -> {
+            Set<Expression> predicates = Sets.newHashSet();
+            Set<Expression> leftPredicates = join.left().accept(this, context);
+            Set<Expression> rightPredicates = join.right().accept(this, context);
+            switch (join.getJoinType()) {
+                case INNER_JOIN:
+                case CROSS_JOIN:
+                    predicates.addAll(leftPredicates);
+                    predicates.addAll(rightPredicates);
+                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
+                    break;
+                case LEFT_SEMI_JOIN:
+                    predicates.addAll(leftPredicates);
+                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
+                    break;
+                case RIGHT_SEMI_JOIN:
+                    predicates.addAll(rightPredicates);
+                    join.getOnClauseCondition().map(on -> predicates.addAll(ExpressionUtils.extractConjunction(on)));
+                    break;
+                case LEFT_OUTER_JOIN:
+                case LEFT_ANTI_JOIN:
+                    predicates.addAll(leftPredicates);
+                    break;
+                case RIGHT_OUTER_JOIN:
+                case RIGHT_ANTI_JOIN:
+                    predicates.addAll(rightPredicates);
+                    break;
+                default:
+            }
+            return getAvailableExpressions(predicates, join);
+        });
     }
 
     @Override
     public Set<Expression> visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
-        Set<Expression> childPredicates = project.child().accept(this, context);
-        Map<Expression, Slot> expressionSlotMap = project.getAliasToProducer()
-                .entrySet()
-                .stream()
-                .collect(Collectors.toMap(Entry::getValue, Entry::getKey));
-        Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                expressionSlotMap);
-        Set<Expression> predicates = Sets.newHashSet(ExpressionUtils.extractConjunction(expression));
-        return getAvailableExpressions(predicates, project);
+        return cacheOrElse(project, () -> {
+            Set<Expression> childPredicates = project.child().accept(this, context);
+            Map<Expression, Slot> expressionSlotMap = project.getAliasToProducer()
+                    .entrySet()
+                    .stream()
+                    .collect(Collectors.toMap(Entry::getValue, Entry::getKey));
+            Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
+                    expressionSlotMap);
+            Set<Expression> predicates = Sets.newHashSet(ExpressionUtils.extractConjunction(expression));
+            return getAvailableExpressions(predicates, project);
+        });
     }
 
     @Override
     public Set<Expression> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
-        Set<Expression> childPredicates = aggregate.child().accept(this, context);
-        Map<Expression, Slot> expressionSlotMap = aggregate.getOutputExpressions()
-                .stream()
-                .filter(this::hasAgg)
-                .collect(Collectors.toMap(
-                        namedExpr -> {
-                            if (namedExpr instanceof Alias) {
-                                return ((Alias) namedExpr).child();
-                            } else {
-                                return namedExpr;
-                            }
-                        }, NamedExpression::toSlot)
-                );
-        Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                expressionSlotMap);
-        Set<Expression> predicates = Sets.newHashSet(ExpressionUtils.extractConjunction(expression));
-        return getAvailableExpressions(predicates, aggregate);
+        return cacheOrElse(aggregate, () -> {
+            Set<Expression> childPredicates = aggregate.child().accept(this, context);
+            Map<Expression, Slot> expressionSlotMap = aggregate.getOutputExpressions()
+                    .stream()
+                    .filter(this::hasAgg)
+                    .collect(Collectors.toMap(
+                            namedExpr -> {
+                                if (namedExpr instanceof Alias) {
+                                    return ((Alias) namedExpr).child();
+                                } else {
+                                    return namedExpr;
+                                }
+                            }, NamedExpression::toSlot)
+                    );
+            Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
+                    expressionSlotMap);
+            Set<Expression> predicates = Sets.newHashSet(ExpressionUtils.extractConjunction(expression));
+            return getAvailableExpressions(predicates, aggregate);
+        });
+    }
+
+    private Set<Expression> cacheOrElse(Plan plan, Supplier<Set<Expression>> predicatesSupplier) {
+        Set<Expression> predicates = cache.get(plan);
+        if (predicates != null) {
+            return predicates;
+        }
+        predicates = predicatesSupplier.get();
+        cache.put(plan, predicates);
+        return predicates;
     }
 
     private Set<Expression> getAvailableExpressions(Set<Expression> predicates, Plan plan) {
-        predicates.addAll(propagation.infer(predicates));
-        return predicates.stream()
+        HashSet<Expression> expressions = Sets.newHashSet(predicates);
+        expressions.addAll(propagation.infer(expressions));
+        return ImmutableSet.copyOf(expressions.stream()
                 .filter(p -> plan.getOutputSet().containsAll(p.getInputSlots()))
-                .collect(Collectors.toSet());
+                .collect(Collectors.toSet()));
     }
 
     private boolean hasAgg(Expression expression) {
