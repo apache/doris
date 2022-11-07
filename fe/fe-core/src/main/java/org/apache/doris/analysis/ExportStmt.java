@@ -240,9 +240,10 @@ public class ExportStmt extends StatementBase {
                     && !schema.equalsIgnoreCase("afs")
                     && !schema.equalsIgnoreCase("hdfs")
                     && !schema.equalsIgnoreCase("ofs")
-                    && !schema.equalsIgnoreCase("obs"))) {
+                    && !schema.equalsIgnoreCase("obs")
+                    && !schema.equalsIgnoreCase("oss"))) {
                 throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' , 'BOS://', "
-                    + "or 'ofs://' or 'obs://' path.");
+                    + "'oss://'," + "or 'ofs://' or 'obs://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {
