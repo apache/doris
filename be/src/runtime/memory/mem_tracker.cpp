@@ -41,7 +41,8 @@ struct TrackerGroup {
 // Multiple groups are used to reduce the impact of locks.
 static std::vector<TrackerGroup> mem_tracker_pool(1000);
 
-MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile) : _label(label) {
+MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent)
+        : _label(label) {
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
@@ -57,10 +58,15 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile) : _lab
         _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
     }
 
-    DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
-    _parent_label = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label();
-    _parent_group_num =
-            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
+    if (parent) {
+        _parent_label = parent->label();
+        _parent_group_num = parent->group_num();
+    } else {
+        DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
+        _parent_label = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label();
+        _parent_group_num =
+                thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
+    }
     {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
         _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.insert(

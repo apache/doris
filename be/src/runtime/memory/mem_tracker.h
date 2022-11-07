@@ -24,6 +24,8 @@
 
 namespace doris {
 
+class MemTrackerLimiter;
+
 // Used to track memory usage.
 //
 // MemTracker can be consumed manually by consume()/release(), or put into SCOPED_CONSUME_MEM_TRACKER,
@@ -42,7 +44,8 @@ public:
     };
 
     // Creates and adds the tracker to the mem_tracker_pool.
-    MemTracker(const std::string& label, RuntimeProfile* profile = nullptr);
+    MemTracker(const std::string& label, RuntimeProfile* profile = nullptr,
+               MemTrackerLimiter* parent = nullptr);
     // For MemTrackerLimiter
     MemTracker() { _parent_group_num = -1; }
 

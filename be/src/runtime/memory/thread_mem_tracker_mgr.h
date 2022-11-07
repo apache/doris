@@ -145,6 +145,7 @@ inline void ThreadMemTrackerMgr::init() {
     DCHECK(_limiter_tracker == nullptr);
     _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
     _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
+    _check_limit = true;
     _init = true;
 }
 

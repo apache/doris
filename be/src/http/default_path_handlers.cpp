@@ -142,13 +142,14 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
                                                    MemTrackerLimiter::Type::CONSISTENCY);
         }
     } else {
-        (*output) << "<h4>*注: (详情见文档)</h4>\n";
-        (*output) << "<h4>     1.`/mem_tracker?type=global`查看每个type的内存统计</h4>\n";
-        (*output) << "<h4>     2.`/mem_tracker`统计的是虚存, 等于`/memz`中`Actual memory "
-                     "used`</h4>\n";
-        (*output) << "<h4>     3.`process`等于所有type内存之和, `/mem_tracker`逻辑上可分为4层: "
-                     "1)`process` 2)`type` 3)`query/load/compation task etc.` 4)`exec node "
-                     "etc.`</h4>\n";
+        (*output) << "<h4>*Note: (see documentation for details)</h4>\n";
+        (*output) << "<h4>     1.`/mem_tracker?type=global` to view the memory statistics of each "
+                     "type</h4>\n";
+        (*output) << "<h4>     2.`/mem_tracker` counts virtual memory, which is equal to `Actual "
+                     "memory used` in `/memz`</h4>\n";
+        (*output) << "<h4>     3.`process` is equal to the sum of all types of memory, "
+                     "`/mem_tracker` can be logically divided into 4 layers: 1)`process` 2)`type` "
+                     "3)`query/load/compation task etc.` 4)`exec node etc.`</h4>\n";
         MemTrackerLimiter::make_process_snapshots(&snapshots);
     }
 
