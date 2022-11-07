@@ -151,7 +151,7 @@ public class HiveMetaStoreClientHelper {
         IMetaStoreClient metaStoreClient = null;
         String type = hiveConf.get(HIVE_METASTORE_TYPE);
         try {
-            if (type.equalsIgnoreCase("dlf")) {
+            if ("dlf".equalsIgnoreCase(type)) {
                 // For aliyun DLF
                 metaStoreClient = new ProxyMetaStoreClient(hiveConf);
             } else {
