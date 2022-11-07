@@ -378,7 +378,7 @@ int main(int argc, char** argv) {
 
     // set fuzzy
 #if defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER)
-    if (0 != ThreadFuzzer::setup()) {
+    if (0 != doris::ThreadFuzzer::setup()) {
         LOG(WARNING) << "failed to setup thread fuzzy";
         exit(1);
     }
