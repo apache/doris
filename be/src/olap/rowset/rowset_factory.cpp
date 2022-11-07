@@ -23,6 +23,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/vertical_beta_rowset_writer.h"
 
 namespace doris {
 
@@ -31,7 +32,8 @@ Status RowsetFactory::create_rowset(TabletSchemaSPtr schema, const std::string& 
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
         return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID);
     }
-    if (rowset_meta->rowset_type() == BETA_ROWSET) {
+    if (rowset_meta->rowset_type() == BETA_ROWSET ||
+        rowset_meta->rowset_type() == VERTICAL_BETA_ROWSET) {
         rowset->reset(new BetaRowset(schema, tablet_path, rowset_meta));
         return (*rowset)->init();
     }
@@ -45,6 +47,10 @@ Status RowsetFactory::create_rowset_writer(const RowsetWriterContext& context,
     }
     if (context.rowset_type == BETA_ROWSET) {
         output->reset(new BetaRowsetWriter);
+        return (*output)->init(context);
+    }
+    if (context.rowset_type == VERTICAL_BETA_ROWSET) {
+        output->reset(new VerticalBetaRowsetWriter);
         return (*output)->init(context);
     }
     return Status::OLAPInternalError(OLAP_ERR_ROWSET_TYPE_NOT_FOUND);
