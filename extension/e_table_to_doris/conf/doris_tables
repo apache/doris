@@ -14,7 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+####################################################################
+# The file is used to define need create external tables
+####################################################################
 demo.demo1
 demo.demo2
 demo.demo3
-demo2.demo
+demo.demo4
+demo.demo5
