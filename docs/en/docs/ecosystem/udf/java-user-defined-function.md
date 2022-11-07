@@ -180,4 +180,6 @@ Examples of Java UDF are provided in the `samples/doris-demo/java-udf-demo/` dir
 At present, Java UDF is still in the process of continuous development, so some features are **not completed**.
 1. Complex data types (HLL, bitmap) are not supported.
 2. Memory management and statistics of JVM and Doris have not been unified.
+3. The udf of char type needs to use the String type when creating a function.
+4. Due to the problem that the jvm loads classes with the same name, do not use multiple classes with the same name as udf implementations at the same time. If you want to update the udf of a class with the same name, you need to restart be to reload the classpath.
 
