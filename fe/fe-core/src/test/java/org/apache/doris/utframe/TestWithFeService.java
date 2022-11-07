@@ -32,6 +32,7 @@ import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -41,7 +42,9 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -119,7 +122,7 @@ public abstract class TestWithFeService {
     public final void beforeAll() throws Exception {
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
-        createDorisCluster(runningDir, backendNum());
+        createDorisCluster();
         runBeforeAll();
     }
 
@@ -136,10 +139,6 @@ public abstract class TestWithFeService {
         runBeforeEach();
     }
 
-    protected int backendNum() {
-        return 1;
-    }
-
     protected void beforeCreatingConnectContext() throws Exception {
 
     }
@@ -151,6 +150,11 @@ public abstract class TestWithFeService {
     }
 
     protected void runBeforeEach() throws Exception {
+    }
+
+    // Override this method if you want to start multi BE
+    protected int backendNum() {
+        return 1;
     }
 
     // Help to create a mocked ConnectContext.
@@ -253,18 +257,17 @@ public abstract class TestWithFeService {
             throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
             InterruptedException {
         IOException exception = null;
-        for (int i = 0; i <= 3; i++) {
-            try {
-                return startFEServerWithoutRetry(runningDir);
-            } catch (IOException ignore) {
-                exception = ignore;
-            }
+        try {
+            return startFEServerWithoutRetry(runningDir);
+        } catch (IOException ignore) {
+            exception = ignore;
         }
         throw exception;
     }
 
-    private int startFEServerWithoutRetry(String runningDir)
-            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException, InterruptedException {
+    protected int startFEServerWithoutRetry(String runningDir)
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+            InterruptedException {
         // get DORIS_HOME
         dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
@@ -299,9 +302,9 @@ public abstract class TestWithFeService {
     }
 
     protected void createDorisCluster()
-            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
-            InterruptedException {
-        createDorisCluster(runningDir, 1);
+            throws InterruptedException, NotInitException, IOException, DdlException, EnvVarNotSetException,
+            FeStartException {
+        createDorisCluster(runningDir, backendNum());
     }
 
     protected void createDorisCluster(String runningDir, int backendNum)
@@ -379,6 +382,7 @@ public abstract class TestWithFeService {
         // add be
         Backend be = new Backend(Env.getCurrentEnv().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
+        diskInfo1.setPathHash(be.getId());
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
         diskInfo1.setDataUsedCapacityB(480000);
@@ -495,6 +499,12 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().dropTable(dropTableStmt);
     }
 
+    public void recoverTable(String table) throws Exception {
+        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) parseAndAnalyzeStmt(
+                "recover table " + table + ";", connectContext);
+        Env.getCurrentEnv().recoverTable(recoverTableStmt);
+    }
+
     public void createTableAsSelect(String sql) throws Exception {
         CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
@@ -505,6 +515,7 @@ public abstract class TestWithFeService {
             CreateTableStmt stmt = (CreateTableStmt) parseAndAnalyzeStmt(sql);
             Env.getCurrentEnv().createTable(stmt);
         }
+        updateReplicaPathHash();
     }
 
     public void createView(String sql) throws Exception {
@@ -572,6 +583,26 @@ public abstract class TestWithFeService {
         checkAlterJob();
         // waiting table state to normal
         Thread.sleep(100);
+    }
+
+    private void updateReplicaPathHash() {
+        com.google.common.collect.Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
+        for (com.google.common.collect.Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
+            long beId = cell.getColumnKey();
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
+            if (be == null) {
+                continue;
+            }
+            Replica replica = cell.getValue();
+            TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
+            ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
+            for (DiskInfo diskInfo : diskMap.values()) {
+                if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {
+                    replica.setPathHash(diskInfo.getPathHash());
+                    break;
+                }
+            }
+        }
     }
 
     private void checkAlterJob() throws InterruptedException {

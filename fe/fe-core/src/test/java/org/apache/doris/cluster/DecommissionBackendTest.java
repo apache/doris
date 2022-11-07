@@ -19,6 +19,8 @@ package org.apache.doris.cluster;
 
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
@@ -26,6 +28,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class DecommissionBackendTest extends TestWithFeService {
 
@@ -35,8 +39,11 @@ public class DecommissionBackendTest extends TestWithFeService {
     }
 
     @Override
-    protected void runBeforeAll() throws Exception {
-        FeConstants.default_scheduler_interval_millisecond = 10;
+    protected void beforeCreatingConnectContext() throws Exception {
+        FeConstants.default_scheduler_interval_millisecond = 1000;
+        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_repair_delay_factor_second = 1;
+        Config.allow_replica_on_same_host = true;
     }
 
     @Test
@@ -52,27 +59,96 @@ public class DecommissionBackendTest extends TestWithFeService {
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         // 3. create table tbl1
-        createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '2');");
+        createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
 
         // 5. execute decommission
-        Backend backend = idToBackendRef.values().stream().findFirst().orElseThrow(() -> new RuntimeException("Not any be existed"));
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + backend.getHeartbeatPort() + "\"";
+        Backend srcBackend = null;
+        for (Backend backend : idToBackendRef.values()) {
+            if (Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).size() > 0) {
+                srcBackend = backend;
+                break;
+            }
+        }
+
+        Assertions.assertTrue(srcBackend != null);
+        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
         AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
 
-        Assertions.assertEquals(true, backend.isDecommissioned());
+        Assertions.assertEquals(true, srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
-        while (System.currentTimeMillis() - startTimestamp < 60000
-            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(backend.getId())) {
+        while (System.currentTimeMillis() - startTimestamp < 90000
+            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
         Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
         Assertions.assertEquals(tabletNum, Env.getCurrentInvertedIndex().getTabletMetaMap().size());
 
+    }
+
+    @Test
+    public void testDecommissionBackendWithDropTable() throws Exception {
+        // 1. create connect context
+        connectContext = createDefaultCtx();
+
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        Assertions.assertEquals(backendNum(), idToBackendRef.size());
+
+        // 2. create database db1
+        createDatabase("db1");
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
+
+        // 3. create table tbl1 tbl2
+        createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '2');");
+        createTable("create table db1.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+
+        // 4. query tablet num
+        int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
+        Assertions.assertTrue(tabletNum > 0);
+
+        Backend srcBackend = null;
+        for (Backend backend : idToBackendRef.values()) {
+            if (Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backend.getId()).size() > 0) {
+                srcBackend = backend;
+                break;
+            }
+        }
+        Assertions.assertTrue(srcBackend != null);
+
+        // 5. drop table tbl1
+        dropTable("db1.tbl1", false);
+
+        // 6. execute decommission
+        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
+        Assertions.assertEquals(true, srcBackend.isDecommissioned());
+
+        long startTimestamp = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTimestamp < 90000
+            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            Thread.sleep(1000);
+        }
+
+        // BE has been dropped successfully
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+
+        // tbl1 has been dropped successfully
+        final String sql = "show create table db1.tbl1;";
+        Assertions.assertThrows(AnalysisException.class, () -> showCreateTable(sql));
+
+        // TabletInvertedIndex still holds these tablets of srcBackend, but they are all in recycled status
+        List<Long> tabletList = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(srcBackend.getId());
+        Assertions.assertTrue(tabletList.size() == tabletNum);
+        Assertions.assertTrue(Env.getCurrentRecycleBin().allTabletsInRecycledStatus(tabletList));
+
+        // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
+        Assertions.assertDoesNotThrow(() -> recoverTable("db1.tbl1"));
+        Assertions.assertDoesNotThrow(() -> showCreateTable(sql));
     }
 
 }
