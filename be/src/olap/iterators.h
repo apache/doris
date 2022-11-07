@@ -34,7 +34,7 @@ class Schema;
 class ColumnPredicate;
 
 struct IOContext {
-    bool use_local_file_cache = true;
+    ReaderType reader_type;
 };
 
 class StorageReadOptions {

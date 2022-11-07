@@ -36,7 +36,7 @@ WholeFileCache::~WholeFileCache() {}
 
 Status WholeFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                                size_t* bytes_read) {
-    if (!io_ctx.use_local_file_cache) {
+    if (io_ctx.reader_type != READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
     }
     if (_cache_file_reader == nullptr) {

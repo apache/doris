@@ -268,9 +268,8 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     for (auto cid : _seek_schema->column_ids()) {
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          _opts.io_ctx,
-                                                          &_column_iterators[unique_id]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(
+                    _opts.tablet_schema->column(cid), _opts.io_ctx, &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.file_reader = _file_reader.get();
@@ -381,9 +380,8 @@ Status SegmentIterator::_init_return_column_iterators() {
     for (auto cid : _schema.column_ids()) {
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          _opts.io_ctx,
-                                                          &_column_iterators[unique_id]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(
+                    _opts.tablet_schema->column(cid), _opts.io_ctx, &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
