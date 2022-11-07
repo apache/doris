@@ -42,7 +42,7 @@ public class DebugUtil {
     public static long GIGABYTE = 1024 * MEGABYTE;
     public static long TERABYTE = 1024 * GIGABYTE;
 
-    public static Pair<Double, String> getUint(long value) {
+    public static Pair<Double, String> getUnit(long value) {
         Double doubleValue = Double.valueOf(value);
         String unit = "";
         if (value >= BILLION) {

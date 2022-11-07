@@ -298,7 +298,7 @@ public class RuntimeProfile {
         long tmpValue = value;
         switch (type) {
             case UNIT: {
-                Pair<Double, String> pair = DebugUtil.getUint(tmpValue);
+                Pair<Double, String> pair = DebugUtil.getUnit(tmpValue);
                 if (pair.second.isEmpty()) {
                     builder.append(tmpValue);
                 } else {
@@ -343,7 +343,7 @@ public class RuntimeProfile {
                 break;
             }
             case UNIT_PER_SECOND: {
-                Pair<Double, String> pair = DebugUtil.getUint(tmpValue);
+                Pair<Double, String> pair = DebugUtil.getUnit(tmpValue);
                 if (pair.second.isEmpty()) {
                     builder.append(tmpValue);
                 } else {

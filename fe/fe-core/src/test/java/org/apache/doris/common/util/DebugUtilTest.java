@@ -26,19 +26,19 @@ public class DebugUtilTest {
     @Test
     public void testGetUint() {
         Pair<Double, String> result;
-        result = DebugUtil.getUint(2000000000L);
+        result = DebugUtil.getUnit(2000000000L);
         Assert.assertEquals(Double.valueOf(2.0), result.first);
         Assert.assertEquals(result.second, "B");
 
-        result = DebugUtil.getUint(1234567L);
+        result = DebugUtil.getUnit(1234567L);
         Assert.assertEquals(result.first, Double.valueOf(1.234567));
         Assert.assertEquals(result.second, "M");
 
-        result = DebugUtil.getUint(1234L);
+        result = DebugUtil.getUnit(1234L);
         Assert.assertEquals(result.first, Double.valueOf(1.234));
         Assert.assertEquals(result.second, "K");
 
-        result = DebugUtil.getUint(123L);
+        result = DebugUtil.getUnit(123L);
         Assert.assertEquals(result.first, Double.valueOf(123.0));
         Assert.assertEquals(result.second, "");
     }
