@@ -62,11 +62,8 @@ sed -i '/,\s*$/{:loop; N; /,\(\s*\|\n\))/! bloop; s/,\s*[\n]\?\s*)/\n)/}' $path
 
 #delete a line on keyword
 sed -i -e '$!N;/\n.*ENGINE=ODBC/!P;D' $path
+
 #replace mysql password、database、table、host
-
-
-
-
 for t_name in $(cat ../conf/mysql_tables |grep -v '#' | awk -F '\n' '{print $1}'| sed 's/ //g' | sed '/^$/d')
         do
         d=`echo $t_name | awk -F '.' '{print $1}'`
