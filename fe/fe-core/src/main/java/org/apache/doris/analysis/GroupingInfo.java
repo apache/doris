@@ -105,12 +105,11 @@ public class GroupingInfo {
         }
         preRepeatExprs = materializedPreRepeatExprs;
 
-        // remove unmaterialized slotRef from outputTupleSmap and outputTupleDesc if there is any
+        // set slotRef unmaterialized in outputTupleSmap
         for (Expr expr : unMaterializedSlotRefs) {
             Expr rExpr = outputTupleSmap.get(expr);
-            outputTupleSmap.removeByRhsExpr(rExpr);
             if (rExpr instanceof SlotRef) {
-                outputTupleDesc.getSlots().remove(((SlotRef) rExpr).getDesc());
+                ((SlotRef) rExpr).getDesc().setIsMaterialized(false);
             }
         }
     }
