@@ -55,8 +55,8 @@ public:
     bool is_page_full() override {
         bool ret;
         if (_options.is_dict_page) {
-            // data_page_size is 0, do not limit the page size
-            ret = _options.data_page_size != 0 && _size_estimate > _options.dict_page_size;
+            // dict_page_size is 0, do not limit the page size
+            ret = _options.dict_page_size != 0 && _size_estimate > _options.dict_page_size;
         } else {
             ret = _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
         }
