@@ -43,6 +43,7 @@ import org.jetbrains.annotations.NotNull;
 >>>>>>> rf pruner
 
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -99,6 +100,23 @@ public class RuntimeFilterContext {
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
         Preconditions.checkArgument(filter.getTargetExpr().getExprId() == id);
         this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);
+    }
+
+    /**
+     * remove rf from builderNode to target
+     * @param targetId rf target
+     * @param builderNode rf src
+     */
+    public void removeFilter(ExprId targetId, PhysicalHashJoin builderNode) {
+        List<RuntimeFilter> filters = targetExprIdToFilter.get(targetId);
+        if (filters != null) {
+            Iterator<RuntimeFilter> iter = filters.iterator();
+            while (iter.hasNext()) {
+                if (iter.next().getBuilderNode().equals(builderNode)) {
+                    iter.remove();
+                }
+            }
+        }
     }
 
     public void setTargetsOnScanNode(RelationId id, Slot slot) {

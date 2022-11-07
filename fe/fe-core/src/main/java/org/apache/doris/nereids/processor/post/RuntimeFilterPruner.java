@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -88,13 +88,15 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             RuntimeFilterContext ctx = context.getRuntimeFilterContext();
             ExprId exprId = ctx.getTargetExprIdByFilterJoin(join);
             if (exprId != null) {
-                join.getHashJoinConjuncts().stream().map(EqualTo.class::cast).forEach(
-                        expr -> {
-                            if (!isEffectiveRuntimeFilter(expr, join)) {
-                                context.getRuntimeFilterContext().removeFilters(exprId);
-                            }
-                        }
-                );
+                boolean isEffective = false;
+                for (Expression expr : join.getHashJoinConjuncts()) {
+                    if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
+                        isEffective = true;
+                    }
+                }
+                if (!isEffective) {
+                    context.getRuntimeFilterContext().removeFilter(exprId, join);
+                }
             }
         }
         join.left().accept(this, context);
@@ -164,14 +166,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
      * @return true if runtime-filter is effective
      */
     private boolean isEffectiveRuntimeFilter(EqualTo equalTo, PhysicalHashJoin join) {
-        if (!ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
-            return true;
-        }
         StatsDeriveResult leftStats = ((AbstractPlan) join.child(0)).getStats();
         StatsDeriveResult rightStats = ((AbstractPlan) join.child(1)).getStats();
-        if (leftStats.getRowCount() > join.getStats().getRowCount()) {
-            return true;
-        }
         Set<Slot> leftSlots = equalTo.child(0).getInputSlots();
         if (leftSlots.size() > 1) {
             return false;
@@ -194,6 +190,6 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         }
         return buildColumnStat.getSelectivity() < 1
                 || probeColumnStat.coverage(buildColumnStat) < 1
-                || buildColumnStat.getNdv() < probeColumnStat.getNdv();
+                || buildColumnStat.getNdv() < probeColumnStat.getNdv() * 0.95;
     }
 }

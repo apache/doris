@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -57,7 +58,9 @@ public class PlanPostProcessors {
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()) {
             builder.add(new RuntimeFilterGenerator());
-            builder.add(new RuntimeFilterPruner());
+            if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
+                builder.add(new RuntimeFilterPruner());
+            }
             builder.add(new Validator());
         }
         builder.add(new Validator());
