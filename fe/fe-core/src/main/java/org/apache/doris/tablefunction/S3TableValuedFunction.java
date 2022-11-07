@@ -26,11 +26,13 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
-import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * The Implement of table valued function——S3(path, AK, SK, format).
@@ -38,27 +40,36 @@ import java.util.List;
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final Logger LOG = LogManager.getLogger(S3TableValuedFunction.class);
     public static final String NAME = "s3";
+    public static final String S3_URI = "S3_URI";
     public static final String S3_AK = "AWS_ACCESS_KEY";
     public static final String S3_SK = "AWS_SECRET_KEY";
     public static final String S3_ENDPOINT = "AWS_ENDPOINT";
     public static final String S3_REGION = "AWS_REGION";
+    public static final String FORMAT = "FORMAT";
+
     public static final String USE_PATH_STYLE = "use_path_style";
 
+    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
+                        .add(S3_URI)
+                        .add(S3_AK)
+                        .add(S3_SK)
+                        .add(FORMAT)
+                        .build();
     private S3URI s3uri;
     private String s3AK;
     private String s3SK;
 
-    public S3TableValuedFunction(List<String> params) throws UserException {
-        if (params.size() != 4) {
-            throw new UserException(
-                    "s3 table function only support 4 params now: S3(path, AK, SK, format)");
+    public S3TableValuedFunction(Map<String, String> params) throws UserException {
+        Optional<String> optional = params.keySet().stream().filter(
+                entity -> !PROPERTIES_SET.contains(entity.toUpperCase())).findFirst();
+        if (optional.isPresent()) {
+            throw new AnalysisException(optional.get() + " is invalid property");
         }
 
-        s3uri = S3URI.create(params.get(0));
-        s3AK = params.get(1);
-        s3SK = params.get(2);
-
-        String formatString = params.get(3).toLowerCase();
+        s3uri = S3URI.create(params.get(S3_URI));
+        s3AK = params.get(S3_AK);
+        s3SK = params.get(S3_SK);
+        String formatString = params.get(FORMAT).toLowerCase();
         switch (formatString) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
