@@ -15,5 +15,12 @@
 # specific language governing permissions and limitations
 # under the License.
 ####################################################################
-# The shell is used to make data type conversion(mysql -> doris)
+# The shell is used to make data type conversion(hive -> doris)
 ####################################################################
+#!/bin/bash
+path=$1
+sed -i 's/timestamp([^)]*)/varchar(255)/g' $path
+sed -i 's/timestamp/datetime/g' $path
+sed -i 's/array<.*.>/varchar(65533)/g' $path
+sed -i 's/struct<.*.>/varchar(65533)/g' $path
+sed -i 's/map<.*.>/varchar(65533)/g' $path
