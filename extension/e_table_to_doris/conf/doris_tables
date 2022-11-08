@@ -14,9 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
-
-master_host=192.168.0.151
-master_port=9030
-doris_password=123456
-doris_odbc_name='MySQL ODBC'
+####################################################################
+# The file is used to define need create external tables
+####################################################################
+demo.demo1
+demo.demo2
+demo.demo3
+demo.demo4
+demo.demo5
